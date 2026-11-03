@@ -35,11 +35,13 @@ import {
   FileSchema,
   type Fragment,
   FragmentSchema,
+  isMeant,
   type NameRef,
   NameRefSchema,
   type Part,
   type Product,
   ProductSchema,
+  type Provided,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import {
@@ -431,14 +433,15 @@ const bindAnchor =
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
     const label = settleKindOf(anchor)
+    const provides = providesOf(anchor)
     const file = anchorModule(modulePath, anchor)
-    if (file !== modulePath) return crossFileRef(file, name, at, label)
+    if (file !== modulePath) return crossFileRef(file, name, at, label, provides)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
-      onEmpty: () => openRef(name, at, label),
+      onEmpty: () => openRef(name, at, label, provides),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? NameRefSchema.make({
@@ -449,6 +452,7 @@ const bindAnchor =
               }),
               anchor: at,
               toBeSettled: label,
+              provides,
               health: localHealth(entry, name, at, host, label),
             })
           : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1, [])),
@@ -492,6 +496,16 @@ const parameterSpanOf = (
     Option.getOrElse(() => specifier.position),
   )
 
+const providesOf = (anchor: WarpAnchorToken): ReadonlyArray<Provided> =>
+  anchor.specifier?.type === 'Parameters'
+    ? pipe(
+        anchor.specifier.parameters,
+        Array.filter((parameter) => parameter.key.value === 'provides'),
+        Array.flatMap((parameter) => parameter.values),
+        Array.map((value): Provided => ({ name: value.value, at: value.position })),
+      )
+    : []
+
 const localHealth = (
   entry: NameEntry,
   name: string,
@@ -516,16 +530,29 @@ const crossFileRef = (
   title: string,
   at: Position,
   label: Option.Option<Position>,
+  provides: ReadonlyArray<Provided>,
 ): NameRef =>
   NameRefSchema.make({
     name: title,
     target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
     anchor: at,
     toBeSettled: label,
+    provides,
   })
 
-const openRef = (title: string, at: Position, label: Option.Option<Position>): NameRef =>
-  NameRefSchema.make({ name: title, target: Option.none(), anchor: at, toBeSettled: label })
+const openRef = (
+  title: string,
+  at: Position,
+  label: Option.Option<Position>,
+  provides: ReadonlyArray<Provided>,
+): NameRef =>
+  NameRefSchema.make({
+    name: title,
+    target: Option.none(),
+    anchor: at,
+    toBeSettled: label,
+    provides,
+  })
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
@@ -618,10 +645,9 @@ const nameHealth = (
   const trails = trailsOf(book, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
-      Option.match(ref.toBeSettled, {
-        onSome: () => faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor),
-        onNone: () =>
-          faulty(
+      isMeant(ref)
+        ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
+        : faulty(
             UnresolvedAnchor({
               name: ref.name,
               ...Option.match(declarationBelow(module, host, ref.name), {
@@ -635,7 +661,6 @@ const nameHealth = (
             }),
             ref.anchor,
           ),
-      }),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))

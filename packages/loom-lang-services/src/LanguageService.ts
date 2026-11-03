@@ -17,6 +17,7 @@ export interface LanguageService {
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
+  readonly placeholder?: (names: ReadonlyArray<string>) => string
 }
 
 export interface FormatRequest {
@@ -83,6 +84,12 @@ export interface FrameCompletion {
   readonly text: string
 }
 
+export interface FrameContract {
+  readonly target: FrameLocation
+  readonly language: string
+  readonly expected: ReadonlyArray<{ readonly name: string; readonly diagnostic: Diagnostic }>
+}
+
 export interface FrameQueryApi {
   readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
@@ -93,6 +100,7 @@ export interface FrameQueryApi {
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
   readonly hints: (path: string) => ReadonlyArray<FrameHint>
   readonly completions: (path: string, offset: number) => ReadonlyArray<FrameCompletion>
+  readonly contracts: (path: string) => ReadonlyArray<FrameContract>
   readonly format: (path: string, text: string) => Promise<string>
   readonly locationOf: (uri: URI) => string
   readonly uriOf: (location: string) => URI

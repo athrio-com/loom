@@ -16,7 +16,7 @@ The root's `languageId` is `loom`, distinct from a product section's `typescript
 
 A malformed tag, or an anchor that names no section, is Loom's own health, which no language's compiler can report. `loomDiagnostics` surfaces it.
 
-The diagnostics arrive in `.loom` coordinates, so they belong to the source itself. Volar dispatches a diagnostic request to each of a file's projected documents, and `loomDiagnostics` answers only for the root — the whole-file mirror whose map to the source is the identity. It returns nothing for the prose and the product documents, whose generated spans are not where a source diagnostic lives. For the root it turns the source's uri, which the embedded uri carries, into a location through `FrameQuery`'s `locationOf`, asks `FrameQuery` for that loom's health, and turns each Loom diagnostic into Volar's shape. A Loom severity becomes its editor code — `error` is 1, `warning` is 2, `info` is 3 — and a diagnostic's source offsets become a range through the document's own `positionAt`, which lands the squiggle on the exact span the parser flagged.
+The diagnostics arrive in `.loom` coordinates, so they belong to the source itself. Volar dispatches a diagnostic request to each of a file's projected documents, and `loomDiagnostics` answers only for the root — the whole-file mirror whose map to the source is the identity. It returns nothing for the prose and the product documents, whose generated spans are not where a source diagnostic lives. For the root it turns the source's uri, which the embedded uri carries, into a location through `FrameQuery`'s `locationOf`, asks `FrameQuery` for that loom's health, adds the names its anchors expect and their sections do not provide, as the next section describes, and turns each Loom diagnostic into Volar's shape. A Loom severity becomes its editor code — `error` is 1, `warning` is 2, `info` is 3 — and a diagnostic's source offsets become a range through the document's own `positionAt`, which lands the squiggle on the exact span the parser flagged.
 
 =>
 
@@ -45,17 +45,79 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
     },
   },
   create: (context) => ({
-    provideDiagnostics: (document) => {
+    provideDiagnostics: async (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
+      const loom = frame.locationOf(decoded[0])
       const at = (offset: number) => document.positionAt(offset)
+      const missing = await missingSymbols(
+        (uri) => context.getLanguageService().getDocumentSymbols(uri),
+        frame,
+        loom,
+      )
       return pipe(
-        frame.diagnostics(frame.locationOf(decoded[0])),
+        [...frame.diagnostics(loom), ...missing],
         Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
       )
     },
   }),
 })
+
+## Names a section must provide
+
+An anchor may say which names its section provides, as `::[Greeting function]{provides=greet}` does. No Loom pass can tell whether the section's code declares `greet`, because only the section's language knows what its code declares. A language service reports every name a document declares, each one a symbol with a kind and a range, through the protocol's document symbols. So `missingSymbols` asks for them, through Volar, which gathers every symbol a loom's projected documents report and maps each one back into the loom.
+
+`FrameQuery`'s `contracts` gives, for each anchor that states names, the range of the section's code and the names the anchor expects there. `missingSymbols` asks Volar once for the symbols of each loom that holds such a section, and `outermostWithin` keeps the names declared inside the section's code. It takes only the outermost of them, since a method declared inside a class is no name of the section's own. An expected name that none of them carries yields the `MissingSymbol` diagnostic the contract holds. `inside` tells whether one range lies within another, and `before` orders two positions in the editor's coordinates.
+
+The check runs in the editor, where the language services run. A tangle runs no language service, so it never raises `MissingSymbol`, as it never raises a type error either.
+
+=>
+
+type EditorRange = FrameLocation['range']
+
+type EditorPosition = EditorRange['start']
+
+const before = (one: EditorPosition, other: EditorPosition): boolean =>
+  one.line < other.line || (one.line === other.line && one.character < other.character)
+
+const inside = (inner: EditorRange, outer: EditorRange): boolean =>
+  !before(inner.start, outer.start) && !before(outer.end, inner.end)
+
+const outermostWithin =
+  (range: EditorRange) =>
+  (symbol: DocumentSymbol): ReadonlyArray<string> =>
+    inside(symbol.selectionRange, range)
+      ? [symbol.name]
+      : Array.flatMap(symbol.children ?? [], outermostWithin(range))
+
+const missingSymbols = async (
+  symbolsAt: (uri: URI) => Promise<ReadonlyArray<DocumentSymbol> | undefined>,
+  frame: FrameQueryApi,
+  loom: string,
+): Promise<ReadonlyArray<Diagnostic>> => {
+  const contracts = frame.contracts(loom)
+  const symbols = new Map(
+    await Promise.all(
+      Array.map(
+        Array.dedupe(Array.map(contracts, (contract) => contract.target.path)),
+        async (path) => [path, (await symbolsAt(frame.uriOf(path))) ?? []] as const,
+      ),
+    ),
+  )
+  return Array.flatMap(contracts, (contract) => {
+    const declared = new Set(
+      Array.flatMap(
+        Option.getOrElse(Option.fromNullishOr(symbols.get(contract.target.path)), () => []),
+        outermostWithin(contract.target.range),
+      ),
+    )
+    return pipe(
+      contract.expected,
+      Array.filter((expected) => !declared.has(expected.name)),
+      Array.map((expected) => expected.diagnostic),
+    )
+  })
+}
 
 ## Fixing what a diagnostic reports
 
@@ -346,7 +408,7 @@ export const LoomLanguage = defineLanguageService({
 
 ## What this module draws on
 
-From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `CompletionItem` a label becomes, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
+From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
 
 =>
 
@@ -354,6 +416,7 @@ import { Array, Effect, Option, pipe } from 'effect'
 import type {
   CodeAction,
   CompletionItem,
+  DocumentSymbol,
   Diagnostic as LspDiagnostic,
   InlayHint,
   LanguageServicePlugin,
@@ -378,6 +441,8 @@ import {
 ::[What this module draws on]
 
 ::[Loom's own diagnostics]
+
+::[Names a section must provide]
 
 ::[Fixing what a diagnostic reports]
 

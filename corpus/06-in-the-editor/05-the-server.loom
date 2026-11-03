@@ -57,7 +57,7 @@ import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
+import { LoomCompiler, DocumentSource, Placeholders, stringSnapshot, within } from './LoomCompiler'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -921,7 +921,7 @@ const settleEdits = (
 
 ## The program
 
-A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. It builds them over the `Environment` layer of the chapter "Where a workspace is kept", which picks the file system or remote storage from the `LOOM_STORAGE_URL` variable. A configuration that fails, such as a URL with no key, becomes a defect, so the runtime itself never fails and the server reports the defect as the editor connects. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it.
+A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. It builds them over the `Environment` layer of the chapter "Where a workspace is kept", which picks the file system or remote storage from the `LOOM_STORAGE_URL` variable. A configuration that fails, such as a URL with no key, becomes a defect, so the runtime itself never fails and the server reports the defect as the editor connects. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it. The runtime also holds the compiler's `Placeholders`, so the services a workspace loads register their placeholders where the projection reads them.
 
 The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. `homeOf` turns the folder's address into a location through the `WorkspaceSource` service, and asks the source for the workspace that location belongs to. Remote storage names its one workspace whatever folder the editor opened, or when it opened none. It takes `home` to be the workspace that folder belongs to. It opens `home` through `openWorkspace`, which asks the `WorkspaceSource` service for the workspace and hands every loom's text to the `DocumentSource` service to hold, as the chapter "Where a workspace is kept" describes. Only a folder with a manifest is opened, so a folder outside every workspace holds nothing, and its looms are read from the disk as they are asked for. A failure to read the manifest fails the `initialize` request, so the editor hears of a wrong storage key as it connects. A failure to open a workspace whose manifest arrived only logs, since every read falls back to the source. The program then builds the `TypescriptSdk` with `typescriptSdkFor`, from the options the editor sent, and loads no compiler while it does.
 
@@ -935,6 +935,7 @@ The warm-up runs in one synchronous piece, with `runSync`, never as a background
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
+    Layer.provideMerge(Placeholders.layer),
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(Layer.orDie(Environment)),
     Layer.provideMerge(LoomConfig.layer),
@@ -1791,6 +1792,98 @@ describe('LoomServer — a label as it is typed', () => {
   }, 30_000)
 })
 
+## Testing the names a section must provide
+
+An anchor that says which names its section provides is checked against what the section's language reports. The workspace activates `declaring`, a stand-in TypeScript service that reports a symbol for every `const` it finds in a TypeScript document. `Main` expects `greet` and `farewell` of the chapter `Greeting` in another loom, which declares only `greet`. `Local` expects `help` and `assist` of a section in its own loom, which declares only `help`. The server reports the one missing name in each, and only those.
+
+=>
+
+const declaring = lines(
+  `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+  'export default {',
+  "  id: 'typescript',",
+  "  displayName: 'TypeScript',",
+  "  extensions: ['.ts'],",
+  '  plugins: () => Effect.succeed([{',
+  "    name: 'declaring',",
+  '    capabilities: { documentSymbolProvider: true },',
+  '    create: () => ({',
+  '      provideDocumentSymbols: (document) =>',
+  "        document.languageId !== 'typescript'",
+  '          ? undefined',
+  '          : [...document.getText().matchAll(/const (\\w+)/g)].map((match) => {',
+  '              const start = document.positionAt(match.index + 6)',
+  '              const end = document.positionAt(match.index + match[0].length)',
+  '              return { name: match[1], kind: 13, range: { start, end }, selectionRange: { start, end } }',
+  '            }),',
+  '    }),',
+  '  }]),',
+  '}',
+)
+
+describe('LoomServer — names a section must provide', () => {
+  it('reports each name an anchor expects that its section does not declare', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    install(root, declaring)
+    configure(root, activated)
+    chapterAt(
+      root,
+      'greeting.loom',
+      lines(
+        '---',
+        'Part I, Chapter 2: Greeting',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Greeting',
+        '',
+        '=>',
+        '',
+        'const greet = (name: string) => name',
+      ),
+    )
+    const main = chapterAt(
+      root,
+      'main.loom',
+      chapter('Main', `${anchor('Greeting')}{provides=[greet, farewell]}`),
+    )
+    const local = chapterAt(
+      root,
+      'local.loom',
+      lines(
+        '---',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Local',
+        '',
+        '=>',
+        '',
+        `${anchor('Helper')}{provides=[help, assist]}`,
+        '',
+        '## Helper',
+        '',
+        '=>',
+        '',
+        'const help = 1',
+      ),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(local)
+      expect(await editor.diagnostics(main)).toEqual([
+        'Missing symbol: `Greeting` declares no `farewell`, which this anchor says it provides.',
+      ])
+      expect(await editor.diagnostics(local)).toEqual([
+        'Missing symbol: `Helper` declares no `assist`, which this anchor says it provides.',
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## Testing a name that waits
 
 An anchor may name a section or a chapter before anyone has written it, and its fault clears the moment the name appears, with no edit to the anchor's own loom. An edit that declares a title changes what other looms see of the loom it edits, so the server checks every open loom of the workspace again.
@@ -2126,6 +2219,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing the title beside a number]
 
 ::[Testing a label as it is typed]
+
+::[Testing the names a section must provide]
 
 ::[Testing a name that waits]
 

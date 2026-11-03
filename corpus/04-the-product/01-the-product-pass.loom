@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, `settleKind`, the kind that marks a section to be settled, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `UnsettledSection` note a section to be settled carries, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, `settleKind`, the kind that marks a section to be settled, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `UnsettledSection` note a section to be settled carries, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -58,11 +58,13 @@ import {
   FileSchema,
   type Fragment,
   FragmentSchema,
+  isMeant,
   type NameRef,
   NameRefSchema,
   type Part,
   type Product,
   ProductSchema,
+  type Provided,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import {
@@ -519,6 +521,8 @@ Otherwise the name is looked up among the document's section titles. One match r
 
 An anchor marks its section to be settled in its braces, in any case of letters. It writes the kind alone, as `{To be settled}`, or in full beside other parameters, as `{kind="To be settled" provides=greet}`. `settleKindOf` reads the span that marks it, and every edge the pass makes records that span, so the judgement and the tangle know which names the author meant before writing them. The span is what a settled section's fix removes. For the kind alone it is the whole of the braces. For the kind in full it is the `kind` parameter with the space that parts it from its neighbour, so the other parameters stay. `parameterSpanOf` finds that span.
 
+An anchor that states the names its section provides, as `{provides=greet}` does, promises the section as well. `providesOf` reads those names, and every edge records them beside the span, so a name the book does not carry yet is meant either way.
+
 A name that no section of the document carries may still lie elsewhere in the book. `openRef` composes an edge for it that records the name and leaves the target open, and the compiler binds that edge once it holds the corpus.
 
 An anchor that cannot compose leaves an empty fragment instead, and what rides on that fragment depends on why it failed. A grammatically broken anchor, such as an empty `::[]` or an unclosed `::[n`, already carries the parser's fault on its own span, so the fragment adds none. A well-formed name that two sections of the document share is ambiguous, and the fragment carries that fault on the anchor. No path tells two sections of one loom apart, so the fault offers none.
@@ -532,14 +536,15 @@ const bindAnchor =
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
     const label = settleKindOf(anchor)
+    const provides = providesOf(anchor)
     const file = anchorModule(modulePath, anchor)
-    if (file !== modulePath) return crossFileRef(file, name, at, label)
+    if (file !== modulePath) return crossFileRef(file, name, at, label, provides)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
-      onEmpty: () => openRef(name, at, label),
+      onEmpty: () => openRef(name, at, label, provides),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? NameRefSchema.make({
@@ -550,6 +555,7 @@ const bindAnchor =
               }),
               anchor: at,
               toBeSettled: label,
+              provides,
               health: localHealth(entry, name, at, host, label),
             })
           : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1, [])),
@@ -593,6 +599,16 @@ const parameterSpanOf = (
     Option.getOrElse(() => specifier.position),
   )
 
+const providesOf = (anchor: WarpAnchorToken): ReadonlyArray<Provided> =>
+  anchor.specifier?.type === 'Parameters'
+    ? pipe(
+        anchor.specifier.parameters,
+        Array.filter((parameter) => parameter.key.value === 'provides'),
+        Array.flatMap((parameter) => parameter.values),
+        Array.map((value): Provided => ({ name: value.value, at: value.position })),
+      )
+    : []
+
 const localHealth = (
   entry: NameEntry,
   name: string,
@@ -617,16 +633,29 @@ const crossFileRef = (
   title: string,
   at: Position,
   label: Option.Option<Position>,
+  provides: ReadonlyArray<Provided>,
 ): NameRef =>
   NameRefSchema.make({
     name: title,
     target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
     anchor: at,
     toBeSettled: label,
+    provides,
   })
 
-const openRef = (title: string, at: Position, label: Option.Option<Position>): NameRef =>
-  NameRefSchema.make({ name: title, target: Option.none(), anchor: at, toBeSettled: label })
+const openRef = (
+  title: string,
+  at: Position,
+  label: Option.Option<Position>,
+  provides: ReadonlyArray<Provided>,
+): NameRef =>
+  NameRefSchema.make({
+    name: title,
+    target: Option.none(),
+    anchor: at,
+    toBeSettled: label,
+    provides,
+  })
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
@@ -725,7 +754,7 @@ const pathHealth = (
 
 ~
 
-An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}` meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
+An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
 The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
 
@@ -743,10 +772,9 @@ const nameHealth = (
   const trails = trailsOf(book, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
-      Option.match(ref.toBeSettled, {
-        onSome: () => faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor),
-        onNone: () =>
-          faulty(
+      isMeant(ref)
+        ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
+        : faulty(
             UnresolvedAnchor({
               name: ref.name,
               ...Option.match(declarationBelow(module, host, ref.name), {
@@ -760,7 +788,6 @@ const nameHealth = (
             }),
             ref.anchor,
           ),
-      }),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))

@@ -1,5 +1,6 @@
 import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+import { settleKind } from '@athrio/loom-ast/LoomTokens'
 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
 
@@ -44,6 +45,7 @@ export type LoomFault = Data.TaggedEnum<{
   LabelBesideParameter: { readonly label: string }
   UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
   UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
+  MissingSymbol: { readonly name: string; readonly section: string }
   HeadingAgainstCode: {}
 }>
 
@@ -67,6 +69,7 @@ export const {
   LabelBesideParameter,
   UnknownKey,
   UnknownKind,
+  MissingSymbol,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -174,6 +177,10 @@ export const describe = (fault: LoomFault): Note =>
           ' and ',
         )}.`,
       ),
+    MissingSymbol: ({ name, section }) =>
+      error(
+        `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
+      ),
     HeadingAgainstCode: () =>
       warning(
         'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
@@ -202,7 +209,7 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
       ...Option.toArray(
         Option.map(Option.fromNullishOr(settleAt), (at): Fix => ({
           title: `Mark \`${name}\` to be settled`,
-          text: '{To be settled}',
+          text: `{${settleKind}}`,
           at,
         })),
       ),
@@ -221,10 +228,10 @@ const diagnosticOf = (note: Note, position: Position, fixes: ReadonlyArray<Fix>)
     ? { message: note.message, position, severity: note.severity, fixes }
     : { message: note.message, position, severity: note.severity }
 
-export const faulty = (fault: LoomFault, position: Position): Health => {
-  const note = describe(fault)
-  return {
-    status: statusOf(note.severity),
-    diagnostics: [diagnosticOf(note, position, fixesOf(fault))],
-  }
-}
+export const faultAt = (fault: LoomFault, position: Position): Diagnostic =>
+  diagnosticOf(describe(fault), position, fixesOf(fault))
+
+export const faulty = (fault: LoomFault, position: Position): Health => ({
+  status: statusOf(describe(fault).severity),
+  diagnostics: [faultAt(fault, position)],
+})

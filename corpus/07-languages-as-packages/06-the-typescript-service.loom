@@ -595,9 +595,25 @@ const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceErr
     })
   })
 
+## Promising names to TypeScript
+
+An anchor may promise names that a section still to be settled will provide, as `::[Greeting function]{provides=greet}` does. The editor composes TypeScript's placeholder for them where the anchor stands, so the code that uses `greet` checks before anyone writes it. `placeholderFor` declares each name twice, as a value and as a type, both `any`: `const greet: any = undefined` and `type greet = any`. The pair lets the code call the name, construct it with `new`, and write it as a type. The pair is valid at the top of a module and inside a function body alike, where a `declare` would not be. `any` checks nothing about the uses, which is the price of a name nobody has written yet. A promised name that is no TypeScript identifier gets no placeholder, since no declaration could carry it.
+
+=>
+
+const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+const placeholderFor = (names: ReadonlyArray<string>): string =>
+  pipe(
+    names,
+    Array.filter((name) => identifier.test(name)),
+    Array.map((name) => `const ${name}: any = undefined\ntype ${name} = any`),
+    Array.join('\n'),
+  )
+
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`, and its `placeholder` is `placeholderFor`.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -614,6 +630,7 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
+  placeholder: placeholderFor,
 })
 
 export default TypescriptService
@@ -678,6 +695,8 @@ type TypeScript = typeof import('typescript')
 ::[The editor plugin]
 
 ::[Formatting the product]
+
+::[Promising names to TypeScript]
 
 ::[The service]
 
@@ -1218,6 +1237,27 @@ describe('productPlugin completes as the person types', () => {
   })
 })
 
+## Testing the placeholder
+
+The service's placeholder declares each promised name as a value and as a type, both `any`, and skips a name that is no TypeScript identifier.
+
+=>
+
+import { TypescriptService } from '../src/TypescriptService'
+
+describe('the TypeScript placeholder', () => {
+  it('declares each promised name as a value and a type', () => {
+    expect(TypescriptService.placeholder?.(['greet', 'Room', 'not a name'])).toBe(
+      [
+        'const greet: any = undefined',
+        'type greet = any',
+        'const Room: any = undefined',
+        'type Room = any',
+      ].join('\n'),
+    )
+  })
+})
+
 ## The test file [test/TypescriptService.test.ts]
 
 =>
@@ -1229,3 +1269,5 @@ describe('productPlugin completes as the person types', () => {
 ::[Testing the places the editor can reach]
 
 ::[Testing the plugin itself]
+
+::[Testing the placeholder]

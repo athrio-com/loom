@@ -25,21 +25,33 @@ import {
   type LoomModule,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { DuplicateName, faulty, UnresolvedTocEntry, UnsettledSection } from '#ast/LoomFault'
+import {
+  DuplicateName,
+  faultAt,
+  faulty,
+  MissingSymbol,
+  UnresolvedTocEntry,
+  UnsettledSection,
+} from '#ast/LoomFault'
 import { crossFileFaults } from '#ast/ProductBuilder'
 import { anchorKinds } from '@athrio/loom-ast/LoomTokens'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
   type FrameCompletion,
+  type FrameContract,
   type FrameHint,
   type FrameLocation,
   type FrameToken,
+  type LanguageService,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
+  contractsIn,
   fromCode,
   fromProduct,
+  noPlaceholder,
+  type Placeholder,
   type Unsettled,
   unsettledIn,
   fromProse,
@@ -355,6 +367,41 @@ const recompose = (
 const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
   Array.flatten(Array.fromIterable(composition.files.values()))
 
+export type PlaceholderWriter = (names: ReadonlyArray<string>) => string
+
+export class Placeholders extends Context.Service<Placeholders>()('Placeholders', {
+  make: Effect.gen(function* () {
+    const writers = yield* Ref.make<ReadonlyMap<string, PlaceholderWriter>>(new Map())
+    return {
+      register: (services: ReadonlyArray<LanguageService>): Effect.Effect<void> =>
+        Ref.update(
+          writers,
+          (held) =>
+            new Map([
+              ...held,
+              ...Array.getSomes(
+                Array.map(services, (service) =>
+                  Option.map(
+                    Option.fromNullishOr(service.placeholder),
+                    (write) => [service.id, write] as const,
+                  ),
+                ),
+              ),
+            ]),
+        ),
+      placeholder: Ref.get(writers).pipe(
+        Effect.map(
+          (held): Placeholder =>
+            (language, names) =>
+              Option.map(Option.fromNullishOr(held.get(language)), (write) => write(names)),
+        ),
+      ),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
 const namesAt = (modules: Modules, path: Location): ReadonlyArray<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
@@ -369,7 +416,11 @@ const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
 
-const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
+const projectTree = (
+  modules: Modules,
+  entry: LoomModule,
+  placeholder: Placeholder = noPlaceholder,
+): LoomVirtualCode => {
   const book = bookOf(modules)
   return rootVirtualCode(
     entry.text,
@@ -377,7 +428,7 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
       fromProse(modules, entry.path),
       ...pipe(
         rootsAt(modules, entry.path),
-        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book)),
+        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book, placeholder)),
       ),
     ],
     symbolMappings(entry.doc),
@@ -462,6 +513,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
+    const placeholders = yield* Effect.serviceOption(Placeholders)
+    const placeholderNow: Effect.Effect<Placeholder> = Option.match(placeholders, {
+      onNone: () => Effect.succeed(noPlaceholder),
+      onSome: (registry) => registry.placeholder,
+    })
     const composed = yield* Ref.make<Composition>(noComposition)
 
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
@@ -520,7 +576,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         matchEntry(source, path).pipe(
           Effect.andThen(buildCorpus(source, path)),
           Effect.flatMap((modules) => entryOf(modules, path)),
-          Effect.map(({ modules, entry }) => toVolar(projectTree(modules, entry))),
+          Effect.flatMap(({ modules, entry }) =>
+            Effect.map(placeholderNow, (placeholder) =>
+              toVolar(projectTree(modules, entry, placeholder)),
+            ),
+          ),
           Effect.catchCause((cause) =>
             Effect.logError('loom: projection failed; serving bare document', cause).pipe(
               Effect.andThen(
@@ -720,6 +780,36 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     text: slot.closed ? label : `${label}}`,
                   })),
               },
+            ),
+          ),
+        ),
+
+      contracts: (path: Location): Effect.Effect<ReadonlyArray<FrameContract>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Array.getSomes(
+              Array.map(contractsIn(modules, path), (contract) =>
+                Option.map(
+                  Option.fromNullishOr(modules.get(contract.target)),
+                  (target): FrameContract => ({
+                    target: {
+                      path: contract.target,
+                      range: {
+                        start: lineCharAt(target.text, contract.span.start.offset),
+                        end: lineCharAt(target.text, contract.span.end.offset),
+                      },
+                    },
+                    language: contract.language,
+                    expected: Array.map(contract.provides, (provided) => ({
+                      name: provided.name,
+                      diagnostic: faultAt(
+                        MissingSymbol({ name: provided.name, section: contract.section }),
+                        provided.at,
+                      ),
+                    })),
+                  }),
+                ),
+              ),
             ),
           ),
         ),

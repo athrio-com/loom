@@ -48,7 +48,7 @@ A `Fragment` is a literal product span — the code the author wrote — with th
 
 A `Ref` is a transclusion edge. It records one name anchor, `::[Heading]`, so the projection composes the section the anchor names into the section that holds the anchor, and the two share one scope. `Ref` is the single edge kind, named `NameRef`.
 
-A `NameRef` carries four fields. Its `name` is the name the anchor writes, exactly as written. Its `target` is the `SectionId` the edge points at. The target is absent when the product pass, which reads one loom at a time, finds no section of that name in the anchor's own loom. The name may still lie elsewhere in the book, so the compiler binds it once it holds the corpus. The `anchor` field is the span of the name in the section that holds the anchor, where a diagnostic about the edge lands. `toBeSettled` is the span of the anchor's `{To be settled}` label, when the anchor carries one: it says the section the name reaches is meant, though nobody has written it yet.
+A `NameRef` carries five fields. Its `name` is the name the anchor writes, exactly as written. Its `target` is the `SectionId` the edge points at. The target is absent when the product pass, which reads one loom at a time, finds no section of that name in the anchor's own loom. The name may still lie elsewhere in the book, so the compiler binds it once it holds the corpus. The `anchor` field is the span of the name in the section that holds the anchor, where a diagnostic about the edge lands. `toBeSettled` is the span of the anchor's `{To be settled}` label, when the anchor carries one: it says the section the name reaches is meant, though nobody has written it yet. `provides` holds each name the anchor says its section provides, as a `Provided` with the span where the anchor writes it. Stating those names promises the section as surely as the label does, so an edge that carries either one says its section is meant, and `isMeant` asks whether it does.
 
 =>
 
@@ -58,13 +58,23 @@ export const FragmentSchema = productNode('Fragment', {
 })
 export type Fragment = typeof FragmentSchema.Type
 
+export const ProvidedSchema = Schema.Struct({
+  name: Schema.String,
+  at: PositionSchema,
+})
+export type Provided = typeof ProvidedSchema.Type
+
 export const NameRefSchema = productNode('NameRef', {
   name: Schema.String,
   target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
   toBeSettled: Schema.Option(PositionSchema),
+  provides: Schema.Array(ProvidedSchema),
 })
 export type NameRef = typeof NameRefSchema.Type
+
+export const isMeant = (ref: NameRef): boolean =>
+  Option.isSome(ref.toBeSettled) || Array.isReadonlyArrayNonEmpty(ref.provides)
 
 export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
@@ -125,11 +135,11 @@ export type Product = typeof ProductSchema.Type
 
 ## What this module draws on
 
-Effect's `Schema` defines the nodes, and `Effect` fills the health default. `Health`, `okHealth`, and `Position` come from the foundation, giving each node its health and its source spans.
+Effect's `Schema` defines the nodes, and `Effect` fills the health default. `Option` and `Array` read what an edge promises. `Health`, `okHealth`, and `Position` come from the foundation, giving each node its health and its source spans.
 
 =>
 
-import { Effect, Schema } from 'effect'
+import { Array, Effect, Option, Schema } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 ## The module {Tangle}

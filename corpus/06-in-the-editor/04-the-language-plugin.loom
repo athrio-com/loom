@@ -108,13 +108,13 @@ const isolateRoots = (code: VirtualCode): VirtualCode => ({
 
 ## Collecting the service plugins
 
-`loomServicePlugins` is the collect-and-register pass for one workspace, the one whose root it is handed. The server runs it once for every workspace it meets, so every loom gets the languages its own workspace activates. Before it loads anything, it installs the host runtime on the global: Effect and the service contract. A loaded service then reads the host's instances rather than bundling its own and missing the capabilities the host provides.
+`loomServicePlugins` is the collect-and-register pass for one workspace, the one whose root it is handed. The server runs it once for every workspace it meets, so every loom gets the languages its own workspace activates. Before it loads anything, it installs the host runtime on the global: Effect and the service contract. A loaded service then reads the host's instances rather than bundling its own and missing the capabilities the host provides. Once the workspace's services load, it registers the placeholder each one writes with the compiler's `Placeholders`, when the runtime holds that registry, so the editor's projection can compose a placeholder for the names an anchor promises.
 
 The pass reads the workspace's active languages from the manifest the `WorkspaceSettings` service answers, and hands them to `loadActive`. The server reads that manifest once already as it starts, and refuses to start when it cannot, so a failure to read it here is a defect rather than a reason to load no services. The loader always adds `LoomLanguage` and `ProseLanguage`, and loads every other id as a `@athrio/loom-service-<id>` package from the workspace's own store. The pass indexes the loaded services in the `LanguageRegistry` and runs each service's `plugins` Effect with the host's capabilities. A language activated but not installed in the store drops with a warning, and the rest load on.
 
 The pass provides three capabilities. The `TypescriptSdk` hands out the TypeScript compilers a project may ask for: the TypeScript 6 a project on TypeScript 6 loads, and the TypeScript 7 Loom fetches for a project with none. The server builds it once, and the pass lends that one to every workspace, so a compiler loaded or fetched for one workspace serves the next. A `FrameQuery`, built over the warm corpus by `frameQueryOver`, lets the frame service read a file's Loom diagnostics. It lends the frame service the `WorkspaceSource` service's `locationOf` and `uriOf` methods too, so the frame service crosses between uris and locations the way the host does. A `Composition`, built by `compositionOver`, hands a product service the corpus as a filesystem — every root as the code it composes, at the path it composes to — so its analyzer resolves a cross-file import against live composition rather than the output on disk. The editor still hands each service its Products directly, a resolved root with its members folded in; `Composition` adds only the rest of the corpus. Each service also gets its slice of the workspace's `settings`, keyed by language id, so it tunes itself from the configuration. A service that fails to build — an external binary that will not start — drops to no plugins rather than taking the others down. The pass dedupes by plugin name, so a plugin two services happen to share registers with Volar once.
 
-`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, `references` finds every anchor that names the section under the cursor, `rename` and `renameRange` give the spans a rename rewrites and the one the rename box covers, `semanticTokens` gives each of the file's tokens its colour, `hints` gives the title beside each numbered reference, and `completions` gives the labels an anchor takes between its braces. They read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke. `format` is the one reader that answers with a promise. It runs `LoomFormatter` over the text the editor sent, with the workspace's active languages, so each section's code reaches the formatter its own workspace installed. `compositionOver` builds the `Composition` reader the same way: `rootsFor` composes a file's corpus and returns every root as a `ComposedFile`, on that same warm runtime.
+`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, `references` finds every anchor that names the section under the cursor, `rename` and `renameRange` give the spans a rename rewrites and the one the rename box covers, `semanticTokens` gives each of the file's tokens its colour, `hints` gives the title beside each numbered reference, and `completions` gives the labels an anchor takes between its braces. `contracts` gives what each anchor says its section provides, and keeps only the contracts whose section is written in an active language, because a language with no service reports no names, and every name would seem missing. They read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke. `format` is the one reader that answers with a promise. It runs `LoomFormatter` over the text the editor sent, with the workspace's active languages, so each section's code reaches the formatter its own workspace installed. `compositionOver` builds the `Composition` reader the same way: `rootsFor` composes a file's corpus and returns every root as a `ComposedFile`, on that same warm runtime.
 
 =>
 
@@ -179,6 +179,11 @@ const frameQueryOver = (
     runtime.runSync(
       LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.completions(path, offset))),
     ),
+  contracts: (path) =>
+    Array.filter(
+      runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.contracts(path)))),
+      (contract) => Array.some(languages, (language) => language.id === contract.language),
+    ),
   format: (path, text) =>
     runtime.runPromise(
       LoomFormatter.pipe(Effect.flatMap((formatter) => formatter.format(path, text, languages))),
@@ -209,6 +214,14 @@ export const loomServicePlugins = (
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime())
     const active = yield* loadActive(languages, workspace)
+    yield* Effect.serviceOption(Placeholders).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: (placeholders) => placeholders.register(active),
+        }),
+      ),
+    )
     return yield* collect(
       active,
       sdk,
@@ -231,7 +244,7 @@ import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
-import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { DocumentSource, LoomCompiler, Placeholders, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WorkspaceSettings } from './WorkspaceSettings'

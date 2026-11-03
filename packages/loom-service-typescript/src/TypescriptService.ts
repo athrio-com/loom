@@ -528,6 +528,16 @@ const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceErr
     })
   })
 
+const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+const placeholderFor = (names: ReadonlyArray<string>): string =>
+  pipe(
+    names,
+    Array.filter((name) => identifier.test(name)),
+    Array.map((name) => `const ${name}: any = undefined\ntype ${name} = any`),
+    Array.join('\n'),
+  )
+
 export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
@@ -539,6 +549,7 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
+  placeholder: placeholderFor,
 })
 
 export default TypescriptService

@@ -478,3 +478,18 @@ describe('productPlugin completes as the person types', () => {
     expect(await labelsAt(5, 26, '*')).toEqual([])
   })
 })
+
+import { TypescriptService } from '../src/TypescriptService'
+
+describe('the TypeScript placeholder', () => {
+  it('declares each promised name as a value and a type', () => {
+    expect(TypescriptService.placeholder?.(['greet', 'Room', 'not a name'])).toBe(
+      [
+        'const greet: any = undefined',
+        'type greet = any',
+        'const Room: any = undefined',
+        'type Room = any',
+      ].join('\n'),
+    )
+  })
+})

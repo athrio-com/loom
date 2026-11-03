@@ -5,7 +5,7 @@ import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
-import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { DocumentSource, LoomCompiler, Placeholders, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -158,6 +158,11 @@ const frameQueryOver = (
     runtime.runSync(
       LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.completions(path, offset))),
     ),
+  contracts: (path) =>
+    Array.filter(
+      runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.contracts(path)))),
+      (contract) => Array.some(languages, (language) => language.id === contract.language),
+    ),
   format: (path, text) =>
     runtime.runPromise(
       LoomFormatter.pipe(Effect.flatMap((formatter) => formatter.format(path, text, languages))),
@@ -188,6 +193,14 @@ export const loomServicePlugins = (
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime())
     const active = yield* loadActive(languages, workspace)
+    yield* Effect.serviceOption(Placeholders).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: (placeholders) => placeholders.register(active),
+        }),
+      ),
+    )
     return yield* collect(
       active,
       sdk,

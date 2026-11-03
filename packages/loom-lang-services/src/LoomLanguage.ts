@@ -2,6 +2,7 @@ import { Array, Effect, Option, pipe } from 'effect'
 import type {
   CodeAction,
   CompletionItem,
+  DocumentSymbol,
   Diagnostic as LspDiagnostic,
   InlayHint,
   LanguageServicePlugin,
@@ -44,17 +45,69 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
     },
   },
   create: (context) => ({
-    provideDiagnostics: (document) => {
+    provideDiagnostics: async (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
+      const loom = frame.locationOf(decoded[0])
       const at = (offset: number) => document.positionAt(offset)
+      const missing = await missingSymbols(
+        (uri) => context.getLanguageService().getDocumentSymbols(uri),
+        frame,
+        loom,
+      )
       return pipe(
-        frame.diagnostics(frame.locationOf(decoded[0])),
+        [...frame.diagnostics(loom), ...missing],
         Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
       )
     },
   }),
 })
+
+type EditorRange = FrameLocation['range']
+
+type EditorPosition = EditorRange['start']
+
+const before = (one: EditorPosition, other: EditorPosition): boolean =>
+  one.line < other.line || (one.line === other.line && one.character < other.character)
+
+const inside = (inner: EditorRange, outer: EditorRange): boolean =>
+  !before(inner.start, outer.start) && !before(outer.end, inner.end)
+
+const outermostWithin =
+  (range: EditorRange) =>
+  (symbol: DocumentSymbol): ReadonlyArray<string> =>
+    inside(symbol.selectionRange, range)
+      ? [symbol.name]
+      : Array.flatMap(symbol.children ?? [], outermostWithin(range))
+
+const missingSymbols = async (
+  symbolsAt: (uri: URI) => Promise<ReadonlyArray<DocumentSymbol> | undefined>,
+  frame: FrameQueryApi,
+  loom: string,
+): Promise<ReadonlyArray<Diagnostic>> => {
+  const contracts = frame.contracts(loom)
+  const symbols = new Map(
+    await Promise.all(
+      Array.map(
+        Array.dedupe(Array.map(contracts, (contract) => contract.target.path)),
+        async (path) => [path, (await symbolsAt(frame.uriOf(path))) ?? []] as const,
+      ),
+    ),
+  )
+  return Array.flatMap(contracts, (contract) => {
+    const declared = new Set(
+      Array.flatMap(
+        Option.getOrElse(Option.fromNullishOr(symbols.get(contract.target.path)), () => []),
+        outermostWithin(contract.target.range),
+      ),
+    )
+    return pipe(
+      contract.expected,
+      Array.filter((expected) => !declared.has(expected.name)),
+      Array.map((expected) => expected.diagnostic),
+    )
+  })
+}
 
 const meets = (diagnostic: Diagnostic, start: number, end: number): boolean =>
   diagnostic.position.start.offset <= end && start <= diagnostic.position.end.offset

@@ -1,8 +1,10 @@
 import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import {
+  isMeant,
   keyOf,
   type Code,
   type Fragment,
+  type Provided,
   type Ref,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
@@ -65,6 +67,22 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
     : { ...vc, code, mappings: clipMappings(vc.mappings, code.length) }
 }
 
+export type Placeholder = (language: string, names: ReadonlyArray<string>) => Option.Option<string>
+
+export const noPlaceholder: Placeholder = () => Option.none()
+
+const promisedLeaf = (part: Ref, language: string, placeholder: Placeholder): LoomVirtualCode =>
+  pipe(
+    Option.liftPredicate(part.provides, Array.isReadonlyArrayNonEmpty),
+    Option.flatMap((provided) =>
+      placeholder(
+        language,
+        Array.map(provided, (name) => name.name),
+      ),
+    ),
+    Option.match({ onNone: () => emptyLeaf, onSome: (code) => leaf('', '', code, []) }),
+  )
+
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
@@ -72,6 +90,8 @@ const inlinePart =
     seen: ReadonlySet<string>,
     home: Location,
     owner: Location,
+    language: string,
+    placeholder: Placeholder,
   ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
@@ -83,18 +103,28 @@ const inlinePart =
       }
       return leaf('', '', part.text, owner === home ? [origin] : [])
     }
-    return pipe(
-      targetOf(book, owner, part),
-      Option.filter((t) => !seen.has(keyOf(t))),
-      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
-      Option.match({
-        onNone: () => emptyLeaf,
-        onSome: ([t, node]) =>
-          absorbTrailingNewline(
-            inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home)(node),
-          ),
-      }),
-    )
+    return Option.match(unsettledRef(modules, book, owner, part), {
+      onSome: () => promisedLeaf(part, language, placeholder),
+      onNone: () =>
+        pipe(
+          targetOf(book, owner, part),
+          Option.filter((t) => !seen.has(keyOf(t))),
+          Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
+          Option.match({
+            onNone: () => emptyLeaf,
+            onSome: ([t, node]) =>
+              absorbTrailingNewline(
+                inlineComposed(
+                  modules,
+                  book,
+                  new Set([...seen, keyOf(t)]),
+                  home,
+                  placeholder,
+                )(node),
+              ),
+          }),
+        ),
+    })
   }
 
 const inlineComposed =
@@ -103,9 +133,18 @@ const inlineComposed =
     book: Book,
     seen: ReadonlySet<string>,
     home: Location,
+    placeholder: Placeholder,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, book, seen, home, node.origin.path)
+    const build = inlinePart(
+      modules,
+      book,
+      seen,
+      home,
+      node.origin.path,
+      node.languageId,
+      placeholder,
+    )
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -153,7 +192,8 @@ export const unsettledRef = (
   ref: Ref,
 ): Option.Option<Unsettled> =>
   Option.match(targetOf(book, owner, ref), {
-    onNone: () => Option.map(ref.toBeSettled, () => unsettledAt(owner, ref, Option.none())),
+    onNone: () =>
+      isMeant(ref) ? Option.some(unsettledAt(owner, ref, Option.none())) : Option.none(),
     onSome: (target) =>
       pipe(
         lookup(modules, target),
@@ -189,6 +229,61 @@ export const unsettledIn = (
   root: Code,
   book: Book = bookOf(modules),
 ): ReadonlyArray<Unsettled> => unsettledFrom(modules, book, new Set([keyOf(root.origin)]))(root)
+
+export type Contract = {
+  readonly section: string
+  readonly target: Location
+  readonly span: Position
+  readonly language: string
+  readonly provides: ReadonlyArray<Provided>
+}
+
+const writtenSpan = (code: Code): Option.Option<Position> =>
+  pipe(
+    code.fragments,
+    Array.map((part) => (part.type === 'Fragment' ? Option.some(part.origin) : Option.none())),
+    Array.getSomes,
+    Array.match({
+      onEmpty: () => Option.none(),
+      onNonEmpty: (origins) =>
+        Option.some({
+          start: Array.headNonEmpty(origins).start,
+          end: Array.lastNonEmpty(origins).end,
+        }),
+    }),
+  )
+
+const contractOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  path: Location,
+  ref: Ref,
+): Option.Option<Contract> =>
+  Option.gen(function* () {
+    const provides = yield* Option.liftPredicate(ref.provides, Array.isReadonlyArrayNonEmpty)
+    const target = yield* targetOf(book, path, ref)
+    const code = yield* lookup(modules, target)
+    const span = yield* writtenSpan(code)
+    return { section: ref.name, target: target.path, span, language: code.languageId, provides }
+  })
+
+export const contractsIn = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  path: Location,
+  book: Book = bookOf(modules),
+): ReadonlyArray<Contract> =>
+  Option.match(Option.fromNullishOr(modules.get(path)), {
+    onNone: (): ReadonlyArray<Contract> => [],
+    onSome: (module) =>
+      pipe(
+        module.product.code,
+        Array.flatMap((code) => code.fragments),
+        Array.map((part) =>
+          part.type === 'Fragment' ? Option.none() : contractOf(modules, book, path, part),
+        ),
+        Array.getSomes,
+      ),
+  })
 
 const aloneBefore = (code: string): boolean =>
   /^[\t ]*$/.test(code.slice(code.lastIndexOf('\n') + 1))
@@ -299,8 +394,15 @@ export const fromCode = (
   modules: ReadonlyMap<Location, LoomModule>,
   node: Code,
   book: Book = bookOf(modules),
+  placeholder: Placeholder = noPlaceholder,
 ): LoomVirtualCode => ({
-  ...inlineComposed(modules, book, new Set([keyOf(node.origin)]), node.origin.path)(node),
+  ...inlineComposed(
+    modules,
+    book,
+    new Set([keyOf(node.origin)]),
+    node.origin.path,
+    placeholder,
+  )(node),
   id: node.origin.name.toLowerCase(),
   languageId: node.languageId,
 })
@@ -309,12 +411,13 @@ export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
   book: Book = bookOf(modules),
+  placeholder: Placeholder = noPlaceholder,
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => fromCode(modules, node, book),
+      onSome: (node) => fromCode(modules, node, book, placeholder),
     }),
   )
 

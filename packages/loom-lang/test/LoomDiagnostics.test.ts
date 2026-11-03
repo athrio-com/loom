@@ -11,6 +11,7 @@ import { LoomDiskCache } from '../src/LoomDiskCache'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomFormatter } from '../src/LoomFormatter'
+import { Placeholders } from '../src/LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
 import { serviceStore, classicSdk } from './store'
@@ -44,7 +45,7 @@ const tsOptions = {
 // The checker runs the real Loom service plugins — `loomServicePlugins` collects them
 // and builds the `FrameQuery` the frame service reads, exactly as the language server
 // does on initialize. The config is a fake, so no on-disk loom.json is needed.
-const checkerFor = (fixture: string) => {
+const checkerFor = (fixture: string, placeholders = true) => {
   const configMock = Layer.succeed(LoomConfig, {
     resolve: () =>
       Effect.succeed({
@@ -73,8 +74,10 @@ const checkerFor = (fixture: string) => {
       }),
     manifest: () => Effect.succeed(Option.some({ languages: { typescript: {} } })),
   })
+  const registry = placeholders ? Placeholders.layer : Layer.empty
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
+      Layer.provideMerge(registry),
       Layer.provideMerge(DocumentSource.layer),
       Layer.provide(LoomDiskCache.layer),
       Layer.provideMerge(FileSystemSource),
@@ -131,6 +134,29 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
     // Nothing bleeds onto the next line (index 9): the old EOL bug captured the
     // newline into the anchor and mangled the following code into a phantom error.
     expect(diagnostics.every((d) => d.range.start.line !== 9)).toBe(true)
+  }, SLOW)
+
+  // An anchor that promises `greet` before anyone writes it. With the registry, the
+  // TypeScript service's placeholder declares `greet` where the anchor stands, so only
+  // Loom's note remains. Without it, TypeScript reports the name it cannot find. The
+  // second check reads a twin fixture, so it never shares the first one's program.
+  it('a promised name draws no TypeScript error while its section waits', async () => {
+    const fixture = resolve(__dirname, 'fixtures/promised-name.fixture.loom')
+    const twin = resolve(__dirname, 'fixtures/promised-name-bare.fixture.loom')
+    const settled = await (await checkerFor(fixture)).check(fixture)
+    const bare = await (await checkerFor(twin, false)).check(twin)
+    console.log(
+      '\n[expected — not a test failure] promised-name.loom promises `greet` before\n' +
+        'its section exists; with no placeholder TypeScript reports it:\n\n' +
+        bare.map((d) => `  [${d.source}] ${d.message.split('\n')[0]}`).join('\n'),
+    )
+    expect(settled.map((d) => [d.source, d.message])).toEqual([
+      [
+        'loom',
+        'To be settled: no section is named `Greeting function` yet, so this anchor composes nothing.',
+      ],
+    ])
+    expect(bare.some((d) => d.message === "Cannot find name 'greet'.")).toBe(true)
   }, SLOW)
 
   it('a clean file draws no Loom diagnostic', async () => {

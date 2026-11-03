@@ -669,6 +669,92 @@ describe('LoomServer — a label as it is typed', () => {
   }, 30_000)
 })
 
+const declaring = lines(
+  `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+  'export default {',
+  "  id: 'typescript',",
+  "  displayName: 'TypeScript',",
+  "  extensions: ['.ts'],",
+  '  plugins: () => Effect.succeed([{',
+  "    name: 'declaring',",
+  '    capabilities: { documentSymbolProvider: true },',
+  '    create: () => ({',
+  '      provideDocumentSymbols: (document) =>',
+  "        document.languageId !== 'typescript'",
+  '          ? undefined',
+  '          : [...document.getText().matchAll(/const (\\w+)/g)].map((match) => {',
+  '              const start = document.positionAt(match.index + 6)',
+  '              const end = document.positionAt(match.index + match[0].length)',
+  '              return { name: match[1], kind: 13, range: { start, end }, selectionRange: { start, end } }',
+  '            }),',
+  '    }),',
+  '  }]),',
+  '}',
+)
+
+describe('LoomServer — names a section must provide', () => {
+  it('reports each name an anchor expects that its section does not declare', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    install(root, declaring)
+    configure(root, activated)
+    chapterAt(
+      root,
+      'greeting.loom',
+      lines(
+        '---',
+        'Part I, Chapter 2: Greeting',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Greeting',
+        '',
+        '=>',
+        '',
+        'const greet = (name: string) => name',
+      ),
+    )
+    const main = chapterAt(
+      root,
+      'main.loom',
+      chapter('Main', `${anchor('Greeting')}{provides=[greet, farewell]}`),
+    )
+    const local = chapterAt(
+      root,
+      'local.loom',
+      lines(
+        '---',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Local',
+        '',
+        '=>',
+        '',
+        `${anchor('Helper')}{provides=[help, assist]}`,
+        '',
+        '## Helper',
+        '',
+        '=>',
+        '',
+        'const help = 1',
+      ),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(local)
+      expect(await editor.diagnostics(main)).toEqual([
+        'Missing symbol: `Greeting` declares no `farewell`, which this anchor says it provides.',
+      ])
+      expect(await editor.diagnostics(local)).toEqual([
+        'Missing symbol: `Helper` declares no `assist`, which this anchor says it provides.',
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 describe('LoomServer — a name that waits', () => {
   it('clears when an edit declares the section or the chapter it names', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))

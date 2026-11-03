@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Three faults judge the parameters in an anchor's braces. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear. An `UnknownKey` carries a key no anchor takes, with the `keys` an anchor does take, and an `UnknownKind` carries a kind no anchor takes, with the `kinds` an anchor does take. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Three faults judge the parameters in an anchor's braces. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear. An `UnknownKey` carries a key no anchor takes, with the `keys` an anchor does take, and an `UnknownKind` carries a kind no anchor takes, with the `kinds` an anchor does take. A `MissingSymbol` carries a name an anchor says its section provides, and the section that declares no such name. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -61,6 +61,7 @@ export type LoomFault = Data.TaggedEnum<{
   LabelBesideParameter: { readonly label: string }
   UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
   UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
+  MissingSymbol: { readonly name: string; readonly section: string }
   HeadingAgainstCode: {}
 }>
 
@@ -90,6 +91,7 @@ export const {
   LabelBesideParameter,
   UnknownKey,
   UnknownKind,
+  MissingSymbol,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -209,6 +211,10 @@ export const describe = (fault: LoomFault): Note =>
           ' and ',
         )}.`,
       ),
+    MissingSymbol: ({ name, section }) =>
+      error(
+        `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
+      ),
     HeadingAgainstCode: () =>
       warning(
         'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
@@ -223,7 +229,7 @@ export const describe = (fault: LoomFault): Note =>
 
 A detection site holds a fault and the span it covers, and needs a `Health` for the node. `faulty` is that step: it describes the fault through the catalog and returns a health carrying the one diagnostic, positioned where the fault was found. The severity sets the node's status: an error or a warning fails it. An informational note leaves it healthy, and the catalog raises two, for a section to be settled and for a label that outlived its section's settling. A tangle refuses an unsettled section all the same, as the chapter "The compile layer" describes, because a file that composes one would ship without the code its anchor names.
 
-`fixesOf` gives the fixes a fault offers. An ambiguous anchor offers one for each of its paths, which writes the path in place of the anchor's name. An unresolved anchor offers up to two. One writes the heading of its declaration at the point the declaration names, so the section exists and the author writes its specification next. The other writes `{To be settled}` just past the anchor, so the section can wait without any prose. A settled label offers one fix, which removes the label. A label beside parameters offers one fix too, which writes the label in full. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list.
+`fixesOf` gives the fixes a fault offers. An ambiguous anchor offers one for each of its paths, which writes the path in place of the anchor's name. An unresolved anchor offers up to two. One writes the heading of its declaration at the point the declaration names, so the section exists and the author writes its specification next. The other writes `{To be settled}` just past the anchor, so the section can wait without any prose. An anchor that states what its section provides has promised the section already, so it raises no unresolved-anchor fault and offers neither fix. A settled label offers one fix, which removes the label. A label beside parameters offers one fix too, which writes the label in full. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list. `faultAt` gives one fault's diagnostic on its own, for a site that hands a diagnostic on rather than a node's health, as the compiler hands the editor a missing symbol to raise.
 
 =>
 
@@ -245,7 +251,7 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
       ...Option.toArray(
         Option.map(Option.fromNullishOr(settleAt), (at): Fix => ({
           title: `Mark \`${name}\` to be settled`,
-          text: '{To be settled}',
+          text: `{${settleKind}}`,
           at,
         })),
       ),
@@ -264,22 +270,23 @@ const diagnosticOf = (note: Note, position: Position, fixes: ReadonlyArray<Fix>)
     ? { message: note.message, position, severity: note.severity, fixes }
     : { message: note.message, position, severity: note.severity }
 
-export const faulty = (fault: LoomFault, position: Position): Health => {
-  const note = describe(fault)
-  return {
-    status: statusOf(note.severity),
-    diagnostics: [diagnosticOf(note, position, fixesOf(fault))],
-  }
-}
+export const faultAt = (fault: LoomFault, position: Position): Diagnostic =>
+  diagnosticOf(describe(fault), position, fixesOf(fault))
+
+export const faulty = (fault: LoomFault, position: Position): Health => ({
+  status: statusOf(describe(fault).severity),
+  diagnostics: [faultAt(fault, position)],
+})
 
 ## What this module draws on
 
-`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds an anchor takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds.
+`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds an anchor takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration and the point where it can be settled. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds — and gives `settleKind`, the kind the settling fix writes.
 
 =>
 
 import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+import { settleKind } from '@athrio/loom-ast/LoomTokens'
 
 ## The module {Tangle}
 

@@ -1,11 +1,12 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
-import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { DocumentSource, LoomCompiler, Placeholders } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
 
 const it = effectify(it_)
 
@@ -548,6 +549,20 @@ describe('a section to be settled', () => {
     }),
   )
 
+  it.effect('takes the names an anchor says its section provides as a promise', () =>
+    Effect.gen(function* () {
+      const promised = {
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Greeting')}{provides=greet}`),
+      }
+      const note =
+        'To be settled: no section is named `Greeting` yet, so this anchor composes nothing.'
+      expect(yield* settleDiagnose(promised, '/corpus/hello.loom')).toEqual([['info', note]])
+      expect(yield* refusal(promised, '/corpus/hello.loom')).toContain(
+        `/corpus/hello.loom:6: ${note}`,
+      )
+    }),
+  )
+
   it.effect('notes a label its section has outgrown, and its fix removes it', () =>
     Effect.gen(function* () {
       const settled = `${helloAnchoring(`${anchor('Saying hello')}{To be settled}`)}\n${greeting}`
@@ -628,6 +643,77 @@ describe('brackets after an anchor', () => {
       expect(yield* settleDiagnose(indexed, '/corpus/hello.loom')).toEqual([])
       const [file] = yield* tangled(indexed, '/corpus/hello.loom')
       expect(file!.content).toContain('`Hello, ${name}!`[0]\n')
+    }),
+  )
+})
+
+const contractsOf = (text: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.contracts('/corpus/hello.loom')),
+    Effect.provide(layerOf({ '/corpus/hello.loom': text })),
+  )
+
+describe('what an anchor says its section provides', () => {
+  it.effect('names what the section must declare, and nothing to be settled', () =>
+    Effect.gen(function* () {
+      const stated = `${helloAnchoring(`${anchor('Saying hello')}{provides=[greet, farewell]}`)}\n${greeting}`
+      const [contract] = yield* contractsOf(stated)
+      expect(contract!.target.path).toBe('/corpus/hello.loom')
+      expect(contract!.target.range.start).toEqual({ line: 13, character: 0 })
+      expect(contract!.language).toBe('typescript')
+      expect(contract!.expected.map((expected) => expected.name)).toEqual(['greet', 'farewell'])
+      expect(contract!.expected[1]!.diagnostic.message).toBe(
+        'Missing symbol: `Saying hello` declares no `farewell`, which this anchor says it provides.',
+      )
+      const waiting = helloAnchoring(
+        `${anchor('Saying hello')}{kind="To be settled" provides=greet}`,
+      )
+      expect(yield* contractsOf(waiting)).toEqual([])
+    }),
+  )
+})
+
+const promising: LanguageService = {
+  id: 'typescript',
+  displayName: 'TypeScript',
+  extensions: ['.ts'],
+  plugins: () => Effect.succeed([]),
+  placeholder: (names) => `promised ${names.join(' ')}`,
+}
+
+const composedWith = (text: string, services: ReadonlyArray<LanguageService>) =>
+  Effect.gen(function* () {
+    const placeholders = yield* Placeholders
+    yield* placeholders.register(services)
+    const c = yield* LoomCompiler
+    const root = yield* c.compile(
+      {
+        read: () => Effect.succeed(text),
+        list: Option.some(() => Effect.succeed(['/corpus/hello.loom'])),
+      },
+      '/corpus/hello.loom',
+    )
+    const product = Option.getOrThrow(
+      Array.findFirst(root.embeddedCodes ?? [], (code) => code.id === 'theprogram'),
+    )
+    return product.snapshot.getText(0, product.snapshot.getLength())
+  }).pipe(
+    Effect.provide(
+      layerOf({ '/corpus/hello.loom': text }).pipe(Layer.provideMerge(Placeholders.layer)),
+    ),
+  )
+
+describe('a placeholder for promised names', () => {
+  it.effect('composes in the editor where the anchor stands, and never in a tangle', () =>
+    Effect.gen(function* () {
+      const promised = helloAnchoring(`${anchor('Greeting')}{provides=greet}`)
+      expect(yield* composedWith(promised, [promising])).toBe(
+        "promised greet\nconsole.log(greet('world'))\n",
+      )
+      expect(yield* composedWith(promised, [])).not.toContain('promised')
+      expect(yield* refusal({ '/corpus/hello.loom': promised }, '/corpus/hello.loom')).toContain(
+        'To be settled: no section is named `Greeting` yet',
+      )
     }),
   )
 })

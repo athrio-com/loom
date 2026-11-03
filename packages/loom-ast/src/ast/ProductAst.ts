@@ -1,4 +1,4 @@
-import { Effect, Schema } from 'effect'
+import { Array, Effect, Option, Schema } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
@@ -25,13 +25,23 @@ export const FragmentSchema = productNode('Fragment', {
 })
 export type Fragment = typeof FragmentSchema.Type
 
+export const ProvidedSchema = Schema.Struct({
+  name: Schema.String,
+  at: PositionSchema,
+})
+export type Provided = typeof ProvidedSchema.Type
+
 export const NameRefSchema = productNode('NameRef', {
   name: Schema.String,
   target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
   toBeSettled: Schema.Option(PositionSchema),
+  provides: Schema.Array(ProvidedSchema),
 })
 export type NameRef = typeof NameRefSchema.Type
+
+export const isMeant = (ref: NameRef): boolean =>
+  Option.isSome(ref.toBeSettled) || Array.isReadonlyArrayNonEmpty(ref.provides)
 
 export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
