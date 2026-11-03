@@ -448,12 +448,17 @@ const bindAnchor =
     })
   }
 
+export const settleLabel = 'To be settled'
+
+export const anchorLabels: ReadonlyArray<string> = [settleLabel]
+
 const settleLabelOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
   pipe(
     Option.fromNullishOr(anchor.specifier),
     Option.filter(
       (specifier) =>
-        specifier.type === 'Specifier' && specifier.label.value.toLowerCase() === 'to be settled',
+        specifier.type === 'Specifier' &&
+        specifier.label.value.toLowerCase() === settleLabel.toLowerCase(),
     ),
     Option.map((specifier) => specifier.position),
   )

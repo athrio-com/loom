@@ -231,6 +231,34 @@ const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+## Labels as they are typed
+
+An anchor takes a label in braces, as `::[Greeting function]{To be settled}` does. The `loomCompletions` plugin offers the labels an anchor takes while the author types between the anchor's braces. The Language Server Protocol lets a provider name the characters that trigger it, so an open brace asks for the offer at once. Each letter typed after the brace then narrows the offer. The provider answers for the root alone, like the diagnostics, and asks `FrameQuery` for the labels at the cursor. Each label becomes a `CompletionItem`, the protocol's type for one offer. The item shows the label and writes its text over the range the label replaces, so a closed pair of braces keeps its close and an open brace gains one. Its kind is 14, the number the protocol gives a keyword, since a label is a word of Loom's own.
+
+=>
+
+const loomCompletions = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-completions',
+  capabilities: { completionProvider: { triggerCharacters: ['{'] } },
+  create: (context) => ({
+    provideCompletionItems: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return {
+        isIncomplete: false,
+        items: Array.map(
+          frame.completions(frame.locationOf(decoded[0]), document.offsetAt(position)),
+          (completion): CompletionItem => ({
+            label: completion.label,
+            kind: 14,
+            textEdit: { range: completion.range, newText: completion.text },
+          }),
+        ),
+      }
+    },
+  }),
+})
+
 ## Colouring the source
 
 A heading, an anchor, and a warp are tokens of Loom's own grammar, and no language's colouring knows them. `loomSemanticTokens` gives them their colours. Its legend names the standard token types Loom draws on — `namespace`, `variable`, `keyword`, `string`, `operator` — so the user's theme colours them with no extra setup, and the order follows `LoomSymbol`'s own, so a token's kind indexes straight into it. `provideDocumentSemanticTokens` answers for the root alone, asks `FrameQuery` for the file's coloured tokens, and turns each into Volar's tuple of line, character, length, type, and modifiers — the type an index into the legend, and no modifiers.
@@ -291,7 +319,7 @@ const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## Composing the services
 
-`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
+`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
 
 =>
 
@@ -310,6 +338,7 @@ export const LoomLanguage = defineLanguageService({
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),
+        loomCompletions(frame),
         loomFormatting(frame),
       ]
     }),
@@ -317,13 +346,14 @@ export const LoomLanguage = defineLanguageService({
 
 ## What this module draws on
 
-From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
+From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `CompletionItem` a label becomes, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
 
 =>
 
 import { Array, Effect, Option, pipe } from 'effect'
 import type {
   CodeAction,
+  CompletionItem,
   Diagnostic as LspDiagnostic,
   InlayHint,
   LanguageServicePlugin,
@@ -356,6 +386,8 @@ import {
 ::[Renaming a section]
 
 ::[Titles beside numbers]
+
+::[Labels as they are typed]
 
 ::[Colouring the source]
 

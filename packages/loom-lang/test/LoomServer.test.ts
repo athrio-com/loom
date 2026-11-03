@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   type CodeAction,
+  type CompletionList,
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
@@ -159,6 +160,20 @@ const editorAt = async (folder: string) => {
       })) ?? [],
       (hint) => ({ position: hint.position, label: hint.label }),
     )
+  const completions = async (
+    path: string,
+    line: number,
+    character: number,
+  ): Promise<ReadonlyArray<{ readonly label: unknown; readonly textEdit: unknown }>> =>
+    Array.map(
+      (
+        (await connection.sendRequest<CompletionList | null>('textDocument/completion', {
+          textDocument: { uri: pathToFileURL(path).href },
+          position: { line, character },
+        })) ?? { items: [] }
+      ).items,
+      (item) => ({ label: item.label, textEdit: item.textEdit }),
+    )
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -171,7 +186,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, hints, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, hints, completions, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -624,6 +639,29 @@ describe('LoomServer — the title beside a number', () => {
       await editor.open(main)
       expect(await editor.hints(main)).toEqual([
         { position: { line: 8, character: 12 }, label: 'Words' },
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+describe('LoomServer — a label as it is typed', () => {
+  it('offers the label an anchor takes between its braces', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const main = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Greeting')}{To b}`))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      expect(await editor.completions(main, 8, 17)).toEqual([
+        {
+          label: 'To be settled',
+          textEdit: {
+            range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
+            newText: 'To be settled',
+          },
+        },
       ])
     } finally {
       editor.close()

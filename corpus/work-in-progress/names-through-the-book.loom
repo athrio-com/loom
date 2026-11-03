@@ -58,7 +58,7 @@ The `(path.loom)` target retires, and with it the `anchorModule` and `resolveRel
 
 A literate author writes a reference before its target as often as after it, because the prose follows the reader's order and not the compiler's. Programming meets the same need with a mock, which fakes a piece's behaviour so the rest of a program can run, or with a typed hole, which marks a gap the compiler can describe. Literate programming has long allowed a looser order. Knuth's WEB names its sections in reading order, so a section is often used before it is written, and the tools object only to a name that is used and never defined.
 
-Loom lets an author carve a program into named compartments first and write each one later. A compartment that holds no code yet is unsettled, and it takes one of two shapes. An anchor labelled `{To be settled}` names a section nobody has written, as `::[Greeting function]{To be settled}` does. The label says the name is meant, so the anchor raises no fault, and it asks for no prose before the author is ready to specify the section. With other parameters the label takes its full form, `{kind="To be settled" symbols=greet}`, as the chapter "Parameters in braces" requires.
+Loom lets an author carve a program into named compartments first and write each one later. A compartment that holds no code yet is unsettled, and it takes one of two shapes. An anchor labelled `{To be settled}` names a section nobody has written, as `::[Greeting function]{To be settled}` does. The label says the name is meant, so the anchor raises no fault, and it asks for no prose before the author is ready to specify the section. The editor offers the label while the author types between an anchor's braces. With other parameters the label takes its full form, `{kind="To be settled" symbols=greet}`, as the chapter "Parameters in braces" requires.
 
 A section declared with its heading and the prose that specifies it, but no code yet, is unsettled too. Its prose already says what its code will do, so it is the literate counterpart of a mock. It fakes no behaviour, but it states the intent, and a reader can read it before any code exists. A box that points to a chapter not yet written leaves a whole loom to be settled.
 
@@ -134,9 +134,8 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. Unsettled references: the `{To be settled}` label with its fixes, marked in the editor and on the woven page, and refused by the tangler.
-2. The contract an unsettled section collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
-3. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
-4. The graph as a projection of the produced corpus, with its first view.
+1. The contract an unsettled section collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
+2. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
+3. The graph as a projection of the produced corpus, with its first view.
 
 When anchors resolve by their place in the book and the editor follows them, this chapter joins Part II, The shape of a loom, beside "The multi-file AST".

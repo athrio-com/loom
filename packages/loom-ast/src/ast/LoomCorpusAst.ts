@@ -1200,6 +1200,48 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
   })
 }
 
+export type LabelSlot = {
+  readonly start: number
+  readonly end: number
+  readonly closed: boolean
+}
+
+const openSlot = (text: string, brace: number, offset: number): Option.Option<LabelSlot> =>
+  text[brace] === '{' && brace < offset && !text.slice(brace, offset).includes('\n')
+    ? Option.some({ start: brace + 1, end: offset, closed: false })
+    : Option.none()
+
+const slotOf =
+  (text: string, offset: number) =>
+  (anchor: WarpAnchorToken): Option.Option<LabelSlot> =>
+    pipe(
+      Match.value(anchor.specifier).pipe(
+        Match.when({ type: 'Specifier' }, ({ open, close }) =>
+          Option.some({
+            start: open.position.end.offset,
+            end: close.position.start.offset,
+            closed: true,
+          }),
+        ),
+        Match.when({ type: 'Sink' }, () => Option.none<LabelSlot>()),
+        Match.when(Match.undefined, () => openSlot(text, anchor.close.position.end.offset, offset)),
+        Match.exhaustive,
+      ),
+      Option.filter((slot) => slot.start <= offset && offset <= slot.end),
+    )
+
+export const labelSlotAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<LabelSlot> =>
+  pipe(
+    Option.fromNullishOr(corpus.modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(allAnchorsOf(module.doc), slotOf(module.text, offset)),
+    ),
+  )
+
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   if (Array.isArray(node)) return node.flatMap(diagnosticsIn)
   if (node === null || typeof node !== 'object') return []

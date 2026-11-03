@@ -1360,6 +1360,56 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
   })
 }
 
+## Braces waiting for a label
+
+An anchor takes a label in braces right after it, as `::[Greeting function]{To be settled}` does. An author types the label one letter at a time, so the editor offers the labels an anchor takes while the cursor stands between the braces. To make that offer, the editor needs the span the chosen label replaces.
+
+The `labelSlotAt` function finds that span in one loom. A `LabelSlot` is the span, the slot a label fills: its `start` and `end` in the loom's source, and whether braces close it. Closed braces form a specifier, and the slot is the label between them. A brace the author has only opened forms nothing yet, because the tokeniser reads an open brace without its close as ordinary text. The slot then runs from just after the brace to the cursor, as long as the cursor stays on the anchor's line. A sink in square brackets takes no label, so it holds no slot. The `slotOf` function reads the slot of one anchor and keeps it only when the cursor stands inside it.
+
+=>
+
+export type LabelSlot = {
+  readonly start: number
+  readonly end: number
+  readonly closed: boolean
+}
+
+const openSlot = (text: string, brace: number, offset: number): Option.Option<LabelSlot> =>
+  text[brace] === '{' && brace < offset && !text.slice(brace, offset).includes('\n')
+    ? Option.some({ start: brace + 1, end: offset, closed: false })
+    : Option.none()
+
+const slotOf =
+  (text: string, offset: number) =>
+  (anchor: WarpAnchorToken): Option.Option<LabelSlot> =>
+    pipe(
+      Match.value(anchor.specifier).pipe(
+        Match.when({ type: 'Specifier' }, ({ open, close }) =>
+          Option.some({
+            start: open.position.end.offset,
+            end: close.position.start.offset,
+            closed: true,
+          }),
+        ),
+        Match.when({ type: 'Sink' }, () => Option.none<LabelSlot>()),
+        Match.when(Match.undefined, () => openSlot(text, anchor.close.position.end.offset, offset)),
+        Match.exhaustive,
+      ),
+      Option.filter((slot) => slot.start <= offset && offset <= slot.end),
+    )
+
+export const labelSlotAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<LabelSlot> =>
+  pipe(
+    Option.fromNullishOr(corpus.modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(allAnchorsOf(module.doc), slotOf(module.text, offset)),
+    ),
+  )
+
 ## Diagnostics across the corpus
 
 Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
@@ -1471,5 +1521,7 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 ::[Renaming a section]
 
 ::[Titles beside numbers]
+
+::[Braces waiting for a label]
 
 ::[Diagnostics across the corpus]

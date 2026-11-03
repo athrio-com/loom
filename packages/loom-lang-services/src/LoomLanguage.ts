@@ -1,6 +1,7 @@
 import { Array, Effect, Option, pipe } from 'effect'
 import type {
   CodeAction,
+  CompletionItem,
   Diagnostic as LspDiagnostic,
   InlayHint,
   LanguageServicePlugin,
@@ -195,6 +196,28 @@ const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const loomCompletions = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-completions',
+  capabilities: { completionProvider: { triggerCharacters: ['{'] } },
+  create: (context) => ({
+    provideCompletionItems: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return {
+        isIncomplete: false,
+        items: Array.map(
+          frame.completions(frame.locationOf(decoded[0]), document.offsetAt(position)),
+          (completion): CompletionItem => ({
+            label: completion.label,
+            kind: 14,
+            textEdit: { range: completion.range, newText: completion.text },
+          }),
+        ),
+      }
+    },
+  }),
+})
+
 const semanticLegend = {
   tokenTypes: [...SemanticTokenSchema.literals],
   tokenModifiers: [],
@@ -254,6 +277,7 @@ export const LoomLanguage = defineLanguageService({
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),
+        loomCompletions(frame),
         loomFormatting(frame),
       ]
     }),

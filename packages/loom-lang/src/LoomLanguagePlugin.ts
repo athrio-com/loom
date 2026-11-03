@@ -154,6 +154,10 @@ const frameQueryOver = (
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.semanticTokens(path)))),
   hints: (path) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.hints(path)))),
+  completions: (path, offset) =>
+    runtime.runSync(
+      LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.completions(path, offset))),
+    ),
   format: (path, text) =>
     runtime.runPromise(
       LoomFormatter.pipe(Effect.flatMap((formatter) => formatter.format(path, text, languages))),

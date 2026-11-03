@@ -11,6 +11,7 @@ import {
   definitionAt,
   dependentsOf,
   hintsAt,
+  labelSlotAt,
   moduleDiagnostics,
   namesakesOf,
   reachable,
@@ -25,10 +26,11 @@ import {
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { DuplicateName, faulty, UnresolvedTocEntry, UnsettledSection } from '#ast/LoomFault'
-import { crossFileFaults } from '#ast/ProductBuilder'
+import { anchorLabels, crossFileFaults } from '#ast/ProductBuilder'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
+  type FrameCompletion,
   type FrameHint,
   type FrameLocation,
   type FrameToken,
@@ -401,6 +403,7 @@ const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
       verification: true,
       format: true,
       semantic: { shouldHighlight: () => false },
+      completion: true,
     })),
     Match.when('product', () => productFeatures),
     Match.when(Match.defined, (symbol) => profileOf(symbol).features),
@@ -690,6 +693,33 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   label: hint.label,
                 })),
             }),
+          ),
+        ),
+
+      completions: (
+        path: Location,
+        offset: number,
+      ): Effect.Effect<ReadonlyArray<FrameCompletion>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.match(
+              Option.all([
+                Option.fromNullishOr(modules.get(path)),
+                labelSlotAt({ modules }, path, offset),
+              ]),
+              {
+                onNone: (): ReadonlyArray<FrameCompletion> => [],
+                onSome: ([module, slot]) =>
+                  Array.map(anchorLabels, (label): FrameCompletion => ({
+                    label,
+                    range: {
+                      start: lineCharAt(module.text, slot.start),
+                      end: lineCharAt(module.text, slot.end),
+                    },
+                    text: slot.closed ? label : `${label}}`,
+                  })),
+              },
+            ),
           ),
         ),
 

@@ -569,3 +569,30 @@ describe('a section to be settled', () => {
     }),
   )
 })
+
+const complete = (text: string, offset: number) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.completions('/corpus/hello.loom', offset)),
+    Effect.provide(layerOf({ '/corpus/hello.loom': text })),
+  )
+
+const at = (from: number, to: number) => ({
+  start: { line: 5, character: from },
+  end: { line: 5, character: to },
+})
+
+describe("completing an anchor's label", () => {
+  it.effect('offers the label between the braces, and closes braces left open', () =>
+    Effect.gen(function* () {
+      const closed = helloAnchoring(`${anchor('Greeting')}{To b}`)
+      expect(yield* complete(closed, closed.indexOf('To b') + 4)).toEqual([
+        { label: 'To be settled', range: at(13, 17), text: 'To be settled' },
+      ])
+      const open = helloAnchoring(`${anchor('Greeting')}{`)
+      expect(yield* complete(open, open.indexOf('{') + 1)).toEqual([
+        { label: 'To be settled', range: at(13, 13), text: 'To be settled}' },
+      ])
+      expect(yield* complete(closed, closed.indexOf('Greeting') + 2)).toEqual([])
+    }),
+  )
+})

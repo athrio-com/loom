@@ -510,7 +510,7 @@ An anchor that stays in this document takes one of three paths. When the name is
 
 Otherwise the name is looked up among the document's section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity, and the projection follows it and inlines the section there. `localHealth` marks the edge in three cases. A match that holds no code yet is a section to be settled, and the edge carries the `UnsettledSection` note. A match in another language is a cross-language transclusion. The edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file. A match that holds code, reached by an anchor still labelled `{To be settled}`, carries the `SettledLabel` note, whose fix removes the label.
 
-An anchor labels its section `{To be settled}` in its braces, in any case of letters, and `settleLabelOf` reads the span of that label. Every edge the pass makes records it, so the judgement and the tangle know which names the author meant before writing them.
+An anchor labels its section `{To be settled}` in its braces, in any case of letters, and `settleLabelOf` reads the span of that label. Every edge the pass makes records it, so the judgement and the tangle know which names the author meant before writing them. The `settleLabel` constant holds the label's words. The `anchorLabels` list holds every label an anchor takes, which today is `settleLabel` alone, and the editor offers each one while the author types between an anchor's braces.
 
 A name that no section of the document carries may still lie elsewhere in the book. `openRef` composes an edge for it that records the name and leaves the target open, and the compiler binds that edge once it holds the corpus.
 
@@ -549,12 +549,17 @@ const bindAnchor =
     })
   }
 
+export const settleLabel = 'To be settled'
+
+export const anchorLabels: ReadonlyArray<string> = [settleLabel]
+
 const settleLabelOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
   pipe(
     Option.fromNullishOr(anchor.specifier),
     Option.filter(
       (specifier) =>
-        specifier.type === 'Specifier' && specifier.label.value.toLowerCase() === 'to be settled',
+        specifier.type === 'Specifier' &&
+        specifier.label.value.toLowerCase() === settleLabel.toLowerCase(),
     ),
     Option.map((specifier) => specifier.position),
   )
