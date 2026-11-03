@@ -78,7 +78,7 @@ A language whose package offers no runner can still take the third bridge, becau
 
 A toolchain reports an error at a line of a file it read. That file is a composed file, which no author edits. So every runner turns each place a toolchain names into a place in a loom, through `RunHost`'s `sectionAt` method. A loader serves source maps, so a stack trace in Bun or Node already names the loom. A Python finder sets each module's file name, so a traceback names the loom too. A toolchain that names only its own files gets its output read back by the package, which knows the toolchain's message format.
 
-This answers a question the chapter "Where a workspace is kept" leaves open: how a build's errors, which name tangled files, find their way back to their sections.
+So a build's errors, which name composed files, find their way back to their sections.
 
 ## Running from the command line
 
