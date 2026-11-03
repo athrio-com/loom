@@ -1,0 +1,112 @@
+---
+Part: Work in progress
+Chapter: Runnable looms
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Runnable looms
+
+Tangling writes a loom's product to disk, where any toolchain can read it. That is the only way a loom runs today. To run a test, build a bundle, or start a program, an author tangles first and then hands the written files to the language's own tools.
+
+Much of the time nobody needs those files. A test run, a development server, or a build that ships a bundle only needs the product's code, and the compiler already holds it. For the editor, it composes every file a book emits in memory, with a map from each line back to the section that wrote it.
+
+This chapter lets a language's toolchain take that composition directly. A loom then runs, tests, and builds without a tangle step, from a folder or from remote storage. Each language's package says how its toolchain takes the composition, as far as that toolchain allows.
+
+## What tangling stays
+
+Tangling stays the output of record. It works for every language, with or without a package, because a sink's file extension is all it needs. It writes the files a repository commits, a reviewer reads, and a package registry publishes. A language with no runner still builds the way it does today: tangle, then run the language's own tools over the written files.
+
+Running a loom adds a second path beside tangling. It replaces nothing.
+
+## The composition is already there
+
+The chapter "The compile layer" gives the `composition` verb. It answers with one `ComposedFile` for every file the corpus emits: the path where the file lands, its composed content, the loom it comes from, and the section that tangles it. Behind each file's content lie the mappings that the product projection keeps, from each composed line back to the section and line that wrote it.
+
+The TypeScript service already builds a program over these files, so a cross-file import in the editor resolves against the live composition rather than against tangled files on disk. A runner reads the same composition. A program therefore runs the code the editor checks, line for line.
+
+## Running belongs to the language
+
+How a toolchain reads code is the language's business, as checking and formatting are. So the language service contract of Part VII gains one optional member, `run`. A language package that offers it takes a `RunRequest`: the output path a run starts from, the composed files, and the arguments the person passed. The package hands the files to its toolchain in whichever way the toolchain allows, and answers with a `RunOutcome`: the toolchain's exit code, and each problem it reported, placed in a loom.
+
+The host lends a runner one capability, `RunHost`, as it lends `Composition` to a checker. Its `scratch` method writes the composed files into a folder that lives only as long as the run, for a toolchain that reads nothing but files. Its `sectionAt` method turns a place in a composed file into the section and line that wrote it, so a runner can map an error back into the loom.
+
+A sketch of the contract's new members:
+
+=>
+
+export interface RunRequest {
+  readonly entry: string
+  readonly files: ReadonlyArray<ComposedFile>
+  readonly arguments: ReadonlyArray<string>
+}
+
+export interface RunOutcome {
+  readonly exitCode: number
+  readonly problems: ReadonlyArray<FrameLocation>
+}
+
+export interface RunHostApi {
+  readonly scratch: (
+    files: ReadonlyArray<ComposedFile>,
+  ) => Effect.Effect<string, ServiceError, Scope.Scope>
+  readonly sectionAt: (
+    path: string,
+    line: number,
+    character: number,
+  ) => Option.Option<FrameLocation>
+}
+
+~
+
+The `run` member sits beside `plugins` and `format` on `LanguageService`, and takes a `RunRequest` to an Effect of a `RunOutcome` that requires `RunHost`. A service without it leaves the language to tangling.
+
+## Three ways a toolchain takes the composition
+
+Toolchains differ in how much of their reading they let a package change. Each language package picks the first of three bridges its toolchain allows.
+
+**Through a loader.** Some runtimes let a package answer their imports. Bun's plugins answer `onResolve` and `onLoad`, and serve `bun run`, `bun build`, and `bun test` alike. Vite takes plugins of the same shape, and Node takes loader hooks through `module.register`. Python lets a finder on `sys.meta_path` load a module from anywhere, and Ruby and Lua have hooks of their own. A loader answers each import of a composed file with its composed content and a source map, so nothing is written at all. A loader that runs in another process reads the composition from a file the host hands it, because it cannot reach the compiler itself.
+
+**Through an overlay.** Some compilers read files but let a caller replace them. Go's `go build -overlay` takes a map from each path to a file that stands in for it, and Java's compiler API takes a file manager that serves sources from memory. The TypeScript compiler API takes a host of the same kind. A package with an overlay hands the toolchain the composed paths and their content, and the toolchain reads nothing from the product's folder.
+
+**Through a scratch folder.** Some toolchains read only real files, such as Cargo for Rust, the compilers of C and C++, and most linters. For these, the package asks `RunHost` to write the composition into a scratch folder, runs the toolchain there, and lets the folder go when the run ends. The folder is never committed and never edited, so the product still lives only in the looms.
+
+A language whose package offers no runner can still take the third bridge, because writing a scratch folder and running a command needs nothing from the language. Its package, or a trope, only names the command.
+
+## Errors that name their sections
+
+A toolchain reports an error at a line of a file it read. That file is a composed file, which no author edits. So every runner turns each place a toolchain names into a place in a loom, through `RunHost`'s `sectionAt` method. A loader serves source maps, so a stack trace in Bun or Node already names the loom. A Python finder sets each module's file name, so a traceback names the loom too. A toolchain that names only its own files gets its output read back by the package, which knows the toolchain's message format.
+
+This answers a question the chapter "Where a workspace is kept" leaves open: how a build's errors, which name tangled files, find their way back to their sections.
+
+## Running from the command line
+
+The `loom run` command takes a loom and the arguments for its program. It composes the loom's corpus, picks the language by the extension of the entry's sink, and calls that language's runner. The `loom build` command does the same for a build, and the `loom test` command for a test run. A language with no runner gets a clear message that names the `loom tangle` command instead.
+
+## A trope that runs a language
+
+A trope that contributes a language may contribute its runner too, on the Language plane the chapter "Tropes" describes. So a book can run a language that no package of Loom's covers yet, by taking up a trope that knows the language's toolchain.
+
+## Builds away from a disk
+
+Remote storage, which the chapter "Where a workspace is kept" describes, holds a workspace's text and no folder at all. A build that runs beside it fetches the looms through the `WorkspaceSource` service, composes them in memory, and hands them to the language's runner. The same steps serve a build on an author's machine and a build in a continuous integration job.
+
+A runner does not remove the product's dependencies. A build still needs the packages a program imports, and a toolchain still needs its compiler, so a build service keeps both in a cache of its own.
+
+## What to work out
+
+- **Where the dependencies live.** A loader still resolves `node_modules` or a Python environment from somewhere. Whether a workspace names a folder for them, or a build service keeps one cache per workspace, is open.
+- **How a loader in another process reads the composition.** A file the host writes before the run is the simplest. A local socket would let a long-running process see each edit. Which one a development server needs is open.
+- **Watching.** A development server reruns on every edit. Whether it watches the looms through the server's change notifications or through the source's own events is open.
+- **Sandboxing.** A runner runs code that may come from remote storage. Whether runs share the sandbox the chapter "Tropes" gives a trope's code is open.
+- **The names of the commands.** Whether `loom run`, `loom build`, and `loom test` stay three commands, or one command with a mode, is open.
+
+## What this chapter grows into
+
+1. The `run` member and the `RunHost` capability in the language service contract.
+2. The loader bridge for TypeScript: a Bun plugin over the composition, with source maps, and `loom run`.
+3. Errors mapped back to their sections through `sectionAt`.
+4. The scratch bridge, and a runner that names only a command.
+5. The overlay bridge, with Go as its first language.
+6. A build over remote storage, with a cache for its dependencies.
