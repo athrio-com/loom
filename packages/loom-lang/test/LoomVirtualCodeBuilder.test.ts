@@ -4,7 +4,7 @@ const it = effectify(it_)
 import { Array, Effect, pipe } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { buildProduct } from '#ast/ProductBuilder'
-import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   fromProduct,
   fromProse,
@@ -28,14 +28,14 @@ const parse = (src: string) =>
 // corpus of modules built straight from `.loom` source: parse, then fold the
 // document into its de re `Product` with `buildProduct`. This is the same module
 // shape the compiler hands the builder — `{ path, text, doc, product }`.
-const moduleOf = (path: Path, text: string): LoomModule => {
+const moduleOf = (path: Location, text: string): LoomModule => {
   const doc = parse(text)
   return { path, text, doc, product: buildProduct(doc, path) }
 }
 
 const corpusOf = (
-  ...mods: ReadonlyArray<{ readonly path: Path; readonly text: string }>
-): ReadonlyMap<Path, LoomModule> =>
+  ...mods: ReadonlyArray<{ readonly path: Location; readonly text: string }>
+): ReadonlyMap<Location, LoomModule> =>
   new Map(mods.map((m) => [m.path, moduleOf(m.path, m.text)] as const))
 
 // === de re — fromProduct ==================================================

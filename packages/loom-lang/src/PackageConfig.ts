@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface BuildSettings {
   readonly delims: AnchorDelims
@@ -21,7 +21,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()('PackageConf
   make: Effect.gen(function* () {
     const config = yield* LoomConfig
     return {
-      resolve: (path: Path): Effect.Effect<BuildSettings> =>
+      resolve: (path: Location): Effect.Effect<BuildSettings> =>
         config.resolve(path).pipe(
           Effect.map((c) => ({
             delims: anchorDelimsOf(c.anchor),

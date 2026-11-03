@@ -18,7 +18,7 @@ import {
   unresolvedTocEntriesIn,
   type CorpusLocation,
   type LoomModule,
-  type Path,
+  type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { faulty, UnresolvedTocEntry } from '#ast/LoomFault'
 import { crossFileFaults } from '#ast/ProductBuilder'
@@ -46,16 +46,16 @@ import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
-type Modules = ReadonlyMap<Path, LoomModule>
+type Modules = ReadonlyMap<Location, LoomModule>
 
-const scopedTo = (modules: Modules, paths: ReadonlyArray<Path>): Modules => {
+const scopedTo = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
   const keep = new Set(paths)
   return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
 }
 
 const entryOf = (
   modules: Modules,
-  path: Path,
+  path: Location,
 ): Effect.Effect<{ readonly modules: Modules; readonly entry: LoomModule }> =>
   Effect.fromNullishOr(modules.get(path)).pipe(
     Effect.orDie,
@@ -71,14 +71,14 @@ const corpusDiagnostics =
 
 export interface TangledFile {
   readonly section: string
-  readonly path: Path
+  readonly path: Location
   readonly content: string
 }
 
 const resolveSinks = (
   modules: Modules,
-  entry: Path,
-  placeOf: (loom: Path, sink: string) => Effect.Effect<Path>,
+  entry: Location,
+  placeOf: (loom: Location, sink: string) => Effect.Effect<Location>,
 ): Effect.Effect<ReadonlyArray<TangledFile>> =>
   pipe(
     Option.fromNullishOr(modules.get(entry)),
@@ -98,9 +98,9 @@ const resolveSinks = (
   )
 
 export class TangleError extends Data.TaggedError('TangleError')<{
-  readonly entry: Path
+  readonly entry: Location
   readonly failures: ReadonlyArray<{
-    readonly path: Path
+    readonly path: Location
     readonly diagnostics: ReadonlyArray<Diagnostic>
   }>
 }> {
@@ -152,7 +152,7 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
     })),
   )
 
-export const within = (dir: Path, path: Path): boolean => path.startsWith(join(dir, sep))
+export const within = (dir: Location, path: Location): boolean => path.startsWith(join(dir, sep))
 
 const tokenValue = (token: { readonly value: string } | undefined): string =>
   Option.getOrElse(
@@ -202,8 +202,8 @@ const faceOf = (module: LoomModule): string =>
 
 interface Composition {
   readonly modules: Modules
-  readonly placed: ReadonlyMap<Path, ReadonlyArray<Path>>
-  readonly files: ReadonlyMap<Path, ReadonlyArray<ComposedFile>>
+  readonly placed: ReadonlyMap<Location, ReadonlyArray<Location>>
+  readonly files: ReadonlyMap<Location, ReadonlyArray<ComposedFile>>
 }
 
 const noComposition: Composition = { modules: new Map(), placed: new Map(), files: new Map() }
@@ -211,7 +211,7 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 const composedFilesOf = (
   modules: Modules,
   module: LoomModule,
-  paths: ReadonlyArray<Path>,
+  paths: ReadonlyArray<Location>,
 ): ReadonlyArray<ComposedFile> =>
   Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
     path,
@@ -222,8 +222,8 @@ const composedFilesOf = (
   }))
 
 const samePlaces = (
-  before: ReadonlyArray<Path> | undefined,
-  after: ReadonlyArray<Path> | undefined,
+  before: ReadonlyArray<Location> | undefined,
+  after: ReadonlyArray<Location> | undefined,
 ): boolean =>
   Option.match(Option.all([Option.fromNullishOr(before), Option.fromNullishOr(after)]), {
     onNone: () => before === after,
@@ -234,8 +234,8 @@ const samePlaces = (
 const changedSince = (
   previous: Composition,
   modules: Modules,
-  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
-): ReadonlyArray<Path> =>
+  placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
+): ReadonlyArray<Location> =>
   Array.filter(
     Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
     (path) =>
@@ -246,8 +246,8 @@ const changedSince = (
 const staleSince = (
   previous: Composition,
   modules: Modules,
-  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
-): ReadonlySet<Path> => {
+  placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
+): ReadonlySet<Location> => {
   const changed = changedSince(previous, modules, placed)
   return changed.length === 0
     ? new Set()
@@ -261,7 +261,7 @@ const staleSince = (
 const recompose = (
   previous: Composition,
   modules: Modules,
-  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
+  placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): Composition => {
   const stale = staleSince(previous, modules, placed)
   return {
@@ -289,7 +289,7 @@ const recompose = (
 const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
   Array.flatten(Array.fromIterable(composition.files.values()))
 
-const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
+const namesAt = (modules: Modules, path: Location): ReadonlyArray<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
     Option.match({
@@ -298,7 +298,7 @@ const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
     }),
   )
 
-const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
+const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   const roots = rootNamesAt(modules, path)
   return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
@@ -357,9 +357,9 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 export class DocumentSource extends Context.Service<DocumentSource>()('DocumentSource', {
   make: Effect.gen(function* () {
     const source = yield* WorkspaceSource
-    const held = yield* Ref.make<ReadonlyMap<Path, string>>(new Map())
+    const held = yield* Ref.make<ReadonlyMap<Location, string>>(new Map())
     return {
-      read: (path: Path): Effect.Effect<string, ReadError> =>
+      read: (path: Location): Effect.Effect<string, ReadError> =>
         Ref.get(held).pipe(
           Effect.flatMap((texts) =>
             Option.match(Option.fromNullishOr(texts.get(path)), {
@@ -368,11 +368,11 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
             }),
           ),
         ),
-      hold: (looms: ReadonlyMap<Path, string>): Effect.Effect<void> =>
+      hold: (looms: ReadonlyMap<Location, string>): Effect.Effect<void> =>
         Ref.update(held, (texts) => new Map([...texts, ...looms])),
-      forget: (loom: Path): Effect.Effect<void> =>
+      forget: (loom: Location): Effect.Effect<void> =>
         Ref.update(held, (texts) => new Map(Array.filter([...texts], ([path]) => path !== loom))),
-      list: Option.some((loom: Path): Effect.Effect<ReadonlyArray<Path>> => source.corpusOf(loom)),
+      list: Option.some((loom: Location): Effect.Effect<ReadonlyArray<Location>> => source.corpusOf(loom)),
     }
   }),
 }) {
@@ -391,7 +391,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
 
-    const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
+    const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
       config
         .resolve(path)
         .pipe(
@@ -415,13 +415,13 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         )
 
-    const corpusPaths = (source: Source, entry: Path): Effect.Effect<ReadonlyArray<Path>> =>
+    const corpusPaths = (source: Source, entry: Location): Effect.Effect<ReadonlyArray<Location>> =>
       Option.match(source.list, {
-        onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
+        onNone: () => Effect.succeed<ReadonlyArray<Location>>([entry]),
         onSome: (list) => list(entry).pipe(Effect.map((found) => Array.dedupe([entry, ...found]))),
       })
 
-    const matchEntry = (source: Source, path: Path): Effect.Effect<void> =>
+    const matchEntry = (source: Source, path: Location): Effect.Effect<void> =>
       Effect.all([Effect.option(source.read(path)), memo.entries]).pipe(
         Effect.flatMap(([text, modules]) =>
           pipe(
@@ -432,7 +432,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
       )
 
-    const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
+    const buildCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
       corpusPaths(source, entry).pipe(
         Effect.flatMap((paths) =>
           Effect.forEach(paths, (path) =>
@@ -443,7 +443,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       )
 
     return {
-      compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
+      compile: (source: Source, path: Location): Effect.Effect<VirtualCode> =>
         matchEntry(source, path).pipe(
           Effect.andThen(buildCorpus(source, path)),
           Effect.flatMap((modules) => entryOf(modules, path)),
@@ -460,7 +460,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      tangle: (path: Path): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+      tangle: (path: Location): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => {
             const scoped = scopedTo(modules, reachable(modules, path))
@@ -471,7 +471,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           }),
         ),
 
-      composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
+      composition: (path: Location): Effect.Effect<ReadonlyArray<ComposedFile>> =>
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) =>
             Effect.forEach(Array.fromIterable(modules.values()), (module) =>
@@ -490,10 +490,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      weave: (path: Path): Effect.Effect<WovenCorpus> =>
+      weave: (path: Location): Effect.Effect<WovenCorpus> =>
         buildCorpus(documents, path).pipe(Effect.flatMap((modules) => weaver.build({ modules }))),
 
-      contents: (path: Path): Effect.Effect<string> =>
+      contents: (path: Location): Effect.Effect<string> =>
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) =>
             tocBuilder
@@ -502,7 +502,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
+      diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             pipe(
@@ -523,7 +523,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      definition: (path: Path, offset: number): Effect.Effect<FrameLocation | undefined> =>
+      definition: (path: Location, offset: number): Effect.Effect<FrameLocation | undefined> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Option.getOrUndefined(
@@ -534,7 +534,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      references: (path: Path, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+      references: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
@@ -545,7 +545,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      rename: (path: Path, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
@@ -556,7 +556,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      renameRange: (path: Path, offset: number): Effect.Effect<FrameLocation | undefined> =>
+      renameRange: (path: Location, offset: number): Effect.Effect<FrameLocation | undefined> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Option.getOrUndefined(
@@ -567,7 +567,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      navigationRange: (path: Path, offset: number): Effect.Effect<FrameLocation | undefined> =>
+      navigationRange: (path: Location, offset: number): Effect.Effect<FrameLocation | undefined> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Option.getOrUndefined(
@@ -578,7 +578,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      semanticTokens: (path: Path): Effect.Effect<ReadonlyArray<FrameToken>> =>
+      semanticTokens: (path: Location): Effect.Effect<ReadonlyArray<FrameToken>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             pipe(
@@ -607,23 +607,23 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+      reach: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) => Array.filter(reachable(modules, path), (p) => p !== path)),
         ),
 
-      invalidate: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+      invalidate: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>
         memo.entries.pipe(
           Effect.flatMap((modules) =>
             modules.has(path)
               ? memo
                   .evict([path])
                   .pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
-              : Effect.succeed<ReadonlyArray<Path>>([]),
+              : Effect.succeed<ReadonlyArray<Location>>([]),
           ),
         ),
 
-      invalidateWithin: (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
+      invalidateWithin: (dir: Location): Effect.Effect<ReadonlyArray<Location>> =>
         memo.entries.pipe(
           Effect.map((modules) =>
             Array.filter(Array.fromIterable(modules.keys()), (path) => within(dir, path)),
@@ -631,7 +631,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.tap((paths) => memo.evict(paths)),
         ),
 
-      rebuild: (source: Source, path: Path): Effect.Effect<boolean> =>
+      rebuild: (source: Source, path: Location): Effect.Effect<boolean> =>
         memo.entries.pipe(
           Effect.map((modules) => Option.map(Option.fromNullishOr(modules.get(path)), faceOf)),
           Effect.flatMap((before) =>

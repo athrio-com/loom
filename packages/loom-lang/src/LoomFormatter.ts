@@ -5,11 +5,11 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import { outputPath } from './WorkspaceSource'
 import { type BuildSettings, PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { loomsIn, projectIn } from './LoomProject'
+import { loomsIn, projectIn, type Path } from './LoomProject'
 import { statSync } from 'node:fs'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
 import type { CodeWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
-import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { Location, LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import type { Code } from '@athrio/loom-ast/ProductAst'
 import type { LoomVirtualCode } from '@athrio/loom-ast/LoomVirtualCode'
 import type { AnchorDelims, WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
@@ -714,7 +714,7 @@ const brokenRoots = (
     Array.getSomes,
   )
 
-const textSource = (path: Path, text: string): Source => ({
+const textSource = (path: Location, text: string): Source => ({
   read: (at) =>
     at === path
       ? Effect.succeed(text)
@@ -736,7 +736,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
     const corpus = yield* LoomCorpusAstBuilder
     return {
       format: (
-        path: Path,
+        path: Location,
         text: string,
         languages: ReadonlyArray<LanguageService>,
       ): Effect.Effect<string> =>

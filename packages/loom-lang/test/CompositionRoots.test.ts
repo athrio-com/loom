@@ -4,7 +4,7 @@ const it = effectify(it_)
 import { Effect } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { buildProduct } from '#ast/ProductBuilder'
-import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { LoomModule, Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 
 // rootNamesAt decides which sections are composition roots. The rule: a section is
@@ -14,14 +14,14 @@ import { rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 // that rule, building each module's de re `Product` from real `.loom` source so the
 // names come off the pass under test, not a hand-built fixture.
 
-const moduleOf = (path: Path, text: string): LoomModule => {
+const moduleOf = (path: Location, text: string): LoomModule => {
   const doc = Effect.runSync(parseDocument(text).pipe(Effect.provide(ParseLayer)))
   return { path, text, doc, product: buildProduct(doc, path) }
 }
 
 const corpus = (
-  ...mods: ReadonlyArray<readonly [Path, string]>
-): ReadonlyMap<Path, LoomModule> =>
+  ...mods: ReadonlyArray<readonly [Location, string]>
+): ReadonlyMap<Location, LoomModule> =>
   new Map(mods.map(([path, text]) => [path, moduleOf(path, text)] as const))
 
 describe('rootNamesAt — which sections are composition roots', () => {

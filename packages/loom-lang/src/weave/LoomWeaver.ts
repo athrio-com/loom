@@ -1,6 +1,6 @@
 import { Context, Effect, FileSystem, Layer } from 'effect'
 import { dirname } from 'node:path'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Path } from '../LoomProject'
 import { LoomCompiler } from '../LoomCompiler'
 
 export class LoomWeaver extends Context.Service<LoomWeaver>()('LoomWeaver', {

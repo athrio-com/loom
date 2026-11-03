@@ -1,10 +1,9 @@
 import { Array, Context, Effect, FileSystem, Layer, Option, Result, Schema, Stream } from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { holds, loomsIn, projectIn, storeDirs, type LoomProject } from './LoomProject'
+import { holds, loomsIn, projectIn, storeDirs, type LoomProject, type Path } from './LoomProject'
 import { emptyLock, orphansOf, pruned, recorded, LoomLockSchema, type LoomLock } from './LoomLock'
 
 const isStorePath = (name: string): boolean =>

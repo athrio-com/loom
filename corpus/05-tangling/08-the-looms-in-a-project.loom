@@ -14,6 +14,8 @@ A `.loom` file under the workspace belongs to the project unless one of four rul
 
 ## What a project is
 
+A project lives on a disk, so this module speaks of paths. A `Path` names a file or a folder there. The compiler names a loom by a `Location` instead, which on the file system is the loom's path, as the chapter "Where a workspace is kept" describes.
+
 A project is a workspace together with the patterns it ignores. `LoomProject` holds the two. Its `root` is the workspace, the directory that holds `.loom/config.yaml`. Its `ignore` holds the patterns `.loom/config.yaml` lists under `ignore:`.
 
 Each pattern is written like a line of a `.gitignore` file and matched against paths relative to the root. So `drafts/` leaves out every folder named `drafts`, wherever it sits, while `/notes.loom` leaves out only the `notes.loom` at the root.
@@ -21,6 +23,8 @@ Each pattern is written like a line of a `.gitignore` file and matched against p
 `projectIn` reads a file's project from the configuration `LoomConfig` resolves for it, its workspace root and its patterns. A file in no workspace belongs to no project, and `projectIn` answers `Option.none` for it.
 
 =>
+
+export type Path = string
 
 export interface LoomProject {
   readonly root: Path
@@ -259,7 +263,7 @@ export const holds = (project: LoomProject, loom: Path): boolean =>
 
 ## What the module draws on
 
-The `ignore` package compiles a pattern list the way Git matches it, and answers for a path with `test`. Node's `fs` reads folders, ignore files, and Git's pointer files synchronously, because the editor discovers a corpus inside Volar's synchronous hook, which cannot wait. Node's `path` module places one path relative to another. Effect supplies `Option` for an answer that may be absent, the `Array` combinators, `Match`, and `pipe`. `ResolvedConfig`, from `@athrio/loom-config`, carries a file's workspace and its configured patterns, and `Path` types a file path. The language store supplies `isWorkspace`, which tells a nested workspace by its configuration.
+The `ignore` package compiles a pattern list the way Git matches it, and answers for a path with `test`. Node's `fs` reads folders, ignore files, and Git's pointer files synchronously, because the editor discovers a corpus inside Volar's synchronous hook, which cannot wait. Node's `path` module places one path relative to another. Effect supplies `Option` for an answer that may be absent, the `Array` combinators, `Match`, and `pipe`. `ResolvedConfig`, from `@athrio/loom-config`, carries a file's workspace and its configured patterns. The language store supplies `isWorkspace`, which tells a nested workspace by its configuration.
 
 =>
 
@@ -275,7 +279,6 @@ import {
   resolve as resolvePath,
   sep,
 } from 'node:path'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { type ResolvedConfig } from '@athrio/loom-config/LoomConfig'
 import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
 

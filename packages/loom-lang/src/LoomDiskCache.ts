@@ -11,7 +11,7 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -44,7 +44,7 @@ const sourceDirs = (): ReadonlyArray<string> =>
 const fingerprintNow = (): string =>
   `${serviceVersion}:${Math.max(0, ...Array.map(sourceDirs(), newestIn))}`
 
-const keyOf = (fingerprint: string, path: Path, text: string, settings: BuildSettings): string =>
+const keyOf = (fingerprint: string, path: Location, text: string, settings: BuildSettings): string =>
   createHash('sha256')
     .update(
       JSON.stringify([
@@ -66,7 +66,7 @@ interface KeptModule {
 
 const cacheDirOf = (workspace: string): string => join(workspace, '.loom', 'cache')
 
-const keptFileOf = (workspace: string, path: Path): string =>
+const keptFileOf = (workspace: string, path: Location): string =>
   join(
     cacheDirOf(workspace),
     'modules',
@@ -99,7 +99,7 @@ const revived = (module: LoomModule): LoomModule => ({
   },
 })
 
-const recall = (file: string, key: string, path: Path, text: string): Option.Option<LoomModule> =>
+const recall = (file: string, key: string, path: Location, text: string): Option.Option<LoomModule> =>
   pipe(
     Option.liftThrowable(() => JSON.parse(readFileSync(file, 'utf8')) as KeptModule)(),
     Option.filter(
@@ -142,7 +142,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
       through: (
         source: Source,
         saved: Source,
-        path: Path,
+        path: Location,
         settings: BuildSettings,
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>

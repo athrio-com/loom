@@ -9,11 +9,9 @@ import {
   type ResolvedConfig,
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
-import { holds, loomsIn, projectIn } from './LoomProject'
-
-export type Location = Path
+import { holds, loomsIn, projectIn, type Path } from './LoomProject'
 
 export interface Workspace {
   readonly location: Location

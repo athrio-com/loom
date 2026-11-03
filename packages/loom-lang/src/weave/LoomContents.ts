@@ -1,5 +1,5 @@
 import { Context, Effect, FileSystem, Layer } from 'effect'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Path } from '../LoomProject'
 import { LoomCompiler } from '../LoomCompiler'
 
 export class LoomContents extends Context.Service<LoomContents>()('LoomContents', {

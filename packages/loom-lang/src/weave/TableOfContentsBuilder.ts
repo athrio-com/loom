@@ -1,7 +1,7 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe, Schema } from 'effect'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import type { TocWeft } from '@athrio/loom-ast/Weft'
-import { type LoomCorpusAst, type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomCorpusAst, type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
 
 export const TocChapterSchema = Schema.Struct({
   number: Schema.String,
@@ -273,7 +273,7 @@ const spliceToc = (module: LoomModule, section: LoomSection, toc: TableOfContent
   return tail.length === 0 ? rebuilt : `${rebuilt}\n${tail}`
 }
 
-export const rewriteBook = (corpus: LoomCorpusAst, path: Path, toc: TableOfContents): string =>
+export const rewriteBook = (corpus: LoomCorpusAst, path: Location, toc: TableOfContents): string =>
   Option.match(Option.fromNullishOr(corpus.modules.get(path)), {
     onNone: () => '',
     onSome: (module) =>

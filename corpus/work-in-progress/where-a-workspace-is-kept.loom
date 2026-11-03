@@ -27,11 +27,9 @@ The first two fetch text. The `open` method hands over a whole `Workspace` value
 
 The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink of a loom lands, the path the compiler records for the file the sink names. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
 
-A `Location` is a string. In this chapter's first step it is the compiler's own `Path` type under a second name, and the `Path` type gives way to it in the fourth.
+A `Location` is a string, the type the corpus model names a loom by, as the chapter "The multi-file AST" describes.
 
 =>
-
-export type Location = Path
 
 export interface Workspace {
   readonly location: Location
@@ -228,13 +226,13 @@ The two variables are all the language server needs, so it can run on an author'
 
 ## A location is a name, not a path
 
-The compiler compares locations and keys its maps by them, and it never takes one apart. Only the source knows what a location means, because the source makes it. The `Path` type becomes `Location` to say so.
+The compiler compares locations and keys its maps by them, and it never takes one apart. Only the source knows what a location means, because the source makes it. The corpus model's `Location` type says so.
 
 The file-system source keeps today's absolute paths as locations, so nothing changes for a loom in a folder.
 
 The `locationOf` and `uriOf` methods replace the uses of `uri.fsPath`, `URI.file`, and `fileURLToPath` in the `LoomLanguagePlugin`, `LoomServer`, and `LoomLanguage` modules. This removes a trap as well. The `fsPath` property ignores a URI's scheme, so `memory:/a.loom` and `file:///a.loom` both come out as `/a.loom`. The `LoomLanguage` service reaches the two methods through the `FrameQuery` capability, because its package cannot depend on the compiler's. Two checks in the server keep reading `fsPath`, each behind a test of the URI's `file` scheme, because each is a rule about folders: the lookup of a nested workspace, and the modified time the `savedLooms` function reads.
 
-Some uses of the `Path` type name a location the compiler only compares. Others name a real file path that code on the file system takes apart, such as the walk of the `loomsIn` function, the tangler, the formatter, and the build cache on disk. Only the first kind becomes `Location`.
+The compiler, the corpus model, and every service that keys or compares looms name a loom by a `Location`. Code that works only on the file system and takes a path apart keeps the `Path` type of the chapter "The looms in a project": the walk of the `loomsIn` function, the tangler, the formatter's listing of a folder, the weaver's output folder, and this source's own reads and placement of sinks.
 
 One form of anchor still reads inside a location. The anchor `::[Name](path.loom)` goes through the `resolveRelative` function, which splits the location on `/`. A URL splits the same way, so this anchor keeps working until the chapter "Names through the book" retires it.
 
@@ -398,7 +396,7 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
 
 ## What the source draws on
 
-Effect supplies the service, the layer, `Option`, and the effect type. Node's `fs` reads a file, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Path` types a compiler path, and `ReadError` names a read that failed. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
+Effect supplies the service, the layer, `Option`, and the effect type. Node's `fs` reads a file, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
 
 =>
 
@@ -413,9 +411,9 @@ import {
   type ResolvedConfig,
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
-import { holds, loomsIn, projectIn } from './LoomProject'
+import { holds, loomsIn, projectIn, type Path } from './LoomProject'
 
 ~
 

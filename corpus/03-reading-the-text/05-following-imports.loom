@@ -23,12 +23,12 @@ The builder owns no files. It reads through a `Source` the caller hands it, so t
 =>
 
 export interface Source {
-  readonly read: (path: Path) => Effect.Effect<string, ReadError>
-  readonly list: Option.Option<(loom: Path) => Effect.Effect<ReadonlyArray<Path>>>
+  readonly read: (path: Location) => Effect.Effect<string, ReadError>
+  readonly list: Option.Option<(loom: Location) => Effect.Effect<ReadonlyArray<Location>>>
 }
 
 export class ReadError extends Data.TaggedError('ReadError')<{
-  readonly path: Path
+  readonly path: Location
   readonly cause: unknown
 }> {
   get message(): string {
@@ -58,7 +58,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
       const parsed = (
         source: Source,
-        path: Path,
+        path: Location,
         delims: AnchorDelims,
       ): Effect.Effect<{ readonly text: string; readonly doc: LoomDocument }> =>
         source.read(path).pipe(
@@ -92,7 +92,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
       const build = (
         source: Source,
-        path: Path,
+        path: Location,
         delims: AnchorDelims = defaultAnchorDelims,
         primaryLanguage?: string,
         variables: Record<string, string> = {},
@@ -122,7 +122,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
 ## What the builder draws on
 
-The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `ProductBuilder` for the product pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Path` types name what `parsed` returns, what a build returns, and how a file is addressed,. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `ProductBuilder` for the product pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Location` types name what `parsed` returns, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
 
 =>
 
@@ -139,7 +139,7 @@ import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { ProductBuilder } from '#ast/ProductBuilder'
-import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { LoomModule, Location } from '@athrio/loom-ast/LoomCorpusAst'
 
 ## The module {Tangle}
 

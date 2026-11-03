@@ -7,7 +7,7 @@ import {
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
-import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import {
@@ -16,7 +16,7 @@ import {
   type MappingKind,
 } from '@athrio/loom-ast/LoomVirtualCode'
 
-const lookup = (modules: ReadonlyMap<Path, LoomModule>, id: SectionId): Option.Option<Code> =>
+const lookup = (modules: ReadonlyMap<Location, LoomModule>, id: SectionId): Option.Option<Code> =>
   pipe(
     Option.fromNullishOr(modules.get(id.path)),
     Option.flatMapNullishOr((m) => m.product),
@@ -66,9 +66,9 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 
 const inlinePart =
   (
-    modules: ReadonlyMap<Path, LoomModule>,
+    modules: ReadonlyMap<Location, LoomModule>,
     seen: ReadonlySet<string>,
-    home: Path,
+    home: Location,
     mapped: boolean,
   ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
@@ -94,7 +94,7 @@ const inlinePart =
   }
 
 const inlineComposed =
-  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>, home: Path) =>
+  (modules: ReadonlyMap<Location, LoomModule>, seen: ReadonlySet<string>, home: Location) =>
   (node: Code): LoomVirtualCode => {
     const build = inlinePart(modules, seen, home, node.origin.path === home)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
@@ -229,7 +229,7 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
   Array.map(symbolsOf(doc), (symbol) => spanOf(symbol.position, symbol.kind))
 
 export const fromProduct = (
-  modules: ReadonlyMap<Path, LoomModule>,
+  modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
 ): LoomVirtualCode =>
   pipe(
@@ -260,7 +260,7 @@ const proseMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
     Array.map((token) => spanOf(token.position, 'prose')),
   )
 
-export const fromProse = (modules: ReadonlyMap<Path, LoomModule>, path: Path): LoomVirtualCode =>
+export const fromProse = (modules: ReadonlyMap<Location, LoomModule>, path: Location): LoomVirtualCode =>
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: () => leaf('prose', 'prose', '', []),
     onSome: (module) => {
@@ -308,8 +308,8 @@ export const rootVirtualCode = (
 })
 
 export const rootNamesAt = (
-  modules: ReadonlyMap<Path, LoomModule>,
-  path: Path,
+  modules: ReadonlyMap<Location, LoomModule>,
+  path: Location,
 ): ReadonlySet<string> => {
   const here = modules.get(path)?.product?.code ?? []
   const named = new Set(
@@ -341,7 +341,7 @@ export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuild
   {
     make: Effect.succeed({
       fromProduct: (
-        modules: ReadonlyMap<Path, LoomModule>,
+        modules: ReadonlyMap<Location, LoomModule>,
         root: SectionId,
       ): Effect.Effect<LoomVirtualCode> => Effect.sync(() => fromProduct(modules, root)),
     }),

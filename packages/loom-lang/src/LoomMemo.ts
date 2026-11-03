@@ -1,5 +1,5 @@
 import { Array, Context, Effect, Layer, Option, SynchronizedRef, pipe } from 'effect'
-import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface MemoStats {
   readonly hits: number
@@ -8,7 +8,7 @@ export interface MemoStats {
 }
 
 interface MemoState {
-  readonly modules: ReadonlyMap<Path, LoomModule>
+  readonly modules: ReadonlyMap<Location, LoomModule>
   readonly hits: number
   readonly misses: number
 }
@@ -20,7 +20,7 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
     const state = yield* SynchronizedRef.make<MemoState>(empty)
 
     return {
-      get: (path: Path, build: Effect.Effect<LoomModule>): Effect.Effect<LoomModule> =>
+      get: (path: Location, build: Effect.Effect<LoomModule>): Effect.Effect<LoomModule> =>
         SynchronizedRef.modifyEffect(state, (s) =>
           Option.match(Option.fromNullishOr(s.modules.get(path)), {
             onSome: (module) => Effect.succeed([module, { ...s, hits: s.hits + 1 }] as const),
@@ -42,7 +42,7 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
 
       entries: SynchronizedRef.get(state).pipe(Effect.map((s) => s.modules)),
 
-      fill: (produced: ReadonlyMap<Path, LoomModule>): Effect.Effect<void> =>
+      fill: (produced: ReadonlyMap<Location, LoomModule>): Effect.Effect<void> =>
         SynchronizedRef.update(state, (s) => ({
           ...s,
           modules: new Map(
@@ -53,7 +53,7 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
           ),
         })),
 
-      evict: (paths: Iterable<Path>): Effect.Effect<void> => {
+      evict: (paths: Iterable<Location>): Effect.Effect<void> => {
         const drop = new Set(paths)
         return SynchronizedRef.update(state, (s) => ({
           ...s,

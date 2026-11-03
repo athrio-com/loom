@@ -10,9 +10,10 @@ import {
   resolve as resolvePath,
   sep,
 } from 'node:path'
-import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { type ResolvedConfig } from '@athrio/loom-config/LoomConfig'
 import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
+
+export type Path = string
 
 export interface LoomProject {
   readonly root: Path

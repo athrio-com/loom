@@ -11,15 +11,15 @@ import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { ProductBuilder } from '#ast/ProductBuilder'
-import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { LoomModule, Location } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface Source {
-  readonly read: (path: Path) => Effect.Effect<string, ReadError>
-  readonly list: Option.Option<(loom: Path) => Effect.Effect<ReadonlyArray<Path>>>
+  readonly read: (path: Location) => Effect.Effect<string, ReadError>
+  readonly list: Option.Option<(loom: Location) => Effect.Effect<ReadonlyArray<Location>>>
 }
 
 export class ReadError extends Data.TaggedError('ReadError')<{
-  readonly path: Path
+  readonly path: Location
   readonly cause: unknown
 }> {
   get message(): string {
@@ -41,7 +41,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
       const parsed = (
         source: Source,
-        path: Path,
+        path: Location,
         delims: AnchorDelims,
       ): Effect.Effect<{ readonly text: string; readonly doc: LoomDocument }> =>
         source.read(path).pipe(
@@ -75,7 +75,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
       const build = (
         source: Source,
-        path: Path,
+        path: Location,
         delims: AnchorDelims = defaultAnchorDelims,
         primaryLanguage?: string,
         variables: Record<string, string> = {},
