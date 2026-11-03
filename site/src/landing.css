@@ -2527,8 +2527,8 @@ h2, .subhead {
 
 .source-block { font-size: var(--t-code); }
 
-.source-head,
-.source-foot {
+.block-head,
+.block-foot {
   display: flex;
   align-items: center;
   gap: 12px;

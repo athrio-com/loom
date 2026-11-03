@@ -128,8 +128,8 @@ describe('the page', () => {
     expect(html).toContain(
       '<code><span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span></code>',
     )
-    expect(html).toContain('<div class="source-head"><span class="loom-syntax arrow">=&gt;</span>')
-    expect(html).toContain('<div class="source-foot"><span class="loom-syntax tilde">~</span></div>')
+    expect(html).toContain('<div class="block-head"><span class="loom-syntax arrow">=&gt;</span>')
+    expect(html).toContain('<div class="block-foot"><span class="loom-syntax tilde">~</span></div>')
     expect(html.match(/loom-syntax arrow/g)).toHaveLength(1)
     expect(html).toContain('href="/source/using-loom/a-workspace"')
     ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))

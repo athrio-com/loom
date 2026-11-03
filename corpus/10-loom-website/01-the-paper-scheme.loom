@@ -3071,8 +3071,8 @@ A note is a reader's annotation rather than part of the chapter, so it reads qui
 
 .source-block { font-size: var(--t-code); }
 
-.source-head,
-.source-foot {
+.block-head,
+.block-foot {
   display: flex;
   align-items: center;
   gap: 12px;

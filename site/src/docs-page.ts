@@ -393,7 +393,7 @@ const arrowChip = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Htm
 
 const tildeFoot = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
   block.closed === true
-    ? [h.div([h.Class('source-foot')], [h.span([h.Class('loom-syntax tilde')], ['~'])])]
+    ? [h.div([h.Class('block-foot')], [h.span([h.Class('loom-syntax tilde')], ['~'])])]
     : []
 
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
@@ -417,7 +417,7 @@ const codeOf = (
   h.div(
     [h.Class('source-block')],
     [
-      h.div([h.Class('source-head')], [...arrowChip(block, h), codeTag(block, h)]),
+      h.div([h.Class('block-head')], [...arrowChip(block, h), codeTag(block, h)]),
       h.div(
         [h.Class('docs-canvas source-sheet')],
         [
