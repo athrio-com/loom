@@ -6,8 +6,8 @@ import {
   type LoomCorpusAst,
   type LoomModule,
   resolveAnchor,
-  titleIndexes,
-  type TitleIndexes,
+  bookOf,
+  type Book,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type AnchorLink,
@@ -42,13 +42,13 @@ export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder'
 
 export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
-  const indexes = titleIndexes(corpus.modules)
+  const book = bookOf(corpus.modules)
   const toc = buildContents(corpus)
   const nav = Array.map(toc.parts, wovenPart)
   const loose = Array.map(toc.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
-    Array.getSomes(Array.map(modules, (module) => buildPage(module, indexes, partOfSlug))),
+    Array.getSomes(Array.map(modules, (module) => buildPage(module, book, partOfSlug))),
     Array.sort(inReadingOrder(navOrder(nav))),
   )
   return WovenCorpusSchema.make({ nav, loose, pages })
@@ -128,7 +128,7 @@ const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
 
 const buildPage = (
   module: LoomModule,
-  indexes: TitleIndexes,
+  book: Book,
   partOfSlug: ReadonlyMap<string, string>,
 ): Option.Option<WovenPage> =>
   isBookRoot(module)
@@ -140,12 +140,12 @@ const buildPage = (
           title,
           part: partOfSlug.get(slug),
           frontmatter: module.doc.frontmatter?.source,
-          blocks: buildBlocks(module, indexes),
+          blocks: buildBlocks(module, book),
         })
       })
 
-const buildBlocks = (module: LoomModule, indexes: TitleIndexes): ReadonlyArray<WovenBlock> =>
-  Array.flatMap(module.doc.sections, sectionBlocks(module, indexes))
+const buildBlocks = (module: LoomModule, book: Book): ReadonlyArray<WovenBlock> =>
+  Array.flatMap(module.doc.sections, sectionBlocks(module, book))
 
 const sectionSource = (module: LoomModule, section: LoomSection): SourceAnchor =>
   SourceAnchorSchema.make({
@@ -154,14 +154,14 @@ const sectionSource = (module: LoomModule, section: LoomSection): SourceAnchor =
   })
 
 const sectionBlocks =
-  (module: LoomModule, indexes: TitleIndexes) =>
+  (module: LoomModule, book: Book) =>
   (section: LoomSection): ReadonlyArray<WovenBlock> => {
     const source = sectionSource(module, section)
     return [
       headingBlock(section, source),
       ...pipe(
         splitRuns(sectionBody(section)),
-        Array.flatMap(runBlocks(module, indexes, section, source)),
+        Array.flatMap(runBlocks(module, book, section, source)),
       ),
     ]
   }
@@ -283,7 +283,7 @@ const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<Wove
 
 const codeBlock = (
   module: LoomModule,
-  indexes: TitleIndexes,
+  book: Book,
   section: LoomSection,
   source: SourceAnchor,
   run: ReadonlyArray<BodyWeft>,
@@ -299,13 +299,13 @@ const codeBlock = (
         (anchor) =>
           anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
       ),
-      Array.map((anchor) => resolveLink(module, indexes, span.start, anchor)),
+      Array.map((anchor) => resolveLink(module, book, span.start, anchor)),
       Array.getSomes,
     ),
   })
 
 const runBlocks =
-  (module: LoomModule, indexes: TitleIndexes, section: LoomSection, source: SourceAnchor) =>
+  (module: LoomModule, book: Book, section: LoomSection, source: SourceAnchor) =>
   (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
@@ -316,7 +316,7 @@ const runBlocks =
             Match.value(first).pipe(
               Match.withReturnType<ReadonlyArray<WovenBlock>>(),
               Match.when({ type: 'ArrowWeft' }, () => [
-                codeBlock(module, indexes, section, source, run, span),
+                codeBlock(module, book, section, source, run, span),
               ]),
               Match.orElse(() => proseBlocks(sliceContent(module.text, span), source)),
             ),
@@ -325,12 +325,12 @@ const runBlocks =
 
 const resolveLink = (
   module: LoomModule,
-  indexes: TitleIndexes,
+  book: Book,
   blockStart: number,
   anchor: WarpAnchorToken,
 ): Option.Option<AnchorLink> =>
   pipe(
-    resolveAnchor(indexes, module.path, anchor),
+    resolveAnchor(book, module.path, anchor),
     Option.flatMap((ref) =>
       Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
         AnchorLinkSchema.make({

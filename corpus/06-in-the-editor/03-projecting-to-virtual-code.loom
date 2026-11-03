@@ -12,6 +12,8 @@ Language: TypeScript
 
 `fromProduct` resolves a `Ref`'s `{ path, name }` target against the corpus modules. `lookup` finds the module at the path, takes its de re `product`, and finds the `Code` whose `origin` carries the name. A module the run has not produced yet, or one with no section by that name, resolves to nothing.
 
+A `Ref` the product pass left open has no target yet. Its name lies beyond the loom that holds it, so `inlinePart` binds it first through the product pass's `targetOf`, which resolves the name through the corpus's `Book` from that loom.
+
 =>
 
 const lookup = (modules: ReadonlyMap<Location, LoomModule>, id: SectionId): Option.Option<Code> =>
@@ -54,7 +56,7 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
 
 The de re walk inlines a section's fragments. `inlineComposed` folds them left to right, carrying both the text emitted so far and each fragment's successor, so it can tell whether an anchor stands alone on its line. A `Ref` that does is re-indented to that line's indent (the next section), and every other fragment — an anchor with code beside it among them — is appended as it stands. The fold also carries a flag. After an anchor that owned its line, the fragment that follows opens with the spaces the author left past the anchor, so the fold trims them.
 
-`inlinePart` handles each fragment. A `Fragment` becomes a `product` leaf, and a reference is followed and inlined, contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+`inlinePart` handles each fragment. A `Fragment` becomes a `product` leaf, and a reference is bound, followed, and inlined, contributing nothing when its target is unresolved, missing, or cyclic. It learns which loom holds the reference from the section being folded, the `owner`, because an open reference resolves its name from there. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
 
 A leaf maps to its origin only when its section lives in the file being projected, the `home` file the walk carries down from its root. A mapping is a span in that one file's source, while a `Fragment`'s origin is a span in the file its own section came from. So a block that a cross-file anchor pulls in still lands in the code, and the product type-checks whole, but the block maps nowhere in the home file. Its own file projects it again, with mappings of its own, and an edit to that block belongs there.
 
@@ -81,9 +83,10 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
+    book: Book,
     seen: ReadonlySet<string>,
     home: Location,
-    mapped: boolean,
+    owner: Location,
   ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
@@ -93,24 +96,31 @@ const inlinePart =
         source: part.origin,
         kind: 'product',
       }
-      return leaf('', '', part.text, mapped ? [origin] : [])
+      return leaf('', '', part.text, owner === home ? [origin] : [])
     }
     return pipe(
-      part.target,
+      targetOf(book, owner, part),
       Option.filter((t) => !seen.has(keyOf(t))),
       Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
-          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]), home)(node)),
+          absorbTrailingNewline(
+            inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home)(node),
+          ),
       }),
     )
   }
 
 const inlineComposed =
-  (modules: ReadonlyMap<Location, LoomModule>, seen: ReadonlySet<string>, home: Location) =>
+  (
+    modules: ReadonlyMap<Location, LoomModule>,
+    book: Book,
+    seen: ReadonlySet<string>,
+    home: Location,
+  ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, seen, home, node.origin.path === home)
+    const build = inlinePart(modules, book, seen, home, node.origin.path)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -268,7 +278,7 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 
 ## The passes and the tree
 
-`fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
+`fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. It takes the corpus's `Book` for the open references it binds. A caller that projects many sections over one corpus builds the book once and passes it in, and any other caller lets `fromProduct` build it. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
 `rootNamesAt` names a file's composition roots — the sections no reference in the file folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A reference to a section in the same file demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. A reference into another file demotes nothing here, because its target belongs to that other file, which names its own roots. The sections left over, named by no same-file reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
@@ -277,13 +287,14 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
+  book: Book = bookOf(modules),
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
-        ...inlineComposed(modules, new Set([keyOf(root)]), root.path)(node),
+        ...inlineComposed(modules, book, new Set([keyOf(root)]), root.path)(node),
         id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),
@@ -404,7 +415,7 @@ export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuild
 
 ## What this module draws on
 
-Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, and `Effect` itself for the service. The de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Location` the resolution walks from the corpus model. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
+Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, and `Effect` itself for the service. The de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Location` the resolution walks from the corpus model, with the `Book` an open reference resolves through and `bookOf`, which builds it. The product pass's `targetOf` binds an open reference. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
 
 =>
 
@@ -417,7 +428,8 @@ import {
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
-import { type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { bookOf, type Book, type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { targetOf } from '#ast/ProductBuilder'
 import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import {

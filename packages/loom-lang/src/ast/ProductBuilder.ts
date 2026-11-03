@@ -7,7 +7,17 @@ import {
   type Point,
   type Position,
 } from '@athrio/loom-ast/LoomNode'
-import { anchorModule, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  anchorModule,
+  type Book,
+  type Location,
+  type LoomModule,
+  resolveName,
+  sectionOf,
+  type SectionRef,
+  type Trail,
+  trailsOf,
+} from '@athrio/loom-ast/LoomCorpusAst'
 import type { SinkToken, WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
@@ -26,6 +36,7 @@ import {
 } from '@athrio/loom-ast/ProductAst'
 import {
   AmbiguousAnchor,
+  ChapterWithoutCode,
   CrossLanguageAnchor,
   faulty,
   UnknownVariable,
@@ -402,10 +413,11 @@ const bindAnchor =
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
-      onEmpty: () => blankFragment(anchor.position, unresolved(name, at)),
+      onEmpty: () => openRef(name, at),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? NameRefSchema.make({
+              name,
               target: Option.some<SectionId>({
                 path: modulePath,
                 name: entry.name,
@@ -420,9 +432,13 @@ const bindAnchor =
 
 const crossFileRef = (path: string, title: string, at: Position): NameRef =>
   NameRefSchema.make({
+    name: title,
     target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
     anchor: at,
   })
+
+const openRef = (title: string, at: Position): NameRef =>
+  NameRefSchema.make({ name: title, target: Option.none(), anchor: at })
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
@@ -436,6 +452,7 @@ const crossLanguage = (name: string, at: Position, host: string, found: string):
   faulty(CrossLanguageAnchor({ name, host, found }), at)
 
 export const crossFileFaults = (
+  book: Book,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> =>
@@ -444,27 +461,30 @@ export const crossFileFaults = (
     Array.flatMap((host) =>
       Array.flatMap(host.fragments, (part) =>
         pipe(
-          crossFileEdge(module, part),
-          Option.map(
-            ({ ref, target }) => edgeHealth(modules, module, host, ref, target).diagnostics,
-          ),
+          edgeBeyond(module, part),
+          Option.map((ref) => edgeHealth(book, modules, module, host, ref).diagnostics),
           Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
         ),
       ),
     ),
   )
 
-const crossFileEdge = (
-  module: LoomModule,
-  part: Part,
-): Option.Option<{ readonly ref: NameRef; readonly target: SectionId }> =>
-  part.type === 'NameRef'
-    ? pipe(
-        part.target,
-        Option.filter((target) => target.path !== module.path),
-        Option.map((target) => ({ ref: part, target })),
-      )
+const edgeBeyond = (module: LoomModule, part: Part): Option.Option<NameRef> =>
+  part.type === 'NameRef' && !Option.exists(part.target, (target) => target.path === module.path)
+    ? Option.some(part)
     : Option.none()
+
+const edgeHealth = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+  host: Code,
+  ref: NameRef,
+): Health =>
+  Option.match(ref.target, {
+    onSome: (target) => pathHealth(modules, host, ref, target),
+    onNone: () => nameHealth(book, modules, module, host, ref),
+  })
 
 const codesTitled = (module: LoomModule, title: string): ReadonlyArray<Code> =>
   pipe(
@@ -477,31 +497,82 @@ const codesTitled = (module: LoomModule, title: string): ReadonlyArray<Code> =>
     ),
   )
 
-const edgeHealth = (
+const pathHealth = (
   modules: ReadonlyMap<string, LoomModule>,
-  module: LoomModule,
   host: Code,
   ref: NameRef,
   target: SectionId,
 ): Health => {
-  const at = ref.anchor
-  const name = module.text.slice(at.start.offset, at.end.offset)
   const found = pipe(
     Option.fromNullishOr(modules.get(target.path)),
-    Option.map((there) => codesTitled(there, name)),
+    Option.map((there) => codesTitled(there, ref.name)),
     Option.getOrElse((): ReadonlyArray<Code> => []),
   )
   return Array.matchLeft(found, {
-    onEmpty: () => unresolved(name, at),
+    onEmpty: () => unresolved(ref.name, ref.anchor),
     onNonEmpty: (code, rest) =>
       rest.length > 0
-        ? ambiguous(name, at, rest.length + 1)
-        : languageHealth(name, at, host.languageId, code.languageId),
+        ? ambiguous(ref.name, ref.anchor, rest.length + 1)
+        : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
   })
 }
 
+const nameHealth = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+  host: Code,
+  ref: NameRef,
+): Health =>
+  Array.matchLeft(trailsOf(book, module.path, ref.name), {
+    onEmpty: () => unresolved(ref.name, ref.anchor),
+    onNonEmpty: (trail, rest) =>
+      rest.length > 0
+        ? ambiguous(ref.name, ref.anchor, rest.length + 1)
+        : trailHealth(modules, host, ref, trail),
+  })
+
+const trailHealth = (
+  modules: ReadonlyMap<string, LoomModule>,
+  host: Code,
+  ref: NameRef,
+  trail: Trail,
+): Health =>
+  Option.match(
+    Option.flatMap(sectionOf(trail), (reached) => codeOf(modules, reached)),
+    {
+      onNone: () => unresolved(ref.name, ref.anchor),
+      onSome: (code) =>
+        Array.lastNonEmpty(trail).place._tag === 'Chapter' && code.fragments.length === 0
+          ? faulty(ChapterWithoutCode({ name: ref.name }), ref.anchor)
+          : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+    },
+  )
+
+const codeOf = (
+  modules: ReadonlyMap<string, LoomModule>,
+  reached: SectionRef,
+): Option.Option<Code> =>
+  pipe(
+    Option.fromNullishOr(modules.get(reached.module)),
+    Option.flatMap((there) =>
+      Array.findFirst(
+        there.product.code,
+        (code) => code.origin.name === sectionNameOf(reached.section),
+      ),
+    ),
+  )
+
 const languageHealth = (name: string, at: Position, host: string, found: string): Health =>
   found === host ? okHealth : crossLanguage(name, at, host, found)
+
+export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Option<SectionId> =>
+  Option.orElse(ref.target, () =>
+    Option.map(resolveName(book, from, ref.name), (reached) => ({
+      path: reached.module,
+      name: sectionNameOf(reached.section),
+    })),
+  )
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')

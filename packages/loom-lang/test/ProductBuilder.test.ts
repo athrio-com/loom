@@ -152,13 +152,14 @@ console.log(greet('world'))
       'typescript',
     )
     const caller = Option.getOrThrow(codeNamed(product, 'Caller'))
-    expect(refs(caller.fragments)).toHaveLength(0)
-    expect(fragments(caller.fragments)[0]!.health.status).toBe('error')
+    const [open] = refs(caller.fragments)
+    expect(open!.name).toBe('Ghost')
+    expect(Option.isNone(open!.target)).toBe(true)
   })
 })
 
-describe('ProductBuilder — an unresolved anchor becomes an empty faulted Fragment', () => {
-  it('leaves an empty Fragment carrying UnresolvedAnchor health', () => {
+describe('ProductBuilder — a name its document lacks becomes an open edge', () => {
+  it('records the name, leaves the target open, and raises no fault here', () => {
     const product = productOf(`---
 Language: TypeScript
 ---
@@ -171,16 +172,11 @@ Language: TypeScript
 const c = 1
 `)
     const caller = Option.getOrThrow(codeNamed(product, 'Caller'))
-    expect(refs(caller.fragments)).toEqual([]) // no edge — nothing to resolve to
-    const empty = fragments(caller.fragments).find((f) => f.health.status === 'error')!
-    console.log(
-      '[expected — not a test failure] unresolved anchor diagnostic:',
-      JSON.stringify(empty.health.diagnostics),
-    )
-    expect(empty.text).toBe('') // an empty fragment stands where the anchor was
-    expect(empty.health.diagnostics).toHaveLength(1)
-    expect(empty.health.diagnostics[0]!.message).toContain('Unresolved anchor')
-    expect(empty.health.diagnostics[0]!.message).toContain('Missing')
+    const [open] = refs(caller.fragments)
+    expect(open!.name).toBe('Missing')
+    expect(Option.isNone(open!.target)).toBe(true)
+    expect(open!.health.status).toBe('ok') // the compiler judges it against the corpus
+    expect(fragments(caller.fragments).every((f) => f.health.status === 'ok')).toBe(true)
   })
 })
 

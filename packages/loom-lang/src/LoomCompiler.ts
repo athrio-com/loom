@@ -5,6 +5,8 @@ import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
+  bookOf,
+  type Book,
   corpusErrors,
   definitionAt,
   dependentsOf,
@@ -62,12 +64,13 @@ const entryOf = (
     Effect.map((entry) => ({ modules, entry })),
   )
 
-const corpusDiagnostics =
-  (modules: Modules) =>
-  (module: LoomModule): ReadonlyArray<Diagnostic> => [
+const corpusDiagnostics = (modules: Modules) => {
+  const book = bookOf(modules)
+  return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
-    ...crossFileFaults(modules, module),
+    ...crossFileFaults(book, modules, module),
   ]
+}
 
 export interface TangledFile {
   readonly section: string
@@ -84,16 +87,18 @@ const resolveSinks = (
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
       onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
-      onSome: (module) =>
-        Effect.forEach(module.product.files, (file) =>
+      onSome: (module) => {
+        const book = bookOf(modules)
+        return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.map((path) => ({
               section: file.code.origin.name,
               path,
-              content: fromProduct(modules, file.code.origin).code,
+              content: fromProduct(modules, file.code.origin, book).code,
             })),
           ),
-        ),
+        )
+      },
     }),
   )
 
@@ -164,7 +169,7 @@ const partFaceOf = (part: Part): string =>
   Match.value(part).pipe(
     Match.when({ type: 'Fragment' }, (fragment) => fragment.text),
     Match.when({ type: 'NameRef' }, (ref) =>
-      Option.match(ref.target, { onNone: () => '', onSome: keyOf }),
+      Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
     ),
     Match.exhaustive,
   )
@@ -210,12 +215,13 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 
 const composedFilesOf = (
   modules: Modules,
+  book: Book,
   module: LoomModule,
   paths: ReadonlyArray<Location>,
 ): ReadonlyArray<ComposedFile> =>
   Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
     path,
-    content: fromProduct(modules, file.code.origin).code,
+    content: fromProduct(modules, file.code.origin, book).code,
     loomPath: module.path,
     rootId: file.code.origin.name.toLowerCase(),
     heading: headingLocationOf(modules, module, file.code.origin.name),
@@ -264,6 +270,8 @@ const recompose = (
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): Composition => {
   const stale = staleSince(previous, modules, placed)
+  if (stale.size === 0) return { ...previous, modules, placed }
+  const book = bookOf(modules)
   return {
     modules,
     placed,
@@ -277,7 +285,7 @@ const recompose = (
               Option.fromNullishOr(previous.files.get(module.path)),
               Option.filter(() => !stale.has(module.path)),
               Option.getOrElse(() =>
-                composedFilesOf(modules, module, placed.get(module.path) ?? []),
+                composedFilesOf(modules, book, module, placed.get(module.path) ?? []),
               ),
             ),
           ] as const,
@@ -303,18 +311,20 @@ const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
 
-const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
-  rootVirtualCode(
+const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
+  const book = bookOf(modules)
+  return rootVirtualCode(
     entry.text,
     [
       fromProse(modules, entry.path),
       ...pipe(
         rootsAt(modules, entry.path),
-        Array.map((name) => fromProduct(modules, { path: entry.path, name })),
+        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book)),
       ),
     ],
     symbolMappings(entry.doc),
   )
+}
 
 export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
   getText: (start, end) => text.slice(start, end),
@@ -464,10 +474,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => {
             const scoped = scopedTo(modules, reachable(modules, path))
-            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(scoped))
+            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(modules))
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
-              : resolveSinks(scoped, path, workspaces.placeOf)
+              : resolveSinks(modules, path, workspaces.placeOf)
           }),
         ),
 

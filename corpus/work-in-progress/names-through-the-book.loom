@@ -44,7 +44,7 @@ A term reference, written `::[Account]{Term}`, has a lookup of its own. It looks
 
 ## The lookup, changed in place
 
-The corpus already holds everything the rule reads. The `titleIndexes` function indexes each loom's sections by title, and `chapterIndex` indexes the book's chapters by the titles their frontmatter declares. The frontmatter also carries each chapter's part numeral and chapter number, which index the short form. So `resolveAnchor` keeps its place and changes its steps. It looks in the anchor's own loom through `titleIndexes`. Failing that, it looks for a chapter through `chapterIndex`. For a path, it finds the chapter that the path's leading names give, by title or by number, and walks the rest through that chapter's titles.
+The corpus already holds everything the rule reads. The `titleIndexes` function indexes each loom's sections by title, and `chapterIndex` indexes the book's chapters by the titles their frontmatter declares. The frontmatter also carries each chapter's part numeral and chapter number, which index the short form. So `resolveAnchor` keeps its place and changes its steps. It looks in the anchor's own loom through `titleIndexes`. Failing that, it looks for a chapter among every chapter of the book, each kept with its part. For a path, it finds the chapter that the path's leading names give, by title or by number, and walks the rest through that chapter's titles.
 
 The navigation functions, the weave, and the `anchorEdges` function behind `reachable` and `dependentsOf` already resolve through `resolveAnchor`, so they follow the new rule at once.
 
@@ -65,6 +65,8 @@ So a reference that composes or refers names one of three things:
 - **Something written.** The node holds code, and the reference composes it or refers to it. When the node belongs to a canvas in another chapter, a composing reference also raises the warning the chapter "Canvases" describes.
 
 A promise belongs to the reference, not to the section. Many sections hold prose alone by design, such as the opening section of most chapters. A section with no code becomes a promise only when a composing anchor names it.
+
+A chapter named whole is the exception. A composing anchor that names a chapter reaches the chapter's opening section. When that section holds no code, the `ChapterWithoutCode` warning tells the author that the anchor composes nothing. A chapter with no section at all leaves the anchor nothing to reach, so the `UnresolvedAnchor` fault reports it.
 
 A promise can be read, but not shipped. The tangler refuses a file whose composition reaches a promised section, and it names each promise it met. Without that rule, a promise would compose nothing, and the tangled file would carry a gap that nothing points to.
 
@@ -114,7 +116,7 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. The new steps in `resolveAnchor`, `chapterIndex` keyed by part and title, `AmbiguousAnchor` carrying its fixes, and `DuplicateName` scoped to siblings.
+1. `AmbiguousAnchor` carrying its fixes, `DuplicateName` scoped to siblings, and `chapterIndex` keyed by part and title for the table of contents.
 2. Numbered paths, with renumbering in the editor rewriting them and each one showing its chapter's title.
 3. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
 4. Promises: marked in the editor and on the woven page, and refused by the tangler.

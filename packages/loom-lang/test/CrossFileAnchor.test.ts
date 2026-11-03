@@ -225,3 +225,124 @@ describe('a code anchor composes a section from another loom', () => {
     }),
   )
 })
+
+const chapter = (identity: ReadonlyArray<string>, ...body: ReadonlyArray<string>): string =>
+  lines('---', ...identity, '---', '', ...body)
+
+const greetCode = 'const greet = (name: string): string => `Hello, ${name}!`'
+
+const book = (line: string): Record<string, string> => ({
+  '/corpus/greetings.loom': chapter(
+    ['Part I: Saying things', 'Chapter 1: Greetings'],
+    '# Greetings',
+    '',
+    'A greeting takes a name and returns a line of welcome.',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/words.loom': chapter(
+    ['Part I, Chapter 2: Words'],
+    '# Words',
+    '',
+    'This chapter gathers what the program says.',
+    '',
+    '## Saying hello',
+    '',
+    'A greeting takes a name and returns a line of welcome.',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/silence.loom': chapter(['Part I, Chapter 3: Silence'], 'Nothing is said here.'),
+  '/corpus/setup-one.loom': chapter(['Part I, Chapter 4: Setup'], '# Setup', '', '=>', greetCode),
+  '/corpus/setup-two.loom': chapter(
+    ['Part II: Doing things', 'Chapter 1: Setup'],
+    '# Setup',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/hello-world.loom': chapter(
+    ['Part I, Chapter 5: Hello, world'],
+    '# Hello, world',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/hello.loom': helloAnchoring(line),
+})
+
+describe('a name resolves through the book', () => {
+  it.effect('composes the opening section of the chapter a bare name finds', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(book(anchor('Greetings')), '/corpus/hello.loom')
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('a path names a section of another chapter, directly or through its part', () =>
+    Effect.gen(function* () {
+      const direct = yield* tangled(book(anchor('Words, Saying hello')), '/corpus/hello.loom')
+      expect(direct[0]!.content).toBe(program)
+      const throughPart = yield* tangled(
+        book(anchor('Saying things, Words, Saying hello')),
+        '/corpus/hello.loom',
+      )
+      expect(throughPart[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('refuses a bare name that only a section of another chapter carries', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(book(anchor('Saying hello')), '/corpus/hello.loom')
+      expect(message).toContain(
+        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying hello`.',
+      )
+    }),
+  )
+
+  it.effect('warns when the chapter opens with a section that holds no code', () =>
+    Effect.gen(function* () {
+      const files = book(anchor('Words'))
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(files)),
+      )
+      const hello = files['/corpus/hello.loom']!
+      expect(
+        diagnostics.map((d) => [
+          d.severity,
+          hello.slice(d.position.start.offset, d.position.end.offset),
+        ]),
+      ).toEqual([['warning', 'Words']])
+      const written = yield* tangled(files, '/corpus/hello.loom')
+      expect(written.map((f) => f.path)).toEqual(['/corpus/hello.ts'])
+    }),
+  )
+
+  it.effect('refuses a chapter that holds no section', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(book(anchor('Silence')), '/corpus/hello.loom')
+      expect(message).toContain(
+        '/corpus/hello.loom:6: Unresolved anchor: no section named `Silence`.',
+      )
+    }),
+  )
+
+  it.effect('a title two chapters share is ambiguous until a part names one', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(book(anchor('Setup')), '/corpus/hello.loom')
+      expect(message).toContain('Ambiguous anchor: 2 sections are named `Setup`.')
+      const files = yield* tangled(book(anchor('Doing things, Setup')), '/corpus/hello.loom')
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('a title that holds a comma resolves whole', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(book(anchor('Hello, world')), '/corpus/hello.loom')
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+})

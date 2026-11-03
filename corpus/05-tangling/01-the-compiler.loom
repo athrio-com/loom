@@ -116,10 +116,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => {
             const scoped = scopedTo(modules, reachable(modules, path))
-            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(scoped))
+            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(modules))
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
-              : resolveSinks(scoped, path, workspaces.placeOf)
+              : resolveSinks(modules, path, workspaces.placeOf)
           }),
         ),
 
@@ -344,18 +344,19 @@ const entryOf = (
 
 ## Judging a module against its corpus
 
-A module's diagnostics come from two places. Its own two tiers, the parse and the product, travel with the module in the memo, and `moduleDiagnostics` reads them. An anchor into another file is judged against the corpus instead, by the product pass's `crossFileFaults`, because the module alone cannot tell whether the section it names exists.
+A module's diagnostics come from two places. Its own two tiers, the parse and the product, travel with the module in the memo, and `moduleDiagnostics` reads them. An anchor that reaches beyond its loom is judged against the corpus instead, by the product pass's `crossFileFaults`, because the module alone cannot tell whether the section it names exists.
 
-`corpusDiagnostics` reads both for one module, against the corpus the module came from. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken.
+`corpusDiagnostics` reads both for one module, against the corpus the module came from. It builds the corpus's `Book` once, so the judgement of every module resolves names through the same index. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken.
 
 =>
 
-const corpusDiagnostics =
-  (modules: Modules) =>
-  (module: LoomModule): ReadonlyArray<Diagnostic> => [
+const corpusDiagnostics = (modules: Modules) => {
+  const book = bookOf(modules)
+  return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
-    ...crossFileFaults(modules, module),
+    ...crossFileFaults(book, modules, module),
   ]
+}
 
 ## Tangling a file
 
@@ -363,9 +364,9 @@ const corpusDiagnostics =
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, over one `Book` built for the whole entry, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
-A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, reading each through `corpusDiagnostics`, and fails with a `TangleError` when any of them carries an error. A malformed parse stops the build. So does an anchor that names no section in its own file, and an anchor whose path names a file that lacks the section. None of them leaves a file with a silently dropped reference. The failure is loud, and names every file and line.
+A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. The failure is loud, and names every file and line.
 
 =>
 
@@ -384,16 +385,18 @@ const resolveSinks = (
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
       onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
-      onSome: (module) =>
-        Effect.forEach(module.product.files, (file) =>
+      onSome: (module) => {
+        const book = bookOf(modules)
+        return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.map((path) => ({
               section: file.code.origin.name,
               path,
-              content: fromProduct(modules, file.code.origin).code,
+              content: fromProduct(modules, file.code.origin, book).code,
             })),
           ),
-        ),
+        )
+      },
     }),
   )
 
@@ -462,7 +465,7 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
 
 An edit to a file can leave every other file as it was. Most edits to a loom change its prose, and no other file reads a loom's prose. Another file reads a module's code, through an anchor or through the files the module tangles, and it finds the module's sections by their titles. Some of its frontmatter matters too. The part and the chapter, with their titles, are how the book's table of contents names the chapter. The package decides where its files land, and the language decides how its code is checked.
 
-`faceOf` reduces a module to that face. It keeps those six frontmatter values, but not a chapter's status or priority, which no other file reads. It keeps the title of every section, the code of every section with each anchor named by the section it resolves to, and the file each sink tangles to. It leaves out the prose, and every position in the source, since an edit to the prose shifts the positions of the code below it without changing the code. Two builds of a module with the same face look the same to every other file.
+`faceOf` reduces a module to that face. It keeps those six frontmatter values, but not a chapter's status or priority, which no other file reads. It keeps the title of every section, the code of every section, and the file each sink tangles to. In the code, an anchor appears as the section it resolves to, or as the name it writes when the product pass left its target open. It leaves out the prose, and every position in the source, since an edit to the prose shifts the positions of the code below it without changing the code. Two builds of a module with the same face look the same to every other file.
 
 `rebuild` uses the face to tell an edit that reaches other files from one that does not. It notes the face of the build the cache holds, builds the file again from the source when its text has changed, and compares the two faces. A file the cache did not hold has no face to compare, so `rebuild` reports it as changed.
 
@@ -480,7 +483,7 @@ const partFaceOf = (part: Part): string =>
   Match.value(part).pipe(
     Match.when({ type: 'Fragment' }, (fragment) => fragment.text),
     Match.when({ type: 'NameRef' }, (ref) =>
-      Option.match(ref.target, { onNone: () => '', onSome: keyOf }),
+      Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
     ),
     Match.exhaustive,
   )
@@ -526,7 +529,7 @@ A `Composition` holds what the last call composed. Its `modules` are the corpus 
 
 A change also reaches the modules that anchor into the changed one, because their files inline its sections. `staleSince` adds them. It asks `dependentsOf` twice, once over the old corpus and once over the new. The old corpus finds a module that anchored a section the change removed. The new corpus finds a module whose anchor the change has just satisfied.
 
-`recompose` builds the next `Composition`. It keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had. When nothing changed, it composes nothing. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
+`recompose` builds the next `Composition`. When nothing is stale, it keeps the last composition whole, over the corpus just built. Otherwise it keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had. It builds the corpus's `Book` once for all of them, for the open references `fromProduct` binds. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
 
 =>
 
@@ -540,12 +543,13 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 
 const composedFilesOf = (
   modules: Modules,
+  book: Book,
   module: LoomModule,
   paths: ReadonlyArray<Location>,
 ): ReadonlyArray<ComposedFile> =>
   Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
     path,
-    content: fromProduct(modules, file.code.origin).code,
+    content: fromProduct(modules, file.code.origin, book).code,
     loomPath: module.path,
     rootId: file.code.origin.name.toLowerCase(),
     heading: headingLocationOf(modules, module, file.code.origin.name),
@@ -594,6 +598,8 @@ const recompose = (
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): Composition => {
   const stale = staleSince(previous, modules, placed)
+  if (stale.size === 0) return { ...previous, modules, placed }
+  const book = bookOf(modules)
   return {
     modules,
     placed,
@@ -607,7 +613,7 @@ const recompose = (
               Option.fromNullishOr(previous.files.get(module.path)),
               Option.filter(() => !stale.has(module.path)),
               Option.getOrElse(() =>
-                composedFilesOf(modules, module, placed.get(module.path) ?? []),
+                composedFilesOf(modules, book, module, placed.get(module.path) ?? []),
               ),
             ),
           ] as const,
@@ -621,7 +627,7 @@ const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
 
 ## Projecting a file's tree
 
-`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
+`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, over one `Book` for all the file's roots, so it treats a lone file and a whole corpus the same way.
 
 =>
 
@@ -639,18 +645,20 @@ const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
 
-const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
-  rootVirtualCode(
+const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
+  const book = bookOf(modules)
+  return rootVirtualCode(
     entry.text,
     [
       fromProse(modules, entry.path),
       ...pipe(
         rootsAt(modules, entry.path),
-        Array.map((name) => fromProduct(modules, { path: entry.path, name })),
+        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book)),
       ),
     ],
     symbolMappings(entry.doc),
   )
+}
 
 ## Crossing to Volar
 
@@ -735,7 +743,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 =>
 
@@ -746,6 +754,8 @@ import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
+  bookOf,
+  type Book,
   corpusErrors,
   definitionAt,
   dependentsOf,
@@ -1520,6 +1530,159 @@ Every mapping into the product reads the same text in `hello.loom` as in the pro
   )
 })
 
+## A name found through the book
+
+A bare name that the anchor's own loom lacks resolves through the book. These cases give the program a small book of chapters, each with the frontmatter that names its part and its title. The `chapter` function writes such a loom from its identity lines and its body.
+
+`Greetings` opens Part I, `Saying things`, and its opening section defines `greet`. `Words` opens with prose alone and keeps `greet` in a later section, `Saying hello`. `Silence` declares its title but holds no section at all. Two chapters called `Setup` stand in two parts, and a chapter called `Hello, world` holds a comma in its title. The `book` function gathers them beside the program, whose code opens with the line a case passes in.
+
+=>
+
+const chapter = (identity: ReadonlyArray<string>, ...body: ReadonlyArray<string>): string =>
+  lines('---', ...identity, '---', '', ...body)
+
+const greetCode = 'const greet = (name: string): string => `Hello, ${name}!`'
+
+const book = (line: string): Record<string, string> => ({
+  '/corpus/greetings.loom': chapter(
+    ['Part I: Saying things', 'Chapter 1: Greetings'],
+    '# Greetings',
+    '',
+    'A greeting takes a name and returns a line of welcome.',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/words.loom': chapter(
+    ['Part I, Chapter 2: Words'],
+    '# Words',
+    '',
+    'This chapter gathers what the program says.',
+    '',
+    '## Saying hello',
+    '',
+    'A greeting takes a name and returns a line of welcome.',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/silence.loom': chapter(['Part I, Chapter 3: Silence'], 'Nothing is said here.'),
+  '/corpus/setup-one.loom': chapter(['Part I, Chapter 4: Setup'], '# Setup', '', '=>', greetCode),
+  '/corpus/setup-two.loom': chapter(
+    ['Part II: Doing things', 'Chapter 1: Setup'],
+    '# Setup',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/hello-world.loom': chapter(
+    ['Part I, Chapter 5: Hello, world'],
+    '# Hello, world',
+    '',
+    '=>',
+    greetCode,
+  ),
+  '/corpus/hello.loom': helloAnchoring(line),
+})
+
+~
+
+A bare name finds a chapter when the program's own loom holds no section of that name. The anchor composes the chapter's opening section, so `::[Greetings]` inlines `greet` above the call.
+
+=>
+
+describe('a name resolves through the book', () => {
+  it.effect('composes the opening section of the chapter a bare name finds', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(book(anchor('Greetings')), '/corpus/hello.loom')
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+~
+
+A path reaches a section of another chapter, from the chapter's title or from its part's name. A bare name does not, because outside its own loom a bare name finds only chapters.
+
+=>
+
+  it.effect('a path names a section of another chapter, directly or through its part', () =>
+    Effect.gen(function* () {
+      const direct = yield* tangled(book(anchor('Words, Saying hello')), '/corpus/hello.loom')
+      expect(direct[0]!.content).toBe(program)
+      const throughPart = yield* tangled(
+        book(anchor('Saying things, Words, Saying hello')),
+        '/corpus/hello.loom',
+      )
+      expect(throughPart[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('refuses a bare name that only a section of another chapter carries', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(book(anchor('Saying hello')), '/corpus/hello.loom')
+      expect(message).toContain(
+        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying hello`.',
+      )
+    }),
+  )
+
+~
+
+A chapter whose opening section holds no code gives the anchor nothing to compose. The `diagnose` verb warns on the anchor's name, and the warning does not stop the tangle. A chapter with no section at all gives the anchor no section to compose, so the tangle refuses it.
+
+=>
+
+  it.effect('warns when the chapter opens with a section that holds no code', () =>
+    Effect.gen(function* () {
+      const files = book(anchor('Words'))
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(files)),
+      )
+      const hello = files['/corpus/hello.loom']!
+      expect(
+        diagnostics.map((d) => [
+          d.severity,
+          hello.slice(d.position.start.offset, d.position.end.offset),
+        ]),
+      ).toEqual([['warning', 'Words']])
+      const written = yield* tangled(files, '/corpus/hello.loom')
+      expect(written.map((f) => f.path)).toEqual(['/corpus/hello.ts'])
+    }),
+  )
+
+  it.effect('refuses a chapter that holds no section', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(book(anchor('Silence')), '/corpus/hello.loom')
+      expect(message).toContain(
+        '/corpus/hello.loom:6: Unresolved anchor: no section named `Silence`.',
+      )
+    }),
+  )
+
+~
+
+Two chapters may share a title when they stand in different parts. A bare name that finds both cannot choose between them, and a path through the part names the one it means. A title that holds a comma resolves whole, because a name splits into a path only when the whole name matches nothing.
+
+=>
+
+  it.effect('a title two chapters share is ambiguous until a part names one', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(book(anchor('Setup')), '/corpus/hello.loom')
+      expect(message).toContain('Ambiguous anchor: 2 sections are named `Setup`.')
+      const files = yield* tangled(book(anchor('Doing things, Setup')), '/corpus/hello.loom')
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('a title that holds a comma resolves whole', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(book(anchor('Hello, world')), '/corpus/hello.loom')
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+})
+
 ## The cross-file anchor test file {Tangle}[test/CrossFileAnchor.test.ts]
 
 =>
@@ -1527,6 +1690,8 @@ Every mapping into the product reads the same text in `hello.loom` as in the pro
 ::[Testing an anchor into another loom]
 
 ::[A section from another loom, inlined or refused]
+
+::[A name found through the book]
 
 ## Testing navigation within one loom
 
@@ -1739,6 +1904,107 @@ From the member, the `definition` verb lands in `widget.loom`, on the title of i
   )
 })
 
+## Navigating a path through the book
+
+An anchor that holds a path names more than one place, and the editor follows the name under the cursor. In the `caller` loom, the anchor `::[Words, Saying hello]` names the chapter `Words` and then its section `Saying hello`. The `wordsOffset` offset rests inside the first name of the path and the `sectionOffset` offset inside the second. In `words.loom`, the chapter declares its title on line 1 at character 19, and the section's heading title stands on line 8 at character 3. The anchor stands on line 4 of `caller.loom`, its name starting at character 3.
+
+=>
+
+describe('LoomCompiler — navigation along a path', () => {
+  const docs: Record<string, string> = {
+    '/words.loom': lines(
+      '---',
+      'Part I, Chapter 2: Words',
+      '---',
+      '',
+      '# Words',
+      '',
+      'What the program says.',
+      '',
+      '## Saying hello',
+      '',
+      '=>',
+      '',
+      'const hi = "hi"',
+    ),
+    '/caller.loom': lines(
+      '# Caller',
+      '',
+      '=>',
+      '',
+      anchor('Words, Saying hello'),
+      'export const out = hi',
+    ),
+  }
+  const pathLayer = makeLayer(docs)
+  const nameStart = docs['/caller.loom']!.indexOf(anchor('Words, Saying hello')) + 3
+  const wordsOffset = nameStart + 2
+  const sectionOffset = nameStart + 9
+  const spanOf = (location: { readonly path: string; readonly range: unknown }) =>
+    JSON.stringify(location)
+
+~
+
+From each name of the path, the `definition` verb lands on what that name declares: the chapter's title for `Words`, and the heading for `Saying hello`.
+
+=>
+
+  it.effect('definition follows the name of the path under the cursor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const chapter = yield* c.definition('/caller.loom', wordsOffset)
+      expect(chapter?.path).toBe('/words.loom')
+      expect(chapter?.range.start).toEqual({ line: 1, character: 19 })
+      const section = yield* c.definition('/caller.loom', sectionOffset)
+      expect(section?.path).toBe('/words.loom')
+      expect(section?.range.start).toEqual({ line: 8, character: 3 })
+    }).pipe(Effect.provide(pathLayer)),
+  )
+
+~
+
+A rename moves one name of the path and leaves the rest of the anchor alone. Renaming the section from its heading edits the heading and the second name of the path. Renaming the chapter from its declared title edits that title and the first name of the path.
+
+=>
+
+  it.effect('rename edits only the name of the path that names the renamed thing', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const words = docs['/words.loom']!
+      const section = yield* c.rename('/words.loom', words.indexOf('## Saying hello') + 5)
+      expect(section.map(spanOf).sort()).toEqual(
+        [
+          {
+            path: '/caller.loom',
+            range: { start: { line: 4, character: 10 }, end: { line: 4, character: 22 } },
+          },
+          {
+            path: '/words.loom',
+            range: { start: { line: 8, character: 3 }, end: { line: 8, character: 15 } },
+          },
+        ]
+          .map(spanOf)
+          .sort(),
+      )
+      const chapter = yield* c.rename('/words.loom', words.indexOf('Words') + 1)
+      expect(chapter.map(spanOf).sort()).toEqual(
+        [
+          {
+            path: '/caller.loom',
+            range: { start: { line: 4, character: 3 }, end: { line: 4, character: 8 } },
+          },
+          {
+            path: '/words.loom',
+            range: { start: { line: 1, character: 19 }, end: { line: 1, character: 24 } },
+          },
+        ]
+          .map(spanOf)
+          .sort(),
+      )
+    }).pipe(Effect.provide(pathLayer)),
+  )
+})
+
 ## Navigating a value warp
 
 A value warp such as `{{ratio = 1.8}}`, written in a section's preamble, binds a name to a value. The section's code names the warp with `::[ratio]` anchors. Navigation ties each anchor to the warp within the section. The `warp` fixture defines `ratio` on line 6 and names it on lines 10 and 11. The `anchorOffset` offset rests inside the first anchor's name, and the `defOffset` offset inside the definition's name.
@@ -1821,6 +2087,8 @@ The `rename` verb rewrites three spans, the definition's name and each anchor's.
 ::[Testing navigation within one loom]
 
 ::[Navigating to a chapter in another loom]
+
+::[Navigating a path through the book]
 
 ::[Navigating a value warp]
 

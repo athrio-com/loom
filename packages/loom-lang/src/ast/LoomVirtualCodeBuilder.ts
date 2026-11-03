@@ -7,7 +7,8 @@ import {
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
-import { type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { bookOf, type Book, type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { targetOf } from '#ast/ProductBuilder'
 import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import {
@@ -67,9 +68,10 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
+    book: Book,
     seen: ReadonlySet<string>,
     home: Location,
-    mapped: boolean,
+    owner: Location,
   ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
@@ -79,24 +81,31 @@ const inlinePart =
         source: part.origin,
         kind: 'product',
       }
-      return leaf('', '', part.text, mapped ? [origin] : [])
+      return leaf('', '', part.text, owner === home ? [origin] : [])
     }
     return pipe(
-      part.target,
+      targetOf(book, owner, part),
       Option.filter((t) => !seen.has(keyOf(t))),
       Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
-          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]), home)(node)),
+          absorbTrailingNewline(
+            inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home)(node),
+          ),
       }),
     )
   }
 
 const inlineComposed =
-  (modules: ReadonlyMap<Location, LoomModule>, seen: ReadonlySet<string>, home: Location) =>
+  (
+    modules: ReadonlyMap<Location, LoomModule>,
+    book: Book,
+    seen: ReadonlySet<string>,
+    home: Location,
+  ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, seen, home, node.origin.path === home)
+    const build = inlinePart(modules, book, seen, home, node.origin.path)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -231,13 +240,14 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
+  book: Book = bookOf(modules),
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
-        ...inlineComposed(modules, new Set([keyOf(root)]), root.path)(node),
+        ...inlineComposed(modules, book, new Set([keyOf(root)]), root.path)(node),
         id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),

@@ -159,6 +159,89 @@ describe('LoomCompiler — navigation across files', () => {
   )
 })
 
+describe('LoomCompiler — navigation along a path', () => {
+  const docs: Record<string, string> = {
+    '/words.loom': lines(
+      '---',
+      'Part I, Chapter 2: Words',
+      '---',
+      '',
+      '# Words',
+      '',
+      'What the program says.',
+      '',
+      '## Saying hello',
+      '',
+      '=>',
+      '',
+      'const hi = "hi"',
+    ),
+    '/caller.loom': lines(
+      '# Caller',
+      '',
+      '=>',
+      '',
+      anchor('Words, Saying hello'),
+      'export const out = hi',
+    ),
+  }
+  const pathLayer = makeLayer(docs)
+  const nameStart = docs['/caller.loom']!.indexOf(anchor('Words, Saying hello')) + 3
+  const wordsOffset = nameStart + 2
+  const sectionOffset = nameStart + 9
+  const spanOf = (location: { readonly path: string; readonly range: unknown }) =>
+    JSON.stringify(location)
+
+  it.effect('definition follows the name of the path under the cursor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const chapter = yield* c.definition('/caller.loom', wordsOffset)
+      expect(chapter?.path).toBe('/words.loom')
+      expect(chapter?.range.start).toEqual({ line: 1, character: 19 })
+      const section = yield* c.definition('/caller.loom', sectionOffset)
+      expect(section?.path).toBe('/words.loom')
+      expect(section?.range.start).toEqual({ line: 8, character: 3 })
+    }).pipe(Effect.provide(pathLayer)),
+  )
+
+  it.effect('rename edits only the name of the path that names the renamed thing', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const words = docs['/words.loom']!
+      const section = yield* c.rename('/words.loom', words.indexOf('## Saying hello') + 5)
+      expect(section.map(spanOf).sort()).toEqual(
+        [
+          {
+            path: '/caller.loom',
+            range: { start: { line: 4, character: 10 }, end: { line: 4, character: 22 } },
+          },
+          {
+            path: '/words.loom',
+            range: { start: { line: 8, character: 3 }, end: { line: 8, character: 15 } },
+          },
+        ]
+          .map(spanOf)
+          .sort(),
+      )
+      const chapter = yield* c.rename('/words.loom', words.indexOf('Words') + 1)
+      expect(chapter.map(spanOf).sort()).toEqual(
+        [
+          {
+            path: '/caller.loom',
+            range: { start: { line: 4, character: 3 }, end: { line: 4, character: 8 } },
+          },
+          {
+            path: '/words.loom',
+            range: { start: { line: 1, character: 19 }, end: { line: 1, character: 24 } },
+          },
+        ]
+          .map(spanOf)
+          .sort(),
+      )
+    }).pipe(Effect.provide(pathLayer)),
+  )
+})
+
 describe('LoomCompiler — navigation over value warps', () => {
   const warp = lines(
     '---',

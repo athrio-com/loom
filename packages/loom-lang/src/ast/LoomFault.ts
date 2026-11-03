@@ -16,6 +16,7 @@ export type LoomFault = Data.TaggedEnum<{
   UnknownVariable: { readonly name: string }
   UnresolvedAnchor: { readonly name: string }
   AmbiguousAnchor: { readonly name: string; readonly count: number }
+  ChapterWithoutCode: { readonly name: string }
   CrossLanguageAnchor: {
     readonly name: string
     readonly host: string
@@ -35,6 +36,7 @@ export const {
   UnknownVariable,
   UnresolvedAnchor,
   AmbiguousAnchor,
+  ChapterWithoutCode,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
   UnclosedExplicitBlock,
@@ -87,6 +89,11 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('AmbiguousAnchor', ({ name, count }) =>
       error(
         `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves to exactly one section; rename to disambiguate.`,
+      ),
+    ),
+    Match.tag('ChapterWithoutCode', ({ name }) =>
+      warning(
+        `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
       ),
     ),
     Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>

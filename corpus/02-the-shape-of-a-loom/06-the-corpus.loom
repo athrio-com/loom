@@ -39,11 +39,15 @@ type Modules = ReadonlyMap<Location, LoomModule>
 
 ## Resolving names
 
-Names resolve here — the lexical lookups that turn an `::[Name]` anchor into the section it points at. A `SectionRef` locates that section: the module it lives in, and the section itself.
+Names resolve here: the lookups that turn an `::[Name]` anchor into the section it reaches. A `SectionRef` locates that section by the module it lives in and the section itself.
 
-An anchor names a section by its raw title, and resolves that title in one file. A bare `::[Name]` resolves in the anchor's own file. A `::[Name](path.loom)` resolves in the file the path names, taken relative to the anchor's own. The rule holds wherever the anchor stands, in a section's code as in its prose. So a name is lexical, not a corpus-wide symbol, and two files reuse a title freely.
+A name resolves nearest first, outward from the anchor. A bare `::[Name]` looks first among the sections of its own loom. When none of them carries the name, it looks among the chapters of the book, and a chapter it finds stands for the chapter's opening section. The book is the whole corpus. The rule holds wherever the anchor stands, in a section's code as in its prose.
 
-`titlesIn` indexes one file's titled sections by their raw title. The first of any in-file duplicate wins, and the duplicate itself is a fault the diagnostics raise. `titleIndexes` builds that index for every file, once. `anchorModule` picks the file an anchor resolves in: the anchor's own file for a bare anchor, or the file its path names. `resolveRelative` resolves that path against the directory of the anchor's own file, dropping the file's last segment and folding `.` and `..` as it goes. `resolveAnchor` is the lookup itself: it finds the anchor's title in the file `anchorModule` picks. The product pass picks the file through `anchorModule` too, so the tangle and the editor agree on where a name lives.
+An author names a section of another chapter with a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of this chapter from anywhere in the book, and `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A comma splits a name into a path only when the whole name matches nothing, so a title that holds a comma, such as `Once, as the site is built`, still resolves whole.
+
+An anchor may instead carry the path of a loom, as `::[Name](path.loom)` does. It then resolves its name among that loom's sections alone.
+
+`titlesIn` indexes one loom's titled sections by their raw title. The first of any duplicate within the loom wins. An anchor that names a duplicated title gets no such tie-break, because the product pass reports it as ambiguous. `titleIndexes` builds that index for every loom, once. `anchorModule` picks the loom an anchor resolves its sections in: its own loom for a bare anchor, or the loom its path names. `resolveRelative` resolves that path against the folder of the anchor's own loom, dropping the loom's last segment and folding `.` and `..` as it goes. The product pass picks the loom through `anchorModule` too, so the tangle and the editor agree on where a name lives.
 
 =>
 
@@ -82,15 +86,249 @@ export const titleIndexes = (modules: Modules): TitleIndexes =>
 export const anchorModule = (from: Location, anchor: WarpAnchorToken): Location =>
   anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)
 
+~
+
+The book finds a chapter by the title the chapter declares, which `chapterTitleToken` reads here and in the navigation below. A `Chapter` pairs that title with the loom that declares it and the name of the part it belongs to. A chapter states its part in one of three ways. A part's opening chapter announces the part's number and name, as `Part IV: The product` does. Every other chapter of a numbered part gives only the number, as `Part IV, Chapter 2` does. A chapter outside the numbered parts gives the part's name alone, as `Part: Work in progress` does.
+
+`partNamesIn` maps each part number to the name its opening chapter announces, and `partOf` reads a chapter's part name: its own, or the one its number maps to. `chaptersIn` lists every chapter of the book, so two chapters that share a title both stay in reach. `openingSectionOf` gives a loom's first titled section, the section that stands for its chapter.
+
+=>
+
+type Chapter = {
+  readonly title: string
+  readonly part: Option.Option<string>
+  readonly module: LoomModule
+}
+
+const partNamesIn = (modules: Modules): ReadonlyMap<string, string> =>
+  new Map(
+    Array.getSomes(
+      Array.map(Array.fromIterable(modules.values()), (module) =>
+        pipe(
+          Option.fromNullishOr(module.doc.frontmatter),
+          Option.flatMap((fm) =>
+            Option.all([Option.fromNullishOr(fm.part), Option.fromNullishOr(fm.partName)]),
+          ),
+          Option.map(([part, partName]) => [part.value, partName.value] as const),
+        ),
+      ),
+    ),
+  )
+
+const partOf = (names: ReadonlyMap<string, string>, module: LoomModule): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter),
+    Option.flatMap((fm) =>
+      Option.orElse(
+        Option.map(Option.fromNullishOr(fm.partName), (partName) => partName.value),
+        () =>
+          Option.flatMap(Option.fromNullishOr(fm.part), (part) =>
+            Option.fromNullishOr(names.get(part.value)),
+          ),
+      ),
+    ),
+  )
+
+const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
+  const names = partNamesIn(modules)
+  return Array.getSomes(
+    Array.map(Array.fromIterable(modules.values()), (module) =>
+      Option.map(chapterTitleToken(module), (title) => ({
+        title: title.source,
+        part: partOf(names, module),
+        module,
+      })),
+    ),
+  )
+}
+
+const openingSectionOf = (module: LoomModule): Option.Option<LoomSection> =>
+  Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined)
+
+~
+
+A `Book` gathers what a lookup reads: each loom's titles and every chapter. `bookOf` builds it from the modules once, for a caller that resolves many names over the same corpus.
+
+=>
+
+export type Book = {
+  readonly titles: TitleIndexes
+  readonly chapters: ReadonlyArray<Chapter>
+}
+
+export const bookOf = (modules: Modules): Book => ({
+  titles: titleIndexes(modules),
+  chapters: chaptersIn(modules),
+})
+
+~
+
+A lookup walks the book from the outside in, and records where each name led. A `Place` is one stop on the way: a part, a chapter, or a section. A `Segment` is one name of a path, with its offsets inside the anchor's name, so the editor can rewrite that one name in a rename. A `Step` pairs a segment with the place it named. A `Trail` lists the steps of one resolution, from the outermost name to the place the anchor reaches, and a name that resolves whole leaves a trail of one step.
+
+=>
+
+export type Place = Data.TaggedEnum<{
+  Part: { readonly name: string }
+  Chapter: { readonly chapter: Chapter }
+  Section: { readonly ref: SectionRef }
+}>
+
+const Place = Data.taggedEnum<Place>()
+
+export type Segment = { readonly text: string; readonly start: number; readonly end: number }
+
+export type Step = { readonly segment: Segment; readonly place: Place }
+
+export type Trail = Array.NonEmptyReadonlyArray<Step>
+
+~
+
+`placesNamed` finds the places a name can mean inside a scope. At the top of the book, a name may be a part or a chapter. Inside a part, it is a chapter of that part. Inside a chapter, it is one of the chapter's sections. Inside a section, it finds nothing, so the walk ends there.
+
+`walk` follows a path's names through `placesNamed`, one scope deeper for each name. A trail is `finished` when it ends at a chapter or a section. A part stands for no section, so a trail that ends at a part resolves nothing, and a bare name never finds a part.
+
+=>
+
+const chaptersTitled = (
+  book: Book,
+  title: string,
+  part: Option.Option<string>,
+): ReadonlyArray<Chapter> =>
+  Array.filter(
+    book.chapters,
+    (chapter) =>
+      chapter.title === title &&
+      Option.match(part, {
+        onNone: () => true,
+        onSome: (name) => Option.contains(chapter.part, name),
+      }),
+  )
+
+const sectionTitled = (book: Book, module: Location, title: string): Option.Option<SectionRef> =>
+  Option.fromNullishOr(book.titles.get(module)?.get(title))
+
+const placesNamed = (book: Book, scope: Option.Option<Place>, name: string): ReadonlyArray<Place> =>
+  Option.match(scope, {
+    onNone: () => [
+      ...(Array.some(book.chapters, (chapter) => Option.contains(chapter.part, name))
+        ? [Place.Part({ name })]
+        : []),
+      ...Array.map(chaptersTitled(book, name, Option.none()), (chapter) =>
+        Place.Chapter({ chapter }),
+      ),
+    ],
+    onSome: (place) =>
+      Match.value(place).pipe(
+        Match.tag('Part', (part) =>
+          Array.map(chaptersTitled(book, name, Option.some(part.name)), (chapter) =>
+            Place.Chapter({ chapter }),
+          ),
+        ),
+        Match.tag('Chapter', ({ chapter }) =>
+          Option.toArray(
+            Option.map(sectionTitled(book, chapter.module.path, name), (ref) =>
+              Place.Section({ ref }),
+            ),
+          ),
+        ),
+        Match.tag('Section', (): ReadonlyArray<Place> => []),
+        Match.exhaustive,
+      ),
+  })
+
+const finished = (trail: ReadonlyArray<Step>): ReadonlyArray<Trail> =>
+  Array.isReadonlyArrayNonEmpty(trail) && Array.lastNonEmpty(trail).place._tag !== 'Part'
+    ? [trail]
+    : []
+
+const walk = (
+  book: Book,
+  trail: ReadonlyArray<Step>,
+  segments: ReadonlyArray<Segment>,
+): ReadonlyArray<Trail> =>
+  Array.matchLeft(segments, {
+    onEmpty: () => finished(trail),
+    onNonEmpty: (segment, rest) =>
+      Array.flatMap(
+        placesNamed(
+          book,
+          Option.map(Array.last(trail), (step) => step.place),
+          segment.text,
+        ),
+        (place) => walk(book, Array.append(trail, { segment, place }), rest),
+      ),
+  })
+
+~
+
+`trailsOf` puts the three steps in their order. It looks in the anchor's own loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
+
+`anchorTrails` resolves an anchor token: a bare one through `trailsOf`, and one with a path among the sections of the loom its path names. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
+
+=>
+
+const whole = (name: string): Segment => ({ text: name, start: 0, end: name.length })
+
+const segmentsOf = (name: string): ReadonlyArray<Segment> =>
+  Array.map(Array.fromIterable(name.matchAll(/[^,]+/g)), (match) => {
+    const text = match[0].trim()
+    const start = match.index + match[0].length - match[0].trimStart().length
+    return { text, start, end: start + text.length }
+  })
+
+const sectionTrail = (book: Book, module: Location, name: string): ReadonlyArray<Trail> =>
+  Option.toArray(
+    Option.map(sectionTitled(book, module, name), (ref): Trail => [
+      { segment: whole(name), place: Place.Section({ ref }) },
+    ]),
+  )
+
+const nothingFound: ReadonlyArray<Trail> = []
+
+const nearest = (lookups: ReadonlyArray<() => ReadonlyArray<Trail>>): ReadonlyArray<Trail> =>
+  Array.reduce(lookups, nothingFound, (found, lookup) => (found.length > 0 ? found : lookup()))
+
+export const trailsOf = (book: Book, from: Location, name: string): ReadonlyArray<Trail> =>
+  nearest([
+    () => sectionTrail(book, from, name),
+    () => walk(book, [], [whole(name)]),
+    () => walk(book, [], segmentsOf(name)),
+  ])
+
+export const anchorTrails = (
+  book: Book,
+  from: Location,
+  anchor: WarpAnchorToken,
+): ReadonlyArray<Trail> =>
+  anchor.target === undefined
+    ? trailsOf(book, from, anchor.name.value)
+    : sectionTrail(book, anchorModule(from, anchor), anchor.name.value)
+
+export const sectionOf = (trail: Trail): Option.Option<SectionRef> =>
+  Match.value(Array.lastNonEmpty(trail).place).pipe(
+    Match.tag('Section', ({ ref }) => Option.some(ref)),
+    Match.tag('Chapter', ({ chapter }) =>
+      Option.map(openingSectionOf(chapter.module), (section) => ({
+        module: chapter.module.path,
+        section,
+      })),
+    ),
+    Match.tag('Part', () => Option.none<SectionRef>()),
+    Match.exhaustive,
+  )
+
+const soleTrail = (trails: ReadonlyArray<Trail>): Option.Option<Trail> =>
+  trails.length === 1 ? Array.head(trails) : Option.none()
+
+export const resolveName = (book: Book, from: Location, name: string): Option.Option<SectionRef> =>
+  Option.flatMap(soleTrail(trailsOf(book, from, name)), sectionOf)
+
 export const resolveAnchor = (
-  indexes: TitleIndexes,
+  book: Book,
   from: Location,
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
-  pipe(
-    Option.fromNullishOr(indexes.get(anchorModule(from, anchor))),
-    Option.flatMap((index) => Option.fromNullishOr(index.get(anchor.name.value))),
-  )
+  Option.flatMap(soleTrail(anchorTrails(book, from, anchor)), sectionOf)
 
 ~
 
@@ -110,7 +348,7 @@ A run and a tangle need only part of the corpus: the entry and the sections it c
 
 `dependentsOf` runs the same reverse reach from several files at once. The compiler uses it to find what a batch of changed files touches, such as the dozens a `git checkout` rewrites, and it reads the anchor graph once for the whole batch rather than once for each file. It returns the dependents alone, never the files it started from. `transitiveDependents` is `dependentsOf` started from one file.
 
-`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once: each anchor a module carries becomes an edge to the module that holds the section it names.
+`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once. Each anchor a module carries becomes an edge to every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. A change to any of those modules then reaches the anchor's own loom, and a tangle judges an ambiguous name with all of its candidates in view. `moduleOf` reads the module a trail ends in.
 
 =>
 
@@ -130,19 +368,30 @@ const reach = (
   return grow(new Set(seeds), seeds)
 }
 
+const moduleOf = (trail: Trail): Option.Option<Location> =>
+  Match.value(Array.lastNonEmpty(trail).place).pipe(
+    Match.tag('Section', ({ ref }) => Option.some(ref.module)),
+    Match.tag('Chapter', ({ chapter }) => Option.some(chapter.module.path)),
+    Match.tag('Part', () => Option.none<Location>()),
+    Match.exhaustive,
+  )
+
 const anchorEdges = (
   modules: Modules,
 ): ReadonlyArray<{ readonly owner: Location; readonly target: Location }> => {
-  const indexes = titleIndexes(modules)
+  const book = bookOf(modules)
   return pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((m) =>
-      Array.getSomes(
-        Array.map(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-          Option.map(resolveAnchor(indexes, m.path, anchor), (target) => ({
-            owner: m.path,
-            target: target.module,
-          })),
+      pipe(
+        m.doc.sections,
+        Array.flatMap(anchorsOf),
+        Array.flatMap((anchor) =>
+          Array.getSomes(
+            Array.map(anchorTrails(book, m.path, anchor), (trail) =>
+              Option.map(moduleOf(trail), (target) => ({ owner: m.path, target })),
+            ),
+          ),
         ),
       ),
     ),
@@ -237,9 +486,15 @@ const sectionRefAt = (modules: Modules, path: Location, offset: number): Option.
 
 ~
 
-A resolved section then locates its heading and the anchors that reach it. `titleLocation` points at a section's heading title. `targetAt` reads the section under a cursor — the heading it sits in, or the section an anchor under it resolves to. `anchorsResolvingTo` gathers every anchor across the corpus that resolves to a given section, each by the span a caller picks: the whole anchor for a reference, its name alone for a rename.
+A resolved name then locates its declaration and every anchor that names it. `titleLocation` points at a section's heading title, and `chapterLocation` at the title a chapter declares.
+
+An anchor that holds a path names several places, so the navigation reads the one under the cursor. `segmentPosition` turns a segment's offsets inside the anchor's name into a span of the source, moving the name's own start by `shifted`. `stepAt` picks the step whose segment covers the cursor, or the last step when the cursor sits on a bracket. `anchorPlaceAt` reads the place an anchor's segment names under a cursor, and `placeAt` reads the section of a heading first, then that.
+
+`anchorsNaming` gathers every anchor across the corpus whose trail names a place a predicate accepts, each by the span a caller picks: the whole anchor for a reference, or the one segment for a rename. Only an anchor that resolves to one trail counts, since an ambiguous anchor names nothing for certain. `namesSection` accepts one section, and `namesChapter` accepts the chapters that carry a title. An anchor names a section only through a segment that writes the section's own title. An anchor that reaches a chapter's opening section through the chapter's title names the chapter, not the section.
 
 =>
+
+type SpanOf = (anchor: WarpAnchorToken, segment: Segment) => Position
 
 const titleLocation = (ref: SectionRef): Option.Option<CorpusLocation> =>
   Option.map(Option.fromNullishOr(ref.section.heading.title), (title): CorpusLocation => ({
@@ -247,42 +502,97 @@ const titleLocation = (ref: SectionRef): Option.Option<CorpusLocation> =>
     position: title.position,
   }))
 
-const targetAt = (
-  indexes: TitleIndexes,
+const chapterLocation = (chapter: Chapter): Option.Option<CorpusLocation> =>
+  Option.map(chapterTitleToken(chapter.module), (title): CorpusLocation => ({
+    path: chapter.module.path,
+    position: title.position,
+  }))
+
+const shifted = (point: Point, by: number): Point =>
+  Option.match(Option.fromNullishOr(point.column), {
+    onNone: () => ({ ...point, offset: point.offset + by }),
+    onSome: (column) => ({ ...point, offset: point.offset + by, column: column + by }),
+  })
+
+const segmentPosition: SpanOf = (anchor, segment) => ({
+  start: shifted(anchor.name.position.start, segment.start),
+  end: shifted(anchor.name.position.start, segment.end),
+})
+
+const wholeAnchor: SpanOf = (anchor) => anchor.position
+
+const stepAt = (trail: Trail, anchor: WarpAnchorToken, offset: number): Step =>
+  Option.getOrElse(
+    Array.findFirst(trail, (step) => covers(segmentPosition(anchor, step.segment), offset)),
+    () => Array.lastNonEmpty(trail),
+  )
+
+const anchorPlaceAt = (
+  book: Book,
   modules: Modules,
   path: Location,
   offset: number,
-): Option.Option<SectionRef> =>
-  Option.orElse(sectionRefAt(modules, path, offset), () =>
-    Option.flatMap(anchorAt(modules, path, offset), (anchor) =>
-      resolveAnchor(indexes, path, anchor),
+): Option.Option<Place> =>
+  Option.flatMap(anchorAt(modules, path, offset), (anchor) =>
+    Option.map(
+      soleTrail(anchorTrails(book, path, anchor)),
+      (trail) => stepAt(trail, anchor, offset).place,
     ),
   )
 
-const anchorsResolvingTo = (
-  indexes: TitleIndexes,
+const placeAt = (
+  book: Book,
   modules: Modules,
-  target: SectionRef,
-  spanOf: (anchor: WarpAnchorToken) => Position,
+  path: Location,
+  offset: number,
+): Option.Option<Place> =>
+  Option.orElse(
+    Option.map(sectionRefAt(modules, path, offset), (ref) => Place.Section({ ref })),
+    () => anchorPlaceAt(book, modules, path, offset),
+  )
+
+const anchorsNaming = (
+  book: Book,
+  modules: Modules,
+  names: (place: Place) => boolean,
+  spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.getSomes(
-        Array.map(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-          pipe(
-            resolveAnchor(indexes, m.path, anchor),
-            Option.filter((ref) => ref.module === target.module && ref.section === target.section),
-            Option.map((): CorpusLocation => ({ path: m.path, position: spanOf(anchor) })),
-          ),
-        ),
+  Array.flatMap(Array.fromIterable(modules.values()), (m) =>
+    pipe(
+      m.doc.sections,
+      Array.flatMap(anchorsOf),
+      Array.flatMap((anchor) =>
+        Option.match(soleTrail(anchorTrails(book, m.path, anchor)), {
+          onNone: (): ReadonlyArray<CorpusLocation> => [],
+          onSome: (trail) =>
+            pipe(
+              trail,
+              Array.filter((step) => names(step.place)),
+              Array.map((step): CorpusLocation => ({
+                path: m.path,
+                position: spanOf(anchor, step.segment),
+              })),
+            ),
+        }),
       ),
     ),
   )
 
+const namesSection =
+  (target: SectionRef) =>
+  (place: Place): boolean =>
+    place._tag === 'Section' &&
+    place.ref.module === target.module &&
+    place.ref.section === target.section
+
+const namesChapter =
+  (title: string) =>
+  (place: Place): boolean =>
+    place._tag === 'Chapter' && place.chapter.title === title
+
 ~
 
-`sectionDefinitionAt` follows a section anchor to the heading it names — in the anchor's own file, or the file its path names. `sectionReferencesAt` reads the section under a cursor, a heading or a resolved anchor either way, and returns that heading beside every anchor across the corpus that resolves to it. The exported verbs call these once `symbolAt` names the cursor a section.
+`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, or the title a chapter declares. `sectionNames` gathers a section's heading beside every anchor that names it. `placeNames` gathers the names of any place, and sends a chapter to `chapterNames`, which the contents navigation below defines. `placeNamesAt` reads the place under a cursor, a heading or a segment of an anchor, and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
 
 =>
 
@@ -290,28 +600,49 @@ const sectionDefinitionAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
-): Option.Option<CorpusLocation> => {
-  const indexes = titleIndexes(corpus.modules)
-  return pipe(
-    anchorAt(corpus.modules, path, offset),
-    Option.flatMap((anchor) => resolveAnchor(indexes, path, anchor)),
-    Option.flatMap(titleLocation),
+): Option.Option<CorpusLocation> =>
+  Option.flatMap(anchorPlaceAt(bookOf(corpus.modules), corpus.modules, path, offset), (place) =>
+    Match.value(place).pipe(
+      Match.tag('Section', ({ ref }) => titleLocation(ref)),
+      Match.tag('Chapter', ({ chapter }) => chapterLocation(chapter)),
+      Match.tag('Part', () => Option.none<CorpusLocation>()),
+      Match.exhaustive,
+    ),
   )
-}
 
-const sectionReferencesAt = (
+const sectionNames = (
+  book: Book,
+  modules: Modules,
+  ref: SectionRef,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => [
+  ...Option.toArray(titleLocation(ref)),
+  ...anchorsNaming(book, modules, namesSection(ref), spanOf),
+]
+
+const placeNames = (
+  book: Book,
+  modules: Modules,
+  place: Place,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> =>
+  Match.value(place).pipe(
+    Match.tag('Section', ({ ref }) => sectionNames(book, modules, ref, spanOf)),
+    Match.tag('Chapter', ({ chapter }) => chapterNames(book, modules, chapter.title, spanOf)),
+    Match.tag('Part', (): ReadonlyArray<CorpusLocation> => []),
+    Match.exhaustive,
+  )
+
+const placeNamesAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
+  spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => {
-  const modules = corpus.modules
-  const indexes = titleIndexes(modules)
-  return Option.match(targetAt(indexes, modules, path, offset), {
-    onNone: () => [],
-    onSome: (ref) => [
-      ...Option.toArray(titleLocation(ref)),
-      ...anchorsResolvingTo(indexes, modules, ref, (anchor) => anchor.position),
-    ],
+  const book = bookOf(corpus.modules)
+  return Option.match(placeAt(book, corpus.modules, path, offset), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (place) => placeNames(book, corpus.modules, place, spanOf),
   })
 }
 
@@ -424,15 +755,16 @@ const warpReferences = (
 
 ~
 
-A table-of-contents entry resolves differently from an anchor: it names a chapter by title, across the whole corpus, not a section within one file. A chapter's identity is its frontmatter, not its heading — a heading can differ from the title the book lists, or be missing. `chapterTitleToken` reads that identity: the frontmatter `title`, and the first heading only for a loom that carries no frontmatter. `chapterIndex` maps the title to where the chapter declares it, the first of any duplicate winning. `tocEntryTitleAt` reads the entry title under a cursor and `frontmatterTitleAt` the title in a chapter's own frontmatter; `chapterNameAt` takes either, so a cursor on the entry and a cursor on the chapter reach the same name. `chapterDefinitionAt` follows that name to the chapter the index holds. `unresolvedTocEntriesIn` is the other side: every entry whose title names no chapter, for the diagnostics to fault. `tocNameGroup` gathers the whole name — the chapter's own title and every entry that names it — so references and rename move together, and `chapterGroupAt` reads that group from the cursor. A part resolves the same way, keyed by its number rather than its title. A part is announced once, in its opening chapter's standalone `Part R: name`, whose `partName` is the part's identity; `partOpenerIndex` maps each part number to that announcement. The number under a cursor comes from a chapter's `Part R` through `frontmatterPartNumberAt`, or from a contents part heading through `tocPartNumberAt`, which reads it out of the `Part R — name` label; `partNumberAt` takes either. `partDefinitionAt` follows the number to the opener, and `partGroup` gathers the whole part — the announcement, every chapter's `Part R`, and every contents heading that names it — which `partGroupAt` reads from the cursor.
+A table-of-contents entry names a chapter by its title, across the whole corpus. A chapter's identity is the title it declares, not its heading, because a heading can differ from the title the book lists, or be missing. `chapterTitleToken` reads that identity: the frontmatter `title`, or the first heading for a loom that carries no frontmatter. `firstHeadingTitleOf` reads that heading from the loom's opening section. `chapterIndex` maps a title to where the chapter declares it, and the first of any duplicate wins. `tocEntryTitleAt` reads the entry title under a cursor, and `frontmatterTitleAt` reads the title in a chapter's own frontmatter. `chapterNameAt` takes either, so a cursor on the entry and a cursor on the chapter reach the same name. `chapterDefinitionAt` follows that name to the chapter the index holds. `unresolvedTocEntriesIn` is the other side: every entry whose title names no chapter, for the diagnostics to fault.
+
+`tocNameGroup` gathers the chapter's own title and every entry that names it. `chapterNames` adds every anchor that names the chapter, so a reference and a rename move the whole name together, and `chapterNamesAt` reads the name under a cursor.
+
+A part resolves the same way, keyed by its number rather than its title. A part is announced once, in its opening chapter's standalone `Part R: name`, whose `partName` is the part's identity; `partOpenerIndex` maps each part number to that announcement. The number under a cursor comes from a chapter's `Part R` through `frontmatterPartNumberAt`, or from a contents part heading through `tocPartNumberAt`, which reads it out of the `Part R — name` label; `partNumberAt` takes either. `partDefinitionAt` follows the number to the opener, and `partGroup` gathers the whole part — the announcement, every chapter's `Part R`, and every contents heading that names it — which `partGroupAt` reads from the cursor.
 
 =>
 
 const firstHeadingTitleOf = (module: LoomModule): Option.Option<HeadingTitleToken> =>
-  Option.flatMap(
-    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
-    (section) => Option.fromNullishOr(section.heading.title),
-  )
+  Option.flatMap(openingSectionOf(module), (section) => Option.fromNullishOr(section.heading.title))
 
 const chapterTitleToken = (
   module: LoomModule,
@@ -525,14 +857,25 @@ const tocNameGroup = (modules: Modules, title: string): ReadonlyArray<CorpusLoca
     ...tocMentionsOf(module, title),
   ])
 
-const chapterGroupAt = (
+const chapterNames = (
+  book: Book,
+  modules: Modules,
+  title: string,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => [
+  ...tocNameGroup(modules, title),
+  ...anchorsNaming(book, modules, namesChapter(title), spanOf),
+]
+
+const chapterNamesAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
+  spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
   Option.match(chapterNameAt(corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (title) => tocNameGroup(corpus.modules, title),
+    onSome: (title) => chapterNames(bookOf(corpus.modules), corpus.modules, title, spanOf),
   })
 
 export const unresolvedTocEntriesIn = (
@@ -655,7 +998,7 @@ const partGroupAt = (
 
 ~
 
-`definitionAt` follows the reference under a cursor to its definition — a section anchor to its heading, a warp anchor to its warp, a contents entry or a chapter's own title to that chapter, and a `Part R` or a contents part heading to where the part is announced. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title and the entries that name it, or a part's announcement and every `Part R` and contents heading that names it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
+`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a warp anchor to its warp, a contents entry or a chapter's own title to that chapter, and a `Part R` or a contents part heading to where the part is announced. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the entries and anchors that name it, or a part's announcement and every `Part R` and contents heading that names it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
 
 =>
 
@@ -703,9 +1046,11 @@ export const referencesAt = (
             warpReferences(module, path, offset, (anchor) => anchor.position),
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
-            sectionReferencesAt(corpus, path, offset),
+            placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () => chapterGroupAt(corpus, path, offset)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+            chapterNamesAt(corpus, path, offset, wholeAnchor),
+          ),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
             partGroupAt(corpus, path, offset),
           ),
@@ -716,25 +1061,9 @@ export const referencesAt = (
 
 ## Renaming a section
 
-A rename is one edit across the scope a name spans: a section's title and every anchor that resolves to it, a warp's definition and every anchor that binds to it, or a chapter's frontmatter title and every contents entry that names it, move together so the name and its references never drift. `sectionRenameAt` gathers a section's spans; the exported `renameAt` reads `symbolAt`, sending a warp to `warpReferences` and a chapter to `chapterGroupAt`. Each span is a name alone — a title, or the name inside a `::[…]` — so the brackets and any `(path)` stay put. A part is not renamed here yet: its name is embedded in the contents label and its chapter references are bare numbers, so a clean rename waits on the tokeniser splitting that label into its number and name.
+A rename is one edit across the scope a name spans, so the name and its references never drift. A section's title moves with every anchor that names the section. A warp's definition moves with every anchor that binds to it. A chapter's declared title moves with every contents entry and every anchor that names the chapter. The exported `renameAt` reads `symbolAt` and gathers these spans through the same functions the references use, with `segmentPosition` as the span. Each span is one name alone: a title, or one segment inside a `::[…]`. So the brackets, the other names of a path, and any `(path)` stay put. A part is not renamed: its name sits inside the contents label, and its chapters refer to it by a bare number.
 
 =>
-
-const sectionRenameAt = (
-  corpus: LoomCorpusAst,
-  path: Location,
-  offset: number,
-): ReadonlyArray<CorpusLocation> => {
-  const modules = corpus.modules
-  const indexes = titleIndexes(modules)
-  return Option.match(targetAt(indexes, modules, path, offset), {
-    onNone: () => [],
-    onSome: (ref) => [
-      ...Option.toArray(titleLocation(ref)),
-      ...anchorsResolvingTo(indexes, modules, ref, (anchor) => anchor.name.position),
-    ],
-  })
-}
 
 export const renameAt = (
   corpus: LoomCorpusAst,
@@ -756,9 +1085,11 @@ export const renameAt = (
             warpReferences(module, path, offset, (anchor) => anchor.name.position),
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
-            sectionRenameAt(corpus, path, offset),
+            placeNamesAt(corpus, path, offset, segmentPosition),
           ),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () => chapterGroupAt(corpus, path, offset)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+            chapterNamesAt(corpus, path, offset, segmentPosition),
+          ),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -796,7 +1127,7 @@ export const renameRangeAt = (
 
 Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
 
-`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its product. The product pass lands each anchor fault on the part it builds for that anchor. An unresolved or ambiguous anchor leaves an empty `Fragment` carrying the fault, and a cross-language anchor leaves a `NameRef` carrying it. So the walk reads the `product.code` alone. A tangle sink's `File` repeats that same `Code`, and reading it too would count every sink's diagnostics twice.
+`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its product. The product pass lands each fault it can judge within one loom on the part it builds for that anchor. An ambiguous anchor leaves an empty `Fragment` carrying the fault, and a cross-language anchor leaves a `NameRef` carrying it. An edge that leaves the loom carries no fault here, because the compiler judges it against the whole corpus. So the walk reads the `product.code` alone. A tangle sink's `File` repeats that same `Code`, and reading it too would count every sink's diagnostics twice.
 
 An anchor into another file is the one anchor no single module can judge. Its edge names a section the product pass never saw, so the compiler judges it against the whole corpus. The compiler adds what it finds to the module's own diagnostics, both for the open `.loom` in the editor and for the tangle.
 
@@ -840,12 +1171,12 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic` and `Position`, what a corpus walk gathers and a diagnostic lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do.
 
 =>
 
-import { Array, Match, Option, pipe, Schema } from 'effect'
-import { type Diagnostic, type Position } from '#ast/LoomNode'
+import { Array, Data, Match, Option, pipe, Schema } from 'effect'
+import { type Diagnostic, type Point, type Position } from '#ast/LoomNode'
 import {
   type HeadingTitleToken,
   type TocPartToken,

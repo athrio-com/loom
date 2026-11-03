@@ -26,6 +26,7 @@ export const FragmentSchema = productNode('Fragment', {
 export type Fragment = typeof FragmentSchema.Type
 
 export const NameRefSchema = productNode('NameRef', {
+  name: Schema.String,
   target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
 })
