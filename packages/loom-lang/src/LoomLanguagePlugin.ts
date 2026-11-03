@@ -175,7 +175,9 @@ export const loomServicePlugins = (
   Effect.gen(function* () {
     const workspaceSettings = yield* WorkspaceSettings
     const source = yield* WorkspaceSource
-    const manifest = Option.getOrUndefined(yield* workspaceSettings.manifest(workspace))
+    const manifest = Option.getOrUndefined(
+      yield* Effect.orDie(workspaceSettings.manifest(workspace)),
+    )
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime())

@@ -124,13 +124,18 @@ The `locationOf` method takes a file URI's path, and keeps any other URI whole a
 
 =>
 
+const folderOf = (location: Path): Path =>
+  statSync(location, { throwIfNoEntry: false })?.isDirectory() === true
+    ? location
+    : dirname(location)
+
 const locationOfUri = (uri: URI): Location => (uri.scheme === 'file' ? uri.fsPath : uri.toString())
 
 const uriOfLocation = (loom: Location): URI => (isAbsolute(loom) ? URI.file(loom) : URI.parse(loom))
 
 ~
 
-The layer gathers the seven answers. The `workspaceOf` method climbs from the loom's folder through the `findWorkspace` function, the climb the configuration makes, and names the loom's own folder when no folder above it holds a configuration. The layer provides the `LoomConfig` service it reads, as every Loom layer provides its own.
+The layer gathers the seven answers. The `workspaceOf` method climbs from a loom's folder, or from a folder it is handed, through the `findWorkspace` function, the climb the configuration makes. It names that folder itself when no folder above holds a configuration. `folderOf` tells a folder from a loom on the disk. The layer provides the `LoomConfig` service it reads, as every Loom layer provides its own.
 
 =>
 
@@ -157,8 +162,11 @@ export const FileSystemSource = Layer.effect(
         config
           .resolve(loom)
           .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
-      workspaceOf: (loom) =>
-        Option.getOrElse(Option.fromNullishOr(findWorkspace(dirname(loom))), () => dirname(loom)),
+      workspaceOf: (location) =>
+        Option.getOrElse(
+          Option.fromNullishOr(findWorkspace(folderOf(location))),
+          () => folderOf(location),
+        ),
       placeOf: (loom, sink) =>
         config
           .resolve(loom)
@@ -208,11 +216,113 @@ A `GET` request on the workspace's URL returns the workspace as JSON. It holds t
 
 A `GET` request on a loom's location returns that loom's text.
 
-An Effect Schema defines the JSON shape, and a service written in any language can honour it. New versions of the contract only add fields, so an older Loom still reads a newer service.
+An Effect Schema, `WorkspaceJson`, defines the JSON shape, and a service written in any language can honour it. The manifest has the shape `.loom/config.yaml` has on a disk, and a workspace without one leaves it out. New versions of the contract only add fields, so an older Loom still reads a newer service.
+
+=>
+
+export const WorkspaceJson = Schema.Struct({
+  contract: Schema.Number,
+  manifest: Schema.optional(WorkspaceManifestSchema),
+  looms: Schema.Record(Schema.String, Schema.String),
+})
+
+~
+
+`fetchText` makes one `GET` request through Effect's `HttpClient` service, with the key as a bearer token, and keeps only an answer whose status is a success. Any failure becomes a `ReadError` that names the URL and the reason, and never the key, which stays in the request's header. `workspaceFrom` decodes a workspace's JSON against `WorkspaceJson` and turns it into the `Workspace` value the `open` method hands over.
+
+=>
+
+const fetchText = (
+  client: HttpClient.HttpClient,
+  key: Redacted.Redacted<string>,
+  url: string,
+): Effect.Effect<string, ReadError> =>
+  HttpClient.filterStatusOk(client)
+    .execute(HttpClientRequest.get(url).pipe(HttpClientRequest.bearerToken(key)))
+    .pipe(
+      Effect.flatMap((response) => response.text),
+      Effect.mapError((cause) => new ReadError({ path: url, cause })),
+    )
+
+const workspaceFrom = (url: string, text: string): Effect.Effect<Workspace, ReadError> =>
+  Effect.try({
+    try: () => JSON.parse(text) as unknown,
+    catch: (cause) => new ReadError({ path: url, cause }),
+  }).pipe(
+    Effect.flatMap((json) =>
+      Schema.decodeUnknownEffect(WorkspaceJson)(json).pipe(
+        Effect.mapError((cause) => new ReadError({ path: url, cause })),
+      ),
+    ),
+    Effect.map((decoded) => ({
+      location: url,
+      manifest: Option.fromNullishOr(decoded.manifest),
+      looms: new Map(Object.entries(decoded.looms)),
+    })),
+  )
+
+~
 
 The contract holds no write request. The server never saves a loom, so writing belongs to whoever edits the text. Permissions, conflicts, and history belong there too.
 
-The `RemoteSource` layer answers the other five methods without a request. One URL names one workspace, and one workspace holds one corpus, so the `corpusOf` method lists every loom of the workspace the `open` method fetched. The `workspaceOf` method always names that URL. The `placeOf` method returns the sink unchanged, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back.
+The `RemoteSource` layer answers the other five methods without a request. One URL names one workspace, and one workspace holds one corpus, so the `corpusOf` method lists every loom of the workspace the `open` method fetched last. The `workspaceOf` method always names that URL. The `placeOf` method returns the sink unchanged, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back. The layer provides the `HttpClient` service it fetches through, Effect's own client over the platform's `fetch`.
+
+=>
+
+export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSource> =>
+  Layer.effect(
+    WorkspaceSource,
+    Effect.gen(function* () {
+      const client = yield* HttpClient.HttpClient
+      const listed = yield* Ref.make<ReadonlyArray<Location>>([])
+      const read = (loom: Location): Effect.Effect<string, ReadError> =>
+        fetchText(client, address.key, loom)
+      const source: WorkspaceSourceApi = {
+        open: (workspace) =>
+          read(workspace).pipe(
+            Effect.flatMap((text) => workspaceFrom(workspace, text)),
+            Effect.tap((opened) => Ref.set(listed, Array.fromIterable(opened.looms.keys()))),
+          ),
+        read,
+        corpusOf: () => Ref.get(listed),
+        workspaceOf: () => address.url,
+        placeOf: (_loom, sink) => Effect.succeed(sink),
+        locationOf: (uri) => uri.toString(),
+        uriOf: (loom) => URI.parse(loom),
+      }
+      return source
+    }),
+  ).pipe(Layer.provide(FetchHttpClient.layer))
+
+~
+
+The `RemoteSettings` layer gives the settings that go with it. Its `manifest` method opens the workspace through the source and keeps the manifest that arrives. Its `resolve` method answers every loom from that kept manifest through the `settingsOfManifest` function of the chapter "Build settings for a file", because the compiler asks for settings inside Volar's synchronous hooks. The server asks for the manifest while it starts, before the compiler asks for any settings.
+
+=>
+
+export const RemoteSettings = Layer.effect(
+  WorkspaceSettings,
+  Effect.gen(function* () {
+    const source = yield* WorkspaceSource
+    const kept = yield* Ref.make(Option.none<WorkspaceManifest>())
+    const settings: WorkspaceSettingsApi = {
+      resolve: () => Ref.get(kept).pipe(Effect.map(settingsOfManifest)),
+      manifest: (workspace) =>
+        source.open(workspace).pipe(
+          Effect.map((opened) => opened.manifest),
+          Effect.tap((manifest) => Ref.set(kept, manifest)),
+        ),
+    }
+    return settings
+  }),
+)
+
+export const RemoteEnvironment = (
+  address: StorageAddress,
+): Layer.Layer<WorkspaceSource | WorkspaceSettings> =>
+  RemoteSettings.pipe(Layer.provideMerge(RemoteSource(address)))
+
+~
 
 ## The URL and the key
 
@@ -220,7 +330,16 @@ Two environment variables connect Loom to remote storage. The `LOOM_STORAGE_URL`
 
 Neither value belongs in the `.loom/config.yaml` file. On the file system that file sits in a repository. In remote storage, Loom needs the key to fetch that file in the first place.
 
-The key stays in an Effect `Redacted` value, so a log line cannot print it. A wrong key fails the `open` method, so the editor hears of it as it connects.
+The key stays in an Effect `Redacted` value, so a log line cannot print it. A `StorageAddress` holds the URL and the key together. A wrong key fails the `open` method, so the editor hears of it as it connects.
+
+=>
+
+export interface StorageAddress {
+  readonly url: string
+  readonly key: Redacted.Redacted<string>
+}
+
+~
 
 The two variables are all the language server needs, so it can run on an author's machine or next to the storage.
 
@@ -262,7 +381,7 @@ The server never saves a loom. Rename and formatting return edits, and the edito
 
 Three things stay on disk.
 
-**What the command line writes.** The `tangle` and `weave` commands only read looms, so they read from either environment and write their output to a folder. With the two variables set, the `loom tangle` command fetches a workspace from remote storage and writes its product to the current folder. This works because the `tangle` verb returns `TangledFile` values and writes nothing. The lock stays beside that output, because it records what the tangle wrote. The `format`, `toc`, and `set` commands rewrite a workspace's own text, so they work only on the file system.
+**What the command line writes.** The `tangle` and `weave` commands only read looms, so they read from either environment and write their output to a folder. The `tangle` verb returns `TangledFile` values and writes nothing, so a tangle of a remote workspace can write its product to the current folder, as "What to work out" notes. The lock stays beside that output, because it records what the tangle wrote. The `format`, `toc`, and `set` commands rewrite a workspace's own text, so they work only on the file system.
 
 **The programs Loom runs.** The `.loom/services` folder and the `~/.loom/typescript` folder hold language services and TypeScript 7. Neither holds a workspace's content, so both stay on the machine that runs the server. The `LOOM_HOME` variable already moves the services out of the workspace folder.
 
@@ -282,13 +401,33 @@ export const FileSystemEnvironment = Layer.mergeAll(FileSystemSource, FileSystem
 
 ~
 
-The server's runtime stays a module constant, because Volar's synchronous hooks reach it from all over the module. So the pair is chosen inside the layer the runtime is built over, rather than handed to the `startLanguageServer` function. Once remote storage exists, that layer reads the `LOOM_STORAGE_URL` variable through Effect's `Config` module and builds the pair the variable names. The `loom` program chooses its pair the same way.
+The server's runtime stays a module constant, because Volar's synchronous hooks reach it from all over the module. So the pair is chosen inside the layer the runtime is built over, rather than handed to the `startLanguageServer` function. `Environment` is that layer. It reads the `LOOM_STORAGE_URL` variable through Effect's `Config` module. When the variable is set, it reads the key from `LOOM_STORAGE_KEY` and builds `RemoteEnvironment` over the two. When it is unset, it builds `FileSystemEnvironment`. A URL set without a key fails the layer, and the server reports the failure as the editor connects.
+
+=>
+
+export const Environment = Layer.unwrap(
+  Config.option(Config.String('LOOM_STORAGE_URL')).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(FileSystemEnvironment),
+        onSome: (url) =>
+          Config.Redacted('LOOM_STORAGE_KEY').pipe(
+            Effect.map((key) => RemoteEnvironment({ url, key })),
+          ),
+      }),
+    ),
+  ),
+)
+
+~
+
+The `loom` program still builds on `FileSystemEnvironment` alone. Its `tangle` command finds the lock and the workspace through the folder it is handed, so it reads remote storage only once it learns to write a remote workspace's product to a folder of its own, as "What to work out" notes.
 
 ## A workspace with no folder
 
 Two tests decide when this chapter is done. Both run a small storage service on a local port, which holds its looms in a map behind a key. That service is also the stub a consumer of the contract starts from.
 
-The first test starts the language server with that service's URL and key, and with no folder. It opens a loom and receives diagnostics, follows a definition into another loom, renames a section across looms, and reads the composed files. It then sends a change notification and watches the diagnostics move. Every read crosses a real socket and really waits, so any code still reading inside a synchronous call fails this test.
+The first test starts the language server with that service's URL and key, and with no folder. It opens a loom and receives diagnostics, follows a definition into another loom, and renames a section across looms. It then sends a change notification and watches the diagnostics move. Every read crosses a real socket and really waits, so any code still reading inside a synchronous call fails this test.
 
 The second test starts the server with a wrong key and expects the failure during the `initialize` request, with no key in the message.
 
@@ -406,8 +545,9 @@ Effect supplies the service, the layer, `Option`, and the effect type. Node's `f
 
 =>
 
-import { Context, Effect, Layer, Option } from 'effect'
-import { readFileSync } from 'node:fs'
+import { Array, Config, Context, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
+import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http'
+import { readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
@@ -416,11 +556,17 @@ import {
   LoomConfig,
   type ResolvedConfig,
   type WorkspaceManifest,
+  WorkspaceManifestSchema,
 } from '@athrio/loom-config/LoomConfig'
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
-import { FileSystemSettings } from './WorkspaceSettings'
+import {
+  FileSystemSettings,
+  settingsOfManifest,
+  WorkspaceSettings,
+  type WorkspaceSettingsApi,
+} from './WorkspaceSettings'
 
 ~
 
@@ -434,6 +580,10 @@ import { FileSystemSettings } from './WorkspaceSettings'
 
 ::[Folders as a source]
 
+::[The storage contract]
+
+::[The URL and the key]
+
 ::[Choosing the environment at startup]
 
 ~
@@ -446,11 +596,312 @@ import { FileSystemSettings } from './WorkspaceSettings'
 
 ~
 
+## The storage stub
+
+The tests need remote storage that really waits, so a stub stands in for it on a local port. `storageStub` serves the contract from a map of looms keyed by name, behind one key. It is also where a consumer of the contract starts: a service that answers these two requests the same way serves Loom.
+
+The stub's workspace lives at `/workspace`, and each loom's location is the workspace's URL followed by the loom's name. A request without the key gets `401`. A request for the workspace gets the JSON the contract describes, with a manifest that names TypeScript as the primary language. A request for a loom gets its text, or `404` for a name the map does not hold. `write` changes a loom's text the way an author's save would, and `stop` closes the port.
+
+=>
+
+export interface StorageStub {
+  readonly url: string
+  readonly locationOf: (name: string) => string
+  readonly write: (name: string, text: string) => void
+  readonly stop: () => void
+}
+
+const workspacePath = '/workspace'
+
+export const storageStub = (
+  key: string,
+  looms: ReadonlyArray<readonly [string, string]>,
+): StorageStub => {
+  const texts = new Map(looms)
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (request) => answer(request) })
+  const url = `http://127.0.0.1:${server.port}${workspacePath}`
+  const locationOf = (name: string): string => `${url}/${name}`
+  const workspaceJson = () => ({
+    contract: 1,
+    manifest: { primary: 'typescript' },
+    looms: Object.fromEntries(Array.map([...texts], ([name, text]) => [locationOf(name), text])),
+  })
+  const answer = (request: Request): Response =>
+    Match.value({
+      authorised: request.headers.get('authorization') === `Bearer ${key}`,
+      name: new URL(request.url).pathname.slice(workspacePath.length + 1),
+    }).pipe(
+      Match.when({ authorised: false }, () => new Response('unauthorised', { status: 401 })),
+      Match.when({ name: '' }, () => Response.json(workspaceJson())),
+      Match.orElse(({ name }) =>
+        Option.match(Option.fromNullishOr(texts.get(name)), {
+          onNone: () => new Response('no such loom', { status: 404 }),
+          onSome: (text) => new Response(text),
+        }),
+      ),
+    )
+  return {
+    url,
+    locationOf,
+    write: (name, text) => void texts.set(name, text),
+    stop: () => void server.stop(true),
+  }
+}
+
+## What the stub draws on
+
+Effect supplies `Array`, `Match`, and `Option`. Bun serves the port.
+
+=>
+
+import { Array, Match, Option } from 'effect'
+
+## The stub file {Tangle}[test/storageStub.ts]
+
+=>
+
+::[What the stub draws on]
+
+::[The storage stub]
+
+## Testing the remote source
+
+The cases keep two looms in the stub. `greeting.loom` holds the section `Saying hello`. `hello.loom` holds the section `The program`, whose code anchors `Saying hello` in `greeting.loom` by a path anchor. A loom quoted in this loom's code would be read as part of this loom, so the `lines` helper writes each loom as a list of its lines, and the `anchor` helper spells an anchor in two pieces.
+
+=>
+
+const key = 'the-key-the-tests-share'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const greeting = lines(
+  '# Saying hello',
+  '',
+  '=>',
+  '',
+  "export const greet = (name: string) => 'Hello, ' + name",
+)
+
+const program = lines('# The program', '', '=>', '', `${anchor('Saying hello')}(greeting.loom)`, '', "greet('world')")
+
+const stubWithBoth = (): StorageStub =>
+  storageStub(key, [
+    ['corpus/greeting.loom', greeting],
+    ['corpus/hello.loom', program],
+  ])
+
+~
+
+The first cases drive the remote pair directly, over a runtime built from `RemoteEnvironment` alone. Opening the workspace fetches both looms and the manifest. A loom reads back its own text, and its corpus holds both looms. The source names the stub's URL as every loom's workspace, leaves a sink unchanged, and turns a location into a URI and back without losing anything. The settings take the primary language from the manifest the source fetched.
+
+A wrong key fails the opening with a `ReadError` that names the workspace's URL. Its message never holds the key.
+
+=>
+
+const remote = (stub: StorageStub, secret: string) =>
+  ManagedRuntime.make(RemoteEnvironment({ url: stub.url, key: Redacted.make(secret) }))
+
+describe('RemoteSource — a workspace kept behind a URL', () => {
+  it('opens a workspace over HTTP and answers the rest by rule', async () => {
+    const stub = stubWithBoth()
+    const runtime = remote(stub, key)
+    try {
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          const source = yield* WorkspaceSource
+          const settings = yield* WorkspaceSettings
+          const hello = stub.locationOf('corpus/hello.loom')
+          const opened = yield* source.open(stub.url)
+          expect([...opened.looms.keys()].sort()).toEqual(
+            [stub.locationOf('corpus/greeting.loom'), hello].sort(),
+          )
+          expect(yield* source.read(hello)).toBe(program)
+          expect(yield* source.corpusOf(hello)).toHaveLength(2)
+          expect(source.workspaceOf(hello)).toBe(stub.url)
+          expect(yield* source.placeOf(hello, 'src/hello.ts')).toBe('src/hello.ts')
+          expect(source.locationOf(source.uriOf(hello))).toBe(hello)
+          yield* settings.manifest(stub.url)
+          expect((yield* settings.resolve(hello)).primaryLanguage).toBe('typescript')
+        }),
+      )
+    } finally {
+      stub.stop()
+    }
+  })
+
+  it('refuses a wrong key without naming it', async () => {
+    const stub = stubWithBoth()
+    const runtime = remote(stub, 'not-the-key')
+    try {
+      const failure = await runtime.runPromise(
+        WorkspaceSource.pipe(Effect.flatMap((source) => Effect.flip(source.open(stub.url)))),
+      )
+      expect(failure.message).toContain(stub.url)
+      expect(failure.message).not.toContain('not-the-key')
+    } finally {
+      stub.stop()
+    }
+  })
+})
+
+## Testing a workspace with no folder
+
+The last cases start the real language server, as an editor does, with the stub's URL and key in its environment and no folder at all. `editorOver` spawns the server and connects to it over standard input and output. Every read the server makes crosses the stub's socket and really waits, so any code that still reads inside a synchronous call fails here.
+
+=>
+
+const serverEntry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
+
+const editorOver = (stub: StorageStub, secret: string) => {
+  const env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'LOOM_HOME')),
+    LOOM_STORAGE_URL: stub.url,
+    LOOM_STORAGE_KEY: secret,
+  }
+  const child = spawn(process.execPath, [serverEntry, '--stdio'], {
+    env,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  const connection = createMessageConnection(
+    new StreamMessageReader(child.stdout),
+    new StreamMessageWriter(child.stdin),
+  )
+  connection.onRequest(() => null)
+  connection.listen()
+  const initialize = (): Promise<unknown> =>
+    connection.sendRequest('initialize', {
+      processId: process.pid,
+      rootUri: null,
+      workspaceFolders: null,
+      capabilities: { workspace: { didChangeWatchedFiles: { dynamicRegistration: true } } },
+    })
+  const close = (): void => {
+    connection.dispose()
+    child.kill()
+  }
+  return { connection, initialize, close }
+}
+
+~
+
+The editor opens `hello.loom` by its URL. The anchor resolves, so the loom has no diagnostics. A definition from the anchor's name, on line 4 at character 5, lands in `greeting.loom`. A rename there rewrites both looms, the heading in `greeting.loom` and the anchor in `hello.loom`. Then the stub renames the section in `greeting.loom` to `Saying goodbye`, and the editor reports the change. The server fetches the new text, and the anchor in `hello.loom` now names a section that no loom holds.
+
+=>
+
+const targetOf = (link: Location | LocationLink): string =>
+  'targetUri' in link ? link.targetUri : link.uri
+
+describe('LoomServer — a workspace kept in remote storage', () => {
+  it('serves its looms with no folder, and follows a change', async () => {
+    const stub = stubWithBoth()
+    const editor = editorOver(stub, key)
+    try {
+      await editor.initialize()
+      await editor.connection.sendNotification('initialized', {})
+      const hello = stub.locationOf('corpus/hello.loom')
+      const greetingUri = stub.locationOf('corpus/greeting.loom')
+      await editor.connection.sendNotification('textDocument/didOpen', {
+        textDocument: { uri: hello, languageId: 'loom', version: 1, text: program },
+      })
+      const diagnostics = async (): Promise<ReadonlyArray<string>> =>
+        Array.map(
+          (
+            await editor.connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
+              'textDocument/diagnostic',
+              { textDocument: { uri: hello } },
+            )
+          ).items,
+          (diagnostic) => diagnostic.message,
+        )
+      expect(await diagnostics()).toEqual([])
+      const position = { line: 4, character: 5 }
+      const links = await editor.connection.sendRequest<ReadonlyArray<Location | LocationLink>>(
+        'textDocument/definition',
+        { textDocument: { uri: hello }, position },
+      )
+      expect(Array.map(links, targetOf)).toEqual([greetingUri])
+      const edit = await editor.connection.sendRequest<WorkspaceEdit>('textDocument/rename', {
+        textDocument: { uri: hello },
+        position,
+        newName: 'Saying hi',
+      })
+      expect(Object.keys(edit.changes ?? {}).sort()).toEqual([greetingUri, hello].sort())
+      stub.write('corpus/greeting.loom', greeting.replace('Saying hello', 'Saying goodbye'))
+      await editor.connection.sendNotification('workspace/didChangeWatchedFiles', {
+        changes: [{ uri: greetingUri, type: FileChangeType.Changed }],
+      })
+      expect((await diagnostics()).join('\n')).toContain('Saying hello')
+    } finally {
+      editor.close()
+      stub.stop()
+    }
+  }, 30_000)
+
+~
+
+With a wrong key, the server cannot read the manifest, and the `initialize` request fails. Its message names the workspace's URL and never the key.
+
+=>
+
+  it('fails the initialize request on a wrong key, without naming the key', async () => {
+    const stub = stubWithBoth()
+    const editor = editorOver(stub, 'not-the-key')
+    try {
+      const failure = await editor.initialize().then(
+        () => 'accepted',
+        (error: Error) => error.message,
+      )
+      expect(failure).toContain(stub.url)
+      expect(failure).not.toContain('not-the-key')
+    } finally {
+      editor.close()
+      stub.stop()
+    }
+  }, 30_000)
+})
+
+## What the remote cases draw on
+
+The cases draw on Bun's test runner, and on Node to spawn the server and to turn the entry module's address into a path. Volar's language-server package carries the client half of the protocol, `createMessageConnection` with the stream reader and writer it speaks through, the `FileChangeType` a reported change carries, and the types of a diagnostic, a location, a location link, and a workspace edit. Effect supplies `Array`, `Effect`, the `ManagedRuntime` the direct cases run on, and the `Redacted` value that holds the key. The cases take `RemoteEnvironment` and `WorkspaceSource` from this chapter's module, `WorkspaceSettings` from the chapter "Build settings for a file", and the stub from its own file.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import {
+  createMessageConnection,
+  type Diagnostic,
+  FileChangeType,
+  type Location,
+  type LocationLink,
+  StreamMessageReader,
+  StreamMessageWriter,
+  type WorkspaceEdit,
+} from '@volar/language-server/node'
+import { Array, Effect, ManagedRuntime, Redacted } from 'effect'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { RemoteEnvironment, WorkspaceSource } from '../src/WorkspaceSource'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { type StorageStub, storageStub } from './storageStub'
+
+## The remote test file {Tangle}[test/RemoteStorage.test.ts]
+
+=>
+
+::[What the remote cases draw on]
+
+::[Testing the remote source]
+
+::[Testing a workspace with no folder]
+
 ## What to work out
 
 - **A folder for language services.** TypeScript 7 needs a folder holding the product and its dependencies. The `loom tangle` command can fill one from remote storage. Where that folder lives, and whether the language service's contract asks for it, is open.
 - **Building the product.** Tangling needs only text. Compiling the product needs a folder, a toolchain, and the dependencies, so it runs wherever those three exist, such as a continuous integration job. How a build's errors, which name tangled files, find their way back to their sections is open.
 - **Editors that report no changes.** The `savedLooms` function reads a file's modified time on every request, so a saved edit reaches the server even when the editor sends no notification. Whether the file-system source keeps this check needs testing in Helix and Neovim before the check goes.
+- **The command line over remote storage.** The `tangle` command finds a workspace's lock and its root through the folder it is handed. To tangle a remote workspace it must fetch the looms, write the product to the current folder, and keep the lock there. Until then the `loom` program builds on `FileSystemEnvironment` alone.
 - **Very large workspaces.** The `open` method fetches every loom's text at once. This book holds about two megabytes of text, so that request stays small. A far larger workspace may need a later version of the contract that lists a hash for each loom, so Loom fetches only what changed.
 
 ## What this chapter grows into

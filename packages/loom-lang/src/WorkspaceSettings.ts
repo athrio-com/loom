@@ -1,11 +1,13 @@
-import { Context, Effect, Layer, Option } from 'effect'
+import { Context, Effect, Layer, Option, Record } from 'effect'
 import {
+  defaultWidth,
   LoomConfig,
   type ResolvedConfig,
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { type ReadError } from '#ast/LoomCorpusAstBuilder'
 
 export interface BuildSettings {
   readonly delims: AnchorDelims
@@ -23,7 +25,9 @@ const anchorDelimsOf = (
 
 export interface WorkspaceSettingsApi {
   readonly resolve: (loom: Location) => Effect.Effect<BuildSettings>
-  readonly manifest: (workspace: Location) => Effect.Effect<Option.Option<WorkspaceManifest>>
+  readonly manifest: (
+    workspace: Location,
+  ) => Effect.Effect<Option.Option<WorkspaceManifest>, ReadError>
 }
 
 export class WorkspaceSettings extends Context.Service<WorkspaceSettings>()('WorkspaceSettings', {
@@ -50,3 +54,19 @@ export const FileSystemSettings = Layer.effect(
     return settings
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
+
+export const settingsOfManifest = (manifest: Option.Option<WorkspaceManifest>): BuildSettings =>
+  Option.match(manifest, {
+    onNone: () => ({
+      delims: defaultAnchorDelims,
+      primaryLanguage: undefined,
+      variables: {},
+      width: defaultWidth,
+    }),
+    onSome: (m) => ({
+      delims: anchorDelimsOf(m.anchor),
+      primaryLanguage: m.primary,
+      variables: Record.map(m.variables ?? {}, (value) => String(value)),
+      width: m.width ?? defaultWidth,
+    }),
+  })

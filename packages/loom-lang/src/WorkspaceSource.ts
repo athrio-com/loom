@@ -1,5 +1,6 @@
-import { Context, Effect, Layer, Option } from 'effect'
-import { readFileSync } from 'node:fs'
+import { Array, Config, Context, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
+import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http'
+import { readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
@@ -8,11 +9,17 @@ import {
   LoomConfig,
   type ResolvedConfig,
   type WorkspaceManifest,
+  WorkspaceManifestSchema,
 } from '@athrio/loom-config/LoomConfig'
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
-import { FileSystemSettings } from './WorkspaceSettings'
+import {
+  FileSystemSettings,
+  settingsOfManifest,
+  WorkspaceSettings,
+  type WorkspaceSettingsApi,
+} from './WorkspaceSettings'
 
 export interface Workspace {
   readonly location: Location
@@ -67,6 +74,11 @@ export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink
     onSome: (root) => resolvePath(root, sink),
   })
 
+const folderOf = (location: Path): Path =>
+  statSync(location, { throwIfNoEntry: false })?.isDirectory() === true
+    ? location
+    : dirname(location)
+
 const locationOfUri = (uri: URI): Location => (uri.scheme === 'file' ? uri.fsPath : uri.toString())
 
 const uriOfLocation = (loom: Location): URI => (isAbsolute(loom) ? URI.file(loom) : URI.parse(loom))
@@ -94,8 +106,11 @@ export const FileSystemSource = Layer.effect(
         config
           .resolve(loom)
           .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
-      workspaceOf: (loom) =>
-        Option.getOrElse(Option.fromNullishOr(findWorkspace(dirname(loom))), () => dirname(loom)),
+      workspaceOf: (location) =>
+        Option.getOrElse(
+          Option.fromNullishOr(findWorkspace(folderOf(location))),
+          () => folderOf(location),
+        ),
       placeOf: (loom, sink) =>
         config
           .resolve(loom)
@@ -111,4 +126,105 @@ export const FileSystemSource = Layer.effect(
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
 
+export const WorkspaceJson = Schema.Struct({
+  contract: Schema.Number,
+  manifest: Schema.optional(WorkspaceManifestSchema),
+  looms: Schema.Record(Schema.String, Schema.String),
+})
+
+const fetchText = (
+  client: HttpClient.HttpClient,
+  key: Redacted.Redacted<string>,
+  url: string,
+): Effect.Effect<string, ReadError> =>
+  HttpClient.filterStatusOk(client)
+    .execute(HttpClientRequest.get(url).pipe(HttpClientRequest.bearerToken(key)))
+    .pipe(
+      Effect.flatMap((response) => response.text),
+      Effect.mapError((cause) => new ReadError({ path: url, cause })),
+    )
+
+const workspaceFrom = (url: string, text: string): Effect.Effect<Workspace, ReadError> =>
+  Effect.try({
+    try: () => JSON.parse(text) as unknown,
+    catch: (cause) => new ReadError({ path: url, cause }),
+  }).pipe(
+    Effect.flatMap((json) =>
+      Schema.decodeUnknownEffect(WorkspaceJson)(json).pipe(
+        Effect.mapError((cause) => new ReadError({ path: url, cause })),
+      ),
+    ),
+    Effect.map((decoded) => ({
+      location: url,
+      manifest: Option.fromNullishOr(decoded.manifest),
+      looms: new Map(Object.entries(decoded.looms)),
+    })),
+  )
+
+export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSource> =>
+  Layer.effect(
+    WorkspaceSource,
+    Effect.gen(function* () {
+      const client = yield* HttpClient.HttpClient
+      const listed = yield* Ref.make<ReadonlyArray<Location>>([])
+      const read = (loom: Location): Effect.Effect<string, ReadError> =>
+        fetchText(client, address.key, loom)
+      const source: WorkspaceSourceApi = {
+        open: (workspace) =>
+          read(workspace).pipe(
+            Effect.flatMap((text) => workspaceFrom(workspace, text)),
+            Effect.tap((opened) => Ref.set(listed, Array.fromIterable(opened.looms.keys()))),
+          ),
+        read,
+        corpusOf: () => Ref.get(listed),
+        workspaceOf: () => address.url,
+        placeOf: (_loom, sink) => Effect.succeed(sink),
+        locationOf: (uri) => uri.toString(),
+        uriOf: (loom) => URI.parse(loom),
+      }
+      return source
+    }),
+  ).pipe(Layer.provide(FetchHttpClient.layer))
+
+export const RemoteSettings = Layer.effect(
+  WorkspaceSettings,
+  Effect.gen(function* () {
+    const source = yield* WorkspaceSource
+    const kept = yield* Ref.make(Option.none<WorkspaceManifest>())
+    const settings: WorkspaceSettingsApi = {
+      resolve: () => Ref.get(kept).pipe(Effect.map(settingsOfManifest)),
+      manifest: (workspace) =>
+        source.open(workspace).pipe(
+          Effect.map((opened) => opened.manifest),
+          Effect.tap((manifest) => Ref.set(kept, manifest)),
+        ),
+    }
+    return settings
+  }),
+)
+
+export const RemoteEnvironment = (
+  address: StorageAddress,
+): Layer.Layer<WorkspaceSource | WorkspaceSettings> =>
+  RemoteSettings.pipe(Layer.provideMerge(RemoteSource(address)))
+
+export interface StorageAddress {
+  readonly url: string
+  readonly key: Redacted.Redacted<string>
+}
+
 export const FileSystemEnvironment = Layer.mergeAll(FileSystemSource, FileSystemSettings)
+
+export const Environment = Layer.unwrap(
+  Config.option(Config.String('LOOM_STORAGE_URL')).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(FileSystemEnvironment),
+        onSome: (url) =>
+          Config.Redacted('LOOM_STORAGE_KEY').pipe(
+            Effect.map((key) => RemoteEnvironment({ url, key })),
+          ),
+      }),
+    ),
+  ),
+)

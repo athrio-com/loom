@@ -38,7 +38,7 @@ const anchorDelimsOf = (
 
 ## The service
 
-`WorkspaceSettings` is the service the compiler, the language plugin, and the server depend on, so they reach the configuration through the same dependency injection they use for every other pass. Its `resolve` method takes a loom's location and answers the loom's `BuildSettings`. Its `manifest` method takes a workspace's location and answers the workspace's manifest, or nothing when the workspace holds no configuration.
+`WorkspaceSettings` is the service the compiler, the language plugin, and the server depend on, so they reach the configuration through the same dependency injection they use for every other pass. Its `resolve` method takes a loom's location and answers the loom's `BuildSettings`. Its `manifest` method takes a workspace's location and answers the workspace's manifest, or nothing when the workspace holds no configuration. It fails with a `ReadError` when the manifest cannot be fetched at all, as when remote storage refuses its key.
 
 Like the `WorkspaceSource` service, its own layer dies, because only an environment can say where the configuration is kept. A test supplies settings of its own through the `Layer.succeed` function.
 
@@ -46,7 +46,9 @@ Like the `WorkspaceSource` service, its own layer dies, because only an environm
 
 export interface WorkspaceSettingsApi {
   readonly resolve: (loom: Location) => Effect.Effect<BuildSettings>
-  readonly manifest: (workspace: Location) => Effect.Effect<Option.Option<WorkspaceManifest>>
+  readonly manifest: (
+    workspace: Location,
+  ) => Effect.Effect<Option.Option<WorkspaceManifest>, ReadError>
 }
 
 export class WorkspaceSettings extends Context.Service<WorkspaceSettings>()('WorkspaceSettings', {
@@ -80,20 +82,44 @@ export const FileSystemSettings = Layer.effect(
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
 
-## What this module draws on
+## Settings from a manifest
 
-Effect supplies the service, the layer, `Option`, and the effect type. From `@athrio/loom-config` come the `LoomConfig` service, which finds and reads a file's configuration, the `ResolvedConfig` it resolves for a loom, and the `WorkspaceManifest` a workspace keeps. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, where the built-in delimiters live, and `Location` names the loom whose settings it resolves.
+A manifest that arrives whole, such as the one remote storage sends, turns into settings without `LoomConfig`. `settingsOfManifest` reads the same four settings from it that `settingsOf` reads from a resolved configuration, and gives Loom's defaults when there is no manifest at all. A manifest's variables may be numbers or booleans, so each one becomes the string a warp interpolates.
 
 =>
 
-import { Context, Effect, Layer, Option } from 'effect'
+export const settingsOfManifest = (manifest: Option.Option<WorkspaceManifest>): BuildSettings =>
+  Option.match(manifest, {
+    onNone: () => ({
+      delims: defaultAnchorDelims,
+      primaryLanguage: undefined,
+      variables: {},
+      width: defaultWidth,
+    }),
+    onSome: (m) => ({
+      delims: anchorDelimsOf(m.anchor),
+      primaryLanguage: m.primary,
+      variables: Record.map(m.variables ?? {}, (value) => String(value)),
+      width: m.width ?? defaultWidth,
+    }),
+  })
+
+## What this module draws on
+
+Effect supplies the service, the layer, `Option`, `Record`, and the effect type. From `@athrio/loom-config` come the `LoomConfig` service, which finds and reads a file's configuration, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` a workspace keeps, and `defaultWidth`, the width a manifest that names none keeps to. `ReadError` names a manifest that could not be fetched. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, where the built-in delimiters live, and `Location` names the loom whose settings it resolves.
+
+=>
+
+import { Context, Effect, Layer, Option, Record } from 'effect'
 import {
+  defaultWidth,
   LoomConfig,
   type ResolvedConfig,
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { type ReadError } from '#ast/LoomCorpusAstBuilder'
 
 ## The module {Tangle}
 
@@ -106,3 +132,5 @@ import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 ::[The service]
 
 ::[Settings kept in a folder]
+
+::[Settings from a manifest]
