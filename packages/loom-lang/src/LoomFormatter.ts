@@ -4,6 +4,7 @@ import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { outputPath } from './WorkspaceSource'
 import { type BuildSettings, PackageConfig } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomsIn, projectIn } from './LoomProject'
 import { statSync } from 'node:fs'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
@@ -731,6 +732,7 @@ interface SectionEdits {
 export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatter', {
   make: Effect.gen(function* () {
     const config = yield* PackageConfig
+    const loomConfig = yield* LoomConfig
     const corpus = yield* LoomCorpusAstBuilder
     return {
       format: (
@@ -798,7 +800,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
         }),
       looms: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
         statSync(path, { throwIfNoEntry: false })?.isDirectory() === true
-          ? Effect.map(config.resolve(path), (settings) => loomsIn(path, projectIn(settings)))
+          ? Effect.map(loomConfig.resolve(path), (resolved) => loomsIn(path, projectIn(resolved)))
           : Effect.succeed([path]),
     }
   }),

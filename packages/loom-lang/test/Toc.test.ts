@@ -5,6 +5,7 @@ import { parseDocument, ParseLayer } from './parse'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -97,7 +98,8 @@ const corpus: Record<string, string> = {
 const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-    Layer.merge(
+    Layer.mergeAll(
+      LoomConfig.layer,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -112,8 +114,6 @@ const makeCompilerLayer = (files: Record<string, string>) =>
             variables: {},
             width: 100,
             packageRoot: undefined,
-            workspaceRoot: undefined,
-            corpusDir: undefined,
           }),
       }),
     ),

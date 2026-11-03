@@ -903,6 +903,7 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -947,7 +948,7 @@ const files: Record<string, string> = {
 
 The stand-in source reads each loom from the `files` record, which maps a path to the loom's text. It reads a path the record lacks as empty text, lists every path in the record as the corpus, and ignores any loom it is asked to hold or forget.
 
-The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. It names no package root, so each file a loom tangles lands beside the loom. It names no workspace root either. Without one the build cache on disk keeps nothing, so no case writes to the disk.
+The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. It names no package root, so each file a loom tangles lands beside the loom. The build cache on disk finds a loom's workspace through the real `LoomConfig` service, which the layer provides too. No folder above a path such as `/chapter.loom` holds a configuration, so the cache keeps nothing, and no case writes to the disk.
 
 =>
 
@@ -966,8 +967,6 @@ const TestConfig = Layer.succeed(PackageConfig, {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: undefined,
-      corpusDir: undefined,
     }),
 })
 
@@ -979,7 +978,7 @@ The `LoomMemo` cache keeps each module the compiler builds and counts its hits a
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(TestDocs, TestConfig),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
 )
 
 ## What a book reaches, and what the memo keeps
@@ -1071,7 +1070,8 @@ const crossImport: Record<string, string> = {
 
 const crossLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(
+  Layer.mergeAll(
+    LoomConfig.layer,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
@@ -1155,7 +1155,8 @@ const editable: Record<string, string> = {
 
 const editableLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(
+  Layer.mergeAll(
+    LoomConfig.layer,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(editable[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(editable))),
@@ -1234,6 +1235,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1282,7 +1284,8 @@ The `layerOf` function builds the compiler over a record of looms. Its stand-in 
 const layerOf = (files: Record<string, string>) =>
   Layer.provide(
     LoomCompiler.layer,
-    Layer.merge(
+    Layer.mergeAll(
+      LoomConfig.layer,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -1297,8 +1300,6 @@ const layerOf = (files: Record<string, string>) =>
             variables: {},
             width: 100,
             packageRoot: undefined,
-            workspaceRoot: undefined,
-            corpusDir: undefined,
           }),
       }),
     ),
@@ -1525,6 +1526,7 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1587,20 +1589,19 @@ const TestConfig = Layer.succeed(PackageConfig, {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: undefined,
-      corpusDir: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(TestDocs, TestConfig),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
 )
 
 const makeLayer = (docs: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-    Layer.merge(
+    Layer.mergeAll(
+      LoomConfig.layer,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(docs[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(docs))),
@@ -1819,6 +1820,7 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1877,14 +1879,12 @@ const TestConfig = Layer.succeed(PackageConfig, {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: undefined,
-      corpusDir: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(TestDocs, TestConfig),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
 )
 
 ~
@@ -1940,6 +1940,7 @@ import { parseDocument, ParseLayer } from './parse'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -2066,7 +2067,8 @@ const corpus: Record<string, string> = {
 const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-    Layer.merge(
+    Layer.mergeAll(
+      LoomConfig.layer,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -2081,8 +2083,6 @@ const makeCompilerLayer = (files: Record<string, string>) =>
             variables: {},
             width: 100,
             packageRoot: undefined,
-            workspaceRoot: undefined,
-            corpusDir: undefined,
           }),
       }),
     ),

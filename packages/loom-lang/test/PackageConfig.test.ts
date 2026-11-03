@@ -38,8 +38,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: dir,
-      corpusDir: dir,
     })
   })
 
@@ -52,8 +50,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: dir,
-      corpusDir: dir,
     })
   })
 
@@ -68,8 +64,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: dir,
-      corpusDir: nested,
     })
   })
 
@@ -80,8 +74,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: undefined,
-      corpusDir: undefined,
     })
   })
 
@@ -92,8 +84,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: undefined,
-      corpusDir: undefined,
     })
   })
 })

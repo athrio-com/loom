@@ -3,6 +3,7 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -49,14 +50,12 @@ const TestConfig = Layer.succeed(PackageConfig, {
       variables: {},
       width: 100,
       packageRoot: undefined,
-      workspaceRoot: undefined,
-      corpusDir: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(TestDocs, TestConfig),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
 )
 
 describe('LoomCompiler — semantic tokens over the source', () => {

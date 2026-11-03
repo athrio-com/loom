@@ -3,6 +3,7 @@ import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { PackageConfig } from '../src/PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   defineLanguageService,
   type LanguageService,
@@ -64,7 +65,9 @@ const tidy = formatterOf((code) => {
 const formatted = (text: string, languages: ReadonlyArray<LanguageService> = []) =>
   LoomFormatter.pipe(
     Effect.flatMap((formatter) => formatter.format(path, text, languages)),
-    Effect.provide(LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer))),
+    Effect.provide(
+      LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer), Layer.provide(LoomConfig.layer)),
+    ),
   )
 
 const frontmatter = ['---', 'Language: TypeScript', '---', '']

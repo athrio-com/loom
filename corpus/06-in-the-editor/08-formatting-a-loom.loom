@@ -856,7 +856,7 @@ const brokenRoots = (
 
 The file's module is built through a `Source` that knows only this one text, so the build never reads another file and never sees an older copy of this one.
 
-Its `looms` names the looms a path covers, for a caller that formats more than one. A file is itself. A folder is every loom under it that the project holds, by the same walk `tangle` takes, so `format` and `tangle` agree on what a folder contains.
+Its `looms` names the looms a path covers, for a caller that formats more than one. A file is itself. A folder is every loom under it that the project holds, by the same walk `tangle` takes, so `format` and `tangle` agree on what a folder contains. The project comes from the configuration `LoomConfig` resolves for the folder, since the build settings carry no folders.
 
 =>
 
@@ -878,6 +878,7 @@ interface SectionEdits {
 export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatter', {
   make: Effect.gen(function* () {
     const config = yield* PackageConfig
+    const loomConfig = yield* LoomConfig
     const corpus = yield* LoomCorpusAstBuilder
     return {
       format: (
@@ -945,7 +946,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
         }),
       looms: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
         statSync(path, { throwIfNoEntry: false })?.isDirectory() === true
-          ? Effect.map(config.resolve(path), (settings) => loomsIn(path, projectIn(settings)))
+          ? Effect.map(loomConfig.resolve(path), (resolved) => loomsIn(path, projectIn(resolved)))
           : Effect.succeed([path]),
     }
   }),
@@ -957,7 +958,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
 
 ## What this module draws on
 
-Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `PackageConfig` gives a file's build settings. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
+Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `PackageConfig` gives a file's build settings, and `LoomConfig` the configuration that names a folder's project. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
 
 =>
 
@@ -967,6 +968,7 @@ import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { outputPath } from './WorkspaceSource'
 import { type BuildSettings, PackageConfig } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomsIn, projectIn } from './LoomProject'
 import { statSync } from 'node:fs'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
@@ -1016,6 +1018,7 @@ import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { PackageConfig } from '../src/PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   defineLanguageService,
   type LanguageService,
@@ -1077,7 +1080,9 @@ const tidy = formatterOf((code) => {
 const formatted = (text: string, languages: ReadonlyArray<LanguageService> = []) =>
   LoomFormatter.pipe(
     Effect.flatMap((formatter) => formatter.format(path, text, languages)),
-    Effect.provide(LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer))),
+    Effect.provide(
+      LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer), Layer.provide(LoomConfig.layer)),
+    ),
   )
 
 const frontmatter = ['---', 'Language: TypeScript', '---', '']

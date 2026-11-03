@@ -6,6 +6,7 @@ import { profileOf, SymbolKindSchema, symbolsOf } from '@athrio/loom-ast/LoomSym
 import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { parseDocument, ParseLayer } from './parse'
 
@@ -44,7 +45,8 @@ const files: Record<string, string> = { '/convert.loom': fixture }
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.merge(
+  Layer.mergeAll(
+    LoomConfig.layer,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(files[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -59,8 +61,6 @@ const layer = Layer.provide(
           variables: {},
           width: 100,
           packageRoot: undefined,
-          workspaceRoot: undefined,
-          corpusDir: undefined,
         }),
     }),
   ),

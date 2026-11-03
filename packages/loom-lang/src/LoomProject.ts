@@ -11,7 +11,7 @@ import {
   sep,
 } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
-import { type BuildSettings } from './PackageConfig'
+import { type ResolvedConfig } from '@athrio/loom-config/LoomConfig'
 import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
 
 export interface LoomProject {
@@ -19,10 +19,10 @@ export interface LoomProject {
   readonly ignore: ReadonlyArray<string>
 }
 
-export const projectIn = (settings: BuildSettings): Option.Option<LoomProject> =>
-  Option.map(Option.fromNullishOr(settings.workspaceRoot), (root) => ({
+export const projectIn = (config: ResolvedConfig): Option.Option<LoomProject> =>
+  Option.map(Option.fromNullishOr(config.workspaceRoot), (root) => ({
     root,
-    ignore: settings.ignore ?? [],
+    ignore: config.ignore ?? [],
   }))
 
 interface Layer {

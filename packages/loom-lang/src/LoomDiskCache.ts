@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { type BuildSettings } from './PackageConfig'
 
@@ -136,6 +137,7 @@ const keep = (
 export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCache', {
   make: Effect.gen(function* () {
     const fingerprint = yield* Effect.sync(fingerprintNow)
+    const config = yield* LoomConfig
     return {
       through: (
         source: Source,
@@ -144,28 +146,32 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
         settings: BuildSettings,
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>
-        Option.match(Option.fromNullishOr(settings.workspaceRoot), {
-          onNone: () => build,
-          onSome: (workspace) =>
-            source.read(path).pipe(
-              Effect.flatMap((text) => {
-                const key = keyOf(fingerprint, path, text, settings)
-                const file = keptFileOf(workspace, path)
-                return Effect.sync(() => recall(file, key, path, text)).pipe(
-                  Effect.flatMap(
-                    Option.match({
-                      onSome: (module) => Effect.succeed(module),
-                      onNone: () =>
-                        build.pipe(
-                          Effect.tap((module) => keep(saved, workspace, file, key, module)),
-                        ),
-                    }),
-                  ),
-                )
-              }),
-              Effect.catchTag('ReadError', () => build),
-            ),
-        }),
+        config.resolve(path).pipe(
+          Effect.flatMap(({ workspaceRoot }) =>
+            Option.match(Option.fromNullishOr(workspaceRoot), {
+              onNone: () => build,
+              onSome: (workspace) =>
+                source.read(path).pipe(
+                  Effect.flatMap((text) => {
+                    const key = keyOf(fingerprint, path, text, settings)
+                    const file = keptFileOf(workspace, path)
+                    return Effect.sync(() => recall(file, key, path, text)).pipe(
+                      Effect.flatMap(
+                        Option.match({
+                          onSome: (module) => Effect.succeed(module),
+                          onNone: () =>
+                            build.pipe(
+                              Effect.tap((module) => keep(saved, workspace, file, key, module)),
+                            ),
+                        }),
+                      ),
+                    )
+                  }),
+                  Effect.catchTag('ReadError', () => build),
+                ),
+            }),
+          ),
+        ),
     }
   }),
 }) {

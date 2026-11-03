@@ -6,6 +6,7 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 
 // Regression guard for the brace-in-prose gotcha, now covering the whole book. A
@@ -40,6 +41,7 @@ beforeAll(async () => {
       Layer.provide(DocumentSource.layer),
       Layer.provide(FileSystemSource),
       Layer.provide(PackageConfig.layer),
+      Layer.provide(LoomConfig.layer),
     ),
   )
   run = (effect) => runtime.runSync(effect)

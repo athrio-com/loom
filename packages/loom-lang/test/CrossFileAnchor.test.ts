@@ -2,6 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -38,7 +39,8 @@ console.log(greet('world'))
 const layerOf = (files: Record<string, string>) =>
   Layer.provide(
     LoomCompiler.layer,
-    Layer.merge(
+    Layer.mergeAll(
+      LoomConfig.layer,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -53,8 +55,6 @@ const layerOf = (files: Record<string, string>) =>
             variables: {},
             width: 100,
             packageRoot: undefined,
-            workspaceRoot: undefined,
-            corpusDir: undefined,
           }),
       }),
     ),

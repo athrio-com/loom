@@ -7,11 +7,11 @@ import {
   defaultCorpus,
   findWorkspace,
   LoomConfig,
+  type ResolvedConfig,
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
-import { type BuildSettings, PackageConfig } from './PackageConfig'
 import { holds, loomsIn, projectIn } from './LoomProject'
 
 export type Location = Path
@@ -50,14 +50,14 @@ const corpusFolderOf = (workspace: Location, manifest: Option.Option<WorkspaceMa
     onSome: (m) => join(workspace, m.corpus ?? defaultCorpus),
   })
 
-const corpusWalk = (settings: BuildSettings, loom: Location): ReadonlyArray<Location> =>
+const corpusWalk = (resolved: ResolvedConfig, loom: Location): ReadonlyArray<Location> =>
   Option.match(
-    Option.filter(projectIn(settings), (project) => holds(project, loom)),
+    Option.filter(projectIn(resolved), (project) => holds(project, loom)),
     {
       onNone: () => loomsIn(dirname(loom), Option.none()),
       onSome: (project) =>
         loomsIn(
-          Option.getOrElse(Option.fromNullishOr(settings.corpusDir), () => dirname(loom)),
+          Option.getOrElse(Option.fromNullishOr(resolved.corpusDir), () => dirname(loom)),
           Option.some(project),
         ),
     },
@@ -82,13 +82,12 @@ export const FileSystemSource = Layer.effect(
   WorkspaceSource,
   Effect.gen(function* () {
     const config = yield* LoomConfig
-    const packages = yield* PackageConfig
     const open = (workspace: Location): Effect.Effect<Workspace, ReadError> =>
       Effect.gen(function* () {
         const manifest = Option.fromNullishOr(yield* config.manifest(workspace))
-        const settings = yield* packages.resolve(workspace)
+        const resolved = yield* config.resolve(workspace)
         const paths = yield* Effect.sync(() =>
-          loomsIn(corpusFolderOf(workspace, manifest), projectIn(settings)),
+          loomsIn(corpusFolderOf(workspace, manifest), projectIn(resolved)),
         )
         const looms = yield* Effect.forEach(paths, (loom) =>
           fromDisk(loom).pipe(Effect.map((text) => [loom, text] as const)),
@@ -99,9 +98,9 @@ export const FileSystemSource = Layer.effect(
       open,
       read: fromDisk,
       corpusOf: (loom) =>
-        packages
+        config
           .resolve(loom)
-          .pipe(Effect.flatMap((settings) => Effect.sync(() => corpusWalk(settings, loom)))),
+          .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
       workspaceOf: (loom) =>
         Option.getOrElse(Option.fromNullishOr(findWorkspace(dirname(loom))), () => dirname(loom)),
       placeOf: (workspace, loom, sink) => outputPath(packageRootOf(workspace, loom), loom, sink),
@@ -110,4 +109,4 @@ export const FileSystemSource = Layer.effect(
     }
     return source
   }),
-).pipe(Layer.provide(PackageConfig.layer), Layer.provide(LoomConfig.layer))
+).pipe(Layer.provide(LoomConfig.layer))

@@ -3,7 +3,7 @@ import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
-import { PackageConfig } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { holds, loomsIn, projectIn, storeDirs, type LoomProject } from './LoomProject'
 import { emptyLock, orphansOf, pruned, recorded, LoomLockSchema, type LoomLock } from './LoomLock'
 
@@ -14,7 +14,7 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
   make: Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
-    const config = yield* PackageConfig
+    const config = yield* LoomConfig
 
     const matchesDisk = (file: TangledFile): Effect.Effect<boolean> =>
       fs.readFileString(file.path).pipe(Effect.option, Effect.map(Option.contains(file.content)))

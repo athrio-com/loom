@@ -164,13 +164,14 @@ const keep = (
 
 `LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. It takes the loom's source, the `saved` source that `keep` checks against, the loom's path and settings, and the `build` that would produce its module. It returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
 
-A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
+The cache is kept in a folder, so it reads the folder it keeps a loom's module in, the loom's workspace, from the `LoomConfig` service. The build settings carry no folders. A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
 
 =>
 
 export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCache', {
   make: Effect.gen(function* () {
     const fingerprint = yield* Effect.sync(fingerprintNow)
+    const config = yield* LoomConfig
     return {
       through: (
         source: Source,
@@ -179,28 +180,32 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
         settings: BuildSettings,
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>
-        Option.match(Option.fromNullishOr(settings.workspaceRoot), {
-          onNone: () => build,
-          onSome: (workspace) =>
-            source.read(path).pipe(
-              Effect.flatMap((text) => {
-                const key = keyOf(fingerprint, path, text, settings)
-                const file = keptFileOf(workspace, path)
-                return Effect.sync(() => recall(file, key, path, text)).pipe(
-                  Effect.flatMap(
-                    Option.match({
-                      onSome: (module) => Effect.succeed(module),
-                      onNone: () =>
-                        build.pipe(
-                          Effect.tap((module) => keep(saved, workspace, file, key, module)),
-                        ),
-                    }),
-                  ),
-                )
-              }),
-              Effect.catchTag('ReadError', () => build),
-            ),
-        }),
+        config.resolve(path).pipe(
+          Effect.flatMap(({ workspaceRoot }) =>
+            Option.match(Option.fromNullishOr(workspaceRoot), {
+              onNone: () => build,
+              onSome: (workspace) =>
+                source.read(path).pipe(
+                  Effect.flatMap((text) => {
+                    const key = keyOf(fingerprint, path, text, settings)
+                    const file = keptFileOf(workspace, path)
+                    return Effect.sync(() => recall(file, key, path, text)).pipe(
+                      Effect.flatMap(
+                        Option.match({
+                          onSome: (module) => Effect.succeed(module),
+                          onNone: () =>
+                            build.pipe(
+                              Effect.tap((module) => keep(saved, workspace, file, key, module)),
+                            ),
+                        }),
+                      ),
+                    )
+                  }),
+                  Effect.catchTag('ReadError', () => build),
+                ),
+            }),
+          ),
+        ),
     }
   }),
 }) {
@@ -209,7 +214,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
 
 ## What the module draws on
 
-Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Path`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom.
+Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Path`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to.
 
 =>
 
@@ -229,6 +234,7 @@ import { fileURLToPath } from 'node:url'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { type BuildSettings } from './PackageConfig'
 
