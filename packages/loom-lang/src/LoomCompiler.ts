@@ -26,7 +26,8 @@ import {
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { DuplicateName, faulty, UnresolvedTocEntry, UnsettledSection } from '#ast/LoomFault'
-import { anchorLabels, crossFileFaults } from '#ast/ProductBuilder'
+import { crossFileFaults } from '#ast/ProductBuilder'
+import { anchorKinds } from '@athrio/loom-ast/LoomTokens'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
@@ -710,7 +711,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               {
                 onNone: (): ReadonlyArray<FrameCompletion> => [],
                 onSome: ([module, slot]) =>
-                  Array.map(anchorLabels, (label): FrameCompletion => ({
+                  Array.map(anchorKinds, (label): FrameCompletion => ({
                     label,
                     range: {
                       start: lineCharAt(module.text, slot.start),

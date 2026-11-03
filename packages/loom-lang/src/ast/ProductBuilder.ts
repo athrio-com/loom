@@ -19,7 +19,14 @@ import {
   type Trail,
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import type { SinkToken, WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  settleKind,
+  type ParameterToken,
+  type ParametersToken,
+  type SinkToken,
+  type WarpAnchorToken,
+  type WarpToken,
+} from '@athrio/loom-ast/LoomTokens'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
@@ -423,7 +430,7 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
-    const label = settleLabelOf(anchor)
+    const label = settleKindOf(anchor)
     const file = anchorModule(modulePath, anchor)
     if (file !== modulePath) return crossFileRef(file, name, at, label)
     const value = values.get(name)
@@ -448,19 +455,41 @@ const bindAnchor =
     })
   }
 
-export const settleLabel = 'To be settled'
+const isSettleKind = (value: string): boolean => value.toLowerCase() === settleKind.toLowerCase()
 
-export const anchorLabels: ReadonlyArray<string> = [settleLabel]
-
-const settleLabelOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
-  pipe(
-    Option.fromNullishOr(anchor.specifier),
-    Option.filter(
-      (specifier) =>
-        specifier.type === 'Specifier' &&
-        specifier.label.value.toLowerCase() === settleLabel.toLowerCase(),
+const settleKindOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
+  Match.value(anchor.specifier).pipe(
+    Match.when({ type: 'Specifier' }, (specifier) =>
+      Option.filter(Option.some(specifier.position), () => isSettleKind(specifier.label.value)),
     ),
-    Option.map((specifier) => specifier.position),
+    Match.when({ type: 'Parameters' }, (specifier) =>
+      Option.map(
+        Array.findFirstWithIndex(specifier.parameters, isSettleParameter),
+        ([own, index]) => parameterSpanOf(specifier, own, index),
+      ),
+    ),
+    Match.orElse(() => Option.none<Position>()),
+  )
+
+const isSettleParameter = (parameter: ParameterToken): boolean =>
+  parameter.key.value === 'kind' &&
+  parameter.values.length === 1 &&
+  Array.some(parameter.values, (value) => isSettleKind(value.value))
+
+const parameterSpanOf = (
+  specifier: ParametersToken,
+  own: ParameterToken,
+  index: number,
+): Position =>
+  pipe(
+    Array.get(specifier.parameters, index + 1),
+    Option.map((next) => between(own.position.start, next.position.start)),
+    Option.orElse(() =>
+      Option.map(Array.get(specifier.parameters, index - 1), (previous) =>
+        between(previous.position.end, own.position.end),
+      ),
+    ),
+    Option.getOrElse(() => specifier.position),
   )
 
 const localHealth = (

@@ -589,11 +589,17 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(sink.file.value).toBe('package.json')
   })
 
-  it('attaches a language Specifier `::[base]{rust}`', () => {
+  it('faults a label that is no kind an anchor takes `::[base]{rust}`', () => {
     const w = codeWeftFromLines(['## A', '=>', '::[base]{rust}'], 2)
     expect(w.anchors[0].specifier?.type).toBe('Specifier')
+    expect(w.anchors[0].health.status).toBe('error')
+  })
+
+  it('attaches the label `{To be settled}` in code', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[base]{To be settled}'], 2)
+    expect(w.anchors[0].specifier?.type).toBe('Specifier')
     expect((w.anchors[0].specifier as { label: { value: string } }).label.value).toBe(
-      'rust',
+      'To be settled',
     )
   })
 
@@ -687,6 +693,126 @@ describe('Tokeniser — markdown-aware prose anchors', () => {
       throw new Error(`expected PreambleWeft, got ${w.type}`)
     expect(w.warps).toHaveLength(0)
     expect(w.health.status).toBe('ok')
+  })
+})
+
+// =============================================================================
+// Braces after an anchor — a label or parameters. The anchor and the braces
+// that touch it form one directive, in code as in prose, so braces that hold
+// no kind or key an anchor takes are a fault. A space leaves them to the code.
+// =============================================================================
+
+describe('Tokeniser — braces after an anchor', () => {
+  const anchorIn = (line: string) => {
+    const out = tokenise(['## A', '=>', line])
+    const w = out[2]
+    if (w.type !== 'CodeWeft') throw new Error(`expected CodeWeft, got ${w.type}`)
+    return w.anchors[0]!
+  }
+
+  const parametersOf = (line: string) => {
+    const specifier = anchorIn(line).specifier
+    if (specifier?.type !== 'Parameters')
+      throw new Error(`expected Parameters, got ${specifier?.type}`)
+    return specifier
+  }
+
+  const messages = (line: string): ReadonlyArray<string> => {
+    const specifier = parametersOf(line)
+    return [
+      ...specifier.health.diagnostics,
+      ...specifier.parameters.flatMap((parameter) => parameter.health.diagnostics),
+    ].map((diagnostic) => diagnostic.message)
+  }
+
+  const labelMessages = (line: string): ReadonlyArray<string> => {
+    const specifier = anchorIn(line).specifier
+    if (specifier?.type !== 'Specifier')
+      throw new Error(`expected Specifier, got ${specifier?.type}`)
+    return specifier.label.health.diagnostics.map((diagnostic) => diagnostic.message)
+  }
+
+  it('reads the braces that touch an anchor as Loom\'s, and faults what they cannot mean', () => {
+    expect(labelMessages('p := ::[Point]{X: 1}')).toEqual([
+      'Specifier label may contain only words of letters, digits, hyphens, and underscores, one space apart; got `X: 1`.',
+    ])
+    expect(labelMessages('p := ::[Point]{x}')).toEqual([
+      'Unknown kind: an anchor takes no kind `x`. It takes `To be settled`.',
+    ])
+    expect(labelMessages('p := ::[Point]{}')).toEqual(['Specifier label cannot be empty.'])
+    expect(messages('::[Point]{colour=red}')).toEqual([
+      'Unknown key: an anchor takes no `colour` key. It takes `kind` and `provides`.',
+    ])
+    expect(messages('::[Point]{kind=Term}')).toEqual([
+      'Unknown kind: an anchor takes no kind `Term`. It takes `To be settled`.',
+    ])
+    expect(anchorIn('p := ::[Point]{X: 1}').health.status).toBe('error')
+  })
+
+  it('leaves braces past a space to the code', () => {
+    const anchor = anchorIn('p := ::[Point] {X: 1}')
+    expect(anchor.specifier).toBeUndefined()
+    expect(anchor.health.status).toBe('ok')
+  })
+
+  it('reads the label in any case of letters', () => {
+    expect(labelMessages('::[Greeting]{to be settled}')).toEqual([])
+  })
+
+  it('reads a parameter whose key an anchor takes', () => {
+    const specifier = parametersOf('::[Greeting]{provides=greet}')
+    expect(specifier.health.status).toBe('ok')
+    expect(
+      specifier.parameters.map((p) => [p.key.value, p.values.map((v) => v.value)]),
+    ).toEqual([['provides', ['greet']]])
+  })
+
+  it('reads the full form, with a quoted value and a list', () => {
+    const specifier = parametersOf(
+      '::[Greeting]{kind="To be settled" provides=[greet, farewell]}',
+    )
+    expect(specifier.health.status).toBe('ok')
+    expect(
+      specifier.parameters.map((p) => [p.key.value, p.values.map((v) => v.value)]),
+    ).toEqual([
+      ['kind', ['To be settled']],
+      ['provides', ['greet', 'farewell']],
+    ])
+    expect(specifier.parameters[0]!.source).toBe('kind="To be settled"')
+  })
+
+  it('reads parameters after a target', () => {
+    const anchor = anchorIn('::[Chapter](book/intro.loom){provides=x}')
+    expect(anchor.target?.value).toBe('book/intro.loom')
+    expect(anchor.specifier?.type).toBe('Parameters')
+    expect(anchor.source).toBe('::[Chapter](book/intro.loom){provides=x}')
+  })
+
+  it('faults a label beside parameters, and offers its full form', () => {
+    expect(messages('::[Greeting]{To be settled provides=greet}')).toEqual([
+      'Label beside parameters: `To be settled` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as `kind="To be settled"`.',
+    ])
+    const [diagnostic] = parametersOf('::[Greeting]{To be settled provides=greet}').health
+      .diagnostics
+    expect(diagnostic!.fixes?.map((fix) => fix.text)).toEqual(['kind="To be settled"'])
+    expect(anchorIn('::[Greeting]{To be settled provides=greet}').health.status).toBe('error')
+  })
+
+  it('faults a repeated key and a key no anchor takes', () => {
+    expect(messages('::[Greeting]{provides=a provides=b}')).toEqual([
+      'Repeated key: `provides` appears twice in these braces, so nothing tells which value is meant. Keep one.',
+    ])
+    expect(messages('::[Greeting]{provides=a colour=red}')).toEqual([
+      'Unknown key: an anchor takes no `colour` key. It takes `kind` and `provides`.',
+    ])
+  })
+
+  it('reads braces after an anchor in prose the same way', () => {
+    const out = tokenise(['## A', '~', 'see ::[base]{rust} here'])
+    const w = out[2]
+    if (w.type !== 'ProseWeft') throw new Error(`expected ProseWeft, got ${w.type}`)
+    expect(w.anchors[0]!.specifier?.type).toBe('Specifier')
+    expect(w.anchors[0]!.health.status).toBe('error')
   })
 })
 

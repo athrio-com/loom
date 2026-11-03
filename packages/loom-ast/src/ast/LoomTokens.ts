@@ -49,6 +49,35 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
+export const ParameterKeyTokenSchema = loomNode('ParameterKey', {
+  value: Schema.String,
+})
+export type ParameterKeyToken = typeof ParameterKeyTokenSchema.Type
+
+export const ParameterValueTokenSchema = loomNode('ParameterValue', {
+  value: Schema.String,
+})
+export type ParameterValueToken = typeof ParameterValueTokenSchema.Type
+
+export const ParameterTokenSchema = loomNode('Parameter', {
+  key: ParameterKeyTokenSchema,
+  values: Schema.Array(ParameterValueTokenSchema),
+})
+export type ParameterToken = typeof ParameterTokenSchema.Type
+
+export const ParametersTokenSchema = loomNode('Parameters', {
+  open: SpecifierOpenTokenSchema,
+  parameters: Schema.Array(ParameterTokenSchema),
+  close: SpecifierCloseTokenSchema,
+})
+export type ParametersToken = typeof ParametersTokenSchema.Type
+
+export const settleKind = 'To be settled'
+
+export const anchorKinds: ReadonlyArray<string> = [settleKind]
+
+export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
+
 export const SinkOpenTokenSchema = loomNode('SinkOpen', {
   value: Schema.Literal('['),
 }).annotate({
@@ -243,7 +272,9 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   target: Schema.optional(WarpAnchorTargetTokenSchema),
-  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, SinkTokenSchema])),
+  specifier: Schema.optional(
+    Schema.Union([SpecifierTokenSchema, ParametersTokenSchema, SinkTokenSchema]),
+  ),
 }).annotate({
   [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })

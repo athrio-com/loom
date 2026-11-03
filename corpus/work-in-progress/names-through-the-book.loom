@@ -134,7 +134,7 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. The contract an unsettled section collects, the `provides` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
+1. The contract an unsettled section collects, the `provides` names checked against the symbols the target's language service reports, with the `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
 2. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
 3. The graph as a projection of the produced corpus, with its first view.
 

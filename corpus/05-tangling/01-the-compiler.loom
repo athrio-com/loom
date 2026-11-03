@@ -290,7 +290,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               {
                 onNone: (): ReadonlyArray<FrameCompletion> => [],
                 onSome: ([module, slot]) =>
-                  Array.map(anchorLabels, (label): FrameCompletion => ({
+                  Array.map(anchorKinds, (label): FrameCompletion => ({
                     label,
                     range: {
                       start: lineCharAt(module.text, slot.start),
@@ -843,7 +843,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, and its `anchorLabels`, the labels an anchor takes; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, and `UnsettledSection` notes and faults the compiler raises itself; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, and `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, and `UnsettledSection` notes and faults the compiler raises itself; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, and `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 =>
 
@@ -875,7 +875,8 @@ import {
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { DuplicateName, faulty, UnresolvedTocEntry, UnsettledSection } from '#ast/LoomFault'
-import { anchorLabels, crossFileFaults } from '#ast/ProductBuilder'
+import { crossFileFaults } from '#ast/ProductBuilder'
+import { anchorKinds } from '@athrio/loom-ast/LoomTokens'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
@@ -2066,6 +2067,34 @@ Once the section holds code, the label has nothing left to say. The anchor carri
       expect(
         yield* settleDiagnose({ '/corpus/hello.loom': removed }, '/corpus/hello.loom'),
       ).toEqual([])
+    }),
+  )
+
+~
+
+Beside other parameters, the kind is written in full. The anchor still marks its name as meant, and once the section holds code, the fix removes the `kind` parameter alone, so what the anchor says the section provides stays.
+
+=>
+
+  it.effect('reads the kind in full beside other parameters', () =>
+    Effect.gen(function* () {
+      const full = `${anchor('Saying hello')}{kind="To be settled" provides=greet}`
+      const labelled = { '/corpus/hello.loom': helloAnchoring(full) }
+      expect(yield* settleDiagnose(labelled, '/corpus/hello.loom')).toEqual([
+        [
+          'info',
+          'To be settled: no section is named `Saying hello` yet, so this anchor composes nothing.',
+        ],
+      ])
+      const settled = `${helloAnchoring(full)}\n${greeting}`
+      const [note] = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf({ '/corpus/hello.loom': settled })),
+      )
+      const [fix] = note!.fixes ?? []
+      const at = fix!.at!
+      const removed = `${settled.slice(0, at.start.offset)}${fix!.text}${settled.slice(at.end.offset)}`
+      expect(removed).toContain(`${anchor('Saying hello')}{provides=greet}\n`)
     }),
   )
 })

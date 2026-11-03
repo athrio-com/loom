@@ -74,6 +74,43 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
+## A specifier's parameters
+
+A specifier may hold parameters in place of one label, as the chapter "Parameters in braces" describes. A parameter is a key, an equals sign, and a value, as in `provides=greet`. A value is bare, quoted, or a list in square brackets, so `provides=[greet, farewell]` gives its key two values. A `ParameterKey` holds the key, and a `ParameterValue` holds one value, with a quoted value's quotes and escapes already undone. A `Parameter` pairs a key with its values, and a `Parameters` token holds every parameter of one specifier between its braces. Only an anchor's specifier holds parameters. A heading's specifier holds one label.
+
+An anchor takes two keys. The `kind` key names the kind of thing the anchor refers to, and a label alone stands for it, so `{To be settled}` is the short form of `{kind="To be settled"}`. The `provides` key lists the names the anchor expects its target to provide. `anchorKeys` holds the two keys, and `anchorKinds` holds the kinds an anchor takes, which is `settleKind` alone, the kind `To be settled`. The tokeniser faults a kind or a key outside these lists, as the chapter "The tokeniser stage" describes.
+
+=>
+
+export const ParameterKeyTokenSchema = loomNode('ParameterKey', {
+  value: Schema.String,
+})
+export type ParameterKeyToken = typeof ParameterKeyTokenSchema.Type
+
+export const ParameterValueTokenSchema = loomNode('ParameterValue', {
+  value: Schema.String,
+})
+export type ParameterValueToken = typeof ParameterValueTokenSchema.Type
+
+export const ParameterTokenSchema = loomNode('Parameter', {
+  key: ParameterKeyTokenSchema,
+  values: Schema.Array(ParameterValueTokenSchema),
+})
+export type ParameterToken = typeof ParameterTokenSchema.Type
+
+export const ParametersTokenSchema = loomNode('Parameters', {
+  open: SpecifierOpenTokenSchema,
+  parameters: Schema.Array(ParameterTokenSchema),
+  close: SpecifierCloseTokenSchema,
+})
+export type ParametersToken = typeof ParametersTokenSchema.Type
+
+export const settleKind = 'To be settled'
+
+export const anchorKinds: ReadonlyArray<string> = [settleKind]
+
+export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
+
 ## Sinks
 
 A `Sink` is the bracketed file a section tangles to, written `[file]`. A section carrying one names a file to write, whether or not it also wears a `{Tangle}` specifier. Brackets set a sink apart from a language `Specifier`, which wears braces. When a chapter's `Package` names a directory, each `{Tangle}` section marks the file it emits there — `[LoomNode.ts]` under `packages/loom-ast/src/ast/` — so the file travels with its section, not with the frontmatter. A sink exposes its `open`, `file`, and `close` as separate subnodes, each carrying its own health, so a diagnostic lands on the part at fault.
@@ -231,7 +268,7 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 ## Warps and anchors
 
-A `Warp` is a declaration, `{{ name [: type] = value }}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `target` — a `(path)` after its close, the `.loom` file a directory anchor places as a chapter. The path is opaque here, for a later pass to resolve relative to the anchor's own file. An anchor may instead carry an optional `specifier` after its close — a `{Lang}` label or a `[sink]` an author wrote by mistake. A member names a chapter and never overrides, so a later pass faults any specifier an anchor wears; the grammar keeps it only to name that fault precisely rather than misread the trailing token as code. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
+A `Warp` is a declaration, `{{ name [: type] = value }}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `target` — a `(path)` after its close, the `.loom` file a directory anchor places as a chapter. The path is opaque here, for a later pass to resolve relative to the anchor's own file. An anchor may also carry an optional `specifier`, right after its close or after its target: a label such as `{To be settled}`, parameters such as `{provides=greet}`, or a `[sink]` an author wrote by mistake, which the grammar keeps so the trailing token is never misread. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
 
 An anchor's `open` and `close` are plain strings rather than fixed literals, because a package may set its own delimiter pair in `loom.json` when `::[` would collide with its product language. `AnchorDelims` is that pair, and `defaultAnchorDelims` holds the built-in `::[` and `]` — written as a concatenation so this corpus, which the tokeniser scans like any other, holds no bare `::[` of its own. For the same reason, this section writes the warp braces as the numeric character references `{` and `}`: a literal `{{` on a preamble line would tokenise as a Warp.
 
@@ -320,7 +357,9 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   target: Schema.optional(WarpAnchorTargetTokenSchema),
-  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, SinkTokenSchema])),
+  specifier: Schema.optional(
+    Schema.Union([SpecifierTokenSchema, ParametersTokenSchema, SinkTokenSchema]),
+  ),
 }).annotate({
   [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })
@@ -454,6 +493,8 @@ import { loomNode } from '#ast/LoomNode'
 ::[Heading markers]
 
 ::[Specifiers]
+
+::[A specifier's parameters]
 
 ::[Sinks]
 

@@ -64,11 +64,11 @@ A specifier may name neither a kind nor a language. A trope may declare paramete
 
 ## Each place knows its keys
 
-The core defines the keys of each place. A heading takes `lang` and `kind`, a box takes `kind`, and an anchor in prose takes `kind`.
+The core defines the keys of each place. A heading takes `lang` and `kind`, a box takes `kind`, and an anchor takes `kind` and `provides`, the names it expects its target to provide, as the chapter "Names through the book" describes.
 
 A trope declares the further keys of each kind it contributes in its manifest, and any keys a heading may carry, as the chapter "Tropes" describes. The Glossary trope declares `override` for a term, and `text` for a reference to a term.
 
-A key that nothing defines is a fault, so a misspelt key never passes in silence. The chapter "Boxes" refuses a kind of box that neither the core nor an installed trope defines, for the same reason.
+A key that nothing defines is a fault, so a misspelt key never passes in silence. On an anchor, a kind that nothing defines is a fault for the same reason. The chapter "Boxes" refuses a kind of box that neither the core nor an installed trope defines, for the same reason.
 
 ## A value's type comes from its key
 
@@ -88,15 +88,17 @@ A value is never typed by how it looks. A format that guesses a type from a valu
 
 The type is known before the author finishes a value, so the editor completes the value as it is typed. It offers `true` or `false` for a boolean, the words of a choice, and the names of sections for a reference. A hover on a key shows the key's type and the trope that declared it.
 
-## A specifier on an anchor stands in prose
+## A specifier on an anchor
 
-A specifier on an anchor touches the anchor's closing bracket, with no space between them: `::[Account]{Term}`.
+A specifier on an anchor touches the anchor's closing bracket, or the file in parentheses after it, with no space between them: `::[Account]{Term}`, or `::[Room](room.py){provides=Room}`.
 
-In code, an anchor takes no specifier. Code often puts a brace right after a name. Go writes a composite literal as a type followed directly by its braces, as in `Point{X: 1}`, so an anchor that composes the type's name meets the code's own brace. In a code block, everything after an anchor's closing bracket is therefore code, braces included.
+The anchor and the braces that touch it form one directive, `::[…]{…}`, in code as in prose. An anchor is never the code's own syntax, so the braces that touch it are never the code's either. What they hold must be a label or parameters an anchor takes, or it is a fault, so braces never leave the tangle without a word.
+
+Code often puts a brace right after a name. Go writes a composite literal as a type followed directly by its braces, as in `Point{X: 1}`. When an anchor composes the type's name, the code leaves a space between the anchor and its brace, as in `::[Point] {X: 1}`, which Go, C++, and Rust all accept. The space keeps the braces the code's own.
 
 ## What the tokeniser reads
 
-Today the `SpecifierLabelTokenSchema` schema matches one label. A specifier becomes a run of tokens instead: the key and the value of each parameter, with the elements of a list, or a label alone. The editor colours each token, and Loom's own diagnostics place a fault on the exact parameter that is wrong.
+An anchor's braces already read as a run of tokens: a label alone, or a `Parameters` token whose parameters each hold a key and the values of a list. Loom's own diagnostics place a fault on the exact parameter that is wrong. A heading's specifier still matches one label through the `SpecifierLabelTokenSchema` schema, and it becomes the same run of tokens. The editor colours each token.
 
 ## What to work out
 
@@ -105,12 +107,11 @@ Today the `SpecifierLabelTokenSchema` schema matches one label. A specifier beco
 
 ## What this chapter grows into
 
-1. Specifiers in the tokeniser: parameters with bare, quoted, and list values, and the short form, wherever specifiers stand.
-2. The faults for a repeated key, a label beside a parameter, a key that nothing defines, and a value of the wrong type.
+1. Specifiers on headings and boxes in the tokeniser: parameters with bare, quoted, and list values, and the short form, as an anchor's braces already read them.
+2. The faults for a repeated key, a label beside a parameter, and a key that nothing defines on headings and boxes, as anchors already raise them, and the fault for a value of the wrong type.
 3. The key a label stands for at each place: `kind` on a box and on an anchor, and `kind` or `lang` on a heading.
 4. The value types, read through each key's declared type, with completion and hover from the registry.
 5. The keys of the core's own kinds, and the keys a trope's manifest declares for each kind it contributes.
-6. Specifiers on anchors in prose, and the rule that leaves a brace after an anchor in code to the code.
-7. Specifiers in the tree-sitter grammar and in each editor's colouring.
+6. Specifiers in the tree-sitter grammar and in each editor's colouring.
 
 When specifiers parse with parameters on headings, boxes, and anchors, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

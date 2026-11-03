@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Three faults judge the parameters in an anchor's braces. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear. An `UnknownKey` carries a key no anchor takes, with the `keys` an anchor does take, and an `UnknownKind` carries a kind no anchor takes, with the `kinds` an anchor does take. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -57,6 +57,10 @@ export type LoomFault = Data.TaggedEnum<{
   UnresolvedTocEntry: { readonly title: string }
   UnclosedExplicitBlock: {}
   StrayFragment: { readonly value: string }
+  RepeatedKey: { readonly key: string }
+  LabelBesideParameter: { readonly label: string }
+  UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
+  UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
   HeadingAgainstCode: {}
 }>
 
@@ -82,12 +86,16 @@ export const {
   UnresolvedTocEntry,
   UnclosedExplicitBlock,
   StrayFragment,
+  RepeatedKey,
+  LabelBesideParameter,
+  UnknownKey,
+  UnknownKind,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
 ## The table
 
-`describe` reads a fault aloud. It maps each variant to a `severity` and the `message` a person sees, and it is exhaustive over the union — a new fault does not compile until it has a line here. The table cannot drift from the faults it describes.
+`describe` reads a fault aloud. Through `Match.valueTags`, it maps each variant's tag to a `severity` and the `message` a person sees, and it is exhaustive over the union — a new fault does not compile until it has a line here. The table cannot drift from the faults it describes.
 
 Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
 
@@ -139,77 +147,83 @@ const rule: Record<MalformedConstruct, string> = {
 }
 
 export const describe = (fault: LoomFault): Note =>
-  Match.value(fault).pipe(
-    Match.tag('UnclosedDelimiter', ({ expected }) => error(`expected closing \`${expected}\``)),
-    Match.tag('EmptyLabel', ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`)),
-    Match.tag('MalformedLabel', ({ construct, value }) =>
+  Match.valueTags(fault, {
+    UnclosedDelimiter: ({ expected }) => error(`expected closing \`${expected}\``),
+    EmptyLabel: ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`),
+    MalformedLabel: ({ construct, value }) =>
       error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
-    ),
-    Match.tag('MissingWarpValue', ({ name }) =>
+    MissingWarpValue: ({ name }) =>
       error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
-    ),
-    Match.tag('UnknownVariable', ({ name }) =>
+    UnknownVariable: ({ name }) =>
       error(
         `Unknown variable: no workspace variable named \`${name}\`. Declare it under \`variables:\` in the configuration.`,
       ),
-    ),
-    Match.tag('UnresolvedAnchor', ({ name }) =>
-      error(`Unresolved anchor: no section named \`${name}\`.`),
-    ),
-    Match.tag('AmbiguousAnchor', ({ name, count, paths }) =>
+    UnresolvedAnchor: ({ name }) => error(`Unresolved anchor: no section named \`${name}\`.`),
+    AmbiguousAnchor: ({ name, count, paths }) =>
       error(`Ambiguous anchor: ${count} sections are named \`${name}\`. ${disambiguation(paths)}`),
-    ),
-    Match.tag('ChapterWithoutCode', ({ name }) =>
+    ChapterWithoutCode: ({ name }) =>
       warning(
         `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
       ),
-    ),
-    Match.tag('UnsettledSection', ({ name, declared }) =>
+    UnsettledSection: ({ name, declared }) =>
       information(
         declared
           ? `To be settled: \`${name}\` holds no code yet, so this anchor composes nothing.`
           : `To be settled: no section is named \`${name}\` yet, so this anchor composes nothing.`,
       ),
-    ),
-    Match.tag('SettledLabel', ({ name }) =>
+    SettledLabel: ({ name }) =>
       information(
         `Settled: \`${name}\` holds code now, so its \`{To be settled}\` label has nothing left to say.`,
       ),
-    ),
-    Match.tag('DuplicateName', ({ name, sibling, where }) =>
+    DuplicateName: ({ name, sibling, where }) =>
       error(`Duplicate name: \`${name}\` is already ${siblingPlace[sibling](where)}. Rename one.`),
-    ),
-    Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
+    CrossLanguageAnchor: ({ name, host, found }) =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       ),
-    ),
-    Match.tag('UnresolvedTocEntry', ({ title }) =>
+    UnresolvedTocEntry: ({ title }) =>
       error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
-    ),
-    Match.tag('StrayFragment', ({ value }) =>
+    StrayFragment: ({ value }) =>
       error(
         `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,
       ),
-    ),
-    Match.tag('HeadingAgainstCode', () =>
+    RepeatedKey: ({ key }) =>
+      error(
+        `Repeated key: \`${key}\` appears twice in these braces, so nothing tells which value is meant. Keep one.`,
+      ),
+    LabelBesideParameter: ({ label }) =>
+      error(
+        `Label beside parameters: \`${label}\` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as \`kind="${label}"\`.`,
+      ),
+    UnknownKey: ({ key, keys }) =>
+      error(
+        `Unknown key: an anchor takes no \`${key}\` key. It takes ${Array.join(
+          Array.map(keys, (known) => `\`${known}\``),
+          ' and ',
+        )}.`,
+      ),
+    UnknownKind: ({ kind, kinds }) =>
+      error(
+        `Unknown kind: an anchor takes no kind \`${kind}\`. It takes ${Array.join(
+          Array.map(kinds, (known) => `\`${known}\``),
+          ' and ',
+        )}.`,
+      ),
+    HeadingAgainstCode: () =>
       warning(
         'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
       ),
-    ),
-    Match.tag('UnclosedExplicitBlock', () =>
+    UnclosedExplicitBlock: () =>
       error(
         'Unclosed explicit block: `~>` holds its code until a tilde, and none follows. Close it with `~` on a line of its own.',
       ),
-    ),
-    Match.exhaustive,
-  )
+  })
 
 ## Raising a fault
 
 A detection site holds a fault and the span it covers, and needs a `Health` for the node. `faulty` is that step: it describes the fault through the catalog and returns a health carrying the one diagnostic, positioned where the fault was found. The severity sets the node's status: an error or a warning fails it. An informational note leaves it healthy, and the catalog raises two, for a section to be settled and for a label that outlived its section's settling. A tangle refuses an unsettled section all the same, as the chapter "The compile layer" describes, because a file that composes one would ship without the code its anchor names.
 
-`fixesOf` gives the fixes a fault offers. An ambiguous anchor offers one for each of its paths, which writes the path in place of the anchor's name. An unresolved anchor offers up to two. One writes the heading of its declaration at the point the declaration names, so the section exists and the author writes its specification next. The other writes `{To be settled}` just past the anchor, so the section can wait without any prose. A settled label offers one fix, which removes the label. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list.
+`fixesOf` gives the fixes a fault offers. An ambiguous anchor offers one for each of its paths, which writes the path in place of the anchor's name. An unresolved anchor offers up to two. One writes the heading of its declaration at the point the declaration names, so the section exists and the author writes its specification next. The other writes `{To be settled}` just past the anchor, so the section can wait without any prose. A settled label offers one fix, which removes the label. A label beside parameters offers one fix too, which writes the label in full. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list.
 
 =>
 
@@ -239,6 +253,9 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('SettledLabel', ({ label }): ReadonlyArray<Fix> => [
       { title: 'Remove the `{To be settled}` label', text: '', at: label },
     ]),
+    Match.tag('LabelBesideParameter', ({ label }): ReadonlyArray<Fix> => [
+      { title: `Write \`${label}\` in full`, text: `kind="${label}"` },
+    ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )
 
@@ -257,7 +274,7 @@ export const faulty = (fault: LoomFault, position: Position): Health => {
 
 ## What this module draws on
 
-`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and `Option` reads an unresolved anchor's declaration. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds.
+`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds an anchor takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds.
 
 =>
 

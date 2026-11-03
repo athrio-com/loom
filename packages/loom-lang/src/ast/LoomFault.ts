@@ -40,6 +40,10 @@ export type LoomFault = Data.TaggedEnum<{
   UnresolvedTocEntry: { readonly title: string }
   UnclosedExplicitBlock: {}
   StrayFragment: { readonly value: string }
+  RepeatedKey: { readonly key: string }
+  LabelBesideParameter: { readonly label: string }
+  UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
+  UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
   HeadingAgainstCode: {}
 }>
 
@@ -59,6 +63,10 @@ export const {
   UnresolvedTocEntry,
   UnclosedExplicitBlock,
   StrayFragment,
+  RepeatedKey,
+  LabelBesideParameter,
+  UnknownKey,
+  UnknownKind,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -104,71 +112,77 @@ const rule: Record<MalformedConstruct, string> = {
 }
 
 export const describe = (fault: LoomFault): Note =>
-  Match.value(fault).pipe(
-    Match.tag('UnclosedDelimiter', ({ expected }) => error(`expected closing \`${expected}\``)),
-    Match.tag('EmptyLabel', ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`)),
-    Match.tag('MalformedLabel', ({ construct, value }) =>
+  Match.valueTags(fault, {
+    UnclosedDelimiter: ({ expected }) => error(`expected closing \`${expected}\``),
+    EmptyLabel: ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`),
+    MalformedLabel: ({ construct, value }) =>
       error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
-    ),
-    Match.tag('MissingWarpValue', ({ name }) =>
+    MissingWarpValue: ({ name }) =>
       error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
-    ),
-    Match.tag('UnknownVariable', ({ name }) =>
+    UnknownVariable: ({ name }) =>
       error(
         `Unknown variable: no workspace variable named \`${name}\`. Declare it under \`variables:\` in the configuration.`,
       ),
-    ),
-    Match.tag('UnresolvedAnchor', ({ name }) =>
-      error(`Unresolved anchor: no section named \`${name}\`.`),
-    ),
-    Match.tag('AmbiguousAnchor', ({ name, count, paths }) =>
+    UnresolvedAnchor: ({ name }) => error(`Unresolved anchor: no section named \`${name}\`.`),
+    AmbiguousAnchor: ({ name, count, paths }) =>
       error(`Ambiguous anchor: ${count} sections are named \`${name}\`. ${disambiguation(paths)}`),
-    ),
-    Match.tag('ChapterWithoutCode', ({ name }) =>
+    ChapterWithoutCode: ({ name }) =>
       warning(
         `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
       ),
-    ),
-    Match.tag('UnsettledSection', ({ name, declared }) =>
+    UnsettledSection: ({ name, declared }) =>
       information(
         declared
           ? `To be settled: \`${name}\` holds no code yet, so this anchor composes nothing.`
           : `To be settled: no section is named \`${name}\` yet, so this anchor composes nothing.`,
       ),
-    ),
-    Match.tag('SettledLabel', ({ name }) =>
+    SettledLabel: ({ name }) =>
       information(
         `Settled: \`${name}\` holds code now, so its \`{To be settled}\` label has nothing left to say.`,
       ),
-    ),
-    Match.tag('DuplicateName', ({ name, sibling, where }) =>
+    DuplicateName: ({ name, sibling, where }) =>
       error(`Duplicate name: \`${name}\` is already ${siblingPlace[sibling](where)}. Rename one.`),
-    ),
-    Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
+    CrossLanguageAnchor: ({ name, host, found }) =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       ),
-    ),
-    Match.tag('UnresolvedTocEntry', ({ title }) =>
+    UnresolvedTocEntry: ({ title }) =>
       error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
-    ),
-    Match.tag('StrayFragment', ({ value }) =>
+    StrayFragment: ({ value }) =>
       error(
         `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,
       ),
-    ),
-    Match.tag('HeadingAgainstCode', () =>
+    RepeatedKey: ({ key }) =>
+      error(
+        `Repeated key: \`${key}\` appears twice in these braces, so nothing tells which value is meant. Keep one.`,
+      ),
+    LabelBesideParameter: ({ label }) =>
+      error(
+        `Label beside parameters: \`${label}\` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as \`kind="${label}"\`.`,
+      ),
+    UnknownKey: ({ key, keys }) =>
+      error(
+        `Unknown key: an anchor takes no \`${key}\` key. It takes ${Array.join(
+          Array.map(keys, (known) => `\`${known}\``),
+          ' and ',
+        )}.`,
+      ),
+    UnknownKind: ({ kind, kinds }) =>
+      error(
+        `Unknown kind: an anchor takes no kind \`${kind}\`. It takes ${Array.join(
+          Array.map(kinds, (known) => `\`${known}\``),
+          ' and ',
+        )}.`,
+      ),
+    HeadingAgainstCode: () =>
       warning(
         'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
       ),
-    ),
-    Match.tag('UnclosedExplicitBlock', () =>
+    UnclosedExplicitBlock: () =>
       error(
         'Unclosed explicit block: `~>` holds its code until a tilde, and none follows. Close it with `~` on a line of its own.',
       ),
-    ),
-    Match.exhaustive,
-  )
+  })
 
 const statusOf = (severity: Severity): Health['status'] => (severity === 'info' ? 'ok' : severity)
 
@@ -195,6 +209,9 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     ]),
     Match.tag('SettledLabel', ({ label }): ReadonlyArray<Fix> => [
       { title: 'Remove the `{To be settled}` label', text: '', at: label },
+    ]),
+    Match.tag('LabelBesideParameter', ({ label }): ReadonlyArray<Fix> => [
+      { title: `Write \`${label}\` in full`, text: `kind="${label}"` },
     ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )

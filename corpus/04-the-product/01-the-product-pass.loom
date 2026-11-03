@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `PromisedSection` note a promise carries, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, `settleKind`, the kind that marks a section to be settled, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `UnsettledSection` note a section to be settled carries, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -42,7 +42,14 @@ import {
   type Trail,
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import type { SinkToken, WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  settleKind,
+  type ParameterToken,
+  type ParametersToken,
+  type SinkToken,
+  type WarpAnchorToken,
+  type WarpToken,
+} from '@athrio/loom-ast/LoomTokens'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
@@ -510,7 +517,7 @@ An anchor that stays in this document takes one of three paths. When the name is
 
 Otherwise the name is looked up among the document's section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity, and the projection follows it and inlines the section there. `localHealth` marks the edge in three cases. A match that holds no code yet is a section to be settled, and the edge carries the `UnsettledSection` note. A match in another language is a cross-language transclusion. The edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file. A match that holds code, reached by an anchor still labelled `{To be settled}`, carries the `SettledLabel` note, whose fix removes the label.
 
-An anchor labels its section `{To be settled}` in its braces, in any case of letters, and `settleLabelOf` reads the span of that label. Every edge the pass makes records it, so the judgement and the tangle know which names the author meant before writing them. The `settleLabel` constant holds the label's words. The `anchorLabels` list holds every label an anchor takes, which today is `settleLabel` alone, and the editor offers each one while the author types between an anchor's braces.
+An anchor marks its section to be settled in its braces, in any case of letters. It writes the kind alone, as `{To be settled}`, or in full beside other parameters, as `{kind="To be settled" provides=greet}`. `settleKindOf` reads the span that marks it, and every edge the pass makes records that span, so the judgement and the tangle know which names the author meant before writing them. The span is what a settled section's fix removes. For the kind alone it is the whole of the braces. For the kind in full it is the `kind` parameter with the space that parts it from its neighbour, so the other parameters stay. `parameterSpanOf` finds that span.
 
 A name that no section of the document carries may still lie elsewhere in the book. `openRef` composes an edge for it that records the name and leaves the target open, and the compiler binds that edge once it holds the corpus.
 
@@ -524,7 +531,7 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
-    const label = settleLabelOf(anchor)
+    const label = settleKindOf(anchor)
     const file = anchorModule(modulePath, anchor)
     if (file !== modulePath) return crossFileRef(file, name, at, label)
     const value = values.get(name)
@@ -549,19 +556,41 @@ const bindAnchor =
     })
   }
 
-export const settleLabel = 'To be settled'
+const isSettleKind = (value: string): boolean => value.toLowerCase() === settleKind.toLowerCase()
 
-export const anchorLabels: ReadonlyArray<string> = [settleLabel]
-
-const settleLabelOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
-  pipe(
-    Option.fromNullishOr(anchor.specifier),
-    Option.filter(
-      (specifier) =>
-        specifier.type === 'Specifier' &&
-        specifier.label.value.toLowerCase() === settleLabel.toLowerCase(),
+const settleKindOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
+  Match.value(anchor.specifier).pipe(
+    Match.when({ type: 'Specifier' }, (specifier) =>
+      Option.filter(Option.some(specifier.position), () => isSettleKind(specifier.label.value)),
     ),
-    Option.map((specifier) => specifier.position),
+    Match.when({ type: 'Parameters' }, (specifier) =>
+      Option.map(
+        Array.findFirstWithIndex(specifier.parameters, isSettleParameter),
+        ([own, index]) => parameterSpanOf(specifier, own, index),
+      ),
+    ),
+    Match.orElse(() => Option.none<Position>()),
+  )
+
+const isSettleParameter = (parameter: ParameterToken): boolean =>
+  parameter.key.value === 'kind' &&
+  parameter.values.length === 1 &&
+  Array.some(parameter.values, (value) => isSettleKind(value.value))
+
+const parameterSpanOf = (
+  specifier: ParametersToken,
+  own: ParameterToken,
+  index: number,
+): Position =>
+  pipe(
+    Array.get(specifier.parameters, index + 1),
+    Option.map((next) => between(own.position.start, next.position.start)),
+    Option.orElse(() =>
+      Option.map(Array.get(specifier.parameters, index - 1), (previous) =>
+        between(previous.position.end, own.position.end),
+      ),
+    ),
+    Option.getOrElse(() => specifier.position),
   )
 
 const localHealth = (

@@ -568,6 +568,28 @@ describe('a section to be settled', () => {
       ).toEqual([])
     }),
   )
+
+  it.effect('reads the kind in full beside other parameters', () =>
+    Effect.gen(function* () {
+      const full = `${anchor('Saying hello')}{kind="To be settled" provides=greet}`
+      const labelled = { '/corpus/hello.loom': helloAnchoring(full) }
+      expect(yield* settleDiagnose(labelled, '/corpus/hello.loom')).toEqual([
+        [
+          'info',
+          'To be settled: no section is named `Saying hello` yet, so this anchor composes nothing.',
+        ],
+      ])
+      const settled = `${helloAnchoring(full)}\n${greeting}`
+      const [note] = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf({ '/corpus/hello.loom': settled })),
+      )
+      const [fix] = note!.fixes ?? []
+      const at = fix!.at!
+      const removed = `${settled.slice(0, at.start.offset)}${fix!.text}${settled.slice(at.end.offset)}`
+      expect(removed).toContain(`${anchor('Saying hello')}{provides=greet}\n`)
+    }),
+  )
 })
 
 const complete = (text: string, offset: number) =>
