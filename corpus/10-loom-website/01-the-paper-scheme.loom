@@ -88,8 +88,6 @@ The navy card is the infographic's ground, and it runs its own small scheme — 
   --accent-hover:  #C4441A;
 }
 
-~
-
 ## Two families and a fixed scale
 
 Two families dress the whole site. Space Grotesk at 500 sets display type and the wordmarks, and it sets nothing else. One monospace sets everything that remains — prose, interface, code, file names, commands and pixel labels alike. Naming the mono once, as a property, is what keeps the promise: no rule may write a family of its own, so two monospaces can never meet on a page.
@@ -133,8 +131,6 @@ A single line of chrome, such as a nav link, a chip or a button, takes `--lead-l
   --lead:      2;
   --lead-line: 1.3;
 }
-
-~
 
 ## Four pixels at a time
 
@@ -181,8 +177,6 @@ Radii come in two steps and a pill. Two rounds a chip, a pixel or a small fence;
 @media (max-width: 639px) {
   :root { --side: 24px; --section-pad: 40px; --col-gap: 24px; --rhythm: 28px; }
 }
-
-~
 
 ## The page on paper
 
@@ -249,8 +243,6 @@ a:hover { color: var(--ink-3); }
 
 ::highlight(found) { background-color: var(--amber); color: #14130F; }
 ::highlight(found-area) { background-color: color-mix(in srgb, var(--amber) 33%, transparent); }
-
-~
 
 ## The page after dark
 
@@ -428,8 +420,6 @@ Three paddings vary. A section sits close under the one above it and leaves its 
 @media (max-width: 999px)  { .section-hero { padding: 80px var(--side) 88px; } }
 @media (max-width: 639px)  { .section-hero { padding: 56px var(--side) 64px; } }
 
-~
-
 ## A mark, an eyebrow, a heading
 
 Every section opens the same way: a forty-two-pixel woven mark, then a stack of two lines beside it — the eyebrow that names the section's subject, and the heading that says what it is. Sixteen pixels separate the mark from the stack and four separate the two lines, which is close enough that they read as one block.
@@ -498,8 +488,6 @@ h2, .subhead {
   color: var(--ink-3);
 }
 
-~
-
 ## One treatment for running text
 
 Every sentence on the site is one thing: one family, one size, one leading, one ink. The hero's lead, a section's prose, a caption, a per-item description, the code set inside a sentence — all of them. Code inside a sentence keeps the body size too, so the line does not jump where it appears.
@@ -539,8 +527,6 @@ A label and the thing it introduces — a line of copy, a fence — sit ten pixe
 
 .introduces { margin-bottom: var(--label-gap); }
 
-~
-
 ## A fence is not a sentence
 
 Block code steps down to thirteen pixels and keeps everything else — the same family, the same open leading, the same ink. Only the size differs, because a fence is not a sentence. A code fence washes the paper with a trace of ink rather than sitting on a ground of its own, and rounds to the card radius.
@@ -578,8 +564,6 @@ A syntax token is the one thing that may take a colour of its own inside a fence
   line-height: var(--lead-line);
 }
 
-~
-
 ## One file tree, everywhere
 
 A file tree looks the same wherever the site draws one, so its treatment lives here rather than in each section that shows a corpus. A row stands thirty-two pixels tall and sets its label in the mono at eleven pixels, weight 600, eleven pixels after the icon. Children indent to forty-eight pixels and a guide line runs down behind them.
@@ -610,8 +594,6 @@ The two icons are pixel drawings, and a drawing keeps its own fills: the folder 
   margin-left: 48px;
   border-left: 1px solid #DFD8C8;
 }
-
-~
 
 ## The nav across the top
 
@@ -1231,8 +1213,6 @@ Every row is a link, so it drops a link's underline and keeps the row's own colo
 }
 
 .palette-bar .count { margin-left: auto; color: var(--navy-ink); }
-
-~
 
 ## The footer that ends every page
 

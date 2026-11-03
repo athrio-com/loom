@@ -179,8 +179,6 @@ export const FileSystemSource = Layer.effect(
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
 
-~
-
 ## Why the text waits in memory
 
 The language server cannot wait for a network. Volar calls the `createVirtualCode` hook synchronously, and the `LoomLanguagePlugin` module answers that call with the `runtime.runSync` method. It answers diagnostics, go-to-definition, and rename the same way. The `runSync` method fails on any effect that has to wait, so a network read cannot run inside those calls.
@@ -322,8 +320,6 @@ export const RemoteEnvironment = (
     LoomDiskCache.none,
   )
 
-~
-
 ## The URL and the key
 
 Two environment variables connect Loom to remote storage. The `LOOM_STORAGE_URL` variable names the workspace, and the `LOOM_STORAGE_KEY` variable holds the secret key. When the first is set, Loom uses the `RemoteSource` layer, and the second must be set too. When the first is unset, Loom uses the `FileSystemSource` layer.
@@ -422,8 +418,6 @@ export const Environment = Layer.unwrap(
     ),
   ),
 )
-
-~
 
 ## A workspace with no folder
 
@@ -539,8 +533,6 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
   })
 })
 
-~
-
 ## What the source draws on
 
 Effect supplies the service, the layer, `Array`, `Option`, `Ref`, and the effect type, with `Schema` for the contract, `Config` for the environment's variables, and `Redacted` for the key. Its `http` module gives the client that remote storage is fetched through. Node's `fs` reads a file and tells a folder from a loom, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type with its schema, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. From the chapter "Build settings for a file" come the `WorkspaceSettings` service, its `FileSystemSettings` layer, and `settingsOfManifest`, which the remote settings read a manifest through. `LoomDiskCache`, from the chapter "The build cache on disk", joins the sources in each environment. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
@@ -571,8 +563,6 @@ import {
   type WorkspaceSettingsApi,
 } from './WorkspaceSettings'
 
-~
-
 ## The module {Tangle}[src/WorkspaceSource.ts]
 
 =>
@@ -589,15 +579,11 @@ import {
 
 ::[Choosing the environment at startup]
 
-~
-
 ## The test file {Tangle}[test/WorkspaceSource.test.ts]
 
 =>
 
 ::[Testing the file-system source]
-
-~
 
 ## The storage stub
 

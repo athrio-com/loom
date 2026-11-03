@@ -478,8 +478,6 @@ export const createNativeProgram = (
           onSome: (previous) => Option.orElse(live(), () => restart(previous)),
         })
 
-~
-
 ### The warm-up
 
 `warm` runs after the first question the server answers, so it never delays that answer, and again after the first answer from a restarted server. A question that fails starts nothing. It widens the open set with every served root, keeping the roots of the project last asked about, then asks the server for each served root's diagnostics, one root at a time. Asking makes TypeScript 7 load and check the root's project. One request at a time keeps the warm-up from crowding out the person's own questions: a question asked meanwhile waits for one root's check at most, not for the whole workspace.
@@ -598,8 +596,6 @@ The warm-up asks only a server that is running, through `live`, and never starts
     reportOnce(reported, message)
     return [failureDiagnostic(message)]
   }
-
-~
 
 ### Forwarding the questions
 
