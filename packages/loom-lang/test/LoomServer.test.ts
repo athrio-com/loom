@@ -623,7 +623,7 @@ describe('LoomServer — the pass piece by piece', () => {
         Effect.provide(
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
-            Layer.provide(FileSystemSource),
+            Layer.provideMerge(FileSystemSource),
             Layer.provide(PackageConfig.layer),
             Layer.provide(LoomConfig.layer),
           ),

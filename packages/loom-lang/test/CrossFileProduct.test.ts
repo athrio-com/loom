@@ -62,7 +62,7 @@ const checkerFor = async (entry: string) => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
       Layer.provideMerge(DocumentSource.layer),
-      Layer.provide(FileSystemSource),
+      Layer.provideMerge(FileSystemSource),
       Layer.provide(PackageConfig.layer),
       Layer.provide(configMock),
     ),

@@ -2,6 +2,7 @@ import type { LanguageServicePlugin } from '@volar/language-service'
 import { Context, Data, Effect, Layer, Option, type Result } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
+import type { URI } from 'vscode-uri'
 
 export class ServiceError extends Data.TaggedError('ServiceError')<{
   readonly service: string
@@ -80,6 +81,8 @@ export interface FrameQueryApi {
   readonly navigationRange: (path: string, offset: number) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
   readonly format: (path: string, text: string) => Promise<string>
+  readonly locationOf: (uri: URI) => string
+  readonly uriOf: (location: string) => URI
 }
 
 export class FrameQuery extends Context.Service<FrameQuery>()('FrameQuery', {

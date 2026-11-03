@@ -7,6 +7,7 @@ import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
+import { WorkspaceSource } from './WorkspaceSource'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   Composition,
@@ -23,26 +24,27 @@ import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
 const editorSource = (
   documents: DocumentSource['Service'],
-  uri: URI,
+  shown: string,
   snapshot: ts.IScriptSnapshot,
 ): Source => ({
   read: (path) =>
-    path === uri.fsPath
-      ? Effect.succeed(snapshot.getText(0, snapshot.getLength()))
-      : documents.read(path),
+    path === shown ? Effect.succeed(snapshot.getText(0, snapshot.getLength())) : documents.read(path),
   list: documents.list,
 })
 
 const associate = (
   compiler: LoomCompiler['Service'],
+  source: WorkspaceSource['Service'],
   ctx: CodegenContext<URI>,
   entry: string,
 ): Effect.Effect<void> =>
   compiler.reach(entry).pipe(
     Effect.flatMap((deps) =>
-      Effect.forEach(deps, (dep) => Effect.sync(() => ctx.getAssociatedScript(URI.file(dep))), {
-        discard: true,
-      }),
+      Effect.forEach(
+        deps,
+        (dep) => Effect.sync(() => ctx.getAssociatedScript(source.uriOf(dep))),
+        { discard: true },
+      ),
     ),
   )
 
@@ -50,17 +52,22 @@ const projectIsolated = (
   uri: URI,
   snapshot: ts.IScriptSnapshot,
   ctx: CodegenContext<URI>,
-): Effect.Effect<VirtualCode, never, LoomCompiler | DocumentSource> =>
+): Effect.Effect<VirtualCode, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
   Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const documents = yield* DocumentSource
-    const tree = yield* compiler.compile(editorSource(documents, uri, snapshot), uri.fsPath)
-    yield* associate(compiler, ctx, uri.fsPath)
+    const source = yield* WorkspaceSource
+    const shown = source.locationOf(uri)
+    const tree = yield* compiler.compile(editorSource(documents, shown, snapshot), shown)
+    yield* associate(compiler, source, ctx, shown)
     return isolateRoots(tree)
   })
 
 export const loomLanguagePlugin = (
-  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | DocumentSource | LoomConfig, never>,
+  runtime: ManagedRuntime.ManagedRuntime<
+    LoomCompiler | DocumentSource | WorkspaceSource | LoomConfig,
+    never
+  >,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
@@ -69,8 +76,10 @@ export const loomLanguagePlugin = (
     runtime.runSync(projectIsolated(uri, snapshot, ctx)),
   disposeVirtualCode: (uri) =>
     runtime.runSync(
-      LoomCompiler.pipe(
-        Effect.flatMap((compiler) => Effect.asVoid(compiler.invalidate(uri.fsPath))),
+      Effect.all([LoomCompiler, WorkspaceSource]).pipe(
+        Effect.flatMap(([compiler, source]) =>
+          Effect.asVoid(compiler.invalidate(source.locationOf(uri))),
+        ),
       ),
     ),
 })
@@ -117,6 +126,7 @@ const collect = (
 
 const frameQueryOver = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
+  source: WorkspaceSource['Service'],
   languages: ReadonlyArray<LanguageService>,
 ): FrameQueryApi => ({
   diagnostics: (path) =>
@@ -145,6 +155,8 @@ const frameQueryOver = (
     runtime.runPromise(
       LoomFormatter.pipe(Effect.flatMap((formatter) => formatter.format(path, text, languages))),
     ),
+  locationOf: source.locationOf,
+  uriOf: source.uriOf,
 })
 
 const compositionOver = (
@@ -158,9 +170,10 @@ export const loomServicePlugins = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
   sdk: TypescriptSdkApi,
   workspace: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig | WorkspaceSource> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
+    const source = yield* WorkspaceSource
     const manifest = yield* config.manifest(workspace)
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
@@ -170,7 +183,7 @@ export const loomServicePlugins = (
       active,
       sdk,
       settings,
-      frameQueryOver(runtime, active),
+      frameQueryOver(runtime, source, active),
       compositionOver(runtime),
     )
   })

@@ -54,7 +54,6 @@ import {
 import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
@@ -396,11 +395,14 @@ A `tsconfig.json` or a `jsconfig.json` changes no service, but it may change the
 
 =>
 
-const reconfiguredWorkspaces = (changes: ReadonlyArray<FileEvent>): ReadonlyArray<string> =>
+const reconfiguredWorkspaces = (
+  source: WorkspaceSource['Service'],
+  changes: ReadonlyArray<FileEvent>,
+): ReadonlyArray<string> =>
   pipe(
     changes,
     Array.filter((change) => change.uri.endsWith('/.loom/config.yaml')),
-    Array.map((change) => dirname(dirname(fileURLToPath(change.uri)))),
+    Array.map((change) => dirname(dirname(source.locationOf(URI.parse(change.uri))))),
     Array.dedupe,
   )
 
@@ -431,14 +433,17 @@ export const rebuildUnder = (
   server: LanguageServer,
   edited: Ref.Ref<ReadonlySet<string>>,
   workspace: string,
-): Effect.Effect<void, never, LoomCompiler> =>
-  LoomCompiler.pipe(
-    Effect.flatMap((compiler) => compiler.invalidateWithin(workspace)),
-    Effect.andThen(
-      Effect.forEach(
-        Array.filter(openLooms(server), (uri) => within(workspace, uri.fsPath)),
-        (uri) => recordEdit(edited, uri),
-        { discard: true },
+): Effect.Effect<void, never, LoomCompiler | WorkspaceSource> =>
+  Effect.all([LoomCompiler, WorkspaceSource]).pipe(
+    Effect.flatMap(([compiler, source]) =>
+      compiler.invalidateWithin(workspace).pipe(
+        Effect.andThen(
+          Effect.forEach(
+            Array.filter(openLooms(server), (uri) => within(workspace, source.locationOf(uri))),
+            (uri) => recordEdit(edited, uri),
+            { discard: true },
+          ),
+        ),
       ),
     ),
   )
@@ -449,7 +454,7 @@ const reconfigure = (
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
   workspaces: ReadonlyArray<string>,
-): Effect.Effect<void, never, LoomCompiler> =>
+): Effect.Effect<void, never, LoomCompiler | WorkspaceSource> =>
   workspaces.length === 0
     ? Effect.void
     : Effect.forEach(
@@ -501,7 +506,10 @@ const watchConfigs = (
   ])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(
-      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)).pipe(
+      WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          reconfigure(server, services, projects, edited, reconfiguredWorkspaces(source, changes)),
+        ),
         Effect.andThen(retype(server, projects, retypedWorkspaces(home, changes))),
       ),
     ),
@@ -522,7 +530,7 @@ So `watchLooms` asks the editor to watch every `.loom` file, as `watchConfigs` w
 
 The server keeps the text `DocumentSource` holds in step with storage. `fetchReported` fetches every loom a batch reports, open or closed, through `fetchSaved`. The editor's own text still governs an open loom, but once the editor closes it, the compiler reads what storage holds.
 
-`rereadLoom` evicts one changed loom from the build cache with the compiler's `invalidate`, so the next composition reads the text `fetchReported` has just handed to `DocumentSource`. It then decides whether the change can reach an open loom. A changed loom the cache holds can, since some composition read it. A changed loom the cache does not hold cannot, since no composition holds its old text. A new loom can, because the next composition finds it when it lists the corpus, and an anchor that named nothing may now resolve. A deleted loom always counts, because Volar may still hold its script. `rereadLoom` returns the change when it counts, and nothing otherwise. It names a loom by the same path the language plugin gives it, the `fsPath` of the loom's address, so both evict the same entry of the build cache.
+`rereadLoom` evicts one changed loom from the build cache with the compiler's `invalidate`, so the next composition reads the text `fetchReported` has just handed to `DocumentSource`. It then decides whether the change can reach an open loom. A changed loom the cache holds can, since some composition read it. A changed loom the cache does not hold cannot, since no composition holds its old text. A new loom can, because the next composition finds it when it lists the corpus, and an anchor that named nothing may now resolve. A deleted loom always counts, because Volar may still hold its script. `rereadLoom` returns the change when it counts, and nothing otherwise. It names a loom by the location the `WorkspaceSource` service's `locationOf` method gives the loom's address, as the language plugin does, so both evict the same entry of the build cache. Every crossing from an address to a location goes through that method, and every crossing back through `uriOf`. Two checks are rules about folders and keep reading a file address's `fsPath` behind a test of its `file` scheme: `workspaceFor`, which finds the folder of a nested workspace, and `savedLooms`, which reads a file's modified time.
 
 =>
 
@@ -539,10 +547,11 @@ const closedLoomChanges = (
 
 const rereadLoom = (
   compiler: LoomCompiler['Service'],
+  source: WorkspaceSource['Service'],
   change: FileEvent,
 ): Effect.Effect<Option.Option<FileEvent>> =>
   compiler
-    .invalidate(URI.parse(change.uri).fsPath)
+    .invalidate(source.locationOf(URI.parse(change.uri)))
     .pipe(
       Effect.map((reprojected) =>
         change.type === FileChangeType.Changed && reprojected.length === 0
@@ -554,17 +563,23 @@ const rereadLoom = (
 const fetchReported = (
   changes: ReadonlyArray<FileEvent>,
 ): Effect.Effect<void, never, WorkspaceSource | DocumentSource> =>
-  Effect.forEach(
-    Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
-    (uri) => fetchSaved(uri.fsPath),
-    { discard: true },
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) =>
+      Effect.forEach(
+        Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
+        (uri) => fetchSaved(source.locationOf(uri)),
+        { discard: true },
+      ),
+    ),
   )
 
 const rereadLooms = (
   changes: ReadonlyArray<FileEvent>,
-): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler> =>
-  LoomCompiler.pipe(
-    Effect.flatMap((compiler) => Effect.forEach(changes, (change) => rereadLoom(compiler, change))),
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | WorkspaceSource> =>
+  Effect.all([LoomCompiler, WorkspaceSource]).pipe(
+    Effect.flatMap(([compiler, source]) =>
+      Effect.forEach(changes, (change) => rereadLoom(compiler, source, change)),
+    ),
     Effect.map(Array.getSomes),
   )
 
@@ -600,7 +615,7 @@ const openLoomsIn = (
 
 const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
   effect.pipe(
-    Effect.catchCause((cause) => Effect.logError(`loom: ${step} ${uri.fsPath} failed`, cause)),
+    Effect.catchCause((cause) => Effect.logError(`loom: ${step} ${uri.toString()} failed`, cause)),
   )
 
 const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void> =>
@@ -704,7 +719,8 @@ export const closeOf = (
   uri: URI,
   text: string,
 ): Effect.Effect<ReadonlyArray<FileEvent>, never, WorkspaceSource | DocumentSource> =>
-  fetchSaved(uri.fsPath).pipe(
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => fetchSaved(source.locationOf(uri))),
     Effect.map(
       Option.match({
         onNone: (): ReadonlyArray<FileEvent> => [
@@ -778,33 +794,51 @@ So the server rebuilds every edited chapter before it answers any request. `watc
 
 =>
 
-const openSource = (server: LanguageServer, documents: DocumentSource['Service']): Source => ({
+const openSource = (
+  server: LanguageServer,
+  documents: DocumentSource['Service'],
+  source: WorkspaceSource['Service'],
+): Source => ({
   read: (path) =>
-    Option.match(Option.fromNullishOr(server.documents.get(URI.file(path))), {
+    Option.match(Option.fromNullishOr(server.documents.get(source.uriOf(path))), {
       onSome: (document) => Effect.succeed(document.getText()),
       onNone: () => documents.read(path),
     }),
   list: Option.none(),
 })
 
-const recordEdit = (edited: Ref.Ref<ReadonlySet<string>>, uri: URI): Effect.Effect<void> =>
-  isLoom(uri) ? Ref.update(edited, (paths) => new Set([...paths, uri.fsPath])) : Effect.void
+const recordEdit = (
+  edited: Ref.Ref<ReadonlySet<string>>,
+  uri: URI,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  isLoom(uri)
+    ? WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          Ref.update(edited, (paths) => new Set([...paths, source.locationOf(uri)])),
+        ),
+      )
+    : Effect.void
 
 const rebuildEdited = (
   server: LanguageServer,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | DocumentSource> =>
-  Effect.all([Ref.getAndSet(edited, new Set<string>()), LoomCompiler, DocumentSource]).pipe(
-    Effect.flatMap(([paths, compiler, documents]) =>
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
+  Effect.all([
+    Ref.getAndSet(edited, new Set<string>()),
+    LoomCompiler,
+    DocumentSource,
+    WorkspaceSource,
+  ]).pipe(
+    Effect.flatMap(([paths, compiler, documents, source]) =>
       Effect.forEach(paths, (path) =>
-        compiler.rebuild(openSource(server, documents), path).pipe(
+        compiler.rebuild(openSource(server, documents, source), path).pipe(
           Effect.catchCause((cause) =>
             Effect.logError(`loom: rebuilding ${path} failed`, cause).pipe(Effect.as(true)),
           ),
           Effect.map((changed) =>
             changed
               ? Option.some<FileEvent>({
-                  uri: URI.file(path).toString(),
+                  uri: source.uriOf(path).toString(),
                   type: FileChangeType.Changed,
                 })
               : Option.none(),
@@ -828,7 +862,7 @@ const settleEdits = (
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<void, never, LoomCompiler | DocumentSource> =>
+): Effect.Effect<void, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
   rebuildEdited(server, edited).pipe(
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
@@ -838,7 +872,7 @@ const settleEdits = (
 
 A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it.
 
-The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It takes `home` to be the workspace that folder belongs to. It opens `home` through `openWorkspace`, which asks the `WorkspaceSource` service for the workspace and hands every loom's text to the `DocumentSource` service to hold, as the chapter "Where a workspace is kept" describes. Only a folder with a manifest is opened, so a folder outside every workspace holds nothing, and its looms are read from the disk as they are asked for. A failure to open only logs, since every read falls back to the disk. The program then builds the `TypescriptSdk` with `typescriptSdkFor`, from the options the editor sent, and loads no compiler while it does.
+The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. `homeOf` turns the folder's address into a location through the `WorkspaceSource` service, and names the workspace that location belongs to. It takes `home` to be the workspace that folder belongs to. It opens `home` through `openWorkspace`, which asks the `WorkspaceSource` service for the workspace and hands every loom's text to the `DocumentSource` service to hold, as the chapter "Where a workspace is kept" describes. Only a folder with a manifest is opened, so a folder outside every workspace holds nothing, and its looms are read from the disk as they are asked for. A failure to open only logs, since every read falls back to the disk. The program then builds the `TypescriptSdk` with `typescriptSdkFor`, from the options the editor sent, and loads no compiler while it does.
 
 The program then makes two caches, each keyed by a workspace's root, the `reprojecting` semaphore, whose one permit a reprojection holds while it marks the open looms stale, and the `edited` set of looms the editor has changed since the last request. `services` holds the plugins `loomServicePlugins` collects for a workspace. `projects` holds the project `projectOver` builds over those plugins. A cache fills a workspace's entry the first time a request needs it, and fills it once, however many requests ask at the same moment. The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject`, built over both caches, the semaphore, and the set, and those plugins with Volar.
 
@@ -893,14 +927,24 @@ const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, ne
     Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
   )
 
+const homeOf = (folder: string | undefined): Effect.Effect<string, never, WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.map((source) =>
+      workspaceRoot(
+        Option.match(Option.fromNullishOr(folder), {
+          onNone: () => process.cwd(),
+          onSome: (uri) => source.locationOf(URI.parse(uri)),
+        }),
+      ),
+    ),
+  )
+
 export const startLanguageServer = (): void => {
   const connection = createConnection()
   const server = createServer(connection)
 
   connection.onInitialize(async (params) => {
-    const folder = params.workspaceFolders?.[0]?.uri
-    const root = folder ? fileURLToPath(folder) : process.cwd()
-    const home = workspaceRoot(root)
+    const home = await runtime.runPromise(homeOf(params.workspaceFolders?.[0]?.uri))
     const { workspace, services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
         const workspace = yield* openWorkspace(home)
@@ -1654,7 +1698,7 @@ describe('LoomServer — the pass piece by piece', () => {
         Effect.provide(
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
-            Layer.provide(FileSystemSource),
+            Layer.provideMerge(FileSystemSource),
             Layer.provide(PackageConfig.layer),
             Layer.provide(LoomConfig.layer),
           ),

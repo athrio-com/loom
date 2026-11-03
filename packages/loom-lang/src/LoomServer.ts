@@ -34,7 +34,6 @@ import {
 import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
@@ -280,11 +279,14 @@ export const workspaceProject = (
     ),
 })
 
-const reconfiguredWorkspaces = (changes: ReadonlyArray<FileEvent>): ReadonlyArray<string> =>
+const reconfiguredWorkspaces = (
+  source: WorkspaceSource['Service'],
+  changes: ReadonlyArray<FileEvent>,
+): ReadonlyArray<string> =>
   pipe(
     changes,
     Array.filter((change) => change.uri.endsWith('/.loom/config.yaml')),
-    Array.map((change) => dirname(dirname(fileURLToPath(change.uri)))),
+    Array.map((change) => dirname(dirname(source.locationOf(URI.parse(change.uri))))),
     Array.dedupe,
   )
 
@@ -315,14 +317,17 @@ export const rebuildUnder = (
   server: LanguageServer,
   edited: Ref.Ref<ReadonlySet<string>>,
   workspace: string,
-): Effect.Effect<void, never, LoomCompiler> =>
-  LoomCompiler.pipe(
-    Effect.flatMap((compiler) => compiler.invalidateWithin(workspace)),
-    Effect.andThen(
-      Effect.forEach(
-        Array.filter(openLooms(server), (uri) => within(workspace, uri.fsPath)),
-        (uri) => recordEdit(edited, uri),
-        { discard: true },
+): Effect.Effect<void, never, LoomCompiler | WorkspaceSource> =>
+  Effect.all([LoomCompiler, WorkspaceSource]).pipe(
+    Effect.flatMap(([compiler, source]) =>
+      compiler.invalidateWithin(workspace).pipe(
+        Effect.andThen(
+          Effect.forEach(
+            Array.filter(openLooms(server), (uri) => within(workspace, source.locationOf(uri))),
+            (uri) => recordEdit(edited, uri),
+            { discard: true },
+          ),
+        ),
       ),
     ),
   )
@@ -333,7 +338,7 @@ const reconfigure = (
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
   workspaces: ReadonlyArray<string>,
-): Effect.Effect<void, never, LoomCompiler> =>
+): Effect.Effect<void, never, LoomCompiler | WorkspaceSource> =>
   workspaces.length === 0
     ? Effect.void
     : Effect.forEach(
@@ -385,7 +390,10 @@ const watchConfigs = (
   ])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(
-      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)).pipe(
+      WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          reconfigure(server, services, projects, edited, reconfiguredWorkspaces(source, changes)),
+        ),
         Effect.andThen(retype(server, projects, retypedWorkspaces(home, changes))),
       ),
     ),
@@ -405,10 +413,11 @@ const closedLoomChanges = (
 
 const rereadLoom = (
   compiler: LoomCompiler['Service'],
+  source: WorkspaceSource['Service'],
   change: FileEvent,
 ): Effect.Effect<Option.Option<FileEvent>> =>
   compiler
-    .invalidate(URI.parse(change.uri).fsPath)
+    .invalidate(source.locationOf(URI.parse(change.uri)))
     .pipe(
       Effect.map((reprojected) =>
         change.type === FileChangeType.Changed && reprojected.length === 0
@@ -420,17 +429,23 @@ const rereadLoom = (
 const fetchReported = (
   changes: ReadonlyArray<FileEvent>,
 ): Effect.Effect<void, never, WorkspaceSource | DocumentSource> =>
-  Effect.forEach(
-    Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
-    (uri) => fetchSaved(uri.fsPath),
-    { discard: true },
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) =>
+      Effect.forEach(
+        Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
+        (uri) => fetchSaved(source.locationOf(uri)),
+        { discard: true },
+      ),
+    ),
   )
 
 const rereadLooms = (
   changes: ReadonlyArray<FileEvent>,
-): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler> =>
-  LoomCompiler.pipe(
-    Effect.flatMap((compiler) => Effect.forEach(changes, (change) => rereadLoom(compiler, change))),
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | WorkspaceSource> =>
+  Effect.all([LoomCompiler, WorkspaceSource]).pipe(
+    Effect.flatMap(([compiler, source]) =>
+      Effect.forEach(changes, (change) => rereadLoom(compiler, source, change)),
+    ),
     Effect.map(Array.getSomes),
   )
 
@@ -450,7 +465,7 @@ const openLoomsIn = (
 
 const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
   effect.pipe(
-    Effect.catchCause((cause) => Effect.logError(`loom: ${step} ${uri.fsPath} failed`, cause)),
+    Effect.catchCause((cause) => Effect.logError(`loom: ${step} ${uri.toString()} failed`, cause)),
   )
 
 const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void> =>
@@ -540,7 +555,8 @@ export const closeOf = (
   uri: URI,
   text: string,
 ): Effect.Effect<ReadonlyArray<FileEvent>, never, WorkspaceSource | DocumentSource> =>
-  fetchSaved(uri.fsPath).pipe(
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => fetchSaved(source.locationOf(uri))),
     Effect.map(
       Option.match({
         onNone: (): ReadonlyArray<FileEvent> => [
@@ -592,33 +608,51 @@ const watchLooms = (
   })
 }
 
-const openSource = (server: LanguageServer, documents: DocumentSource['Service']): Source => ({
+const openSource = (
+  server: LanguageServer,
+  documents: DocumentSource['Service'],
+  source: WorkspaceSource['Service'],
+): Source => ({
   read: (path) =>
-    Option.match(Option.fromNullishOr(server.documents.get(URI.file(path))), {
+    Option.match(Option.fromNullishOr(server.documents.get(source.uriOf(path))), {
       onSome: (document) => Effect.succeed(document.getText()),
       onNone: () => documents.read(path),
     }),
   list: Option.none(),
 })
 
-const recordEdit = (edited: Ref.Ref<ReadonlySet<string>>, uri: URI): Effect.Effect<void> =>
-  isLoom(uri) ? Ref.update(edited, (paths) => new Set([...paths, uri.fsPath])) : Effect.void
+const recordEdit = (
+  edited: Ref.Ref<ReadonlySet<string>>,
+  uri: URI,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  isLoom(uri)
+    ? WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          Ref.update(edited, (paths) => new Set([...paths, source.locationOf(uri)])),
+        ),
+      )
+    : Effect.void
 
 const rebuildEdited = (
   server: LanguageServer,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | DocumentSource> =>
-  Effect.all([Ref.getAndSet(edited, new Set<string>()), LoomCompiler, DocumentSource]).pipe(
-    Effect.flatMap(([paths, compiler, documents]) =>
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
+  Effect.all([
+    Ref.getAndSet(edited, new Set<string>()),
+    LoomCompiler,
+    DocumentSource,
+    WorkspaceSource,
+  ]).pipe(
+    Effect.flatMap(([paths, compiler, documents, source]) =>
       Effect.forEach(paths, (path) =>
-        compiler.rebuild(openSource(server, documents), path).pipe(
+        compiler.rebuild(openSource(server, documents, source), path).pipe(
           Effect.catchCause((cause) =>
             Effect.logError(`loom: rebuilding ${path} failed`, cause).pipe(Effect.as(true)),
           ),
           Effect.map((changed) =>
             changed
               ? Option.some<FileEvent>({
-                  uri: URI.file(path).toString(),
+                  uri: source.uriOf(path).toString(),
                   type: FileChangeType.Changed,
                 })
               : Option.none(),
@@ -634,7 +668,7 @@ const settleEdits = (
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<void, never, LoomCompiler | DocumentSource> =>
+): Effect.Effect<void, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
   rebuildEdited(server, edited).pipe(
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
@@ -685,14 +719,24 @@ const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, ne
     Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
   )
 
+const homeOf = (folder: string | undefined): Effect.Effect<string, never, WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.map((source) =>
+      workspaceRoot(
+        Option.match(Option.fromNullishOr(folder), {
+          onNone: () => process.cwd(),
+          onSome: (uri) => source.locationOf(URI.parse(uri)),
+        }),
+      ),
+    ),
+  )
+
 export const startLanguageServer = (): void => {
   const connection = createConnection()
   const server = createServer(connection)
 
   connection.onInitialize(async (params) => {
-    const folder = params.workspaceFolders?.[0]?.uri
-    const root = folder ? fileURLToPath(folder) : process.cwd()
-    const home = workspaceRoot(root)
+    const home = await runtime.runPromise(homeOf(params.workspaceFolders?.[0]?.uri))
     const { workspace, services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
         const workspace = yield* openWorkspace(home)

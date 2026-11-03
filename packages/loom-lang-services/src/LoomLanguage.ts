@@ -46,7 +46,7 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
       if (!decoded || decoded[1] !== 'root') return undefined
       const at = (offset: number) => document.positionAt(offset)
       return pipe(
-        frame.diagnostics(decoded[0].fsPath),
+        frame.diagnostics(frame.locationOf(decoded[0])),
         Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
       )
     },
@@ -54,10 +54,11 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
 })
 
 const toLocationLink = (
+  frame: FrameQueryApi,
   target: FrameLocation,
   origin: FrameLocation | undefined,
 ): LocationLink => ({
-  targetUri: URI.file(target.path).toString(),
+  targetUri: frame.uriOf(target.path).toString(),
   targetRange: target.range,
   targetSelectionRange: target.range,
   originSelectionRange: origin?.range,
@@ -70,11 +71,12 @@ const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideDefinition: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
+      const loom = frame.locationOf(decoded[0])
       const offset = document.offsetAt(position)
-      const target = frame.definition(decoded[0].fsPath, offset)
+      const target = frame.definition(loom, offset)
       return target === undefined
         ? undefined
-        : [toLocationLink(target, frame.navigationRange(decoded[0].fsPath, offset))]
+        : [toLocationLink(frame, target, frame.navigationRange(loom, offset))]
     },
   }),
 })
@@ -87,9 +89,9 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
       return pipe(
-        frame.references(decoded[0].fsPath, document.offsetAt(position)),
+        frame.references(frame.locationOf(decoded[0]), document.offsetAt(position)),
         Array.map((location) => ({
-          uri: URI.file(location.path).toString(),
+          uri: frame.uriOf(location.path).toString(),
           range: location.range,
         })),
       )
@@ -98,11 +100,12 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
 })
 
 const groupEdits = (
+  frame: FrameQueryApi,
   locations: ReadonlyArray<FrameLocation>,
   newName: string,
 ): Record<string, TextEdit[]> =>
   Object.fromEntries(
-    Object.entries(Array.groupBy(locations, (location) => URI.file(location.path).toString())).map(
+    Object.entries(Array.groupBy(locations, (location) => frame.uriOf(location.path).toString())).map(
       ([uri, locs]) => [uri, locs.map((location) => ({ range: location.range, newText: newName }))],
     ),
   )
@@ -114,14 +117,14 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideRenameRange: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      const span = frame.renameRange(decoded[0].fsPath, document.offsetAt(position))
+      const span = frame.renameRange(frame.locationOf(decoded[0]), document.offsetAt(position))
       return span === undefined ? undefined : span.range
     },
     provideRenameEdits: (document, position, newName) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      const edits = frame.rename(decoded[0].fsPath, document.offsetAt(position))
-      return edits.length === 0 ? undefined : { changes: groupEdits(edits, newName) }
+      const edits = frame.rename(frame.locationOf(decoded[0]), document.offsetAt(position))
+      return edits.length === 0 ? undefined : { changes: groupEdits(frame, edits, newName) }
     },
   }),
 })
@@ -138,7 +141,7 @@ const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideDocumentSemanticTokens: (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(frame.semanticTokens(decoded[0].fsPath), (span): SemanticToken => [
+      return Array.map(frame.semanticTokens(frame.locationOf(decoded[0])), (span): SemanticToken => [
         span.range.start.line,
         span.range.start.character,
         span.range.end.character - span.range.start.character,
@@ -157,7 +160,7 @@ const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
       const text = document.getText()
-      const formatted = await frame.format(decoded[0].fsPath, text)
+      const formatted = await frame.format(frame.locationOf(decoded[0]), text)
       return formatted === text
         ? []
         : [

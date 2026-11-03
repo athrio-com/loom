@@ -232,7 +232,9 @@ The compiler compares locations and keys its maps by them, and it never takes on
 
 The file-system source keeps today's absolute paths as locations, so nothing changes for a loom in a folder.
 
-The `locationOf` and `uriOf` methods replace every use of `uri.fsPath`, `URI.file`, and `fileURLToPath` in the `LoomLanguagePlugin`, `LoomServer`, and `LoomLanguage` modules. This removes a trap as well. The `fsPath` property ignores a URI's scheme, so `memory:/a.loom` and `file:///a.loom` both come out as `/a.loom`.
+The `locationOf` and `uriOf` methods replace the uses of `uri.fsPath`, `URI.file`, and `fileURLToPath` in the `LoomLanguagePlugin`, `LoomServer`, and `LoomLanguage` modules. This removes a trap as well. The `fsPath` property ignores a URI's scheme, so `memory:/a.loom` and `file:///a.loom` both come out as `/a.loom`. The `LoomLanguage` service reaches the two methods through the `FrameQuery` capability, because its package cannot depend on the compiler's. Two checks in the server keep reading `fsPath`, each behind a test of the URI's `file` scheme, because each is a rule about folders: the lookup of a nested workspace, and the modified time the `savedLooms` function reads.
+
+Some uses of the `Path` type name a location the compiler only compares. Others name a real file path that code on the file system takes apart, such as the walk of the `loomsIn` function, the tangler, the formatter, and the build cache on disk. Only the first kind becomes `Location`.
 
 One form of anchor still reads inside a location. The anchor `::[Name](path.loom)` goes through the `resolveRelative` function, which splits the location on `/`. A URL splits the same way, so this anchor keeps working until the chapter "Names through the book" retires it.
 
@@ -270,7 +272,13 @@ Three things stay on disk.
 
 ## Choosing the environment at startup
 
-The `LoomServer` module builds its `ManagedRuntime` value as a module constant, over the `DocumentSource.layer` value. That constant becomes a value the `startLanguageServer` function builds from a layer it receives. The server's entry point reads the two variables and passes the matching layer, and the `loom` program does the same. The rest of the service graph stays as it is.
+An environment answers two questions for Loom: where the looms are kept, and how the workspace is configured. The `WorkspaceSource` service answers the first. A workspace keeps one configuration, its `.loom/config.yaml` file, and the environment decides how Loom reads it.
+
+The compiler already reads its settings through one service, `PackageConfig`, which hands it a loom's `BuildSettings`. Its name dates from a time when each package had a configuration of its own, so it becomes `WorkspaceSettings`. Two readers still go around it and read the configuration through the `LoomConfig` service. The language plugin's `loomServicePlugins` function reads the languages a workspace activates, with their services and their settings. The server's `openWorkspace` function opens a folder only when it holds a configuration. Both move behind `WorkspaceSettings`, so the service answers a loom's build settings and a workspace's languages.
+
+Each environment provides both services, as one pair. On the file system, the `FileSystemSource` layer comes with a settings layer that reads `.loom/config.yaml` through `LoomConfig`. In remote storage, the `RemoteSource` layer comes with a settings layer that reads the manifest the workspace's JSON carries. The parts of Loom that work only on the file system keep reading `LoomConfig` themselves: the build cache on disk, the tangler, and the formatter.
+
+The `LoomServer` module builds its `ManagedRuntime` value as a module constant, over the file-system pair. That constant becomes a value the `startLanguageServer` function builds from the pair it receives. The server's entry point reads the two variables and passes the matching pair, and the `loom` program does the same. The rest of the service graph stays as it is.
 
 ## A workspace with no folder
 
@@ -444,7 +452,7 @@ import { holds, loomsIn, projectIn } from './LoomProject'
 2. The direct reads in the `LoomLanguagePlugin`, `LoomServer`, and `LoomDiskCache` modules give way to that held text.
 3. The folder rules move out: the walk, the climb to the `.loom/config.yaml` file, and the `outputPath` function.
 4. The `locationOf` and `uriOf` methods at the server's edge, and the `Location` type.
-5. The `startLanguageServer` function takes its source as a layer.
+5. The `WorkspaceSettings` service, renamed from `PackageConfig`, with the plugin's languages and the server's opening behind it. The `startLanguageServer` function and the `loom` program take their environment as a pair of layers.
 6. The storage contract: its schema, the `RemoteSource` layer, the stub service, and the two tests.
 
 When those tests pass, this chapter joins Part V.
