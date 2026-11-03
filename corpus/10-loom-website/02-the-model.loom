@@ -116,6 +116,8 @@ The weave hands over no marks, because colouring code is the site's concern rath
 
 A chapter in colour carries thousands of marks, and every one travels to the browser inside the page's model. So a mark travels as a bare triple, `[offset, length, kind]`, rather than as an object that spells out its three field names each time. The triple makes the largest chapter's model more than a third smaller. The model still reads a mark by its names, and the schema converts between the two forms on the way in and on the way out.
 
+A block also keeps the syntax that framed it in the loom: the `arrow` that opened it, and whether a tilde `closed` it. The source page draws both around the code, so a reader sees the rhythm of a loom as its author wrote it. A book woven by an older Loom carries neither, so both are optional, and a block without them draws as bare code.
+
 =>
 
 export const TokenKind = S.Literals(['keyword', 'string', 'constant', 'comment', 'function', 'type'])
@@ -138,6 +140,8 @@ const CodeBlock = S.Struct({
   code: S.String,
   links: S.Array(CodeLink),
   marks: S.Array(CodeMark).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
+  arrow: S.optional(S.String),
+  closed: S.optional(S.Boolean),
 })
 export type CodeBlock = typeof CodeBlock.Type
 

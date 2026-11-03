@@ -111,6 +111,8 @@ describe('the page', () => {
                 { offset: 0, length: 5, kind: 'keyword' },
                 { offset: 20, length: 1, kind: 'constant' },
               ],
+              arrow: '=>',
+              closed: true,
             },
           ],
         },
@@ -124,8 +126,9 @@ describe('the page', () => {
       `<a class="code-anchor" href="#greeting">${anchor('Greeting')}</a>\nconsole.log(<span class="tok-function">greet</span>()`,
     )
     expect(html).toContain(
-      '<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>',
+      '<span class="loom-syntax arrow">=&gt;</span>\n<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>\n<span class="loom-syntax tilde">~</span>',
     )
+    expect(html.match(/loom-syntax arrow/g)).toHaveLength(1)
     expect(html).toContain('href="/source/using-loom/a-workspace"')
     ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
   })

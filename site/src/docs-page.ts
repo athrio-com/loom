@@ -384,6 +384,15 @@ const runHtml = (run: Run, base: string, page: Page): string =>
     Match.exhaustive,
   )
 
+const arrowHtml = (block: CodeBlock): string =>
+  Option.match(Option.fromNullishOr(block.arrow), {
+    onNone: () => '',
+    onSome: (arrow) => `<span class="loom-syntax arrow">${escaped(arrow)}</span>\n`,
+  })
+
+const tildeHtml = (block: CodeBlock): string =>
+  block.closed === true ? '\n<span class="loom-syntax tilde">~</span>' : ''
+
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
   link.targetSlug === here
     ? `#${link.targetId}`
@@ -414,7 +423,11 @@ const codeOf = (
             [
               h.InnerHTML(
                 Array.join(
-                  Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                  [
+                    arrowHtml(block),
+                    ...Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                    tildeHtml(block),
+                  ],
                   '',
                 ),
               ),

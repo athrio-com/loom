@@ -57,7 +57,7 @@ export type AnchorLink = typeof AnchorLinkSchema.Type
 
 ## The blocks of a page
 
-A page is a sequence of blocks, in the order the author wrote them. A block is one of four. Prose is a run of Markdown, held as its Markdown source. A heading carries its level, its title, and the `id` a link targets. Code carries its language, its verbatim `code`, and the anchor links found within it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it.
+A page is a sequence of blocks, in the order the author wrote them. A block is one of four. Prose is a run of Markdown, held as its Markdown source. A heading carries its level, its title, and the `id` a link targets. Code carries its language, its verbatim `code`, and the anchor links found within it. It also keeps the syntax that framed it: the `arrow` that opened it, as written, and whether a tilde `closed` it or it ran on to the next heading. Neither belongs to the code, but a reader learning Loom needs to see where a block began and ended, so the presentation can draw them around it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it.
 
 Every block also carries the `source` anchor of the section it came from, so the reference back to the loom rides with the block wherever the presentation puts it.
 
@@ -85,6 +85,8 @@ export const CodeBlockSchema = Schema.Struct({
   language: Schema.String,
   code: Schema.String,
   links: Schema.Array(AnchorLinkSchema),
+  arrow: Schema.String,
+  closed: Schema.Boolean,
 })
 export type CodeBlock = typeof CodeBlockSchema.Type
 

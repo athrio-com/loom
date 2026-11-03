@@ -157,11 +157,11 @@ const sectionBlocks =
   (module: LoomModule, book: Book) =>
   (section: LoomSection): ReadonlyArray<WovenBlock> => {
     const source = sectionSource(module, section)
+    const runs = splitRuns(sectionBody(section))
     return [
       headingBlock(section, source),
-      ...pipe(
-        splitRuns(sectionBody(section)),
-        Array.flatMap(runBlocks(module, book, section, source)),
+      ...Array.flatMap(runs, (run, index) =>
+        runBlocks(module, book, section, source)(run, tildeOpens(Array.get(runs, index + 1))),
       ),
     ]
   }
@@ -200,6 +200,13 @@ const splitRuns = (body: ReadonlyArray<BodyWeft>): ReadonlyArray<ReadonlyArray<B
     : []
 
 const isMarker = (weft: BodyWeft): boolean => weft.type === 'ArrowWeft' || weft.type === 'TildeWeft'
+
+const tildeOpens = (run: Option.Option<ReadonlyArray<BodyWeft>>): boolean =>
+  pipe(
+    run,
+    Option.flatMap(Array.head),
+    Option.exists((weft) => weft.type === 'TildeWeft'),
+  )
 
 const markerInline = (marker: BodyWeft): Option.Option<Piece> =>
   Match.value(marker).pipe(
@@ -288,11 +295,15 @@ const codeBlock = (
   source: SourceAnchor,
   run: ReadonlyArray<BodyWeft>,
   span: Span,
+  arrow: string,
+  closed: boolean,
 ): WovenBlock =>
   CodeBlockSchema.make({
     source,
     language: codeLanguage(module, section),
     code: sliceContent(module.text, span),
+    arrow,
+    closed,
     links: pipe(
       Array.flatMap(run, (weft) => weft.anchors),
       Array.filter(
@@ -306,7 +317,7 @@ const codeBlock = (
 
 const runBlocks =
   (module: LoomModule, book: Book, section: LoomSection, source: SourceAnchor) =>
-  (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
+  (run: ReadonlyArray<BodyWeft>, closed: boolean): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
       onNonEmpty: (first) =>
@@ -315,8 +326,8 @@ const runBlocks =
           onSome: (span) =>
             Match.value(first).pipe(
               Match.withReturnType<ReadonlyArray<WovenBlock>>(),
-              Match.when({ type: 'ArrowWeft' }, () => [
-                codeBlock(module, book, section, source, run, span),
+              Match.when({ type: 'ArrowWeft' }, (opened) => [
+                codeBlock(module, book, section, source, run, span, opened.arrow.source.trim(), closed),
               ]),
               Match.orElse(() => proseBlocks(sliceContent(module.text, span), source)),
             ),

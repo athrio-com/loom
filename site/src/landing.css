@@ -2525,6 +2525,16 @@ h2, .subhead {
 .tok-type     { color: var(--spec-paper); }
 .tok-comment  { color: var(--ink-3); }
 
+.loom-syntax {
+  margin-left: -7px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.loom-syntax.arrow { color: var(--init); background: color-mix(in srgb, var(--init) 12%, transparent); }
+.loom-syntax.tilde { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
 .doc-stack > .source-code { margin-top: 30px; }
 
 .source-code { overflow: visible; }

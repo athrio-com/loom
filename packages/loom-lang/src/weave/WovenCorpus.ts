@@ -42,6 +42,8 @@ export const CodeBlockSchema = Schema.Struct({
   language: Schema.String,
   code: Schema.String,
   links: Schema.Array(AnchorLinkSchema),
+  arrow: Schema.String,
+  closed: Schema.Boolean,
 })
 export type CodeBlock = typeof CodeBlockSchema.Type
 

@@ -37,6 +37,8 @@ const CodeBlock = S.Struct({
   code: S.String,
   links: S.Array(CodeLink),
   marks: S.Array(CodeMark).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
+  arrow: S.optional(S.String),
+  closed: S.optional(S.Boolean),
 })
 export type CodeBlock = typeof CodeBlock.Type
 

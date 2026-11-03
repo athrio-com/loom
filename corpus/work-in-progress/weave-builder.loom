@@ -214,11 +214,11 @@ const sectionBlocks =
   (module: LoomModule, book: Book) =>
   (section: LoomSection): ReadonlyArray<WovenBlock> => {
     const source = sectionSource(module, section)
+    const runs = splitRuns(sectionBody(section))
     return [
       headingBlock(section, source),
-      ...pipe(
-        splitRuns(sectionBody(section)),
-        Array.flatMap(runBlocks(module, book, section, source)),
+      ...Array.flatMap(runs, (run, index) =>
+        runBlocks(module, book, section, source)(run, tildeOpens(Array.get(runs, index + 1))),
       ),
     ]
   }
@@ -242,7 +242,9 @@ const headingBlock = (section: LoomSection, source: SourceAnchor): WovenBlock =>
 
 A section's body is its preamble and its code together. `sectionBody` joins the two, so a fenced block that opens in the leading prose and runs on stays one prose block, not two split at the seam. `splitRuns` cuts that body at each `=>` and `~`: a run is one unbroken stretch of one mode, and a run that opens with no marker is prose — the leading paragraphs, or a fence the classifier left verbatim.
 
-`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that `=>` opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the `=>` or `~` itself, so a block reads without the frame around it. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
+`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that an arrow opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the arrow or tilde itself, so the `code` holds nothing that is not code.
+
+The frame is not lost, though, because a reader learning Loom needs to see it. A code block keeps the arrow that opened it, `=>` or `~>`, as it was written. Whether a tilde closed it is a fact about the next run, not this one: `tildeOpens` looks at the run that follows, and a run that begins with a tilde means this block was closed by it. A block followed by nothing, or by the next heading, ran on to its end. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
 
 =>
 
@@ -265,6 +267,13 @@ const splitRuns = (body: ReadonlyArray<BodyWeft>): ReadonlyArray<ReadonlyArray<B
     : []
 
 const isMarker = (weft: BodyWeft): boolean => weft.type === 'ArrowWeft' || weft.type === 'TildeWeft'
+
+const tildeOpens = (run: Option.Option<ReadonlyArray<BodyWeft>>): boolean =>
+  pipe(
+    run,
+    Option.flatMap(Array.head),
+    Option.exists((weft) => weft.type === 'TildeWeft'),
+  )
 
 const markerInline = (marker: BodyWeft): Option.Option<Piece> =>
   Match.value(marker).pipe(
@@ -353,11 +362,15 @@ const codeBlock = (
   source: SourceAnchor,
   run: ReadonlyArray<BodyWeft>,
   span: Span,
+  arrow: string,
+  closed: boolean,
 ): WovenBlock =>
   CodeBlockSchema.make({
     source,
     language: codeLanguage(module, section),
     code: sliceContent(module.text, span),
+    arrow,
+    closed,
     links: pipe(
       Array.flatMap(run, (weft) => weft.anchors),
       Array.filter(
@@ -371,7 +384,7 @@ const codeBlock = (
 
 const runBlocks =
   (module: LoomModule, book: Book, section: LoomSection, source: SourceAnchor) =>
-  (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
+  (run: ReadonlyArray<BodyWeft>, closed: boolean): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
       onNonEmpty: (first) =>
@@ -380,8 +393,8 @@ const runBlocks =
           onSome: (span) =>
             Match.value(first).pipe(
               Match.withReturnType<ReadonlyArray<WovenBlock>>(),
-              Match.when({ type: 'ArrowWeft' }, () => [
-                codeBlock(module, book, section, source, run, span),
+              Match.when({ type: 'ArrowWeft' }, (opened) => [
+                codeBlock(module, book, section, source, run, span, opened.arrow.source.trim(), closed),
               ]),
               Match.orElse(() => proseBlocks(sliceContent(module.text, span), source)),
             ),

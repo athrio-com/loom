@@ -125,6 +125,37 @@ describe('the weave projection', () => {
     expect(nameCode.code).toBe("const name = 'world'")
   })
 
+  it('keeps the arrow that opened each code block and whether a tilde closed it', () => {
+    const framed = `---
+Part I: Using Loom
+Chapter 1: A greeting
+Language: TypeScript
+---
+
+# A greeting
+
+=>
+
+const name = 'world'
+
+~
+
+Then the explicit arrow.
+
+~>
+
+# not a heading
+`
+    const page = weave(
+      buildCorpus({ '/corpus/book.loom': book, '/corpus/using/greeting.loom': framed }),
+    ).pages[0]!
+    const codes = page.blocks.filter((b): b is CodeBlock => b.type === 'code')
+    expect(codes.map(({ arrow, closed }) => ({ arrow, closed }))).toEqual([
+      { arrow: '=>', closed: true },
+      { arrow: '~>', closed: false },
+    ])
+  })
+
   it('anchors every block to the chapter and section it came from', () => {
     const page = weave(buildCorpus(files)).pages[0]!
     const opening = page.blocks[0] as HeadingBlock

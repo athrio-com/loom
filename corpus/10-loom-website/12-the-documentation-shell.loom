@@ -482,6 +482,8 @@ A chapter in colour holds thousands of marks. The view runs again every time the
 
 The `runHtml` function writes a run as HTML. The `escaped` function makes the code's own text safe to write there, so a `<` in the code stays a character rather than opening a tag.
 
+A sheet also shows the syntax that framed its code in the loom, since a reader learning Loom needs to see where a block begins and ends. The arrow that opened the block sits on the line above the code, and the tilde that closed it on the line below, each as the chip the landing's example wears. A block that ran on to the next heading has no tilde to show, and a block from a book that kept no frame shows neither. The copy button still copies the code alone, because the frame is the loom's and not the program's.
+
 =>
 
 const ESCAPES: ReadonlyArray<readonly [RegExp, string]> = [
@@ -508,6 +510,15 @@ const runHtml = (run: Run, base: string, page: Page): string =>
     ),
     Match.exhaustive,
   )
+
+const arrowHtml = (block: CodeBlock): string =>
+  Option.match(Option.fromNullishOr(block.arrow), {
+    onNone: () => '',
+    onSome: (arrow) => `<span class="loom-syntax arrow">${escaped(arrow)}</span>\n`,
+  })
+
+const tildeHtml = (block: CodeBlock): string =>
+  block.closed === true ? '\n<span class="loom-syntax tilde">~</span>' : ''
 
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
   link.targetSlug === here
@@ -539,7 +550,11 @@ const codeOf = (
             [
               h.InnerHTML(
                 Array.join(
-                  Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                  [
+                    arrowHtml(block),
+                    ...Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                    tildeHtml(block),
+                  ],
                   '',
                 ),
               ),
