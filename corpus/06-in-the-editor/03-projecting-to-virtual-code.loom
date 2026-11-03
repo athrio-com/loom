@@ -278,11 +278,25 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 
 ## The passes and the tree
 
-`fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. It takes the corpus's `Book` for the open references it binds. A caller that projects many sections over one corpus builds the book once and passes it in, and any other caller lets `fromProduct` build it. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
+`fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. It takes the corpus's `Book` for the open references it binds. A caller that projects many sections over one corpus builds the book once and passes it in, and any other caller lets `fromProduct` build it.
+
+`fromProduct` finds a section by its identity, then hands it to `fromCode`, the same pass started from a `Code` in hand. A tangle sink already holds its own `Code`, so the compiler composes a sink through `fromCode` and never looks the section up again by name.
+
+`fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
 `rootNamesAt` names a file's composition roots — the sections no reference in the file folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A reference to a section in the same file demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. A reference into another file demotes nothing here, because its target belongs to that other file, which names its own roots. The sections left over, named by no same-file reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
 =>
+
+export const fromCode = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  node: Code,
+  book: Book = bookOf(modules),
+): LoomVirtualCode => ({
+  ...inlineComposed(modules, book, new Set([keyOf(node.origin)]), node.origin.path)(node),
+  id: node.origin.name.toLowerCase(),
+  languageId: node.languageId,
+})
 
 export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -293,11 +307,7 @@ export const fromProduct = (
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => ({
-        ...inlineComposed(modules, book, new Set([keyOf(root)]), root.path)(node),
-        id: root.name.toLowerCase(),
-        languageId: node.languageId,
-      }),
+      onSome: (node) => fromCode(modules, node, book),
     }),
   )
 

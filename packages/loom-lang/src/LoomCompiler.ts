@@ -11,6 +11,7 @@ import {
   definitionAt,
   dependentsOf,
   moduleDiagnostics,
+  namesakesOf,
   reachable,
   referencesAt,
   renameAt,
@@ -22,7 +23,7 @@ import {
   type LoomModule,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { faulty, UnresolvedTocEntry } from '#ast/LoomFault'
+import { DuplicateName, faulty, UnresolvedTocEntry } from '#ast/LoomFault'
 import { crossFileFaults } from '#ast/ProductBuilder'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
@@ -32,6 +33,7 @@ import {
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
+  fromCode,
   fromProduct,
   fromProse,
   rootNamesAt,
@@ -64,11 +66,28 @@ const entryOf = (
     Effect.map((entry) => ({ modules, entry })),
   )
 
+const loomName = (loom: Location): string => loom.slice(loom.lastIndexOf('/') + 1)
+
+const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Option.match(namesakesOf(book, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: ({ title, looms }) =>
+      faulty(
+        DuplicateName({
+          name: title.source,
+          sibling: 'chapter',
+          where: Array.join(Array.map(looms, loomName), ', '),
+        }),
+        title.position,
+      ).diagnostics,
+  })
+
 const corpusDiagnostics = (modules: Modules) => {
   const book = bookOf(modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(book, modules, module),
+    ...namesakeFaults(book, module),
   ]
 }
 
@@ -94,7 +113,7 @@ const resolveSinks = (
             Effect.map((path) => ({
               section: file.code.origin.name,
               path,
-              content: fromProduct(modules, file.code.origin, book).code,
+              content: fromCode(modules, file.code, book).code,
             })),
           ),
         )
@@ -221,7 +240,7 @@ const composedFilesOf = (
 ): ReadonlyArray<ComposedFile> =>
   Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
     path,
-    content: fromProduct(modules, file.code.origin, book).code,
+    content: fromCode(modules, file.code, book).code,
     loomPath: module.path,
     rootId: file.code.origin.name.toLowerCase(),
     heading: headingLocationOf(modules, module, file.code.origin.name),

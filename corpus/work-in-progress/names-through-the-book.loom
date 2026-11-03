@@ -18,9 +18,11 @@ This chapter changes the lookup so that a name resolves by its place in the book
 
 The corpus is a tree of named things. It holds one book or several, as the chapter "Books" describes. A book holds parts. A part holds chapters, and it may also hold discussions, the looms the chapter "Discussions" describes. A chapter holds its sections. A section holds the sections nested under its heading and the boxes written in it. The tree is also the scope. It decides which names must differ, and which names a reference can see.
 
-A name must be unique among its siblings, and nowhere else. Two chapters in one part may not share a title, and neither may two sections under one heading, or two boxes in one section. Two parts may each hold a chapter called "Setup". Twenty-seven chapters of the book already hold a section called "What this module draws on", and that stays legal.
+A name must be unique among its siblings, and nowhere else. Two chapters in one part may not share a title, and neither may two sections of one loom, or two boxes in one section. Two parts may each hold a chapter called "Setup". Twenty-seven chapters of the book already hold a section called "What this module draws on", and that stays legal.
 
-A duplicate among siblings is a fault at the heading that repeats the name, because no reference could ever tell the two apart. The chapter "A duplicate section name" plans this fault as `DuplicateSectionName`, for a repeat anywhere in one loom. Here it marks a repeat among siblings instead, and since siblings can be chapters and boxes as well as sections, it becomes `DuplicateName`.
+Every section of a loom is a sibling of every other, whatever level its heading stands at. A section's name is its identity within its loom: the editor names the section's composed code by it, and the compiler finds a section by it. So a section titled like the chapter heading above it repeats a name, and so does a pair of titles that fold to one identifier, such as `Saying hello` and `Saying Hello!`.
+
+A duplicate among siblings is a `DuplicateName` fault at the name that repeats it, because no reference could ever tell the two apart.
 
 The chapter index needs the same scope. Today `chapterIndex` keys every chapter by its title alone, and when two chapters share a title, the first one it meets wins and the second disappears without a fault. Under this rule the index keys a chapter by its book, its part, and its title. Two "Setup" chapters in two parts then both stay in reach, and so do two in two books.
 

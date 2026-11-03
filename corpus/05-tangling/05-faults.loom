@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -21,6 +21,8 @@ The label faults fold many constructs into two variants. A construct is a named 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
 
 export type EmptyConstruct = MalformedConstruct | 'warpAnnotation' | 'warpDefault'
+
+export type Sibling = 'section' | 'chapter'
 
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
@@ -38,6 +40,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly paths: ReadonlyArray<string>
   }
   ChapterWithoutCode: { readonly name: string }
+  DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
   CrossLanguageAnchor: {
     readonly name: string
     readonly host: string
@@ -64,6 +67,7 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   ChapterWithoutCode,
+  DuplicateName,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
   UnclosedExplicitBlock,
@@ -76,6 +80,8 @@ export const {
 `describe` reads a fault aloud. It maps each variant to a `severity` and the `message` a person sees, and it is exhaustive over the union — a new fault does not compile until it has a line here. The table cannot drift from the faults it describes.
 
 Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
+
+`siblingPlace` says where a duplicated name already stands: a section of this loom on the line it gives, or a chapter of this part in the looms it lists.
 
 An ambiguous anchor ends its message with the way out. `disambiguation` names the paths that each reach one candidate alone. When there are none, as for two sections of one loom that share a title, it asks the author to rename one.
 
@@ -96,6 +102,11 @@ const noun: Record<EmptyConstruct, string> = {
   anchorName: 'anchor name',
   warpAnnotation: 'warp annotation',
   warpDefault: 'warp default',
+}
+
+const siblingPlace: Record<Sibling, (where: string) => string> = {
+  section: (line) => `a section of this loom (line ${line})`,
+  chapter: (looms) => `a chapter of this part (${looms})`,
 }
 
 const disambiguation = (paths: ReadonlyArray<string>): string =>
@@ -140,6 +151,9 @@ export const describe = (fault: LoomFault): Note =>
       warning(
         `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
       ),
+    ),
+    Match.tag('DuplicateName', ({ name, sibling, where }) =>
+      error(`Duplicate name: \`${name}\` is already ${siblingPlace[sibling](where)}. Rename one.`),
     ),
     Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
       error(

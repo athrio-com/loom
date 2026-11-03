@@ -66,6 +66,7 @@ export const anchorModule = (from: Location, anchor: WarpAnchorToken): Location 
 
 type Chapter = {
   readonly title: string
+  readonly number: Option.Option<string>
   readonly part: Option.Option<string>
   readonly module: LoomModule
 }
@@ -105,6 +106,10 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map(Array.fromIterable(modules.values()), (module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
+        number: Option.map(
+          Option.fromNullishOr(module.doc.frontmatter?.part),
+          (part) => part.value,
+        ),
         part: partOf(names, module),
         module,
       })),
@@ -1080,4 +1085,34 @@ export const corpusErrors = (
       return diagnostics.length === 0 ? Option.none() : Option.some({ path: m.path, diagnostics })
     }),
     Array.getSomes,
+  )
+
+export type Namesakes = {
+  readonly title: { readonly source: string; readonly position: Position }
+  readonly looms: ReadonlyArray<Location>
+}
+
+const samePart = (chapter: Chapter, other: Chapter): boolean =>
+  Option.match(Option.all([chapter.number, other.number]), {
+    onSome: ([number, otherNumber]) => number === otherNumber,
+    onNone: () => Option.exists(chapter.part, (part) => Option.contains(other.part, part)),
+  })
+
+export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Namesakes> =>
+  pipe(
+    Option.all({ chapter: chapterOf(book, module.path), title: chapterTitleToken(module) }),
+    Option.flatMap(({ chapter, title }) =>
+      pipe(
+        book.chapters,
+        Array.filter(
+          (other) =>
+            other.module.path !== module.path &&
+            other.title === chapter.title &&
+            samePart(chapter, other),
+        ),
+        Array.map((other) => other.module.path),
+        Option.liftPredicate(Array.isReadonlyArrayNonEmpty),
+        Option.map((looms) => ({ title, looms })),
+      ),
+    ),
   )

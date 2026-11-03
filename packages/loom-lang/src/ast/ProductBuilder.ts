@@ -39,6 +39,7 @@ import {
   AmbiguousAnchor,
   ChapterWithoutCode,
   CrossLanguageAnchor,
+  DuplicateName,
   faulty,
   UnknownVariable,
   UnresolvedAnchor,
@@ -77,9 +78,10 @@ export const buildProduct = (
     Option.getOrElse(() => 'plaintext'),
   )
   const index = nameIndex(doc.sections, lang, pkg)
+  const first = firstHolders(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, lang, modulePath, pkg, variables)),
+    Array.map(buildSection(index, first, lang, modulePath, pkg, variables)),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -244,6 +246,7 @@ interface Built {
 const buildSection =
   (
     index: NameIndex,
+    first: ReadonlyMap<string, LoomSection>,
     defaultLang: string,
     modulePath: string,
     pkg: Option.Option<string>,
@@ -256,7 +259,14 @@ const buildSection =
     )
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
-    const code = buildCode(section, values, index, origin, languageId)
+    const code = buildCode(
+      section,
+      values,
+      index,
+      origin,
+      languageId,
+      duplicateHealth(first, section),
+    )
     const file = tangleFile(section, pkg, code)
     return { code, file }
   }
@@ -302,10 +312,11 @@ const buildCode = (
   index: NameIndex,
   origin: SectionId,
   languageId: string,
+  health: Health,
 ): Code => {
   const bind = bindAnchor(index, values, languageId, origin.path)
   const fragments = pipe(codeRuns(section.code), Array.flatMap(walkRun(bind)))
-  return CodeSchema.make({ origin, languageId, fragments })
+  return CodeSchema.make({ origin, languageId, fragments, health })
 }
 
 interface CodePiece {
@@ -593,3 +604,37 @@ const spanOf = (nodes: ReadonlyArray<{ readonly position: Position }>): Position
 })
 
 const between = (start: Point, end: Point): Position => ({ start, end })
+
+const identityOf = (section: LoomSection): string => sectionNameOf(section).toLowerCase()
+
+const firstHolders = (sections: ReadonlyArray<LoomSection>): ReadonlyMap<string, LoomSection> =>
+  new Map(
+    pipe(
+      sections,
+      Array.filter((section) => section.heading.title !== undefined),
+      Array.map((section) => [identityOf(section), section] as const),
+      Array.reverse,
+    ),
+  )
+
+const duplicateHealth = (first: ReadonlyMap<string, LoomSection>, section: LoomSection): Health =>
+  pipe(
+    Option.all([
+      Option.fromNullishOr(section.heading.title),
+      pipe(
+        Option.fromNullishOr(first.get(identityOf(section))),
+        Option.filter((holder) => holder !== section),
+      ),
+    ]),
+    Option.map(([title, holder]) =>
+      faulty(
+        DuplicateName({
+          name: title.source,
+          sibling: 'section',
+          where: String(holder.heading.position.start.line),
+        }),
+        title.position,
+      ),
+    ),
+    Option.getOrElse(() => okHealth),
+  )

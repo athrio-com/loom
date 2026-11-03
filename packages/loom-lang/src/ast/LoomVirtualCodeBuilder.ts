@@ -237,6 +237,16 @@ const spanOf = (position: Position, kind: MappingKind): Mapping => ({
 export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
   Array.map(symbolsOf(doc), (symbol) => spanOf(symbol.position, symbol.kind))
 
+export const fromCode = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  node: Code,
+  book: Book = bookOf(modules),
+): LoomVirtualCode => ({
+  ...inlineComposed(modules, book, new Set([keyOf(node.origin)]), node.origin.path)(node),
+  id: node.origin.name.toLowerCase(),
+  languageId: node.languageId,
+})
+
 export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
@@ -246,11 +256,7 @@ export const fromProduct = (
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => ({
-        ...inlineComposed(modules, book, new Set([keyOf(root)]), root.path)(node),
-        id: root.name.toLowerCase(),
-        languageId: node.languageId,
-      }),
+      onSome: (node) => fromCode(modules, node, book),
     }),
   )
 

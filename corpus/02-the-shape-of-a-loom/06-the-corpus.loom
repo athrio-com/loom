@@ -88,7 +88,7 @@ export const anchorModule = (from: Location, anchor: WarpAnchorToken): Location 
 
 ~
 
-The book finds a chapter by the title the chapter declares, which `chapterTitleToken` reads here and in the navigation below. A `Chapter` pairs that title with the loom that declares it and the name of the part it belongs to. A chapter states its part in one of three ways. A part's opening chapter announces the part's number and name, as `Part IV: The product` does. Every other chapter of a numbered part gives only the number, as `Part IV, Chapter 2` does. A chapter outside the numbered parts gives the part's name alone, as `Part: Work in progress` does.
+The book finds a chapter by the title the chapter declares, which `chapterTitleToken` reads here and in the navigation below. A `Chapter` pairs that title with the loom that declares it, and with the number and the name of the part it belongs to. A chapter states its part in one of three ways. A part's opening chapter announces the part's number and name, as `Part IV: The product` does. Every other chapter of a numbered part gives only the number, as `Part IV, Chapter 2` does. A chapter outside the numbered parts gives the part's name alone, as `Part: Work in progress` does.
 
 `partNamesIn` maps each part number to the name its opening chapter announces, and `partOf` reads a chapter's part name: its own, or the one its number maps to. `chaptersIn` lists every chapter of the book, so two chapters that share a title both stay in reach. `openingSectionOf` gives a loom's first titled section, the section that stands for its chapter.
 
@@ -96,6 +96,7 @@ The book finds a chapter by the title the chapter declares, which `chapterTitleT
 
 type Chapter = {
   readonly title: string
+  readonly number: Option.Option<string>
   readonly part: Option.Option<string>
   readonly module: LoomModule
 }
@@ -135,6 +136,10 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map(Array.fromIterable(modules.values()), (module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
+        number: Option.map(
+          Option.fromNullishOr(module.doc.frontmatter?.part),
+          (part) => part.value,
+        ),
         part: partOf(names, module),
         module,
       })),
@@ -1198,7 +1203,9 @@ Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is 
 
 `moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its product. The product pass lands each fault it can judge within one loom on the part it builds for that anchor. An ambiguous anchor leaves an empty `Fragment` carrying the fault, and a cross-language anchor leaves a `NameRef` carrying it. An edge that leaves the loom carries no fault here, because the compiler judges it against the whole corpus. So the walk reads the `product.code` alone. A tangle sink's `File` repeats that same `Code`, and reading it too would count every sink's diagnostics twice.
 
-An anchor into another file is the one anchor no single module can judge. Its edge names a section the product pass never saw, so the compiler judges it against the whole corpus. The compiler adds what it finds to the module's own diagnostics, both for the open `.loom` in the editor and for the tangle.
+An anchor that reaches beyond its loom is the one anchor no single module can judge. Its edge names a section the product pass never saw, so the compiler judges it against the whole corpus. The compiler adds what it finds to the module's own diagnostics, both for the open `.loom` in the editor and for the tangle.
+
+A chapter's title is no single module's to judge either, because it is a name among the chapters of its part. `namesakesOf` finds the other looms whose chapters share a module's title within its part, with the title they share, and the compiler raises the `DuplicateName` fault on that title. `samePart` tells whether two chapters stand in one part: by the part's number when both give one, and by its name otherwise. A chapter that names no part has no siblings to clash with. Chapters with one title in two parts are no clash either, since a path through the part tells them apart.
 
 `corpusErrors` is the whole-corpus view the tangler takes, narrowed to errors. It reads each module's diagnostics through `diagnosticsOf`, keeps the error-severity ones, and returns every failing module with them. So the tangler refuses a broken build with one report rather than failing at the first bad file. `diagnosticsOf` defaults to `moduleDiagnostics`, and the compiler passes a reader that adds the cross-file judgement. A warning never blocks a tangle; only an error does.
 
@@ -1236,6 +1243,36 @@ export const corpusErrors = (
       return diagnostics.length === 0 ? Option.none() : Option.some({ path: m.path, diagnostics })
     }),
     Array.getSomes,
+  )
+
+export type Namesakes = {
+  readonly title: { readonly source: string; readonly position: Position }
+  readonly looms: ReadonlyArray<Location>
+}
+
+const samePart = (chapter: Chapter, other: Chapter): boolean =>
+  Option.match(Option.all([chapter.number, other.number]), {
+    onSome: ([number, otherNumber]) => number === otherNumber,
+    onNone: () => Option.exists(chapter.part, (part) => Option.contains(other.part, part)),
+  })
+
+export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Namesakes> =>
+  pipe(
+    Option.all({ chapter: chapterOf(book, module.path), title: chapterTitleToken(module) }),
+    Option.flatMap(({ chapter, title }) =>
+      pipe(
+        book.chapters,
+        Array.filter(
+          (other) =>
+            other.module.path !== module.path &&
+            other.title === chapter.title &&
+            samePart(chapter, other),
+        ),
+        Array.map((other) => other.module.path),
+        Option.liftPredicate(Array.isReadonlyArrayNonEmpty),
+        Option.map((looms) => ({ title, looms })),
+      ),
+    ),
   )
 
 ## What this module draws on

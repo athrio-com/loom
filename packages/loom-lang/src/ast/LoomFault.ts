@@ -5,6 +5,8 @@ export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName
 
 export type EmptyConstruct = MalformedConstruct | 'warpAnnotation' | 'warpDefault'
 
+export type Sibling = 'section' | 'chapter'
+
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
   EmptyLabel: { readonly construct: EmptyConstruct }
@@ -21,6 +23,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly paths: ReadonlyArray<string>
   }
   ChapterWithoutCode: { readonly name: string }
+  DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
   CrossLanguageAnchor: {
     readonly name: string
     readonly host: string
@@ -41,6 +44,7 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   ChapterWithoutCode,
+  DuplicateName,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
   UnclosedExplicitBlock,
@@ -63,6 +67,11 @@ const noun: Record<EmptyConstruct, string> = {
   anchorName: 'anchor name',
   warpAnnotation: 'warp annotation',
   warpDefault: 'warp default',
+}
+
+const siblingPlace: Record<Sibling, (where: string) => string> = {
+  section: (line) => `a section of this loom (line ${line})`,
+  chapter: (looms) => `a chapter of this part (${looms})`,
 }
 
 const disambiguation = (paths: ReadonlyArray<string>): string =>
@@ -107,6 +116,9 @@ export const describe = (fault: LoomFault): Note =>
       warning(
         `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
       ),
+    ),
+    Match.tag('DuplicateName', ({ name, sibling, where }) =>
+      error(`Duplicate name: \`${name}\` is already ${siblingPlace[sibling](where)}. Rename one.`),
     ),
     Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
       error(

@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty` and the anchor faults this pass and its judgement raise, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -62,6 +62,7 @@ import {
   AmbiguousAnchor,
   ChapterWithoutCode,
   CrossLanguageAnchor,
+  DuplicateName,
   faulty,
   UnknownVariable,
   UnresolvedAnchor,
@@ -72,7 +73,7 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 
 `ProductBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildProduct` in an Effect so callers compose it like any other pass. It takes the document's file path alongside the document, because each section's identity is its path and name, and the path is known only to the caller. It also takes the package's primary language, the default a section inherits when the frontmatter declares no `Language`, which the caller resolves from the file's configuration.
 
-`buildProduct` is the spine, and it runs from the document's head to its tail. It resolves the primary language and the output package from the frontmatter, indexes the sections by the name each anchor reaches them by, then maps every section to a `Built` — its `Code`, and the `File` a `{Tangle}` section or a tangle sink adds — and folds those into the module's `Product`.
+`buildProduct` is the spine, and it runs from the document's head to its tail. It resolves the primary language and the output package from the frontmatter, indexes the sections by the name each anchor reaches them by, notes the first section that holds each name, then maps every section to a `Built` — its `Code`, and the `File` a `{Tangle}` section or a tangle sink adds — and folds those into the module's `Product`.
 
 =>
 
@@ -108,9 +109,10 @@ export const buildProduct = (
     Option.getOrElse(() => 'plaintext'),
   )
   const index = nameIndex(doc.sections, lang, pkg)
+  const first = firstHolders(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, lang, modulePath, pkg, variables)),
+    Array.map(buildSection(index, first, lang, modulePath, pkg, variables)),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -297,7 +299,7 @@ const valueWarps = (
 
 A section's heading decides what it contributes. Every section composes to one `Code`: its identity, its language, and its fragments in composition order. A section that names a file — through a `[file]` sink, or a `{Tangle}` specifier — contributes a `File` on top, the same `Code` paired with the path it tangles to.
 
-A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code.
+A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. When an earlier section of the document already holds the section's name, the code carries the fault that says so.
 
 =>
 
@@ -309,6 +311,7 @@ interface Built {
 const buildSection =
   (
     index: NameIndex,
+    first: ReadonlyMap<string, LoomSection>,
     defaultLang: string,
     modulePath: string,
     pkg: Option.Option<string>,
@@ -321,7 +324,14 @@ const buildSection =
     )
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
-    const code = buildCode(section, values, index, origin, languageId)
+    const code = buildCode(
+      section,
+      values,
+      index,
+      origin,
+      languageId,
+      duplicateHealth(first, section),
+    )
     const file = tangleFile(section, pkg, code)
     return { code, file }
   }
@@ -369,7 +379,7 @@ const tangleFile = (
 
 ## Composing a section's code
 
-`buildCode` turns a section's code into one `Code`. It walks each code run, binding each anchor against the value warps and the name index, and gathers the fragments and edges the runs yield. The `Code` carries the section's identity and language; a section with no code composes an empty one.
+`buildCode` turns a section's code into one `Code`. It walks each code run, binding each anchor against the value warps and the name index, and gathers the fragments and edges the runs yield. The `Code` carries the section's identity, its language, and the health its name earns; a section with no code composes an empty one.
 
 A *code piece* is the unit of composition: one line from a code weft, or the inline code after an arrow, extended to the line's end so its trailing newline is kept. `pieceOf` lifts a weft to a piece, and a prose weft yields none.
 
@@ -385,10 +395,11 @@ const buildCode = (
   index: NameIndex,
   origin: SectionId,
   languageId: string,
+  health: Health,
 ): Code => {
   const bind = bindAnchor(index, values, languageId, origin.path)
   const fragments = pipe(codeRuns(section.code), Array.flatMap(walkRun(bind)))
-  return CodeSchema.make({ origin, languageId, fragments })
+  return CodeSchema.make({ origin, languageId, fragments, health })
 }
 
 interface CodePiece {
@@ -729,6 +740,50 @@ const spanOf = (nodes: ReadonlyArray<{ readonly position: Position }>): Position
 
 const between = (start: Point, end: Point): Position => ({ start, end })
 
+## One name, one section
+
+A section's name is its identity within its loom, so two sections of one loom may not share it. The editor gives each section's composed code its name in lower case, because Volar's ids are lower case. So two titles that differ only in case or punctuation, such as `Saying hello` and `Saying Hello!`, fold to one identity, and `identityOf` gives that folded form. A section titled like the chapter heading above it collides too, because that heading is a section of its own.
+
+`firstHolders` maps each identity to the first section in the document that holds it. It builds the map from the sections in reverse, so the first holder of a name overwrites every later one. `duplicateHealth` marks each later holder with the `DuplicateName` fault, on its own title, and names the line where the first holder's heading stands. A section with no title holds no name, so it takes part on neither side.
+
+The pass puts that health on the later section's `Code`. The editor then marks the heading, and the tangle refuses the loom. Without the fault, a lookup by name would find the first holder for both, so a sink could compose its namesake's code, or nothing at all.
+
+=>
+
+const identityOf = (section: LoomSection): string => sectionNameOf(section).toLowerCase()
+
+const firstHolders = (sections: ReadonlyArray<LoomSection>): ReadonlyMap<string, LoomSection> =>
+  new Map(
+    pipe(
+      sections,
+      Array.filter((section) => section.heading.title !== undefined),
+      Array.map((section) => [identityOf(section), section] as const),
+      Array.reverse,
+    ),
+  )
+
+const duplicateHealth = (first: ReadonlyMap<string, LoomSection>, section: LoomSection): Health =>
+  pipe(
+    Option.all([
+      Option.fromNullishOr(section.heading.title),
+      pipe(
+        Option.fromNullishOr(first.get(identityOf(section))),
+        Option.filter((holder) => holder !== section),
+      ),
+    ]),
+    Option.map(([title, holder]) =>
+      faulty(
+        DuplicateName({
+          name: title.source,
+          sibling: 'section',
+          where: String(holder.heading.position.start.line),
+        }),
+        title.position,
+      ),
+    ),
+    Option.getOrElse(() => okHealth),
+  )
+
 ## The module {Tangle}
 
 The tangle composes the sections in the source's own order — the spine first, then the helpers it reaches for, each section named by its title, the local anchor form Loom prefers.
@@ -752,3 +807,5 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[Judging an edge beyond the document]
 
 ::[A section's name and its spans]
+
+::[One name, one section]

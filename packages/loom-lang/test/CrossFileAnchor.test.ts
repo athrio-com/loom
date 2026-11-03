@@ -363,3 +363,96 @@ describe('a name resolves through the book', () => {
     }),
   )
 })
+
+const samePage = chapter(
+  ['Part I: Repro', 'Chapter 1: The page'],
+  '# The page',
+  '',
+  "A chapter whose one section carries the chapter's own title.",
+  '',
+  '## The page [same.html]',
+  '',
+  '=>',
+  '<p>hello from the section</p>',
+)
+
+describe('a name repeated among siblings', () => {
+  it.effect('refuses a section titled like the chapter heading above it', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal({ '/corpus/same.loom': samePage }, '/corpus/same.loom')
+      expect(message).toContain(
+        '/corpus/same.loom:10: Duplicate name: `The page` is already a section of this loom (line 6). Rename one.',
+      )
+    }),
+  )
+
+  it.effect('composes a sink from its own code, never from a namesake', () =>
+    Effect.gen(function* () {
+      const files = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.composition('/corpus/same.loom')),
+        Effect.provide(layerOf({ '/corpus/same.loom': samePage })),
+      )
+      const page = files.find((file) => file.path.endsWith('same.html'))
+      expect(page?.content).toContain('<p>hello from the section</p>')
+    }),
+  )
+
+  it.effect('faults two titles that fold to one name', () =>
+    Effect.gen(function* () {
+      const loom = lines(
+        '# Saying hello',
+        '',
+        '=>',
+        'const hello = 1',
+        '',
+        '# Saying Hello!',
+        '',
+        '=>',
+        'const again = 2',
+      )
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/twice.loom')),
+        Effect.provide(layerOf({ '/corpus/twice.loom': loom })),
+      )
+      expect(
+        diagnostics.map((d) => [
+          d.message,
+          loom.slice(d.position.start.offset, d.position.end.offset),
+        ]),
+      ).toEqual([
+        [
+          'Duplicate name: `Saying Hello!` is already a section of this loom (line 1). Rename one.',
+          'Saying Hello!',
+        ],
+      ])
+    }),
+  )
+
+  it.effect('faults two chapters of one part that share a title', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/setup-one.loom': chapter(
+          ['Part I, Chapter 4: Setup'],
+          '# Setup',
+          '',
+          '=>',
+          greetCode,
+        ),
+        '/corpus/setup-three.loom': chapter(
+          ['Part I, Chapter 6: Setup'],
+          '# Setup',
+          '',
+          '=>',
+          greetCode,
+        ),
+      }
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/setup-one.loom')),
+        Effect.provide(layerOf(files)),
+      )
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        'Duplicate name: `Setup` is already a chapter of this part (setup-three.loom). Rename one.',
+      ])
+    }),
+  )
+})
