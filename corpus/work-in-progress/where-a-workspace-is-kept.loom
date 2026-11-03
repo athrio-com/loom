@@ -270,13 +270,19 @@ Three things stay on disk.
 
 ## Choosing the environment at startup
 
-An environment answers two questions for Loom: where the looms are kept, and how the workspace is configured. The `WorkspaceSource` service answers the first. A workspace keeps one configuration, its `.loom/config.yaml` file, and the environment decides how Loom reads it.
+An environment answers two questions for Loom: where the looms are kept, and how the workspace is configured. The `WorkspaceSource` service answers the first, and the `WorkspaceSettings` service of the chapter "Build settings for a file" answers the second. A workspace keeps one configuration, its `.loom/config.yaml` file, and the environment decides how Loom reads it.
 
-The compiler already reads its settings through one service, `PackageConfig`, which hands it a loom's `BuildSettings`. Its name dates from a time when each package had a configuration of its own, so it becomes `WorkspaceSettings`. Two readers still go around it and read the configuration through the `LoomConfig` service. The language plugin's `loomServicePlugins` function reads the languages a workspace activates, with their services and their settings. The server's `openWorkspace` function opens a folder only when it holds a configuration. Both move behind `WorkspaceSettings`, so the service answers a loom's build settings and a workspace's languages.
+The compiler asks `WorkspaceSettings` for a loom's build settings. The language plugin's `loomServicePlugins` function asks it for the manifest that names the languages a workspace activates. The server's `openWorkspace` function asks it whether a folder holds a configuration at all. Only the parts of Loom that work on the file system alone read `LoomConfig` themselves: the file-system source and settings, the build cache on disk, the tangler, and the formatter.
 
-Each environment provides both services, as one pair. On the file system, the `FileSystemSource` layer comes with a settings layer that reads `.loom/config.yaml` through `LoomConfig`. In remote storage, the `RemoteSource` layer comes with a settings layer that reads the manifest the workspace's JSON carries. The parts of Loom that work only on the file system keep reading `LoomConfig` themselves: the build cache on disk, the tangler, and the formatter.
+Each environment provides both services as one pair. `FileSystemEnvironment` is the file system's pair: the `FileSystemSource` layer beside the `FileSystemSettings` layer, which reads `.loom/config.yaml` through `LoomConfig`. The server's runtime and the `loom` program both build on it. Remote storage pairs the `RemoteSource` layer with settings that read the manifest its workspace's JSON carries.
 
-The `LoomServer` module builds its `ManagedRuntime` value as a module constant, over the file-system pair. That constant becomes a value the `startLanguageServer` function builds from the pair it receives. The server's entry point reads the two variables and passes the matching pair, and the `loom` program does the same. The rest of the service graph stays as it is.
+=>
+
+export const FileSystemEnvironment = Layer.mergeAll(FileSystemSource, FileSystemSettings)
+
+~
+
+The server's runtime stays a module constant, because Volar's synchronous hooks reach it from all over the module. So the pair is chosen inside the layer the runtime is built over, rather than handed to the `startLanguageServer` function. Once remote storage exists, that layer reads the `LOOM_STORAGE_URL` variable through Effect's `Config` module and builds the pair the variable names. The `loom` program chooses its pair the same way.
 
 ## A workspace with no folder
 
@@ -396,7 +402,7 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
 
 ## What the source draws on
 
-Effect supplies the service, the layer, `Option`, and the effect type. Node's `fs` reads a file, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
+Effect supplies the service, the layer, `Option`, and the effect type. Node's `fs` reads a file, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. `FileSystemSettings`, from the chapter "Build settings for a file", joins the file-system source in the file system's pair. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
 
 =>
 
@@ -414,6 +420,7 @@ import {
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
+import { FileSystemSettings } from './WorkspaceSettings'
 
 ~
 
@@ -426,6 +433,8 @@ import { holds, loomsIn, projectIn, type Path } from './LoomProject'
 ::[What a source must answer]
 
 ::[Folders as a source]
+
+::[Choosing the environment at startup]
 
 ~
 
@@ -450,7 +459,7 @@ import { holds, loomsIn, projectIn, type Path } from './LoomProject'
 2. The direct reads in the `LoomLanguagePlugin`, `LoomServer`, and `LoomDiskCache` modules give way to that held text.
 3. The folder rules move out: the walk, the climb to the `.loom/config.yaml` file, and the `outputPath` function.
 4. The `locationOf` and `uriOf` methods at the server's edge, and the `Location` type.
-5. The `WorkspaceSettings` service, renamed from `PackageConfig`, with the plugin's languages and the server's opening behind it. The `startLanguageServer` function and the `loom` program take their environment as a pair of layers.
-6. The storage contract: its schema, the `RemoteSource` layer, the stub service, and the two tests.
+5. The `WorkspaceSettings` service, with the plugin's languages and the server's opening behind it, and `FileSystemEnvironment`, the pair of layers the server and the `loom` program build on.
+6. The storage contract: its schema, the `RemoteSource` layer with its settings, the choice of environment from the `LOOM_STORAGE_URL` variable, the stub service, and the two tests.
 
 When those tests pass, this chapter joins Part V.

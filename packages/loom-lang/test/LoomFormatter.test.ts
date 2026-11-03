@@ -2,7 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { LoomFormatter } from '../src/LoomFormatter'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   defineLanguageService,
@@ -66,7 +66,7 @@ const formatted = (text: string, languages: ReadonlyArray<LanguageService> = [])
   LoomFormatter.pipe(
     Effect.flatMap((formatter) => formatter.format(path, text, languages)),
     Effect.provide(
-      LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer), Layer.provide(LoomConfig.layer)),
+      LoomFormatter.layer.pipe(Layer.provide(FileSystemSettings), Layer.provide(LoomConfig.layer)),
     ),
   )
 

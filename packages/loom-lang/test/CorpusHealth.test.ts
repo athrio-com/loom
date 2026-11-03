@@ -7,7 +7,7 @@ const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 // Regression guard for the brace-in-prose gotcha, now covering the whole book. A
 // literal `{{` on a preamble line tokenises as a Warp, so prose that describes the
@@ -40,7 +40,7 @@ beforeAll(async () => {
     LoomCompiler.layer.pipe(
       Layer.provide(DocumentSource.layer),
       Layer.provide(FileSystemSource),
-      Layer.provide(PackageConfig.layer),
+      Layer.provide(FileSystemSettings),
       Layer.provide(LoomConfig.layer),
     ),
   )

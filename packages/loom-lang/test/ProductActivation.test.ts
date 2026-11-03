@@ -1,5 +1,5 @@
 import { createTypeScriptInferredChecker } from '@volar/kit'
-import { Effect, Layer, ManagedRuntime } from 'effect'
+import { Effect, Layer, ManagedRuntime, Option } from 'effect'
 import { resolve } from 'node:path'
 import * as ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it as it_ } from 'bun:test'
@@ -7,7 +7,8 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
@@ -61,11 +62,21 @@ const checkerActivating = async (languages: ReadonlyArray<string>) => {
     materialize: () => Effect.void,
     edit: () => Effect.void,
   })
+  const settingsMock = Layer.succeed(WorkspaceSettings, {
+    resolve: () =>
+      Effect.succeed({
+        delims: defaultAnchorDelims,
+        primaryLanguage: 'typescript',
+        variables: {},
+        width: 100,
+      }),
+    manifest: () => Effect.succeed(Option.some({ languages: Object.fromEntries(languages.map((id) => [id, {}])) })),
+  })
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
       Layer.provideMerge(DocumentSource.layer),
       Layer.provideMerge(FileSystemSource),
-      Layer.provide(PackageConfig.layer),
+      Layer.provideMerge(settingsMock),
       Layer.provide(configMock),
     ),
   )

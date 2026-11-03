@@ -12,7 +12,7 @@ Any editor that speaks the Language Server Protocol can start the server. VS Cod
 
 ## Imports
 
-The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. From the workspace source come the `WorkspaceSource` service, which fetches a workspace's looms, its `FileSystemSource` layer, and the `Workspace` its `open` method hands over. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends, the `FetchedTypeScript` within it, and the `ClassicTypeScriptMissing` its search for TypeScript 6 fails with.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `WorkspaceSettings`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. From the workspace source come the `WorkspaceSource` service, which fetches a workspace's looms, its `FileSystemSource` layer, and the `Workspace` its `open` method hands over. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends, the `FetchedTypeScript` within it, and the `ClassicTypeScriptMissing` its search for TypeScript 6 fails with.
 
 Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, `Result` carries a compiler or the reason there is none, and `Data` types the failure of a fetch. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. `Semaphore` holds back a request while the server reprojects the open looms, and `Ref` holds the looms the editor has changed since the last request. `Scheduler` keeps the fiber that rebuilds them from yielding. A `Source` is what the compiler reads a loom's text through. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and loads it. `existsSync` checks that a folder holds a compiler, and `statSync` reads when a loom was last saved. `stringSnapshot` turns a loom's text into the snapshot a script holds. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` is the address Volar names a document by, and it parses the addresses the editor reports.
 
@@ -58,7 +58,7 @@ import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
-import { PackageConfig } from './PackageConfig'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   fetchedExecutable,
@@ -75,7 +75,7 @@ import {
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
-import { FileSystemSource, type Workspace, WorkspaceSource } from './WorkspaceSource'
+import { FileSystemEnvironment, type Workspace, WorkspaceSource } from './WorkspaceSource'
 
 ## The compilers a project may ask for
 
@@ -885,19 +885,22 @@ The warm-up runs in one synchronous piece, with `runSync`, never as a background
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
-    Layer.provideMerge(FileSystemSource),
-    Layer.provideMerge(PackageConfig.layer),
+    Layer.provideMerge(FileSystemEnvironment),
     Layer.provideMerge(LoomConfig.layer),
   ),
 )
 
 const openWorkspace = (
   home: string,
-): Effect.Effect<Option.Option<Workspace>, never, LoomConfig | WorkspaceSource | DocumentSource> =>
-  LoomConfig.pipe(
-    Effect.flatMap((config) => config.manifest(home)),
+): Effect.Effect<
+  Option.Option<Workspace>,
+  never,
+  WorkspaceSettings | WorkspaceSource | DocumentSource
+> =>
+  WorkspaceSettings.pipe(
+    Effect.flatMap((settings) => settings.manifest(home)),
     Effect.flatMap((manifest) =>
-      Option.match(Option.fromNullishOr(manifest), {
+      Option.match(manifest, {
         onNone: () => Effect.succeed(Option.none<Workspace>()),
         onSome: () =>
           Effect.gen(function* () {
@@ -1699,7 +1702,7 @@ describe('LoomServer — the pass piece by piece', () => {
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
             Layer.provideMerge(FileSystemSource),
-            Layer.provide(PackageConfig.layer),
+            Layer.provide(FileSystemSettings),
             Layer.provide(LoomConfig.layer),
           ),
         ),
@@ -1757,7 +1760,7 @@ describe('LoomServer — the pass piece by piece', () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `PackageConfig`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
@@ -1773,7 +1776,7 @@ import {
 import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'

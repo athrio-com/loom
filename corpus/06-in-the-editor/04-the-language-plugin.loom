@@ -192,11 +192,11 @@ export const loomServicePlugins = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
   sdk: TypescriptSdkApi,
   workspace: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig | WorkspaceSource> =>
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, WorkspaceSettings | WorkspaceSource> =>
   Effect.gen(function* () {
-    const config = yield* LoomConfig
+    const workspaceSettings = yield* WorkspaceSettings
     const source = yield* WorkspaceSource
-    const manifest = yield* config.manifest(workspace)
+    const manifest = Option.getOrUndefined(yield* workspaceSettings.manifest(workspace))
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime())
@@ -219,13 +219,14 @@ The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageSe
 import type { CodegenContext, LanguagePlugin, VirtualCode } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, ManagedRuntime } from 'effect'
+import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   Composition,
@@ -271,13 +272,13 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(FileSystemSource),
-    Layer.provide(PackageConfig.layer),
+    Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),
   ),
 )
@@ -379,7 +380,7 @@ const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.pro
 
 ## A compiler over one loom
 
-Two cases ask the `LoomCompiler` service itself. The compiler reads its looms through a `DocumentSource` service and its build settings through a `PackageConfig` service, and the test's `layer` stands in for both. Its `DocumentSource` keeps the loom in `files`, at the path `/convert.loom`. It reads any other path as empty, lists only that loom, and ignores a request to hold or forget a loom. Its `PackageConfig` gives every path the same settings. They hold the built-in anchor delimiters and a width of 100, with no primary language and no variables. Over those two stand-ins, the real `LoomConfig` service and the real `FileSystemSource` layer, `layer` provides the compiler, with a `LoomMemo` cache beside it. The build cache on disk asks `LoomConfig` for the loom's workspace, and finds none above `/convert.loom`, so it keeps nothing.
+Two cases ask the `LoomCompiler` service itself. The compiler reads its looms through a `DocumentSource` service and its build settings through a `WorkspaceSettings` service, and the test's `layer` stands in for both. Its `DocumentSource` keeps the loom in `files`, at the path `/convert.loom`. It reads any other path as empty, lists only that loom, and ignores a request to hold or forget a loom. Its `WorkspaceSettings` gives every path the same settings. They hold the built-in anchor delimiters and a width of 100, with no primary language and no variables. Over those two stand-ins, the real `LoomConfig` service and the real `FileSystemSource` layer, `layer` provides the compiler, with a `LoomMemo` cache beside it. The build cache on disk asks `LoomConfig` for the loom's workspace, and finds none above `/convert.loom`, so it keeps nothing.
 
 =>
 
@@ -396,7 +397,8 @@ const layer = Layer.provide(
       hold: () => Effect.void,
       forget: () => Effect.void,
     }),
-    Layer.succeed(PackageConfig, {
+    Layer.succeed(WorkspaceSettings, {
+      manifest: () => Effect.succeed(Option.none()),
       resolve: () =>
         Effect.succeed({
           delims: defaultAnchorDelims,
@@ -470,7 +472,7 @@ it.effect('a rename range appears only where the table marks a kind navigable', 
 
 ## What the cases draw on
 
-The cases run on Bun's test runner. The `effectify` helper wraps the runner's `it` function, so a case may also be an Effect, run with `it.effect`. The `LoomSymbol` module supplies the table, `profileOf`, and `symbolsOf`, which reads a document's symbols. It also supplies `SymbolKindSchema`, which lists every kind. The `symbolMappings` function comes from the `LoomVirtualCodeBuilder` module. This package supplies the `LoomCompiler` service, the `DocumentSource` and `PackageConfig` services it reads through, and the `LoomMemo` cache. `@athrio/loom-config` supplies the `LoomConfig` service its build cache reads, and the `WorkspaceSource` module the `FileSystemSource` layer it places files through. The tests' own `parse` module supplies `parseDocument` and `ParseLayer`. The `defaultAnchorDelims` pair holds the built-in anchor delimiters that the stand-in configuration hands out. Effect supplies the `Effect`, `Layer` and `Option` modules.
+The cases run on Bun's test runner. The `effectify` helper wraps the runner's `it` function, so a case may also be an Effect, run with `it.effect`. The `LoomSymbol` module supplies the table, `profileOf`, and `symbolsOf`, which reads a document's symbols. It also supplies `SymbolKindSchema`, which lists every kind. The `symbolMappings` function comes from the `LoomVirtualCodeBuilder` module. This package supplies the `LoomCompiler` service, the `DocumentSource` and `WorkspaceSettings` services it reads through, and the `LoomMemo` cache. `@athrio/loom-config` supplies the `LoomConfig` service its build cache reads, and the `WorkspaceSource` module the `FileSystemSource` layer it places files through. The tests' own `parse` module supplies `parseDocument` and `ParseLayer`. The `defaultAnchorDelims` pair holds the built-in anchor delimiters that the stand-in configuration hands out. Effect supplies the `Effect`, `Layer` and `Option` modules.
 
 =>
 
@@ -483,7 +485,7 @@ import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { parseDocument, ParseLayer } from './parse'
 

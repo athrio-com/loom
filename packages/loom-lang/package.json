@@ -13,7 +13,7 @@
     "./LoomCompiler": "./src/LoomCompiler.ts",
     "./LoomTangler": "./src/LoomTangler.ts",
     "./LoomFormatter": "./src/LoomFormatter.ts",
-    "./PackageConfig": "./src/PackageConfig.ts",
+    "./WorkspaceSettings": "./src/WorkspaceSettings.ts",
     "./LoomServer": "./src/LoomServer.ts",
     "./WorkspaceSource": "./src/WorkspaceSource.ts",
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",

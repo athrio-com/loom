@@ -236,7 +236,7 @@ import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAs
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
-import { type BuildSettings } from './PackageConfig'
+import { type BuildSettings } from './WorkspaceSettings'
 
 ## The module {Tangle}
 

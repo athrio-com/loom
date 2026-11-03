@@ -6,7 +6,7 @@ import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -108,7 +108,8 @@ const makeCompilerLayer = (files: Record<string, string>) =>
         hold: () => Effect.void,
         forget: () => Effect.void,
       }),
-      Layer.succeed(PackageConfig, {
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
         resolve: () =>
           Effect.succeed({
             delims: defaultAnchorDelims,

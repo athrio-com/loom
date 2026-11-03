@@ -877,7 +877,7 @@ interface SectionEdits {
 
 export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatter', {
   make: Effect.gen(function* () {
-    const config = yield* PackageConfig
+    const config = yield* WorkspaceSettings
     const loomConfig = yield* LoomConfig
     const corpus = yield* LoomCorpusAstBuilder
     return {
@@ -959,7 +959,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
 
 ## What this module draws on
 
-Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `PackageConfig` gives a file's build settings, and `LoomConfig` the configuration that names a folder's project and the package root a file's sinks land under. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
+Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `WorkspaceSettings` gives a file's build settings, and `LoomConfig` the configuration that names a folder's project and the package root a file's sinks land under. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
 
 =>
 
@@ -968,7 +968,7 @@ import { fromProduct, rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { outputPath } from './WorkspaceSource'
-import { type BuildSettings, PackageConfig } from './PackageConfig'
+import { type BuildSettings, WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomsIn, projectIn, type Path } from './LoomProject'
 import { statSync } from 'node:fs'
@@ -1018,7 +1018,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { LoomFormatter } from '../src/LoomFormatter'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   defineLanguageService,
@@ -1082,7 +1082,7 @@ const formatted = (text: string, languages: ReadonlyArray<LanguageService> = [])
   LoomFormatter.pipe(
     Effect.flatMap((formatter) => formatter.format(path, text, languages)),
     Effect.provide(
-      LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer), Layer.provide(LoomConfig.layer)),
+      LoomFormatter.layer.pipe(Layer.provide(FileSystemSettings), Layer.provide(LoomConfig.layer)),
     ),
   )
 

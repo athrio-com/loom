@@ -5,19 +5,19 @@ import { Effect } from 'effect'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings, WorkspaceSettings } from '../src/WorkspaceSettings'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
-// PackageConfig.resolve is the compiler's per-file settings read: given a file
+// WorkspaceSettings.resolve is the compiler's per-file settings read: given a file
 // path, it walks up to the workspace's .loom/config.yaml (through
 // @athrio/loom-config) and returns that file's anchor delimiters and primary
 // language. The same read serves the editor's synchronous projection hook and
 // the CLI tangler.
 const run = (path: string) =>
   Effect.runSync(
-    PackageConfig.pipe(
+    WorkspaceSettings.pipe(
       Effect.flatMap((config) => config.resolve(path)),
-      Effect.provide(PackageConfig.layer),
+      Effect.provide(FileSystemSettings),
     ),
   )
 
@@ -28,7 +28,7 @@ const writeConfig = (dir: string, yaml: string): void => {
   writeFileSync(join(dir, '.loom', 'config.yaml'), yaml)
 }
 
-describe('PackageConfig.resolve — per-file build settings', () => {
+describe('WorkspaceSettings.resolve — per-file build settings', () => {
   it("reads the workspace's anchor delimiters and primary language", () => {
     const dir = tempDir()
     writeConfig(dir, 'anchor:\n  open: "<<"\n  close: ">>"\nprimary: typescript\n')

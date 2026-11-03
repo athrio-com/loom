@@ -45,7 +45,7 @@
     "packages/loom-lang/src/LoomProject.ts",
     "packages/loom-lang/src/LoomServer.ts",
     "packages/loom-lang/src/LoomTangler.ts",
-    "packages/loom-lang/src/PackageConfig.ts",
+    "packages/loom-lang/src/WorkspaceSettings.ts",
     "packages/loom-lang/src/WorkspaceSource.ts",
     "packages/loom-lang/src/ast/LineRanges.ts",
     "packages/loom-lang/src/ast/LoomAstBuilder.ts",

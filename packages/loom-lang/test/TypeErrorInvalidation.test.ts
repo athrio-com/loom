@@ -7,7 +7,7 @@ import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 // A type error never gates the de re. `funtype` carries a section with a type error
 // (`const bad: number = "oops"`) beside a healthy one. The run composes every
@@ -41,7 +41,7 @@ const source: Source = {
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), PackageConfig.layer, LoomConfig.layer),
+  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), FileSystemSettings, LoomConfig.layer),
 )
 
 // the de re product for a section is its embedded code, keyed by the section name

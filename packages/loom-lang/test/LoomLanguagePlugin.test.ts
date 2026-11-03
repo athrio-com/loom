@@ -9,13 +9,13 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(FileSystemSource),
-    Layer.provide(PackageConfig.layer),
+    Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),
   ),
 )

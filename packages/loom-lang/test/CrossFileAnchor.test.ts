@@ -3,7 +3,7 @@ import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -49,7 +49,8 @@ const layerOf = (files: Record<string, string>) =>
         hold: () => Effect.void,
         forget: () => Effect.void,
       }),
-      Layer.succeed(PackageConfig, {
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
         resolve: () =>
           Effect.succeed({
             delims: defaultAnchorDelims,

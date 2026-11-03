@@ -12,6 +12,7 @@ import {
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
+import { FileSystemSettings } from './WorkspaceSettings'
 
 export interface Workspace {
   readonly location: Location
@@ -109,3 +110,5 @@ export const FileSystemSource = Layer.effect(
     return source
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
+
+export const FileSystemEnvironment = Layer.mergeAll(FileSystemSource, FileSystemSettings)

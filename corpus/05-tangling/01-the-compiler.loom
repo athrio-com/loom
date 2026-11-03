@@ -38,7 +38,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const builder = yield* LoomCorpusAstBuilder
     const memo = yield* LoomMemo
     const disk = yield* LoomDiskCache
-    const config = yield* PackageConfig
+    const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
@@ -782,7 +782,7 @@ import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtual
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
-import { PackageConfig } from './PackageConfig'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
@@ -834,13 +834,13 @@ import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 const runtime = ManagedRuntime.make(
   LoomCompiler.layer.pipe(
     Layer.provide(DocumentSource.layer),
     Layer.provide(FileSystemSource),
-    Layer.provide(PackageConfig.layer),
+    Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),
   ),
 )
@@ -899,7 +899,7 @@ describe('LoomCompiler — what an edit evicts', () => {
 
 ## Testing the chain over looms held in memory
 
-The chain runs from a book to the files its corpus composes. These cases drive it end to end without a disk. The `LoomCompiler.layer` layer supplies the passes and caches the compiler draws on, such as `LoomCorpusAstBuilder` and `LoomMemo`. It leaves two services to its caller, the `DocumentSource` that reads each loom and the `PackageConfig` that settles each loom's build settings. The cases supply a stand-in for each, so the compiler builds a corpus held in memory.
+The chain runs from a book to the files its corpus composes. These cases drive it end to end without a disk. The `LoomCompiler.layer` layer supplies the passes and caches the compiler draws on, such as `LoomCorpusAstBuilder` and `LoomMemo`. It leaves two services to its caller, the `DocumentSource` that reads each loom and the `WorkspaceSettings` that settles each loom's build settings. The cases supply a stand-in for each, so the compiler builds a corpus held in memory.
 
 The cases run on Bun's test runner. The `effectify` helper from the `@athrio/effect-test` package adds an `it.effect` function to Bun's `it`, so a case can be written as an Effect, which the runner runs to its end. Each case provides the compiler's layer to its own Effect. Providing a layer builds it afresh, so no case sees a module that another case built.
 
@@ -911,7 +911,7 @@ import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -967,7 +967,8 @@ const TestDocs = Layer.succeed(DocumentSource, {
   forget: () => Effect.void,
 })
 
-const TestConfig = Layer.succeed(PackageConfig, {
+const TestConfig = Layer.succeed(WorkspaceSettings, {
+  manifest: () => Effect.succeed(Option.none()),
   resolve: () =>
     Effect.succeed({
       delims: defaultAnchorDelims,
@@ -1245,7 +1246,7 @@ import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1303,7 +1304,8 @@ const layerOf = (files: Record<string, string>) =>
         hold: () => Effect.void,
         forget: () => Effect.void,
       }),
-      Layer.succeed(PackageConfig, {
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
         resolve: () =>
           Effect.succeed({
             delims: defaultAnchorDelims,
@@ -1537,7 +1539,7 @@ import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1592,7 +1594,8 @@ const TestDocs = Layer.succeed(DocumentSource, {
   forget: () => Effect.void,
 })
 
-const TestConfig = Layer.succeed(PackageConfig, {
+const TestConfig = Layer.succeed(WorkspaceSettings, {
+  manifest: () => Effect.succeed(Option.none()),
   resolve: () =>
     Effect.succeed({
       delims: defaultAnchorDelims,
@@ -1832,7 +1835,7 @@ import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1883,7 +1886,8 @@ const TestDocs = Layer.succeed(DocumentSource, {
   forget: () => Effect.void,
 })
 
-const TestConfig = Layer.succeed(PackageConfig, {
+const TestConfig = Layer.succeed(WorkspaceSettings, {
+  manifest: () => Effect.succeed(Option.none()),
   resolve: () =>
     Effect.succeed({
       delims: defaultAnchorDelims,
@@ -1952,7 +1956,7 @@ import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -2088,7 +2092,8 @@ const makeCompilerLayer = (files: Record<string, string>) =>
         hold: () => Effect.void,
         forget: () => Effect.void,
       }),
-      Layer.succeed(PackageConfig, {
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
         resolve: () =>
           Effect.succeed({
             delims: defaultAnchorDelims,

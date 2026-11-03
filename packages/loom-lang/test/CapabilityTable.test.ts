@@ -7,7 +7,7 @@ import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { parseDocument, ParseLayer } from './parse'
 
@@ -55,7 +55,8 @@ const layer = Layer.provide(
       hold: () => Effect.void,
       forget: () => Effect.void,
     }),
-    Layer.succeed(PackageConfig, {
+    Layer.succeed(WorkspaceSettings, {
+      manifest: () => Effect.succeed(Option.none()),
       resolve: () =>
         Effect.succeed({
           delims: defaultAnchorDelims,

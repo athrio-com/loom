@@ -4,7 +4,7 @@ import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -43,7 +43,8 @@ const TestDocs = Layer.succeed(DocumentSource, {
   forget: () => Effect.void,
 })
 
-const TestConfig = Layer.succeed(PackageConfig, {
+const TestConfig = Layer.succeed(WorkspaceSettings, {
+  manifest: () => Effect.succeed(Option.none()),
   resolve: () =>
     Effect.succeed({
       delims: defaultAnchorDelims,

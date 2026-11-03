@@ -40,7 +40,7 @@ import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtual
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
-import { PackageConfig } from './PackageConfig'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
@@ -386,7 +386,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const builder = yield* LoomCorpusAstBuilder
     const memo = yield* LoomMemo
     const disk = yield* LoomDiskCache
-    const config = yield* PackageConfig
+    const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)

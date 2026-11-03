@@ -8,7 +8,7 @@ import { DocumentSource } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { LoomTangler } from '../src/LoomTangler'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 // LoomTangler emits a .loom's bracket sinks to disk, each sink's anchors resolved
 // across the corpus. This probe writes a tiny doc to a temp dir, tangles it, and
@@ -63,7 +63,7 @@ const x = "${value}"
 const layers = LoomTangler.layer.pipe(
   Layer.provide(DocumentSource.layer),
   Layer.provide(FileSystemSource),
-  Layer.provide(PackageConfig.layer),
+  Layer.provide(FileSystemSettings),
   Layer.provide(LoomConfig.layer),
   Layer.provideMerge(BunServices.layer),
 )

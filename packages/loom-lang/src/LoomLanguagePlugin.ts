@@ -1,13 +1,14 @@
 import type { CodegenContext, LanguagePlugin, VirtualCode } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, ManagedRuntime } from 'effect'
+import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   Composition,
@@ -170,11 +171,11 @@ export const loomServicePlugins = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
   sdk: TypescriptSdkApi,
   workspace: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig | WorkspaceSource> =>
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, WorkspaceSettings | WorkspaceSource> =>
   Effect.gen(function* () {
-    const config = yield* LoomConfig
+    const workspaceSettings = yield* WorkspaceSettings
     const source = yield* WorkspaceSource
-    const manifest = yield* config.manifest(workspace)
+    const manifest = Option.getOrUndefined(yield* workspaceSettings.manifest(workspace))
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime())

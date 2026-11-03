@@ -38,7 +38,7 @@ import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
-import { PackageConfig } from './PackageConfig'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   fetchedExecutable,
@@ -55,7 +55,7 @@ import {
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
-import { FileSystemSource, type Workspace, WorkspaceSource } from './WorkspaceSource'
+import { FileSystemEnvironment, type Workspace, WorkspaceSource } from './WorkspaceSource'
 
 const EditorTsdkSchema = Schema.Struct({
   typescript: Schema.Struct({ tsdk: Schema.String }),
@@ -677,19 +677,22 @@ const settleEdits = (
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
-    Layer.provideMerge(FileSystemSource),
-    Layer.provideMerge(PackageConfig.layer),
+    Layer.provideMerge(FileSystemEnvironment),
     Layer.provideMerge(LoomConfig.layer),
   ),
 )
 
 const openWorkspace = (
   home: string,
-): Effect.Effect<Option.Option<Workspace>, never, LoomConfig | WorkspaceSource | DocumentSource> =>
-  LoomConfig.pipe(
-    Effect.flatMap((config) => config.manifest(home)),
+): Effect.Effect<
+  Option.Option<Workspace>,
+  never,
+  WorkspaceSettings | WorkspaceSource | DocumentSource
+> =>
+  WorkspaceSettings.pipe(
+    Effect.flatMap((settings) => settings.manifest(home)),
     Effect.flatMap((manifest) =>
-      Option.match(Option.fromNullishOr(manifest), {
+      Option.match(manifest, {
         onNone: () => Effect.succeed(Option.none<Workspace>()),
         onSome: () =>
           Effect.gen(function* () {

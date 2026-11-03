@@ -6,7 +6,7 @@ import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 
 // compiler.compile assembles the Volar tree from the LoomVirtualCodeBuilder
 // passes — root (loom, the source mirror) → prose (Markdown) + one product per
@@ -32,7 +32,7 @@ const source: Source = { read: () => Effect.succeed(input), list: Option.none() 
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), PackageConfig.layer, LoomConfig.layer),
+  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), FileSystemSettings, LoomConfig.layer),
 )
 
 describe('VirtualCode — root projection', () => {

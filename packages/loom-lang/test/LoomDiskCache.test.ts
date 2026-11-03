@@ -17,7 +17,7 @@ import type { LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomMemo } from '../src/LoomMemo'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 
@@ -48,7 +48,7 @@ const freshProcess = () =>
     Layer.merge(LoomCompiler.layer, LoomMemo.layer).pipe(
       Layer.provide(DocumentSource.layer),
       Layer.provide(FileSystemSource),
-      Layer.provide(PackageConfig.layer),
+      Layer.provide(FileSystemSettings),
       Layer.provide(LoomConfig.layer),
     ),
   )

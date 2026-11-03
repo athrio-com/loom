@@ -3,7 +3,7 @@ import { fromProduct, rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { outputPath } from './WorkspaceSource'
-import { type BuildSettings, PackageConfig } from './PackageConfig'
+import { type BuildSettings, WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomsIn, projectIn, type Path } from './LoomProject'
 import { statSync } from 'node:fs'
@@ -731,7 +731,7 @@ interface SectionEdits {
 
 export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatter', {
   make: Effect.gen(function* () {
-    const config = yield* PackageConfig
+    const config = yield* WorkspaceSettings
     const loomConfig = yield* LoomConfig
     const corpus = yield* LoomCorpusAstBuilder
     return {

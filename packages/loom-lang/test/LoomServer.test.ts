@@ -10,7 +10,7 @@ import {
 import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
-import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
@@ -624,7 +624,7 @@ describe('LoomServer — the pass piece by piece', () => {
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
             Layer.provideMerge(FileSystemSource),
-            Layer.provide(PackageConfig.layer),
+            Layer.provide(FileSystemSettings),
             Layer.provide(LoomConfig.layer),
           ),
         ),
