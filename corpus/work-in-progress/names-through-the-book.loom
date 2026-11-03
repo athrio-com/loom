@@ -82,6 +82,18 @@ Loom decides where the stub lands, which no editor can decide alone. The stub go
 
 A stub is code, so the section it lands in is written and no longer a promise. The language's placeholder is what still marks it unfinished.
 
+## A contract stated on the anchor
+
+An anchor may state the contract itself, before any code uses the section it reaches. Its `symbols` parameter lists the names the anchor expects that section to provide, in the grammar the chapter "Parameters in braces" gives a specifier: `::[Greeting function]{symbols=greet}` for one name, and `::[Greeting function]{symbols=[greet, farewell]}` for several.
+
+The parameter is optional. Many anchors transclude a fragment that declares nothing, such as a run of imports, a piece of an expression, or the lines of a configuration file, and those anchors state no symbols.
+
+What a symbol is follows the kind of edge. A composing anchor, `::[Name]`, draws the section into the scope of the section that holds it, so its symbols are the names the section declares there. A referring anchor, `::[Name](file.ext)`, names a file the book emits, so its symbols are the names that file exports. One parameter carries both meanings, and the edge decides which one applies. An import usually lists the names it takes, as `import { roomBuilder }` does, and the language service checks those, so a referring anchor needs `symbols` mainly in a language whose import names only the module, such as Python's `import room`.
+
+Loom checks the contract without knowing the language. Every language server reports the symbols a document declares, each with its name and its kind, through the protocol's `textDocument/documentSymbol` request. Loom asks the service that owns the section, or the emitted file, for those symbols and compares the names. A stated name that the target does not provide is the `MissingSymbol` fault at the anchor.
+
+A promise holds no code yet, so its stated symbols are the contract its stub fulfils. The stub takes its names from the anchor and its types from the uses the language service reports, as the section above describes. A language whose service infers nothing from uses still gets a stub with the right names.
+
 ## Waiting for a missing name
 
 The compiler must notice when a missing name appears. It finds the looms an edit touches through `dependentsOf`, and `anchorEdges` builds its edges only from anchors that resolve. A missing name resolves to nothing, so it makes no edge, and declaring the section it waits for would leave its loom out of the reverse reach. Its fault would stand until that loom was checked for another reason.
@@ -120,7 +132,7 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 1. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
 2. Promises: marked in the editor and on the woven page, and refused by the tangler.
-3. The contract a promise collects, and stubs written from it into the promised chapter.
+3. The contract a promise collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the promised chapter.
 4. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
 5. The graph as a projection of the produced corpus, with its first view.
 
