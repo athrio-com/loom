@@ -413,9 +413,9 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
 
 ## Code in colour, with its anchors as links
 
-A source page shows the code each section writes, so the shell draws a run of code as well. It draws as the code sheet the docs use for a fence, with the same copy button in its corner.
+A source page shows the code each section writes, so the shell draws a run of code as well. It draws in three parts, the way a loom writes it. A head line opens the block, the code follows on the sheet the docs use for a fence, with the same copy button in its corner, and a foot line closes the block when the loom closed it.
 
-Every sheet names its language in a small tag on its top edge, set into the border like a legend, with the language's icon and name. A chapter can change language from one section to the next, and some languages look alike at a glance: TOML and YAML, or TypeScript and JavaScript. So the tag never leaves the reader to guess, even on code in the chapter's own language.
+The head line names the block's language, with the language's icon and name. A chapter can change language from one section to the next, and some languages look alike at a glance: TOML and YAML, or TypeScript and JavaScript. So the label never leaves the reader to guess, even on code in the chapter's own language.
 
 A loom composes its code by anchor. A `::[…]` anchor in one section's code stands for the section it names, so each anchor in the code is a link to that section. A section in the same chapter is reached by its id alone, and a section in another chapter by that chapter's address and the id.
 
@@ -482,7 +482,7 @@ A chapter in colour holds thousands of marks. The view runs again every time the
 
 The `runHtml` function writes a run as HTML. The `escaped` function makes the code's own text safe to write there, so a `<` in the code stays a character rather than opening a tag.
 
-A sheet also shows the syntax that framed its code in the loom, since a reader learning Loom needs to see where a block begins and ends. The arrow that opened the block sits on the line above the code, and the tilde that closed it on the line below, each as the chip the landing's example wears. A block that ran on to the next heading has no tilde to show, and a block from a book that kept no frame shows neither. The copy button still copies the code alone, because the frame is the loom's and not the program's.
+The block also shows the syntax that framed its code in the loom, since a reader learning Loom needs to see where a block begins and ends. That syntax is the loom's and not the program's, so it stays out of the code. The arrow that opened the block leads the head line, before the language. The tilde that closed it makes the foot line, under the code. A block that ran on to the next heading has no tilde and no foot, and a block from a book that kept no frame shows neither mark. The copy button copies the code alone.
 
 =>
 
@@ -511,14 +511,17 @@ const runHtml = (run: Run, base: string, page: Page): string =>
     Match.exhaustive,
   )
 
-const arrowHtml = (block: CodeBlock): string =>
-  Option.match(Option.fromNullishOr(block.arrow), {
-    onNone: () => '',
-    onSome: (arrow) => `<span class="loom-syntax arrow">${escaped(arrow)}</span>\n`,
-  })
+const arrowChip = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  Option.toArray(
+    Option.map(Option.fromNullishOr(block.arrow), (arrow) =>
+      h.span([h.Class('loom-syntax arrow')], [arrow]),
+    ),
+  )
 
-const tildeHtml = (block: CodeBlock): string =>
-  block.closed === true ? '\n<span class="loom-syntax tilde">~</span>' : ''
+const tildeFoot = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  block.closed === true
+    ? [h.div([h.Class('source-foot')], [h.span([h.Class('loom-syntax tilde')], ['~'])])]
+    : []
 
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
   link.targetSlug === here
@@ -527,7 +530,7 @@ const anchorHref = (base: string, here: string, link: CodeLink): string =>
 
 const codeTag = (block: CodeBlock, h: HtmlBuilder<Message>): Html =>
   h.span(
-    [h.Class('code-tag')],
+    [h.Class('source-label')],
     [...Option.toArray(emblemOf(block.language, 14, h)), nameOf(block.language)],
   )
 
@@ -539,30 +542,32 @@ const codeOf = (
   h: HtmlBuilder<Message>,
 ): Html =>
   h.div(
-    [h.Class('docs-canvas source-code')],
+    [h.Class('source-block')],
     [
-      codeTag(block, h),
-      copyButton(block.code, copied, h),
-      h.pre(
-        [h.Class('sheet-code')],
+      h.div([h.Class('source-head')], [...arrowChip(block, h), codeTag(block, h)]),
+      h.div(
+        [h.Class('docs-canvas source-sheet')],
         [
-          h.code(
+          copyButton(block.code, copied, h),
+          h.pre(
+            [h.Class('sheet-code')],
             [
-              h.InnerHTML(
-                Array.join(
-                  [
-                    arrowHtml(block),
-                    ...Array.map(runsOf(block), (run) => runHtml(run, base, page)),
-                    tildeHtml(block),
-                  ],
-                  '',
-                ),
+              h.code(
+                [
+                  h.InnerHTML(
+                    Array.join(
+                      Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                      '',
+                    ),
+                  ),
+                ],
+                [],
               ),
             ],
-            [],
           ),
         ],
       ),
+      ...tildeFoot(block, h),
     ],
   )
 

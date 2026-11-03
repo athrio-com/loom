@@ -160,7 +160,7 @@ it('raises the palette over whatever page is showing, and only when open', () =>
 
 ## The woven pages
 
-Two routes draw a woven corpus rather than a page of their own. The docs route draws the committed weave of the documentation. The source route draws the book, and a case hands it a small book of one chapter. That chapter quotes an anchor, so the case can check that the anchor becomes a link to its section and that the code keeps its colours. Its second block keeps the arrow and tilde that framed it, and they draw as chips around the code; the first keeps no frame and draws bare. No route may still show the "Being written" placeholder.
+Two routes draw a woven corpus rather than a page of their own. The docs route draws the committed weave of the documentation. The source route draws the book, and a case hands it a small book of one chapter. That chapter quotes an anchor, so the case can check that the anchor becomes a link to its section and that the code keeps its colours. Its second block keeps the arrow and tilde that framed it, and they draw as chips above and below the code, never inside it; the first keeps no frame and shows no chip. No route may still show the "Being written" placeholder.
 
 =>
 
@@ -230,8 +230,10 @@ it('draws the source page through the docs shell, its anchors as links', () => {
     `<a class="code-anchor" href="#greeting">${anchor('Greeting')}</a>\nconsole.log(<span class="tok-function">greet</span>()`,
   )
   expect(html).toContain(
-    '<span class="loom-syntax arrow">=&gt;</span>\n<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>\n<span class="loom-syntax tilde">~</span>',
+    '<code><span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span></code>',
   )
+  expect(html).toContain('<div class="source-head"><span class="loom-syntax arrow">=&gt;</span>')
+  expect(html).toContain('<div class="source-foot"><span class="loom-syntax tilde">~</span></div>')
   expect(html.match(/loom-syntax arrow/g)).toHaveLength(1)
   expect(html).toContain('href="/source/using-loom/a-workspace"')
   ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))

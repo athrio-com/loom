@@ -384,14 +384,17 @@ const runHtml = (run: Run, base: string, page: Page): string =>
     Match.exhaustive,
   )
 
-const arrowHtml = (block: CodeBlock): string =>
-  Option.match(Option.fromNullishOr(block.arrow), {
-    onNone: () => '',
-    onSome: (arrow) => `<span class="loom-syntax arrow">${escaped(arrow)}</span>\n`,
-  })
+const arrowChip = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  Option.toArray(
+    Option.map(Option.fromNullishOr(block.arrow), (arrow) =>
+      h.span([h.Class('loom-syntax arrow')], [arrow]),
+    ),
+  )
 
-const tildeHtml = (block: CodeBlock): string =>
-  block.closed === true ? '\n<span class="loom-syntax tilde">~</span>' : ''
+const tildeFoot = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  block.closed === true
+    ? [h.div([h.Class('source-foot')], [h.span([h.Class('loom-syntax tilde')], ['~'])])]
+    : []
 
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
   link.targetSlug === here
@@ -400,7 +403,7 @@ const anchorHref = (base: string, here: string, link: CodeLink): string =>
 
 const codeTag = (block: CodeBlock, h: HtmlBuilder<Message>): Html =>
   h.span(
-    [h.Class('code-tag')],
+    [h.Class('source-label')],
     [...Option.toArray(emblemOf(block.language, 14, h)), nameOf(block.language)],
   )
 
@@ -412,30 +415,32 @@ const codeOf = (
   h: HtmlBuilder<Message>,
 ): Html =>
   h.div(
-    [h.Class('docs-canvas source-code')],
+    [h.Class('source-block')],
     [
-      codeTag(block, h),
-      copyButton(block.code, copied, h),
-      h.pre(
-        [h.Class('sheet-code')],
+      h.div([h.Class('source-head')], [...arrowChip(block, h), codeTag(block, h)]),
+      h.div(
+        [h.Class('docs-canvas source-sheet')],
         [
-          h.code(
+          copyButton(block.code, copied, h),
+          h.pre(
+            [h.Class('sheet-code')],
             [
-              h.InnerHTML(
-                Array.join(
-                  [
-                    arrowHtml(block),
-                    ...Array.map(runsOf(block), (run) => runHtml(run, base, page)),
-                    tildeHtml(block),
-                  ],
-                  '',
-                ),
+              h.code(
+                [
+                  h.InnerHTML(
+                    Array.join(
+                      Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                      '',
+                    ),
+                  ),
+                ],
+                [],
               ),
             ],
-            [],
           ),
         ],
       ),
+      ...tildeFoot(block, h),
     ],
   )
 

@@ -2525,39 +2525,39 @@ h2, .subhead {
 .tok-type     { color: var(--spec-paper); }
 .tok-comment  { color: var(--ink-3); }
 
-.loom-syntax {
-  margin-left: -7px;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
+.source-block { font-size: var(--t-code); }
+
+.source-head,
+.source-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
 }
 
-.loom-syntax.arrow { color: var(--init); background: color-mix(in srgb, var(--init) 12%, transparent); }
-.loom-syntax.tilde { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-
-.doc-stack > .source-code { margin-top: 30px; }
-
-.source-code { overflow: visible; }
-.source-code .sheet-code { overflow-x: auto; }
-
-.code-tag {
-  position: absolute;
-  top: -11px;
-  left: 20px;
+.source-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  background: var(--paper);
-  font-family: var(--mono);
   font-size: 11px;
-  line-height: 1.4;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
+
+.source-sheet { margin-top: 6px; padding: 14px 22px; overflow: visible; }
+.source-sheet .canvas-copy { top: 8px; right: 8px; }
+.source-sheet .sheet-code { overflow-x: auto; }
+
+.loom-syntax {
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.loom-syntax.arrow { color: var(--init); background: color-mix(in srgb, var(--init) 12%, transparent); }
+.loom-syntax.tilde { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 .doc-note {
   padding: 14px 20px;
