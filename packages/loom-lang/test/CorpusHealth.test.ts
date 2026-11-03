@@ -6,6 +6,7 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
 
@@ -39,6 +40,7 @@ beforeAll(async () => {
   const runtime = ManagedRuntime.make(
     LoomCompiler.layer.pipe(
       Layer.provide(DocumentSource.layer),
+      Layer.provide(LoomDiskCache.layer),
       Layer.provide(FileSystemSource),
       Layer.provide(FileSystemSettings),
       Layer.provide(LoomConfig.layer),

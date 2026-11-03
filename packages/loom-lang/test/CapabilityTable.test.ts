@@ -6,8 +6,8 @@ import { profileOf, SymbolKindSchema, symbolsOf } from '@athrio/loom-ast/LoomSym
 import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { parseDocument, ParseLayer } from './parse'
 
@@ -47,8 +47,8 @@ const files: Record<string, string> = { '/convert.loom': fixture }
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
-    LoomConfig.layer,
     FileSystemSource,
+    LoomDiskCache.none,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(files[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(files))),

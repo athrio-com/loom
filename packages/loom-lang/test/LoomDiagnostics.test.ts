@@ -7,6 +7,7 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomFormatter } from '../src/LoomFormatter'
@@ -75,6 +76,7 @@ const checkerFor = (fixture: string) => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
       Layer.provideMerge(DocumentSource.layer),
+      Layer.provide(LoomDiskCache.layer),
       Layer.provideMerge(FileSystemSource),
       Layer.provideMerge(settingsMock),
       Layer.provide(configMock),

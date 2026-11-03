@@ -7,10 +7,12 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 
 const runtime = ManagedRuntime.make(
   LoomCompiler.layer.pipe(
     Layer.provide(DocumentSource.layer),
+    Layer.provide(LoomDiskCache.layer),
     Layer.provide(FileSystemSource),
     Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),

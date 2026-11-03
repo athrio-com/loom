@@ -275,10 +275,12 @@ import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompile
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
+    Layer.provide(LoomDiskCache.layer),
     Layer.provideMerge(FileSystemSource),
     Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),
@@ -382,7 +384,7 @@ const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.pro
 
 ## A compiler over one loom
 
-Two cases ask the `LoomCompiler` service itself. The compiler reads its looms through a `DocumentSource` service and its build settings through a `WorkspaceSettings` service, and the test's `layer` stands in for both. Its `DocumentSource` keeps the loom in `files`, at the path `/convert.loom`. It reads any other path as empty, lists only that loom, and ignores a request to hold or forget a loom. Its `WorkspaceSettings` gives every path the same settings. They hold the built-in anchor delimiters and a width of 100, with no primary language and no variables. Over those two stand-ins, the real `LoomConfig` service and the real `FileSystemSource` layer, `layer` provides the compiler, with a `LoomMemo` cache beside it. The build cache on disk asks `LoomConfig` for the loom's workspace, and finds none above `/convert.loom`, so it keeps nothing.
+Two cases ask the `LoomCompiler` service itself. The compiler reads its looms through a `DocumentSource` service and its build settings through a `WorkspaceSettings` service, and the test's `layer` stands in for both. Its `DocumentSource` keeps the loom in `files`, at the path `/convert.loom`. It reads any other path as empty, lists only that loom, and ignores a request to hold or forget a loom. Its `WorkspaceSettings` gives every path the same settings. They hold the built-in anchor delimiters and a width of 100, with no primary language and no variables. Over those two stand-ins, the real `FileSystemSource` layer, and `LoomDiskCache.none`, the build cache that keeps nothing, `layer` provides the compiler, with a `LoomMemo` cache beside it.
 
 =>
 
@@ -391,8 +393,8 @@ const files: Record<string, string> = { '/convert.loom': fixture }
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
-    LoomConfig.layer,
     FileSystemSource,
+    LoomDiskCache.none,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(files[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -474,7 +476,7 @@ it.effect('a rename range appears only where the table marks a kind navigable', 
 
 ## What the cases draw on
 
-The cases run on Bun's test runner. The `effectify` helper wraps the runner's `it` function, so a case may also be an Effect, run with `it.effect`. The `LoomSymbol` module supplies the table, `profileOf`, and `symbolsOf`, which reads a document's symbols. It also supplies `SymbolKindSchema`, which lists every kind. The `symbolMappings` function comes from the `LoomVirtualCodeBuilder` module. This package supplies the `LoomCompiler` service, the `DocumentSource` and `WorkspaceSettings` services it reads through, and the `LoomMemo` cache. `@athrio/loom-config` supplies the `LoomConfig` service its build cache reads, and the `WorkspaceSource` module the `FileSystemSource` layer it places files through. The tests' own `parse` module supplies `parseDocument` and `ParseLayer`. The `defaultAnchorDelims` pair holds the built-in anchor delimiters that the stand-in configuration hands out. Effect supplies the `Effect`, `Layer` and `Option` modules.
+The cases run on Bun's test runner. The `effectify` helper wraps the runner's `it` function, so a case may also be an Effect, run with `it.effect`. The `LoomSymbol` module supplies the table, `profileOf`, and `symbolsOf`, which reads a document's symbols. It also supplies `SymbolKindSchema`, which lists every kind. The `symbolMappings` function comes from the `LoomVirtualCodeBuilder` module. This package supplies the `LoomCompiler` service, the `DocumentSource` and `WorkspaceSettings` services it reads through, and the `LoomMemo` cache. The `WorkspaceSource` module supplies the `FileSystemSource` layer it places files through, and the `LoomDiskCache` module the cache that keeps nothing. The tests' own `parse` module supplies `parseDocument` and `ParseLayer`. The `defaultAnchorDelims` pair holds the built-in anchor delimiters that the stand-in configuration hands out. Effect supplies the `Effect`, `Layer` and `Option` modules.
 
 =>
 
@@ -486,8 +488,8 @@ import { profileOf, SymbolKindSchema, symbolsOf } from '@athrio/loom-ast/LoomSym
 import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { parseDocument, ParseLayer } from './parse'
 

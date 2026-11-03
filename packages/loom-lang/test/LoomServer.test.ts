@@ -11,6 +11,7 @@ import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
@@ -623,6 +624,7 @@ describe('LoomServer — the pass piece by piece', () => {
         Effect.provide(
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
+            Layer.provide(LoomDiskCache.layer),
             Layer.provideMerge(FileSystemSource),
             Layer.provide(FileSystemSettings),
             Layer.provide(LoomConfig.layer),

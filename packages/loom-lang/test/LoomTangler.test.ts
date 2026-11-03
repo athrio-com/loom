@@ -6,6 +6,7 @@ import { FileSystem } from 'effect'
 import { BunServices } from '@effect/platform-bun'
 import { DocumentSource } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { LoomTangler } from '../src/LoomTangler'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
@@ -62,6 +63,7 @@ const x = "${value}"
 // provideMerge keeps FileSystem visible to the probe for the temp dir.
 const layers = LoomTangler.layer.pipe(
   Layer.provide(DocumentSource.layer),
+  Layer.provide(LoomDiskCache.layer),
   Layer.provide(FileSystemSource),
   Layer.provide(FileSystemSettings),
   Layer.provide(LoomConfig.layer),

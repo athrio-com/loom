@@ -649,7 +649,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       Layer.mergeAll(
         LoomCorpusAstBuilder.layer,
         LoomMemo.layer,
-        LoomDiskCache.layer,
         WeaveBuilder.layer,
         TableOfContentsBuilder.layer,
       ),

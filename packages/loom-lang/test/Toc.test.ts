@@ -5,8 +5,8 @@ import { parseDocument, ParseLayer } from './parse'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -100,8 +100,8 @@ const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
-      LoomConfig.layer,
       FileSystemSource,
+      LoomDiskCache.none,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),

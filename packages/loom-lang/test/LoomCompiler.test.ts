@@ -3,8 +3,8 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -57,7 +57,7 @@ const TestConfig = Layer.succeed(WorkspaceSettings, {
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
+  Layer.mergeAll(TestDocs, TestConfig, FileSystemSource, LoomDiskCache.none),
 )
 
 describe('LoomCompiler — the chain projected for each consumer', () => {
@@ -124,8 +124,8 @@ const crossImport: Record<string, string> = {
 const crossLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
-    LoomConfig.layer,
     FileSystemSource,
+    LoomDiskCache.none,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
@@ -196,8 +196,8 @@ const editable: Record<string, string> = {
 const editableLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
-    LoomConfig.layer,
     FileSystemSource,
+    LoomDiskCache.none,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(editable[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(editable))),

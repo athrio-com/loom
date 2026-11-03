@@ -166,6 +166,8 @@ const keep = (
 
 The cache is kept in a folder, so it reads the folder it keeps a loom's module in, the loom's workspace, from the `LoomConfig` service. The build settings carry no folders. A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
 
+The compiler does not build this cache itself. The environment provides it, so the service has two layers. Its `layer` keeps modules on the disk, as this chapter describes, and the file system's environment provides it. Its `none` layer keeps nothing: its `through` runs every `build` directly. Remote storage's environment provides `none`, because a workspace kept away from a disk has no folder to keep modules in, and a server beside the storage builds the corpus again when it starts.
+
 =>
 
 export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCache', {
@@ -210,6 +212,16 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
+
+  static readonly none = Layer.succeed(this, {
+    through: (
+      _source: Source,
+      _saved: Source,
+      _path: Location,
+      _settings: BuildSettings,
+      build: Effect.Effect<LoomModule>,
+    ): Effect.Effect<LoomModule> => build,
+  })
 }
 
 ## What the module draws on

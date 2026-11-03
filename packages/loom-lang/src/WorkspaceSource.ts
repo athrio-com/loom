@@ -14,6 +14,7 @@ import {
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
+import { LoomDiskCache } from './LoomDiskCache'
 import {
   FileSystemSettings,
   settingsOfManifest,
@@ -205,15 +206,22 @@ export const RemoteSettings = Layer.effect(
 
 export const RemoteEnvironment = (
   address: StorageAddress,
-): Layer.Layer<WorkspaceSource | WorkspaceSettings> =>
-  RemoteSettings.pipe(Layer.provideMerge(RemoteSource(address)))
+): Layer.Layer<WorkspaceSource | WorkspaceSettings | LoomDiskCache> =>
+  Layer.mergeAll(
+    RemoteSettings.pipe(Layer.provideMerge(RemoteSource(address))),
+    LoomDiskCache.none,
+  )
 
 export interface StorageAddress {
   readonly url: string
   readonly key: Redacted.Redacted<string>
 }
 
-export const FileSystemEnvironment = Layer.mergeAll(FileSystemSource, FileSystemSettings)
+export const FileSystemEnvironment = Layer.mergeAll(
+  FileSystemSource,
+  FileSystemSettings,
+  LoomDiskCache.layer,
+)
 
 export const Environment = Layer.unwrap(
   Config.option(Config.String('LOOM_STORAGE_URL')).pipe(

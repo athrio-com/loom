@@ -16,6 +16,7 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import type { LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { LoomMemo } from '../src/LoomMemo'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
@@ -47,6 +48,7 @@ const freshProcess = () =>
   ManagedRuntime.make(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer).pipe(
       Layer.provide(DocumentSource.layer),
+      Layer.provide(LoomDiskCache.layer),
       Layer.provide(FileSystemSource),
       Layer.provide(FileSystemSettings),
       Layer.provide(LoomConfig.layer),

@@ -176,4 +176,14 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
+
+  static readonly none = Layer.succeed(this, {
+    through: (
+      _source: Source,
+      _saved: Source,
+      _path: Location,
+      _settings: BuildSettings,
+      build: Effect.Effect<LoomModule>,
+    ): Effect.Effect<LoomModule> => build,
+  })
 }

@@ -27,7 +27,7 @@ The build cache keys a module by its path alone, so it can hold a build of the e
 
 `compile` also guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read through `DocumentSource`.
 
-Every build passes through `LoomDiskCache`, which may keep the module on disk for the next process. The cache must never keep a module built from text that was not saved, so `loadOne` hands it `DocumentSource` beside the source the build reads. The cache checks the module against the saved text that `DocumentSource` gives.
+Every build passes through `LoomDiskCache`, which may keep the module on disk for the next process. The compiler's layer provides its passes and the cache in memory, but not this one. The environment provides it, as the chapter "Where a workspace is kept" describes, so a workspace on a disk keeps its modules there, and a workspace in remote storage keeps none. The cache must never keep a module built from text that was not saved, so `loadOne` hands it `DocumentSource` beside the source the build reads. The cache checks the module against the saved text that `DocumentSource` gives.
 
 =>
 
@@ -301,7 +301,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       Layer.mergeAll(
         LoomCorpusAstBuilder.layer,
         LoomMemo.layer,
-        LoomDiskCache.layer,
         WeaveBuilder.layer,
         TableOfContentsBuilder.layer,
       ),
@@ -835,10 +834,12 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 
 const runtime = ManagedRuntime.make(
   LoomCompiler.layer.pipe(
     Layer.provide(DocumentSource.layer),
+    Layer.provide(LoomDiskCache.layer),
     Layer.provide(FileSystemSource),
     Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),
@@ -910,8 +911,8 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -956,7 +957,7 @@ const files: Record<string, string> = {
 
 The stand-in source reads each loom from the `files` record, which maps a path to the loom's text. It reads a path the record lacks as empty text, lists every path in the record as the corpus, and ignores any loom it is asked to hold or forget.
 
-The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. The layer also provides the real `LoomConfig` service and the real `FileSystemSource` layer. The source places each file a loom tangles, and the build cache on disk asks `LoomConfig` for a loom's workspace. No folder above a path such as `/chapter.loom` holds a configuration, so each file lands beside its loom, the cache keeps nothing, and no case writes to the disk.
+The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. The layer also provides the real `FileSystemSource` layer, which places each file a loom tangles, and `LoomDiskCache.none`, the build cache that keeps nothing. No folder above a path such as `/chapter.loom` holds a configuration, so each file lands beside its loom, and no case writes to the disk.
 
 =>
 
@@ -986,7 +987,7 @@ The `LoomMemo` cache keeps each module the compiler builds and counts its hits a
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
+  Layer.mergeAll(TestDocs, TestConfig, FileSystemSource, LoomDiskCache.none),
 )
 
 ## What a book reaches, and what the memo keeps
@@ -1079,8 +1080,8 @@ const crossImport: Record<string, string> = {
 const crossLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
-    LoomConfig.layer,
     FileSystemSource,
+    LoomDiskCache.none,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
@@ -1165,8 +1166,8 @@ const editable: Record<string, string> = {
 const editableLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
-    LoomConfig.layer,
     FileSystemSource,
+    LoomDiskCache.none,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(editable[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(editable))),
@@ -1245,8 +1246,8 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1296,8 +1297,8 @@ const layerOf = (files: Record<string, string>) =>
   Layer.provide(
     LoomCompiler.layer,
     Layer.mergeAll(
-      LoomConfig.layer,
       FileSystemSource,
+      LoomDiskCache.none,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -1538,8 +1539,8 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1607,15 +1608,15 @@ const TestConfig = Layer.succeed(WorkspaceSettings, {
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
+  Layer.mergeAll(TestDocs, TestConfig, FileSystemSource, LoomDiskCache.none),
 )
 
 const makeLayer = (docs: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
-      LoomConfig.layer,
       FileSystemSource,
+      LoomDiskCache.none,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(docs[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(docs))),
@@ -1834,8 +1835,8 @@ import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -1899,7 +1900,7 @@ const TestConfig = Layer.succeed(WorkspaceSettings, {
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
+  Layer.mergeAll(TestDocs, TestConfig, FileSystemSource, LoomDiskCache.none),
 )
 
 ~
@@ -1955,8 +1956,8 @@ import { parseDocument, ParseLayer } from './parse'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -2084,8 +2085,8 @@ const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
-      LoomConfig.layer,
       FileSystemSource,
+      LoomDiskCache.none,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),

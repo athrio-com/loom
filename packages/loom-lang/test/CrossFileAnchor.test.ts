@@ -2,8 +2,8 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
@@ -41,8 +41,8 @@ const layerOf = (files: Record<string, string>) =>
   Layer.provide(
     LoomCompiler.layer,
     Layer.mergeAll(
-      LoomConfig.layer,
       FileSystemSource,
+      LoomDiskCache.none,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),

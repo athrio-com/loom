@@ -5,6 +5,7 @@ import { Effect, Layer, Option } from 'effect'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
 
@@ -32,7 +33,7 @@ const source: Source = { read: () => Effect.succeed(input), list: Option.none() 
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), FileSystemSettings, LoomConfig.layer),
+  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), FileSystemSettings, LoomConfig.layer, LoomDiskCache.layer.pipe(Layer.provide(LoomConfig.layer))),
 )
 
 describe('VirtualCode — root projection', () => {

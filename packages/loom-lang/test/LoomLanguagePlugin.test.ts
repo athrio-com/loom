@@ -10,10 +10,12 @@ import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompile
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
+    Layer.provide(LoomDiskCache.layer),
     Layer.provideMerge(FileSystemSource),
     Layer.provide(FileSystemSettings),
     Layer.provide(LoomConfig.layer),
