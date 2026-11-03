@@ -16,19 +16,82 @@ The very first thing that lets us materialise a Loom program is the *arrow*. Arr
 
 ~
 
-Our very first program does nothing but show the rhythm of every Loom program. As you noticed, *tildes* `~` mark the transition back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes.
+Our very first program does nothing but show the rhythm of every Loom program. As you noticed, a *tilde* `~` marks the way back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes. The next heading ends a block of code as well, so a tilde is needed only to return to prose within the same section.
 
-That is the whole rhythm. The primitives it rests on, gathered in one place:
+That is the whole rhythm. The rest of Loom's syntax is a handful of marks, each small enough to show whole.
 
-1. Chapters `---`
-2. Sections `#`
-3. Prose
-4. Code
-5. Arrows `=>` and `~>`
-6. Tildes `~`
-7. Sinks `[file]`
-8. Specifiers `{Lang}`
-9. Anchors `::[Name]`
-10. Warps `{{ name = value }}`
+A loom is written in chapters, and each chapter is a file of its own. It opens with frontmatter: a few lines between two `---` fences that say where the chapter sits and what its code is written in. The chapter that opens a part names the part on one line and itself on the next.
+
+```loom
+---
+Part II: The shape of a loom
+Chapter 1: The first syntax
+Language: Prose
+---
+```
+
+A later chapter names its part by numeral alone, as in `Part II, Chapter 2: The node foundation`. It may also add a `Package` line, naming the file or the directory its code is written to.
+
+A heading of one to six `#` opens a section, and the section runs on to the next heading. Under it, prose and code take turns. An arrow opens each block of code, and a tilde closes it when more prose follows in the same section.
+
+```loom
+# A greeting
+
+The greeting needs a name.
+
+=>
+
+const name = 'world'
+
+~
+
+Then it says hello.
+```
+
+The arrow has a stronger form, `~>`. Code after it ignores headings and runs until a tilde, so a block can hold lines that would otherwise open a section: the titles of a Markdown file, or a comment in a shell script.
+
+```loom
+~>
+
+# Loom
+
+Programs written to be read.
+
+~
+```
+
+A heading can say where its code goes and what Loom should make of it. A file name in brackets is a sink, the file that section's code is written to. A word in braces is a specifier. `{Tangle}` writes a section to the file its chapter's `Package` line names, so a chapter that makes one file needs no sink. `{TOC}` marks the table of contents, and a language name such as `{Bash}` switches the section's language.
+
+```loom
+## The module [greeting.ts]
+
+## Installing it {Bash}
+```
+
+Inside code, an anchor draws in another section by its title, written `::[Name]`. Tangling puts the named section's code where the anchor stood.
+
+```loom
+## The greeting [greeting.ts]
+
+=>
+
+::[A greeting]
+
+console.log(`hello ${name}`)
+```
+
+A warp binds a value to a name, written in the prose before a section's first arrow. An anchor with the same name then draws that value into the code, and the author writes any quotes around the anchor.
+
+```loom
+## The salutation
+
+{{ salutation = "hello" }}
+
+=>
+
+const salutation = '::[salutation]'
+```
+
+Two more marks set text apart from Loom altogether. Three backticks open a fence, and every line up to the next three is quoted verbatim, so its arrows and headings stay text. That is how this chapter shows its examples without composing them. A note runs from a `:::[Note]` line to a lone `:::`, and holds a remark for whoever opens the loom next. Tangling drops it, so a note never reaches the code.
 
 The chapters that follow give each its shape — first the node every one of them is built from, then the tokens inside a line, the lines themselves, the sections they form, and the corpus above them.
