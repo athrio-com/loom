@@ -1,0 +1,95 @@
+---
+Part: Work in progress
+Chapter: Loading a workspace lazily
+Status: Planned
+Priority: 3
+Language: TypeScript
+---
+
+# Loading a workspace lazily
+
+Remote storage hands Loom a whole workspace in one request, as the chapter "Where a workspace is kept" describes. The `open` method fetches every loom's text, and the `DocumentSource` service holds it before the editor asks for anything. A book of two megabytes arrives in a moment. A far larger workspace makes the editor wait on one large request, and makes the server hold text it may never show.
+
+This chapter loads a workspace as the editor needs it. The server holds an index of every loom from the start, and the text of a loom only once the editor shows it or composes it. A check that loads everything runs when someone asks for it.
+
+## What the editor needs from every loom
+
+Some requests reach across the whole corpus. Resolving a name, following a definition, finding references, renaming a section, reporting an anchor that names nothing, and reading the table of contents all look at every loom. None of them needs a loom's text. Each needs the names a loom declares, and where those names stand.
+
+The compiler already draws this line. Its `faceOf` function keeps the part of a module that other files can see: the frontmatter that names the chapter, the title of every section, the code, and the file each sink tangles to. Prose, which is most of a loom, is in no face.
+
+## The index
+
+A loom's index holds its names and their places. It holds the values of the loom's frontmatter, each section's title with its range, each anchor's name with its range, and each file a sink tangles to. It holds no prose and no code, so it stays a small fraction of the loom.
+
+The server holds the index of every loom in the workspace from the start. It holds a loom's text only while the editor shows the loom, or while a loom the editor shows composes a section of it.
+
+=>
+
+export interface NamedRange {
+  readonly name: string
+  readonly range: FrameLocation['range']
+}
+
+export interface LoomIndex {
+  readonly location: Location
+  readonly hash: string
+  readonly frontmatter: ReadonlyArray<string>
+  readonly titles: ReadonlyArray<NamedRange>
+  readonly anchors: ReadonlyArray<NamedRange>
+  readonly files: ReadonlyArray<string>
+}
+
+## Hashes in the contract
+
+The second version of the storage contract lists each loom's hash and size, and no text. A `GET` request on the workspace's URL returns the manifest beside that list. A `GET` request on a loom's location returns its text, as it does in the first version. Loom reads either version. A first-version answer holds every loom's text, so that workspace loads at once.
+
+The server builds a loom's index the first time it meets the loom's hash, and keeps the index in a cache keyed by that hash. Built modules are keyed by the same hash. A restart therefore fetches only the looms whose hash changed. The cache lives on the disk of the machine that runs the server, or in a key-value store beside the storage.
+
+A storage service that runs Loom itself may also serve the indexes, at an optional endpoint the second version names. A cold start then fetches no text at all.
+
+## Text when the editor reaches it
+
+An open loom costs no fetch, because its text arrives with the editor's notification that it opened. The looms it reaches cost a fetch each. Its anchors name sections, and the index says which loom holds each one.
+
+The server fetches those looms outside Volar's synchronous hooks, in a fiber it forks when the loom opens. It hands their text to the `DocumentSource` service, then marks the open loom stale and refreshes the editor. That is the path a change notification takes, as the chapter "The language server" describes.
+
+Until the text arrives, an anchor into an unfetched loom is pending. The index knows that its section exists, so the diagnostics report nothing for the anchor, and the projection leaves the section out. An anchor whose name no index holds is unresolved at once, as it is today.
+
+A background warm-up fetches the rest of the workspace in batches. It takes the looms that open looms reach first, then the chapters in the book's order.
+
+## Navigating into a loom not yet fetched
+
+A definition, a reference, and a rename answer from the index, because the index holds every name's range. The edits a rename returns name ranges in looms whose text the server may never have fetched.
+
+When the editor then shows such a loom, it needs the loom's text. An editor that reads the storage through a client of its own fetches it there. Any other editor asks the server through the protocol's `workspace/textDocumentContent` request, from version 3.18 of the Language Server Protocol. That request may wait, so the server fetches the loom while it answers.
+
+## Checking a whole workspace
+
+Everyday diagnostics follow what the server holds. A check holds everything and reports everything, for a person who wants the whole picture before a commit, and for a build that must fail on any error.
+
+The `loom check` command opens the workspace in the environment the variables name, builds every loom, and prints every diagnostic. It reports Loom's own faults, such as an anchor that names nothing, and the diagnostics of every active language service, such as TypeScript's errors in the composed code. It exits with a failure when any diagnostic is an error. It applies the gate the `tangle` command applies before it writes, and writes nothing.
+
+In the editor, the protocol's `workspace/diagnostic` request pulls the diagnostics of every file, not only the open ones. Loom's diagnostics plugin declares that it answers it. The request may wait, so the server fetches every loom it lacks before it answers. An editor that never sends the request runs the `loom.checkWorkspace` command instead, through `workspace/executeCommand`, and the server answers it the same way.
+
+The command and the request share one pass. The pass fetches every loom the index lists, builds the corpus, and gathers the diagnostics. Only the delivery differs: printed with an exit code, or sent to the editor's list of problems. After a check, the server holds the whole workspace, so the session that follows is warm.
+
+## Books bound the work
+
+The chapter "Names through the book" resolves a name within its book. The index, the fetches, and the warm-up then work a book at a time, because nothing a book's loom reaches lies outside the book. A corpus that unites a monorepo holds a book for each project, and editing one project loads that project alone.
+
+## What to work out
+
+- **Positions that move.** An edit shifts every range below it. An open loom's index comes from its text and moves with it, while a closed loom's index comes from its hash. Whether a rename across both needs anything more is open.
+- **The index and the parser.** An index depends on the parser that built it, so the cache keys it by Loom's fingerprint beside the hash, as the build cache on disk keys a module. Whether the index needs a format version of its own is open.
+- **How pending looks.** Whether the editor shows a pending anchor at all, or only the absence of an error, is open.
+- **Folders.** The file system reads a loom in a moment, and the build cache on disk already saves the parse. Whether a workspace in a folder loads lazily too is open.
+
+## What this chapter grows into
+
+1. The second version of the storage contract: hashes and sizes, and text by location.
+2. The index, built once per hash and kept in a cache.
+3. Fetching what an open loom reaches, with pending anchors.
+4. The background warm-up.
+5. The `workspace/textDocumentContent` request for a loom not yet fetched.
+6. The `loom check` command, the `workspace/diagnostic` request, and the `loom.checkWorkspace` command.
