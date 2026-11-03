@@ -1,5 +1,5 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
-import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -24,7 +24,7 @@ import {
   type LoomModule,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { DuplicateName, faulty, UnresolvedTocEntry } from '#ast/LoomFault'
+import { DuplicateName, faulty, UnresolvedTocEntry, UnsettledSection } from '#ast/LoomFault'
 import { crossFileFaults } from '#ast/ProductBuilder'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
@@ -37,6 +37,8 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromCode,
   fromProduct,
+  type Unsettled,
+  unsettledIn,
   fromProse,
   rootNamesAt,
   rootVirtualCode,
@@ -123,6 +125,36 @@ const resolveSinks = (
     }),
   )
 
+const unsettledFailures = (
+  modules: Modules,
+  entry: Location,
+): ReadonlyArray<{ readonly path: Location; readonly diagnostics: ReadonlyArray<Diagnostic> }> => {
+  const book = bookOf(modules)
+  return pipe(
+    Option.fromNullishOr(modules.get(entry)),
+    Option.match({
+      onNone: (): ReadonlyArray<Unsettled> => [],
+      onSome: (module) =>
+        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, book)),
+    }),
+    Array.dedupeWith(
+      (one, other) =>
+        one.path === other.path && one.anchor.start.offset === other.anchor.start.offset,
+    ),
+    Array.groupBy((unsettled) => unsettled.path),
+    Record.toEntries,
+    Array.map(([path, unsettled]) => ({
+      path,
+      diagnostics: Array.flatMap(
+        unsettled,
+        (one) =>
+          faulty(UnsettledSection({ name: one.name, declared: one.declared }), one.anchor)
+            .diagnostics,
+      ),
+    })),
+  )
+}
+
 export class TangleError extends Data.TaggedError('TangleError')<{
   readonly entry: Location
   readonly failures: ReadonlyArray<{
@@ -135,7 +167,7 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     const lines = this.failures.flatMap((f) =>
       f.diagnostics.map((d) => `  ${f.path}:${d.position.start.line}: ${d.message}`),
     )
-    return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
+    return `loom: refusing to tangle ${this.entry} — ${count} problem(s) across the corpus:\n${lines.join('\n')}`
   }
 }
 
@@ -499,7 +531,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => {
             const scoped = scopedTo(modules, reachable(modules, path))
-            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(modules))
+            const failures = [
+              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules)),
+              ...unsettledFailures(modules, path),
+            ]
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
               : resolveSinks(modules, path, workspaces.placeOf)

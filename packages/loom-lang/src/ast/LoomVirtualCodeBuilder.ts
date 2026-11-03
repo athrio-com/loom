@@ -132,6 +132,50 @@ const inlineComposed =
     )
   }
 
+export type Unsettled = {
+  readonly path: Location
+  readonly anchor: Position
+  readonly name: string
+  readonly declared: boolean
+}
+
+const unsettledAt = (node: Code, ref: Ref, declared: boolean): Unsettled => ({
+  path: node.origin.path,
+  anchor: ref.anchor,
+  name: ref.name,
+  declared,
+})
+
+const unsettledFrom =
+  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (node: Code): ReadonlyArray<Unsettled> =>
+    Array.flatMap(node.fragments, (part) =>
+      part.type === 'Fragment'
+        ? []
+        : Option.match(targetOf(book, node.origin.path, part), {
+            onNone: () => (Option.isSome(part.toBeSettled) ? [unsettledAt(node, part, false)] : []),
+            onSome: (target) =>
+              pipe(
+                Option.some(target),
+                Option.filter((reached) => !seen.has(keyOf(reached))),
+                Option.flatMap((reached) => lookup(modules, reached)),
+                Option.match({
+                  onNone: (): ReadonlyArray<Unsettled> => [],
+                  onSome: (code) =>
+                    Array.isReadonlyArrayNonEmpty(code.fragments)
+                      ? unsettledFrom(modules, book, new Set([...seen, keyOf(target)]))(code)
+                      : [unsettledAt(node, part, true)],
+                }),
+              ),
+          }),
+    )
+
+export const unsettledIn = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Code,
+  book: Book = bookOf(modules),
+): ReadonlyArray<Unsettled> => unsettledFrom(modules, book, new Set([keyOf(root.origin)]))(root)
+
 const aloneBefore = (code: string): boolean =>
   /^[\t ]*$/.test(code.slice(code.lastIndexOf('\n') + 1))
 

@@ -412,12 +412,12 @@ describe('parseDocument — NOK preservation end-to-end', () => {
     expect(heading.title?.source).toBe('JustATitle')
   })
 
-  it('specifier label with spaces — bytes preserved in unexpected[], empty value, error health', () => {
-    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Heading {bad label name}\n')
+  it('specifier label with a full stop — bytes preserved in unexpected[], empty value, error health', () => {
+    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Heading {bad.label name}\n')
     const label = doc.sections[0].heading.specifier!.label
     expect(label.value).toBe('')
     expect(label.health.status).toBe('error')
-    expect(label.unexpected?.[0].value).toBe('bad label name')
+    expect(label.unexpected?.[0].value).toBe('bad.label name')
   })
 
   it('unclosed `{` — synthetic SpecifierClose at EOL with `expected closing` diagnostic', () => {
@@ -428,7 +428,7 @@ describe('parseDocument — NOK preservation end-to-end', () => {
   })
 
   it('container LoomDocument / LoomSection carry okHealth despite leaf errors', () => {
-    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Section {bad label name}\n')
+    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Section {bad.label name}\n')
     expect(doc.health.status).toBe('ok')
     expect(doc.sections[0].health.status).toBe('ok')
   })

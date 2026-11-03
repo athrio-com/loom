@@ -18,13 +18,19 @@ export type LoomFault = Data.TaggedEnum<{
   }
   MissingWarpValue: { readonly name: string }
   UnknownVariable: { readonly name: string }
-  UnresolvedAnchor: { readonly name: string; readonly declaration?: Declaration }
+  UnresolvedAnchor: {
+    readonly name: string
+    readonly declaration?: Declaration
+    readonly settleAt?: Position
+  }
   AmbiguousAnchor: {
     readonly name: string
     readonly count: number
     readonly paths: ReadonlyArray<string>
   }
   ChapterWithoutCode: { readonly name: string }
+  UnsettledSection: { readonly name: string; readonly declared: boolean }
+  SettledLabel: { readonly name: string; readonly label: Position }
   DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
   CrossLanguageAnchor: {
     readonly name: string
@@ -46,6 +52,8 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   ChapterWithoutCode,
+  UnsettledSection,
+  SettledLabel,
   DuplicateName,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
@@ -59,6 +67,8 @@ type Note = { readonly severity: Severity; readonly message: string }
 const error = (message: string): Note => ({ severity: 'error', message })
 
 const warning = (message: string): Note => ({ severity: 'warning', message })
+
+const information = (message: string): Note => ({ severity: 'info', message })
 
 const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
@@ -87,7 +97,7 @@ const disambiguation = (paths: ReadonlyArray<string>): string =>
   })
 
 const rule: Record<MalformedConstruct, string> = {
-  specifier: 'may contain only letters, digits, hyphen, and underscore',
+  specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
   path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
   warpName: 'must be a TypeScript identifier',
   anchorName: 'may not contain `]`',
@@ -117,6 +127,18 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('ChapterWithoutCode', ({ name }) =>
       warning(
         `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
+      ),
+    ),
+    Match.tag('UnsettledSection', ({ name, declared }) =>
+      information(
+        declared
+          ? `To be settled: \`${name}\` holds no code yet, so this anchor composes nothing.`
+          : `To be settled: no section is named \`${name}\` yet, so this anchor composes nothing.`,
+      ),
+    ),
+    Match.tag('SettledLabel', ({ name }) =>
+      information(
+        `Settled: \`${name}\` holds code now, so its \`{To be settled}\` label has nothing left to say.`,
       ),
     ),
     Match.tag('DuplicateName', ({ name, sibling, where }) =>
@@ -155,15 +177,25 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('AmbiguousAnchor', ({ paths }) =>
       Array.map(paths, (path): Fix => ({ title: `Write the path \`${path}\``, text: path })),
     ),
-    Match.tag('UnresolvedAnchor', ({ name, declaration }) =>
-      Option.toArray(
+    Match.tag('UnresolvedAnchor', ({ name, declaration, settleAt }) => [
+      ...Option.toArray(
         Option.map(Option.fromNullishOr(declaration), (declared): Fix => ({
           title: `Declare the section \`${name}\``,
           text: declared.text,
           at: declared.at,
         })),
       ),
-    ),
+      ...Option.toArray(
+        Option.map(Option.fromNullishOr(settleAt), (at): Fix => ({
+          title: `Mark \`${name}\` to be settled`,
+          text: '{To be settled}',
+          at,
+        })),
+      ),
+    ]),
+    Match.tag('SettledLabel', ({ label }): ReadonlyArray<Fix> => [
+      { title: 'Remove the `{To be settled}` label', text: '', at: label },
+    ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )
 

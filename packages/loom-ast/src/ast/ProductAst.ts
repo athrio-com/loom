@@ -29,6 +29,7 @@ export const NameRefSchema = productNode('NameRef', {
   name: Schema.String,
   target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
+  toBeSettled: Schema.Option(PositionSchema),
 })
 export type NameRef = typeof NameRefSchema.Type
 

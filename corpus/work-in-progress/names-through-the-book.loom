@@ -54,33 +54,37 @@ The product pass sees one loom at a time. It binds a bare name that its own loom
 
 The `(path.loom)` target retires, and with it the `anchorModule` and `resolveRelative` functions that turn the path into a loom.
 
-## A promise is prose
+## To be settled
 
 A literate author writes a reference before its target as often as after it, because the prose follows the reader's order and not the compiler's. Programming meets the same need with a mock, which fakes a piece's behaviour so the rest of a program can run, or with a typed hole, which marks a gap the compiler can describe. Literate programming has long allowed a looser order. Knuth's WEB names its sections in reading order, so a section is often used before it is written, and the tools object only to a name that is used and never defined.
 
-Loom keeps the promise in the prose. A section's prose is its specification, so a section declared with its heading and the prose that specifies it, but no code yet, already says what its code will do. That section is the literate counterpart of a mock. It fakes no behaviour, but it states the intent, and a reader can read it before any code exists. A box that points to a chapter not yet written makes the same promise for a whole loom.
+Loom lets an author carve a program into named compartments first and write each one later. A compartment that holds no code yet is unsettled, and it takes one of two shapes. An anchor labelled `{To be settled}` names a section nobody has written, as `::[Greeting function]{To be settled}` does. The label says the name is meant, so the anchor raises no fault, and it asks for no prose before the author is ready to specify the section. With other parameters the label takes its full form, `{kind="To be settled" symbols=greet}`, as the chapter "Parameters in braces" requires.
+
+A section declared with its heading and the prose that specifies it, but no code yet, is unsettled too. Its prose already says what its code will do, so it is the literate counterpart of a mock. It fakes no behaviour, but it states the intent, and a reader can read it before any code exists. A box that points to a chapter not yet written leaves a whole loom to be settled.
 
 So a reference that composes or refers names one of three things:
 
-- **Something missing.** No node in reach carries the name: a typo, or a section not yet declared. The `UnresolvedAnchor` fault reports it, as it does today. The editor offers a fix that declares the section, a heading and an empty specification, below the section that names it.
-- **A promise.** The node exists but holds no code yet: a section with prose alone, a box whose chapter is not written, or a chapter that emits no file yet. The reference resolves, and nothing is wrong while the author writes. The editor marks the reference as a promise, the graph of the book lists every open promise, and the woven page marks each promised section, the way the website marks a page it has not written yet as "Being written".
+- **Something missing.** No node in reach carries the name, and the anchor carries no `{To be settled}` label: a typo, or a section not yet declared. The `UnresolvedAnchor` fault reports it. The editor offers two fixes: one declares the section, a heading below the section that names it, and the other labels the anchor `{To be settled}`.
+- **Something unsettled.** The anchor is labelled `{To be settled}` and its name finds nothing, or the node exists but holds no code yet: a section with prose alone, a box whose chapter is not written, or a chapter that emits no file yet. The reference resolves, and nothing is wrong while the author writes. The `UnsettledSection` note marks the reference in the editor, the graph of the book lists every unsettled reference, and the woven page marks each one, the way the website marks a page it has not written yet as "Being written".
 - **Something written.** The node holds code, and the reference composes it or refers to it. When the node belongs to a canvas in another chapter, a composing reference also raises the warning the chapter "Canvases" describes.
 
-A promise belongs to the reference, not to the section. Many sections hold prose alone by design, such as the opening section of most chapters. A section with no code becomes a promise only when a composing anchor names it.
+Being unsettled belongs to the reference, not to the section. Many sections hold prose alone by design, such as the opening section of most chapters. A section with no code becomes unsettled only when a composing anchor names it.
 
 A chapter named whole is the exception. A composing anchor that names a chapter reaches the chapter's opening section. When that section holds no code, the `ChapterWithoutCode` warning tells the author that the anchor composes nothing. A chapter with no section at all leaves the anchor nothing to reach, so the `UnresolvedAnchor` fault reports it.
 
-A promise can be read, but not shipped. The tangler refuses a file whose composition reaches a promised section, and it names each promise it met. Without that rule, a promise would compose nothing, and the tangled file would carry a gap that nothing points to.
+A section is settled once it holds code. An anchor labelled `{To be settled}` whose section has since been written keeps a label with nothing left to say, so the `SettledLabel` note marks it, with a fix that removes the label.
 
-## The contract a promise collects
+An unsettled reference can be read, but not shipped. The tangler refuses a file whose composition reaches one, and it names each one it met, a chapter named whole whose opening section holds no code among them. Without that rule, the anchor would compose nothing, and the tangled file would carry a gap that nothing points to.
 
-An import from a promised chapter has no module behind it yet. The editor hands the language service an empty module in place of the file the chapter will emit. The service then reports every name the code imports from that module, and how the code uses each one: the arguments a function receives, the members an object must have, the type a value must fit. Those reports are the promised chapter's contract, written by the code that depends on it.
+## The contract an unsettled section collects
+
+An import from an unsettled chapter has no module behind it yet. The editor hands the language service an empty module in place of the file the chapter will emit. The service then reports every name the code imports from that module, and how the code uses each one: the arguments a function receives, the members an object must have, the type a value must fit. Those reports are the unsettled chapter's contract, written by the code that depends on it.
 
 The contract can become a stub, with no guessing involved. Editors have long offered to create a function or a class from its uses. They read each call site, take each parameter's type from the argument passed, and write a declaration whose body is the language's own placeholder. TypeScript's placeholder throws an error, Rust's calls `todo!()`, and Python's raises `NotImplementedError`. The language package writes the stub, through its language service's own fix where the service has one, and otherwise from the types the service reports at each use.
 
-Loom decides where the stub lands, which no editor can decide alone. The stub goes into the promised chapter, as a new section with a heading for its name and an empty specification for the author to write. It gathers every use across the book, not the uses in one file.
+Loom decides where the stub lands, which no editor can decide alone. The stub goes into the unsettled chapter, as a new section with a heading for its name and an empty specification for the author to write. It gathers every use across the book, not the uses in one file.
 
-A stub is code, so the section it lands in is written and no longer a promise. The language's placeholder is what still marks it unfinished.
+A stub is code, so the section it lands in is settled. The language's placeholder is what still marks it unfinished.
 
 ## A contract stated on the anchor
 
@@ -92,7 +96,7 @@ What a symbol is follows the kind of edge. A composing anchor, `::[Name]`, draws
 
 Loom checks the contract without knowing the language. Every language server reports the symbols a document declares, each with its name and its kind, through the protocol's `textDocument/documentSymbol` request. Loom asks the service that owns the section, or the emitted file, for those symbols and compares the names. A stated name that the target does not provide is the `MissingSymbol` fault at the anchor.
 
-A promise holds no code yet, so its stated symbols are the contract its stub fulfils. The stub takes its names from the anchor and its types from the uses the language service reports, as the section above describes. A language whose service infers nothing from uses still gets a stub with the right names.
+An unsettled section holds no code yet, so the symbols an anchor states for it are the contract its stub fulfils. An anchor that both labels its section to be settled and states its symbols writes the full form, `::[Greeting function]{kind="To be settled" symbols=greet}`. The stub takes its names from the anchor and its types from the uses the language service reports, as the section above describes. A language whose service infers nothing from uses still gets a stub with the right names.
 
 ## Waiting for a missing name
 
@@ -124,14 +128,14 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 - **Titles that hold a comma.** A comma separates the names in a path, yet many titles hold a comma. Part X alone anchors `::[Once, as the site is built]`, `::[What the licence says, plainly]`, and `::[A chapter, cut into entries]`. So a name is first tried whole, and is split into a path only when the whole name matches nothing, which keeps those anchors resolving. How a path names a title with a comma inside it is still open.
 - **How far a box's name reaches.** A bare name finds a box within the box's own chapter. Whether a box should also be found by a bare name from another chapter is open. A path reaches it either way.
-- **Stubs in TypeScript 7.** TypeScript 7.0.2 ships none of the fixes that create code from its uses. Asked over its language server, it offers import fixes, "Implement interface", and the fixes for a missing type annotation. TypeScript 6.0.3 also adds a missing function, declares a missing method or property in another file, adds missing properties, implements an abstract class, and infers parameter types from usage. TypeScript 7's main branch holds the same code actions as 7.0.2, and its team does not plan to port every one. No version of TypeScript offers a fix for the case a promise needs most: a name imported from a module that does not export it. So the TypeScript package writes stubs itself, from the types the language server reports at each use, or borrows TypeScript 6's fixes in a project that still runs TypeScript 6. Which of the two is open, and so is how a stub's types read when a use gives little to infer from, as when a value is only passed along.
-- **Running a promise.** A language package could compose a placeholder in place of a promise, so a program runs before it is finished. Where a placeholder is valid syntax, and whether the author asks for it per tangle, is open.
+- **Stubs in TypeScript 7.** TypeScript 7.0.2 ships none of the fixes that create code from its uses. Asked over its language server, it offers import fixes, "Implement interface", and the fixes for a missing type annotation. TypeScript 6.0.3 also adds a missing function, declares a missing method or property in another file, adds missing properties, implements an abstract class, and infers parameter types from usage. TypeScript 7's main branch holds the same code actions as 7.0.2, and its team does not plan to port every one. No version of TypeScript offers a fix for the case an unsettled section needs most: a name imported from a module that does not export it. So the TypeScript package writes stubs itself, from the types the language server reports at each use, or borrows TypeScript 6's fixes in a project that still runs TypeScript 6. Which of the two is open, and so is how a stub's types read when a use gives little to infer from, as when a value is only passed along.
+- **Running before it is settled.** A language package could compose a placeholder in place of an unsettled section, so a program runs before it is finished. Where a placeholder is valid syntax, and whether the author asks for it per tangle, is open.
 - **Where the graph is drawn.** Whether the first view of the graph is a `loom` verb, a panel in the editor, or a page of the website is open.
 
 ## What this chapter grows into
 
-1. Promises: marked in the editor and on the woven page, and refused by the tangler.
-2. The contract a promise collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the promised chapter.
+1. Unsettled references: the `{To be settled}` label with its fixes, marked in the editor and on the woven page, and refused by the tangler.
+2. The contract an unsettled section collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
 3. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
 4. The graph as a projection of the produced corpus, with its first view.
 

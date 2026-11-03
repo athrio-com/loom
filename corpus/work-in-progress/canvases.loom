@@ -32,7 +32,7 @@ A canvas's code may change shape at any moment, so code in another chapter that 
 
 The warning never stops the tangle. It tells the author that a settled chapter now leans on an unsettled one. An anchor between two sections of the same canvas raises no warning, because the canvas is one unsettled whole.
 
-A warning differs from a promise, which the chapter "Names through the book" describes. A promise holds no code, so the tangler refuses to ship it. A canvas holds code that runs, so the tangler ships it and says so.
+A warning differs from an unsettled section, which the chapter "Names through the book" describes. An unsettled section holds no code, so the tangler refuses to ship it. A canvas holds code that runs, so the tangler ships it and says so.
 
 ## Numbers
 

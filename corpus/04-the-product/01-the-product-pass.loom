@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `PromisedSection` note a promise carries, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -65,6 +65,8 @@ import {
   type Declaration,
   DuplicateName,
   faulty,
+  SettledLabel,
+  UnsettledSection,
   UnknownVariable,
   UnresolvedAnchor,
 } from '#ast/LoomFault'
@@ -138,7 +140,7 @@ A tangle sink resolves its language a fourth way: it carries no specifier, only 
 
 A file with no extension takes its whole name as its language, read from the last path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes `license`, and a `.gitignore`, whose one dot only marks it hidden, composes `gitignore`. A chapter that declares the same language can then anchor into it.
 
-`sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ.
+`sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled.
 
 =>
 
@@ -146,6 +148,7 @@ type NameEntry = {
   readonly name: string
   readonly pos: Position
   readonly language: string
+  readonly written: boolean
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -194,6 +197,7 @@ const nameIndex = (
               name: sectionNameOf(s),
               pos: title.position,
               language: sectionLanguage(s, defaultLang, pkg),
+              written: Array.isReadonlyArrayNonEmpty(codeRuns(s.code)),
             },
           ] as const,
       ),
@@ -504,7 +508,9 @@ An anchor with a path is bound first, because it names a loom before it names a 
 
 An anchor that stays in this document takes one of three paths. When the name is a value warp, the anchor composes that warp's text as a `Fragment` where the anchor stood. The fragment carries the warp's health, so an undeclared `${name}` raises its fault at the warp. No edge is made, since a literal reaches no section.
 
-Otherwise the name is looked up among the document's section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity, and the projection follows it and inlines the section there. A match in another language is a cross-language transclusion. The edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file.
+Otherwise the name is looked up among the document's section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity, and the projection follows it and inlines the section there. `localHealth` marks the edge in three cases. A match that holds no code yet is a section to be settled, and the edge carries the `UnsettledSection` note. A match in another language is a cross-language transclusion. The edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file. A match that holds code, reached by an anchor still labelled `{To be settled}`, carries the `SettledLabel` note, whose fix removes the label.
+
+An anchor labels its section `{To be settled}` in its braces, in any case of letters, and `settleLabelOf` reads the span of that label. Every edge the pass makes records it, so the judgement and the tangle know which names the author meant before writing them.
 
 A name that no section of the document carries may still lie elsewhere in the book. `openRef` composes an edge for it that records the name and leaves the target open, and the compiler binds that edge once it holds the corpus.
 
@@ -518,14 +524,15 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
+    const label = settleLabelOf(anchor)
     const file = anchorModule(modulePath, anchor)
-    if (file !== modulePath) return crossFileRef(file, name, at)
+    if (file !== modulePath) return crossFileRef(file, name, at, label)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
-      onEmpty: () => openRef(name, at),
+      onEmpty: () => openRef(name, at, label),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? NameRefSchema.make({
@@ -535,22 +542,57 @@ const bindAnchor =
                 name: entry.name,
               }),
               anchor: at,
-              health:
-                entry.language === host ? okHealth : crossLanguage(name, at, host, entry.language),
+              toBeSettled: label,
+              health: localHealth(entry, name, at, host, label),
             })
           : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1, [])),
     })
   }
 
-const crossFileRef = (path: string, title: string, at: Position): NameRef =>
+const settleLabelOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
+  pipe(
+    Option.fromNullishOr(anchor.specifier),
+    Option.filter(
+      (specifier) =>
+        specifier.type === 'Specifier' && specifier.label.value.toLowerCase() === 'to be settled',
+    ),
+    Option.map((specifier) => specifier.position),
+  )
+
+const localHealth = (
+  entry: NameEntry,
+  name: string,
+  at: Position,
+  host: string,
+  label: Option.Option<Position>,
+): Health =>
+  Match.value({ written: entry.written, sameLanguage: entry.language === host }).pipe(
+    Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
+    Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
+    Match.orElse(() => settledHealth(name, at, label)),
+  )
+
+const settledHealth = (name: string, at: Position, label: Option.Option<Position>): Health =>
+  Option.match(label, {
+    onNone: () => okHealth,
+    onSome: (span) => faulty(SettledLabel({ name, label: span }), at),
+  })
+
+const crossFileRef = (
+  path: string,
+  title: string,
+  at: Position,
+  label: Option.Option<Position>,
+): NameRef =>
   NameRefSchema.make({
     name: title,
     target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
     anchor: at,
+    toBeSettled: label,
   })
 
-const openRef = (title: string, at: Position): NameRef =>
-  NameRefSchema.make({ name: title, target: Option.none(), anchor: at })
+const openRef = (title: string, at: Position, label: Option.Option<Position>): NameRef =>
+  NameRefSchema.make({ name: title, target: Option.none(), anchor: at, toBeSettled: label })
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
@@ -612,7 +654,7 @@ const edgeHealth = (
 
 ~
 
-`pathHealth` judges an edge with a path. It asks the three questions the pass asks of a local anchor, this time of the loom the path names. A name that titles no section there is unresolved, and so is a name whose path names no loom in the corpus. A name that titles more than one section is ambiguous. A section in another language is a cross-language transclusion, measured against the language of the section that holds the anchor. `codesTitled` finds the sections in the named loom whose raw title matches the name, and returns the `Code` each one composed, so the judgement reads a candidate's language off its product.
+`pathHealth` judges an edge with a path. It asks the three questions the pass asks of a local anchor, this time of the loom the path names. A name that titles no section there is unresolved, and so is a name whose path names no loom in the corpus. A name that titles more than one section is ambiguous. A section in another language is a cross-language transclusion, measured against the language of the section that holds the anchor, and a section with no code yet is a promise. `codesTitled` finds the sections in the named loom whose raw title matches the name, and returns the `Code` each one composed, so the judgement reads a candidate's language off its product.
 
 =>
 
@@ -643,15 +685,15 @@ const pathHealth = (
     onNonEmpty: (code, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, rest.length + 1, [])
-        : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+        : reachedHealth(ref.name, ref.anchor, host.languageId, code, false, ref.toBeSettled),
   })
 }
 
 ~
 
-An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name, so the anchor is unresolved. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
+An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}` meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
-The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A chapter whose opening section holds no code composes nothing, so it raises the `ChapterWithoutCode` warning. Any other section must share the host's language. `codeOf` finds the `Code` a reached section composed, and `languageHealth` is the last question alone: the found language against the host's.
+The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
 
 `declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
@@ -667,16 +709,24 @@ const nameHealth = (
   const trails = trailsOf(book, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
-      faulty(
-        UnresolvedAnchor({
-          name: ref.name,
-          ...Option.match(declarationBelow(module, host, ref.name), {
-            onNone: () => ({}),
-            onSome: (declaration) => ({ declaration }),
-          }),
-        }),
-        ref.anchor,
-      ),
+      Option.match(ref.toBeSettled, {
+        onSome: () => faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor),
+        onNone: () =>
+          faulty(
+            UnresolvedAnchor({
+              name: ref.name,
+              ...Option.match(declarationBelow(module, host, ref.name), {
+                onNone: () => ({}),
+                onSome: (declaration) => ({ declaration }),
+              }),
+              ...Option.match(settleAt(module, ref.anchor), {
+                onNone: () => ({}),
+                onSome: (point) => ({ settleAt: point }),
+              }),
+            }),
+            ref.anchor,
+          ),
+      }),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
@@ -695,10 +745,43 @@ const trailHealth = (
     {
       onNone: () => unresolved(ref.name, ref.anchor),
       onSome: (code) =>
-        Array.lastNonEmpty(trail).place._tag === 'Chapter' && code.fragments.length === 0
-          ? faulty(ChapterWithoutCode({ name: ref.name }), ref.anchor)
-          : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+        reachedHealth(
+          ref.name,
+          ref.anchor,
+          host.languageId,
+          code,
+          Array.lastNonEmpty(trail).place._tag === 'Chapter',
+          ref.toBeSettled,
+        ),
     },
+  )
+
+const reachedHealth = (
+  name: string,
+  at: Position,
+  host: string,
+  code: Code,
+  whole: boolean,
+  label: Option.Option<Position>,
+): Health =>
+  Match.value({
+    written: Array.isReadonlyArrayNonEmpty(code.fragments),
+    whole,
+    sameLanguage: code.languageId === host,
+  }).pipe(
+    Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
+    Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
+    Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),
+    Match.orElse(() => settledHealth(name, at, label)),
+  )
+
+const settleAt = (module: LoomModule, at: Position): Option.Option<Position> =>
+  pipe(
+    module.doc.sections,
+    Array.flatMap((section) => Array.flatMap(section.code, (weft) => weft.anchors)),
+    Array.findFirst((anchor) => anchor.name.position.start.offset === at.start.offset),
+    Option.filter((anchor) => anchor.specifier === undefined),
+    Option.map((anchor) => between(anchor.position.end, anchor.position.end)),
   )
 
 const pointAtEnd = (text: string): Point => {
@@ -744,9 +827,6 @@ const codeOf = (
       ),
     ),
   )
-
-const languageHealth = (name: string, at: Position, host: string, found: string): Health =>
-  found === host ? okHealth : crossLanguage(name, at, host, found)
 
 ~
 

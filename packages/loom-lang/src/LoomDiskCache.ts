@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
+import { type Position } from '@athrio/loom-ast/LoomNode'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
@@ -73,17 +74,21 @@ const keptFileOf = (workspace: string, path: Location): string =>
     `${createHash('sha256').update(path).digest('hex').slice(0, 16)}.json`,
   )
 
-interface KeptOption {
+interface KeptOption<A> {
   readonly _tag: string
-  readonly value?: SectionId
+  readonly value?: A
 }
 
-const optionOf = (kept: KeptOption): Option.Option<SectionId> =>
+const optionOf = <A>(kept: KeptOption<A>): Option.Option<A> =>
   kept._tag === 'Some' && kept.value !== undefined ? Option.some(kept.value) : Option.none()
 
 const revivedPart = (part: Part): Part =>
   part.type === 'NameRef'
-    ? { ...part, target: optionOf(part.target as unknown as KeptOption) }
+    ? {
+        ...part,
+        target: optionOf(part.target as unknown as KeptOption<SectionId>),
+        toBeSettled: optionOf(part.toBeSettled as unknown as KeptOption<Position>),
+      }
     : part
 
 const revivedCode = (code: Code): Code => ({

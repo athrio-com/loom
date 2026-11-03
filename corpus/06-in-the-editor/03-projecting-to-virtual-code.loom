@@ -147,6 +147,58 @@ const inlineComposed =
     )
   }
 
+## What a composition leaves to be settled
+
+A tangle writes no file whose composition reaches a section that holds no code yet. `unsettledIn` walks a root's composition the way `inlineComposed` does, binding each reference with `targetOf` and following it into the section it reaches. It reports an `Unsettled` reference at each edge that stops short of code: the loom that holds the anchor, the anchor's span, the name it writes, and whether a section of that name is declared yet. `unsettledAt` builds one from the section being walked and its reference.
+
+An edge stops short in two ways. It reaches a section whose `Code` holds no fragments, a section declared but not yet written. Or it binds to nothing while its anchor carries the `{To be settled}` label, so the section is not declared at all. An edge that binds to nothing without the label is a fault the diagnostics already raise, so the walk passes it by. A section the walk has already entered is not entered again, which ends a cycle.
+
+=>
+
+export type Unsettled = {
+  readonly path: Location
+  readonly anchor: Position
+  readonly name: string
+  readonly declared: boolean
+}
+
+const unsettledAt = (node: Code, ref: Ref, declared: boolean): Unsettled => ({
+  path: node.origin.path,
+  anchor: ref.anchor,
+  name: ref.name,
+  declared,
+})
+
+const unsettledFrom =
+  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (node: Code): ReadonlyArray<Unsettled> =>
+    Array.flatMap(node.fragments, (part) =>
+      part.type === 'Fragment'
+        ? []
+        : Option.match(targetOf(book, node.origin.path, part), {
+            onNone: () => (Option.isSome(part.toBeSettled) ? [unsettledAt(node, part, false)] : []),
+            onSome: (target) =>
+              pipe(
+                Option.some(target),
+                Option.filter((reached) => !seen.has(keyOf(reached))),
+                Option.flatMap((reached) => lookup(modules, reached)),
+                Option.match({
+                  onNone: (): ReadonlyArray<Unsettled> => [],
+                  onSome: (code) =>
+                    Array.isReadonlyArrayNonEmpty(code.fragments)
+                      ? unsettledFrom(modules, book, new Set([...seen, keyOf(target)]))(code)
+                      : [unsettledAt(node, part, true)],
+                }),
+              ),
+          }),
+    )
+
+export const unsettledIn = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Code,
+  book: Book = bookOf(modules),
+): ReadonlyArray<Unsettled> => unsettledFrom(modules, book, new Set([keyOf(root.origin)]))(root)
+
 ## Re-indenting a transcluded block
 
 An anchor that stands alone on its line carries that line's indentation into what it pulls in. Write `::[body]` four spaces deep and every line of the inlined block lands four spaces deep, not just the first. For Python or Scala 3, where indentation marks block structure, this is what lets a transcluded block land at the depth its anchor sits at rather than break the file.
@@ -459,6 +511,8 @@ import {
 ::[The fold monoid]
 
 ::[Inlining the product]
+
+::[What a composition leaves to be settled]
 
 ::[Re-indenting a transcluded block]
 

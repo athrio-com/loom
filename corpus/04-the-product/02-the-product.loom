@@ -48,7 +48,7 @@ A `Fragment` is a literal product span — the code the author wrote — with th
 
 A `Ref` is a transclusion edge. It records one name anchor, `::[Heading]`, so the projection composes the section the anchor names into the section that holds the anchor, and the two share one scope. `Ref` is the single edge kind, named `NameRef`.
 
-A `NameRef` carries three fields. Its `name` is the name the anchor writes, exactly as written. Its `target` is the `SectionId` the edge points at. The target is absent when the product pass, which reads one loom at a time, finds no section of that name in the anchor's own loom. The name may still lie elsewhere in the book, so the compiler binds it once it holds the corpus. The `anchor` field is the span of the name in the section that holds the anchor, where a diagnostic about the edge lands.
+A `NameRef` carries four fields. Its `name` is the name the anchor writes, exactly as written. Its `target` is the `SectionId` the edge points at. The target is absent when the product pass, which reads one loom at a time, finds no section of that name in the anchor's own loom. The name may still lie elsewhere in the book, so the compiler binds it once it holds the corpus. The `anchor` field is the span of the name in the section that holds the anchor, where a diagnostic about the edge lands. `toBeSettled` is the span of the anchor's `{To be settled}` label, when the anchor carries one: it says the section the name reaches is meant, though nobody has written it yet.
 
 =>
 
@@ -62,6 +62,7 @@ export const NameRefSchema = productNode('NameRef', {
   name: Schema.String,
   target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
+  toBeSettled: Schema.Option(PositionSchema),
 })
 export type NameRef = typeof NameRefSchema.Type
 

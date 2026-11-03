@@ -208,11 +208,17 @@ describe('Tokeniser — synthetic close (unclosed bracket)', () => {
 
 describe('Tokeniser — malformed label values', () => {
   it('malformed label Specifier routes the bad text to unexpected', () => {
-    const w = headingAt(tokenise(['# Title {bad lang}']), 0)
+    const w = headingAt(tokenise(['# Title {bad.lang}']), 0)
     expect(w.specifier?.type).toBe('Specifier')
     expect(w.specifier?.label.health.status).toBe('error')
     expect(w.specifier?.label.value).toBe('')
-    expect(w.specifier?.label.unexpected?.[0].value).toBe('bad lang')
+    expect(w.specifier?.label.unexpected?.[0].value).toBe('bad.lang')
+  })
+
+  it('a label of several words, one space apart, is one label', () => {
+    const w = headingAt(tokenise(['# Title {To be settled}']), 0)
+    expect(w.specifier?.label.health.status).toBe('ok')
+    expect(w.specifier?.label.value).toBe('To be settled')
   })
 })
 

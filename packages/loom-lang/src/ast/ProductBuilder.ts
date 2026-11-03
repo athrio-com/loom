@@ -42,6 +42,8 @@ import {
   type Declaration,
   DuplicateName,
   faulty,
+  SettledLabel,
+  UnsettledSection,
   UnknownVariable,
   UnresolvedAnchor,
 } from '#ast/LoomFault'
@@ -99,6 +101,7 @@ type NameEntry = {
   readonly name: string
   readonly pos: Position
   readonly language: string
+  readonly written: boolean
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -147,6 +150,7 @@ const nameIndex = (
               name: sectionNameOf(s),
               pos: title.position,
               language: sectionLanguage(s, defaultLang, pkg),
+              written: Array.isReadonlyArrayNonEmpty(codeRuns(s.code)),
             },
           ] as const,
       ),
@@ -419,14 +423,15 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
+    const label = settleLabelOf(anchor)
     const file = anchorModule(modulePath, anchor)
-    if (file !== modulePath) return crossFileRef(file, name, at)
+    if (file !== modulePath) return crossFileRef(file, name, at, label)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
-      onEmpty: () => openRef(name, at),
+      onEmpty: () => openRef(name, at, label),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? NameRefSchema.make({
@@ -436,22 +441,57 @@ const bindAnchor =
                 name: entry.name,
               }),
               anchor: at,
-              health:
-                entry.language === host ? okHealth : crossLanguage(name, at, host, entry.language),
+              toBeSettled: label,
+              health: localHealth(entry, name, at, host, label),
             })
           : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1, [])),
     })
   }
 
-const crossFileRef = (path: string, title: string, at: Position): NameRef =>
+const settleLabelOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
+  pipe(
+    Option.fromNullishOr(anchor.specifier),
+    Option.filter(
+      (specifier) =>
+        specifier.type === 'Specifier' && specifier.label.value.toLowerCase() === 'to be settled',
+    ),
+    Option.map((specifier) => specifier.position),
+  )
+
+const localHealth = (
+  entry: NameEntry,
+  name: string,
+  at: Position,
+  host: string,
+  label: Option.Option<Position>,
+): Health =>
+  Match.value({ written: entry.written, sameLanguage: entry.language === host }).pipe(
+    Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
+    Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
+    Match.orElse(() => settledHealth(name, at, label)),
+  )
+
+const settledHealth = (name: string, at: Position, label: Option.Option<Position>): Health =>
+  Option.match(label, {
+    onNone: () => okHealth,
+    onSome: (span) => faulty(SettledLabel({ name, label: span }), at),
+  })
+
+const crossFileRef = (
+  path: string,
+  title: string,
+  at: Position,
+  label: Option.Option<Position>,
+): NameRef =>
   NameRefSchema.make({
     name: title,
     target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
     anchor: at,
+    toBeSettled: label,
   })
 
-const openRef = (title: string, at: Position): NameRef =>
-  NameRefSchema.make({ name: title, target: Option.none(), anchor: at })
+const openRef = (title: string, at: Position, label: Option.Option<Position>): NameRef =>
+  NameRefSchema.make({ name: title, target: Option.none(), anchor: at, toBeSettled: label })
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
@@ -530,7 +570,7 @@ const pathHealth = (
     onNonEmpty: (code, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, rest.length + 1, [])
-        : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+        : reachedHealth(ref.name, ref.anchor, host.languageId, code, false, ref.toBeSettled),
   })
 }
 
@@ -544,16 +584,24 @@ const nameHealth = (
   const trails = trailsOf(book, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
-      faulty(
-        UnresolvedAnchor({
-          name: ref.name,
-          ...Option.match(declarationBelow(module, host, ref.name), {
-            onNone: () => ({}),
-            onSome: (declaration) => ({ declaration }),
-          }),
-        }),
-        ref.anchor,
-      ),
+      Option.match(ref.toBeSettled, {
+        onSome: () => faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor),
+        onNone: () =>
+          faulty(
+            UnresolvedAnchor({
+              name: ref.name,
+              ...Option.match(declarationBelow(module, host, ref.name), {
+                onNone: () => ({}),
+                onSome: (declaration) => ({ declaration }),
+              }),
+              ...Option.match(settleAt(module, ref.anchor), {
+                onNone: () => ({}),
+                onSome: (point) => ({ settleAt: point }),
+              }),
+            }),
+            ref.anchor,
+          ),
+      }),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
@@ -572,10 +620,43 @@ const trailHealth = (
     {
       onNone: () => unresolved(ref.name, ref.anchor),
       onSome: (code) =>
-        Array.lastNonEmpty(trail).place._tag === 'Chapter' && code.fragments.length === 0
-          ? faulty(ChapterWithoutCode({ name: ref.name }), ref.anchor)
-          : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+        reachedHealth(
+          ref.name,
+          ref.anchor,
+          host.languageId,
+          code,
+          Array.lastNonEmpty(trail).place._tag === 'Chapter',
+          ref.toBeSettled,
+        ),
     },
+  )
+
+const reachedHealth = (
+  name: string,
+  at: Position,
+  host: string,
+  code: Code,
+  whole: boolean,
+  label: Option.Option<Position>,
+): Health =>
+  Match.value({
+    written: Array.isReadonlyArrayNonEmpty(code.fragments),
+    whole,
+    sameLanguage: code.languageId === host,
+  }).pipe(
+    Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
+    Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
+    Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),
+    Match.orElse(() => settledHealth(name, at, label)),
+  )
+
+const settleAt = (module: LoomModule, at: Position): Option.Option<Position> =>
+  pipe(
+    module.doc.sections,
+    Array.flatMap((section) => Array.flatMap(section.code, (weft) => weft.anchors)),
+    Array.findFirst((anchor) => anchor.name.position.start.offset === at.start.offset),
+    Option.filter((anchor) => anchor.specifier === undefined),
+    Option.map((anchor) => between(anchor.position.end, anchor.position.end)),
   )
 
 const pointAtEnd = (text: string): Point => {
@@ -621,9 +702,6 @@ const codeOf = (
       ),
     ),
   )
-
-const languageHealth = (name: string, at: Position, host: string, found: string): Health =>
-  found === host ? okHealth : crossLanguage(name, at, host, found)
 
 export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Option<SectionId> =>
   Option.orElse(ref.target, () =>

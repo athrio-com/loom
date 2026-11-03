@@ -25,8 +25,8 @@ export const SpecifierLabelTokenSchema = loomNode('SpecifierLabel', {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
-    if (t.value !== '' && !/^[a-zA-Z0-9_-]+$/.test(t.value)) {
-      return `specifier label value must match [a-zA-Z0-9_-]+, got \`${t.value}\``
+    if (t.value !== '' && !/^[a-zA-Z0-9_-]+(?: [a-zA-Z0-9_-]+)*$/.test(t.value)) {
+      return `specifier label value must be words of [a-zA-Z0-9_-]+, got \`${t.value}\``
     }
     return undefined
   }),
@@ -45,7 +45,7 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
   label: SpecifierLabelTokenSchema,
   close: SpecifierCloseTokenSchema,
 }).annotate({
-  [Probe]: /\{[a-zA-Z0-9_-]+\}/g,
+  [Probe]: /\{[a-zA-Z0-9_-]+(?: [a-zA-Z0-9_-]+)*\}/g,
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 

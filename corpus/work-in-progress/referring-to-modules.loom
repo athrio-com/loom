@@ -71,7 +71,7 @@ Some languages tie modules to the folders they live in, and their packages need 
 A reference fails in three ways, and each failure is a Loom fault at the reference:
 
 - **The name matches nothing.** The `UnresolvedAnchor` fault reports it. The reference waits for its name as a forward reference, so the fault clears the moment the module is written.
-- **The node emits no such file.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses. The fault lists the files the node does emit. A chapter that emits no file at all yet, or a box whose chapter is not written, is not at fault. It is a promise, which the chapter "Names through the book" describes: the reference resolves, and the editor collects the module's contract from the code that uses it and from any `symbols` the reference states.
+- **The node emits no such file.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses. The fault lists the files the node does emit. A chapter that emits no file at all yet, or a box whose chapter is not written, is not at fault. It is unsettled, as the chapter "Names through the book" describes: the reference resolves, and the editor collects the module's contract from the code that uses it and from any `symbols` the reference states.
 - **The module lacks a stated symbol.** The reference states `symbols`, as the chapter "Names through the book" describes, and the file it names does not export every one of them. The `MissingSymbol` fault names each name the file lacks.
 
 ## Libraries outside the book

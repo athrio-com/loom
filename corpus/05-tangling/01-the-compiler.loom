@@ -116,7 +116,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => {
             const scoped = scopedTo(modules, reachable(modules, path))
-            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(modules))
+            const failures = [
+              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules)),
+              ...unsettledFailures(modules, path),
+            ]
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
               : resolveSinks(modules, path, workspaces.placeOf)
@@ -399,6 +402,8 @@ const corpusDiagnostics = (modules: Modules) => {
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. The failure is loud, and names every file and line.
 
+A tangle also refuses a file whose composition reaches a section to be settled, a section that holds no code yet or one an anchor labels `{To be settled}` before anyone declares it. The editor treats such a section as a note, since nothing is wrong while the author writes, but a file that composed one would ship without the code its anchor names. `unsettledFailures` walks the composition of each file the entry tangles through `unsettledIn`, and turns each unsettled reference into the `UnsettledSection` note, grouped by the loom that holds it. A chapter named whole whose opening section holds no code is refused the same way. The refusal counts problems rather than errors, since a note is no error.
+
 =>
 
 export interface TangledFile {
@@ -431,6 +436,36 @@ const resolveSinks = (
     }),
   )
 
+const unsettledFailures = (
+  modules: Modules,
+  entry: Location,
+): ReadonlyArray<{ readonly path: Location; readonly diagnostics: ReadonlyArray<Diagnostic> }> => {
+  const book = bookOf(modules)
+  return pipe(
+    Option.fromNullishOr(modules.get(entry)),
+    Option.match({
+      onNone: (): ReadonlyArray<Unsettled> => [],
+      onSome: (module) =>
+        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, book)),
+    }),
+    Array.dedupeWith(
+      (one, other) =>
+        one.path === other.path && one.anchor.start.offset === other.anchor.start.offset,
+    ),
+    Array.groupBy((unsettled) => unsettled.path),
+    Record.toEntries,
+    Array.map(([path, unsettled]) => ({
+      path,
+      diagnostics: Array.flatMap(
+        unsettled,
+        (one) =>
+          faulty(UnsettledSection({ name: one.name, declared: one.declared }), one.anchor)
+            .diagnostics,
+      ),
+    })),
+  )
+}
+
 export class TangleError extends Data.TaggedError('TangleError')<{
   readonly entry: Location
   readonly failures: ReadonlyArray<{
@@ -443,7 +478,7 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     const lines = this.failures.flatMap((f) =>
       f.diagnostics.map((d) => `  ${f.path}:${d.position.start.line}: ${d.message}`),
     )
-    return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
+    return `loom: refusing to tangle ${this.entry} — ${count} problem(s) across the corpus:\n${lines.join('\n')}`
   }
 }
 
@@ -778,12 +813,12 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus; the fault catalog's `faulty`, with the `DuplicateName` and `UnresolvedTocEntry` faults the compiler raises itself; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, and `FrameHint`, a position paired with the label `hints` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, and `UnsettledSection` notes and faults the compiler raises itself; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, and `FrameHint`, a position paired with the label `hints` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 =>
 
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
-import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -808,7 +843,7 @@ import {
   type LoomModule,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { DuplicateName, faulty, UnresolvedTocEntry } from '#ast/LoomFault'
+import { DuplicateName, faulty, UnresolvedTocEntry, UnsettledSection } from '#ast/LoomFault'
 import { crossFileFaults } from '#ast/ProductBuilder'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
@@ -821,6 +856,8 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromCode,
   fromProduct,
+  type Unsettled,
+  unsettledIn,
   fromProse,
   rootNamesAt,
   rootVirtualCode,
@@ -1667,7 +1704,7 @@ A path reaches a section of another chapter, from the chapter's title or from it
 
 ~
 
-A chapter whose opening section holds no code gives the anchor nothing to compose. The `diagnose` verb warns on the anchor's name, and the warning does not stop the tangle. A chapter with no section at all gives the anchor no section to compose, so the tangle refuses it.
+A chapter whose opening section holds no code gives the anchor nothing to compose. The `diagnose` verb warns on the anchor's name, and the tangle refuses the file, since the chapter is still to be settled. A chapter with no section at all gives the anchor no section to compose, so the tangle refuses it too.
 
 =>
 
@@ -1685,8 +1722,9 @@ A chapter whose opening section holds no code gives the anchor nothing to compos
           hello.slice(d.position.start.offset, d.position.end.offset),
         ]),
       ).toEqual([['warning', 'Words']])
-      const written = yield* tangled(files, '/corpus/hello.loom')
-      expect(written.map((f) => f.path)).toEqual(['/corpus/hello.ts'])
+      expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
+        '/corpus/hello.loom:6: To be settled: `Words` holds no code yet, so this anchor composes nothing.',
+      )
     }),
   )
 
@@ -1878,7 +1916,7 @@ describe('a path names parts and chapters by number', () => {
 
 ## A missing section, declared by a fix
 
-An anchor whose name nothing in the book carries offers a fix that declares the section in the anchor's own loom. The heading takes the level of the heading above the anchor, here `#`. With no section after the program, it goes at the end of the loom. With a section after it, `## Later`, it goes just above that section. Either way, the loom with the fix applied reports nothing, because the anchor now names a section of its own loom.
+An anchor whose name nothing in the book carries offers a fix that declares the section in the anchor's own loom. The heading takes the level of the heading above the anchor, here `#`. With no section after the program, it goes at the end of the loom. With a section after it, `## Later`, it goes just above that section. Either way, the anchor now names a section of its own loom, which holds no code yet, so the loom with the fix applied reports only that the section is to be settled. The second fix labels the anchor `{To be settled}` instead, and the loom then reports that no section has the name yet.
 
 =>
 
@@ -1897,16 +1935,105 @@ describe('a fix declares a missing section', () => {
     Effect.gen(function* () {
       const alone = helloAnchoring(anchor('Saying goodbye'))
       const followed = `${alone}\n## Later\n\nMore to come.\n`
-      const [atEnd] = (yield* diagnose(alone))[0]!.fixes ?? []
+      const unsettled = (diagnostics: ReadonlyArray<{ readonly message: string }>) =>
+        diagnostics.map((d) => d.message)
+      const declared =
+        'To be settled: `Saying goodbye` holds no code yet, so this anchor composes nothing.'
+      const [atEnd, labelled] = (yield* diagnose(alone))[0]!.fixes ?? []
       expect([atEnd!.title, atEnd!.text]).toEqual([
         'Declare the section `Saying goodbye`',
         '\n# Saying goodbye\n',
       ])
-      expect(yield* diagnose(applied(alone, atEnd!))).toEqual([])
+      expect(unsettled(yield* diagnose(applied(alone, atEnd!)))).toEqual([declared])
+      expect([labelled!.title, labelled!.text]).toEqual([
+        'Mark `Saying goodbye` to be settled',
+        '{To be settled}',
+      ])
+      expect(unsettled(yield* diagnose(applied(alone, labelled!)))).toEqual([
+        'To be settled: no section is named `Saying goodbye` yet, so this anchor composes nothing.',
+      ])
       const [beforeNext] = (yield* diagnose(followed))[0]!.fixes ?? []
       expect(beforeNext!.text).toBe('# Saying goodbye\n\n')
       expect(applied(followed, beforeNext!)).toContain('# Saying goodbye\n\n## Later')
-      expect(yield* diagnose(applied(followed, beforeNext!))).toEqual([])
+      expect(unsettled(yield* diagnose(applied(followed, beforeNext!)))).toEqual([declared])
+    }),
+  )
+})
+
+## Sections to be settled
+
+A section to be settled holds no code yet. The editor marks the anchor that composes it with a note, since nothing is wrong while the author writes, and the tangle refuses the file the anchor composes into. `settleDiagnose` gives the severity and message of each diagnostic, and `refusal` gives the message a refused tangle carries.
+
+The first case declares `Greeting` below the program, with prose and no code. The anchor on line 6 composes it, so the note says the section holds no code yet, and the tangle refuses the program with that note.
+
+=>
+
+const settleDiagnose = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(layerOf(files)),
+    Effect.map((diagnostics) => diagnostics.map((d) => [d.severity, d.message])),
+  )
+
+const declaredLater = `${helloAnchoring(anchor('Greeting'))}\n# Greeting\n\nA greeting, still to be written.\n`
+
+describe('a section to be settled', () => {
+  it.effect('marks an anchor that composes a section with no code, and refuses the tangle', () =>
+    Effect.gen(function* () {
+      const note = 'To be settled: `Greeting` holds no code yet, so this anchor composes nothing.'
+      expect(
+        yield* settleDiagnose({ '/corpus/hello.loom': declaredLater }, '/corpus/hello.loom'),
+      ).toEqual([['info', note]])
+      expect(
+        yield* refusal({ '/corpus/hello.loom': declaredLater }, '/corpus/hello.loom'),
+      ).toContain(`/corpus/hello.loom:6: ${note}`)
+    }),
+  )
+
+~
+
+An anchor labelled `{To be settled}` may name a section nobody has declared. The label says the name is meant, so the anchor raises the note, not the `UnresolvedAnchor` fault, and the tangle refuses it all the same.
+
+=>
+
+  it.effect('takes a labelled name nothing carries as meant, and refuses the tangle', () =>
+    Effect.gen(function* () {
+      const labelled = {
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Greeting')}{To be settled}`),
+      }
+      const note =
+        'To be settled: no section is named `Greeting` yet, so this anchor composes nothing.'
+      expect(yield* settleDiagnose(labelled, '/corpus/hello.loom')).toEqual([['info', note]])
+      expect(yield* refusal(labelled, '/corpus/hello.loom')).toContain(
+        `/corpus/hello.loom:6: ${note}`,
+      )
+    }),
+  )
+
+~
+
+Once the section holds code, the label has nothing left to say. The anchor carries the `SettledLabel` note, whose fix removes the label, and the loom with the fix applied reports nothing.
+
+=>
+
+  it.effect('notes a label its section has outgrown, and its fix removes it', () =>
+    Effect.gen(function* () {
+      const settled = `${helloAnchoring(`${anchor('Saying hello')}{To be settled}`)}\n${greeting}`
+      const [note] = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf({ '/corpus/hello.loom': settled })),
+      )
+      expect([note!.severity, note!.message]).toEqual([
+        'info',
+        'Settled: `Saying hello` holds code now, so its `{To be settled}` label has nothing left to say.',
+      ])
+      const [fix] = note!.fixes ?? []
+      const at = fix!.at!
+      const removed = `${settled.slice(0, at.start.offset)}${fix!.text}${settled.slice(at.end.offset)}`
+      expect(removed).toContain(`${anchor('Saying hello')}\n`)
+      expect(
+        yield* settleDiagnose({ '/corpus/hello.loom': removed }, '/corpus/hello.loom'),
+      ).toEqual([])
     }),
   )
 })
@@ -1926,6 +2053,8 @@ describe('a fix declares a missing section', () => {
 ::[A path by number]
 
 ::[A missing section, declared by a fix]
+
+::[Sections to be settled]
 
 ## Testing navigation within one loom
 

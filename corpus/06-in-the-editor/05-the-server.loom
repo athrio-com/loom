@@ -1812,11 +1812,11 @@ describe('LoomServer — a name that waits', () => {
 
 ~
 
-The fix that declares a missing section reaches the editor as a quick fix. `Main` names `Saying goodbye`, which nothing declares, on line 8. The fix writes the heading `# Saying goodbye` at the end of `main.loom`, which is line 9 at character 0.
+The fixes for a missing section reach the editor as quick fixes. `Main` names `Saying goodbye`, which nothing declares, on line 8. One fix writes the heading `# Saying goodbye` at the end of `main.loom`, which is line 9 at character 0. The other writes `{To be settled}` just past the anchor, at character 18 of line 8. The editor may list the two in either order, so the case sorts them by title.
 
 =>
 
-  it('offers a quick fix that declares the missing section', async () => {
+  it('offers quick fixes that declare the missing section or mark it to be settled', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
     const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Saying goodbye')))
@@ -1830,8 +1830,11 @@ The fix that declares a missing section reaches the editor as a quick fix. `Main
           Object.values(action.edit?.changes ?? {})
             .flat()
             .map((edit) => [edit.newText, edit.range.start.line, edit.range.start.character]),
-        ]),
-      ).toEqual([['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]]])
+        ]).sort(),
+      ).toEqual([
+        ['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]],
+        ['Mark `Saying goodbye` to be settled', [['{To be settled}', 8, 18]]],
+      ])
     } finally {
       editor.close()
     }

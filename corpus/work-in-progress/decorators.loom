@@ -10,7 +10,7 @@ Language: TypeScript
 
 An editor shows more than a file's text. A word carries a wavy underline, a few muted words follow a line, a button sits above a block. None of these is part of the file. Saving the file saves none of them, and closing the editor loses nothing.
 
-A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a promise is marked as promised, and a numbered reference shows its chapter's title. A term reference shows the term's definition, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
+A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a section not yet written is marked as unsettled, and a numbered reference shows its chapter's title. A term reference shows the term's definition, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
 
 Editors draw such things in different ways, and some draw few of them. This chapter gives decorators one model. Loom's language server turns each decorator into what an editor can draw: standard features that every editor understands, and richer forms for the editors that ask for them.
 
@@ -29,7 +29,7 @@ Six kinds cover what the drafts ask for:
 - **Hint:** a few words drawn inside a line, such as the chapter's title beside `::[Part II, Chapter 6, Resolving names]`.
 - **Action:** a labelled button above a line, which runs a command, such as Run above a box of kind `Run`.
 - **Hover:** a passage shown while the pointer rests on a range, such as a term's definition.
-- **Badge:** a short state on a heading or a box, such as passed, failed, or promised.
+- **Badge:** a short state on a heading or a box, such as passed, failed, or to be settled.
 - **Style:** a colour or an underline over a range, such as the underline under a term reference.
 - **Widget:** content drawn in place of a range or between two lines, such as the diagram a Mermaid box describes.
 
@@ -90,7 +90,7 @@ A view is the one surface where a trope's own page runs, and the editor shows it
 
 Decorators come from three sources: the core, a language, and a trope.
 
-The core supplies the decorators that its own drafts call for: the mark on a promise and the title beside a numbered reference, which the chapter "Names through the book" describes. A trope may decorate the same structures beside the core.
+The core supplies the decorators that its own drafts call for: the mark on an unsettled reference and the title beside a numbered reference, which the chapter "Names through the book" describes. A trope may decorate the same structures beside the core.
 
 A language supplies decorators through its language service, as TypeScript's hover already does.
 
@@ -116,7 +116,7 @@ The language server merges the three lists for each loom, then turns the merged 
 ## What this chapter grows into
 
 1. The decorator in the tropes contract: its place, its six kinds, and its content.
-2. The core's decorators for promises and numbered references.
+2. The core's decorators for unsettled and numbered references.
 3. The standard forms: the `loomInlayHints`, `loomCodeLenses`, `loomHover`, and `loomCodeActions` plugins, claimed at `initialize`, with a refresh when a decorator changes without an edit.
 4. Loom's messages for richer editors, named under `experimental` and sent as `loom/decorators`.
 5. Decorators from tropes: the structures and kinds a manifest names, and the `Decorate` request that carries a loom's nodes of those structures.

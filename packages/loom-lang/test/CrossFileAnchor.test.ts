@@ -316,8 +316,9 @@ describe('a name resolves through the book', () => {
           hello.slice(d.position.start.offset, d.position.end.offset),
         ]),
       ).toEqual([['warning', 'Words']])
-      const written = yield* tangled(files, '/corpus/hello.loom')
-      expect(written.map((f) => f.path)).toEqual(['/corpus/hello.ts'])
+      expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
+        '/corpus/hello.loom:6: To be settled: `Words` holds no code yet, so this anchor composes nothing.',
+      )
     }),
   )
 
@@ -486,16 +487,85 @@ describe('a fix declares a missing section', () => {
     Effect.gen(function* () {
       const alone = helloAnchoring(anchor('Saying goodbye'))
       const followed = `${alone}\n## Later\n\nMore to come.\n`
-      const [atEnd] = (yield* diagnose(alone))[0]!.fixes ?? []
+      const unsettled = (diagnostics: ReadonlyArray<{ readonly message: string }>) =>
+        diagnostics.map((d) => d.message)
+      const declared =
+        'To be settled: `Saying goodbye` holds no code yet, so this anchor composes nothing.'
+      const [atEnd, labelled] = (yield* diagnose(alone))[0]!.fixes ?? []
       expect([atEnd!.title, atEnd!.text]).toEqual([
         'Declare the section `Saying goodbye`',
         '\n# Saying goodbye\n',
       ])
-      expect(yield* diagnose(applied(alone, atEnd!))).toEqual([])
+      expect(unsettled(yield* diagnose(applied(alone, atEnd!)))).toEqual([declared])
+      expect([labelled!.title, labelled!.text]).toEqual([
+        'Mark `Saying goodbye` to be settled',
+        '{To be settled}',
+      ])
+      expect(unsettled(yield* diagnose(applied(alone, labelled!)))).toEqual([
+        'To be settled: no section is named `Saying goodbye` yet, so this anchor composes nothing.',
+      ])
       const [beforeNext] = (yield* diagnose(followed))[0]!.fixes ?? []
       expect(beforeNext!.text).toBe('# Saying goodbye\n\n')
       expect(applied(followed, beforeNext!)).toContain('# Saying goodbye\n\n## Later')
-      expect(yield* diagnose(applied(followed, beforeNext!))).toEqual([])
+      expect(unsettled(yield* diagnose(applied(followed, beforeNext!)))).toEqual([declared])
+    }),
+  )
+})
+
+const settleDiagnose = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(layerOf(files)),
+    Effect.map((diagnostics) => diagnostics.map((d) => [d.severity, d.message])),
+  )
+
+const declaredLater = `${helloAnchoring(anchor('Greeting'))}\n# Greeting\n\nA greeting, still to be written.\n`
+
+describe('a section to be settled', () => {
+  it.effect('marks an anchor that composes a section with no code, and refuses the tangle', () =>
+    Effect.gen(function* () {
+      const note = 'To be settled: `Greeting` holds no code yet, so this anchor composes nothing.'
+      expect(
+        yield* settleDiagnose({ '/corpus/hello.loom': declaredLater }, '/corpus/hello.loom'),
+      ).toEqual([['info', note]])
+      expect(
+        yield* refusal({ '/corpus/hello.loom': declaredLater }, '/corpus/hello.loom'),
+      ).toContain(`/corpus/hello.loom:6: ${note}`)
+    }),
+  )
+
+  it.effect('takes a labelled name nothing carries as meant, and refuses the tangle', () =>
+    Effect.gen(function* () {
+      const labelled = {
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Greeting')}{To be settled}`),
+      }
+      const note =
+        'To be settled: no section is named `Greeting` yet, so this anchor composes nothing.'
+      expect(yield* settleDiagnose(labelled, '/corpus/hello.loom')).toEqual([['info', note]])
+      expect(yield* refusal(labelled, '/corpus/hello.loom')).toContain(
+        `/corpus/hello.loom:6: ${note}`,
+      )
+    }),
+  )
+
+  it.effect('notes a label its section has outgrown, and its fix removes it', () =>
+    Effect.gen(function* () {
+      const settled = `${helloAnchoring(`${anchor('Saying hello')}{To be settled}`)}\n${greeting}`
+      const [note] = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf({ '/corpus/hello.loom': settled })),
+      )
+      expect([note!.severity, note!.message]).toEqual([
+        'info',
+        'Settled: `Saying hello` holds code now, so its `{To be settled}` label has nothing left to say.',
+      ])
+      const [fix] = note!.fixes ?? []
+      const at = fix!.at!
+      const removed = `${settled.slice(0, at.start.offset)}${fix!.text}${settled.slice(at.end.offset)}`
+      expect(removed).toContain(`${anchor('Saying hello')}\n`)
+      expect(
+        yield* settleDiagnose({ '/corpus/hello.loom': removed }, '/corpus/hello.loom'),
+      ).toEqual([])
     }),
   )
 })

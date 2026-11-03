@@ -50,9 +50,9 @@ describe('LoomFault — the diagnostic catalog', () => {
 
   it('words a malformed label with the rule it broke and the value it got', () => {
     expect(
-      renderFault(MalformedLabel({ construct: 'specifier', value: 'a b' })).message,
+      renderFault(MalformedLabel({ construct: 'specifier', value: 'a.b' })).message,
     ).toBe(
-      'Specifier label may contain only letters, digits, hyphen, and underscore; got `a b`.',
+      'Specifier label may contain only words of letters, digits, hyphens, and underscores, one space apart; got `a.b`.',
     )
     expect(
       renderFault(MalformedLabel({ construct: 'warpName', value: '1x' })).message,

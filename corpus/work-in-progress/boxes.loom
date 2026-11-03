@@ -68,7 +68,7 @@ How to model the room without a game engine: a grid of cells and the things that
 
 Such a box moves the opposite way to an anchor. An anchor pulls a section's code into the place where the anchor stands. A box that points to a loom pushes a thought out of the text, into a loom of its own, and leaves a short account of the thought behind.
 
-The loom may not exist yet. The box then makes a promise, which the chapter "Names through the book" describes: a reference to the box resolves, and the editor marks it as promised until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes.
+The loom may not exist yet. The box then leaves its chapter to be settled, as the chapter "Names through the book" describes: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes.
 
 Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the text of the discussion's conclusions. Each conclusion arrives as plain prose, without its box, because a box never holds another. The loom holds the summary's source, and the box holds a copy.
 
@@ -76,7 +76,7 @@ The editor keeps the two in step. An edit to either one reaches the other, and t
 
 A settled discussion therefore reads in its chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
 
-A section that holds a box of kind `Chapter` holds no code. The box marks where a chapter of its own begins, so the code it promises belongs in that chapter. A chapter box in a section with code is a fault. A discussion box may sit beside code, since a discussion often argues about the code beside it.
+A section that holds a box of kind `Chapter` holds no code. The box marks where a chapter of its own begins, so the code it stands for belongs in that chapter. A chapter box in a section with code is a fault. A discussion box may sit beside code, since a discussion often argues about the code beside it.
 
 ## Kinds come from tropes
 

@@ -685,7 +685,7 @@ describe('LoomServer — a name that waits', () => {
     }
   }, 30_000)
 
-  it('offers a quick fix that declares the missing section', async () => {
+  it('offers quick fixes that declare the missing section or mark it to be settled', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
     const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Saying goodbye')))
@@ -699,8 +699,11 @@ describe('LoomServer — a name that waits', () => {
           Object.values(action.edit?.changes ?? {})
             .flat()
             .map((edit) => [edit.newText, edit.range.start.line, edit.range.start.character]),
-        ]),
-      ).toEqual([['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]]])
+        ]).sort(),
+      ).toEqual([
+        ['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]],
+        ['Mark `Saying goodbye` to be settled', [['{To be settled}', 8, 18]]],
+      ])
     } finally {
       editor.close()
     }
