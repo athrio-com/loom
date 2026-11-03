@@ -381,7 +381,7 @@ bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,
   return scan(payload, lexer, valid_symbols);
 }
 
-## The scanner module {Tangle}[src/scanner.c]
+## The scanner module [src/scanner.c]
 
 Tree-sitter compiles `src/scanner.c` beside the parser it generates. The scanner takes the lexer's interface from tree-sitter's parser header and the allocator a grammar should use from its allocation header.
 

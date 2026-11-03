@@ -163,7 +163,7 @@ BunRuntime.runMain(
   ),
 )
 
-## The tool assembled {Tangle}[pin-grammar.ts]
+## The tool assembled [pin-grammar.ts]
 
 =>
 

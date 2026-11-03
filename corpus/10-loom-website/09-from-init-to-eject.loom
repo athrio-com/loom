@@ -204,7 +204,7 @@ export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
   )
 
-## The module {Tangle}[operations.ts]
+## The module [operations.ts]
 
 The module is the four commands as data, the block of JSON the weave draws, a command's card, and the section that holds all four.
 

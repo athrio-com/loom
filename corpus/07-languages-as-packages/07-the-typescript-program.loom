@@ -223,7 +223,7 @@ export const createProductProgram = (
   }
 }
 
-## The module {Tangle}[src/ProductProgram.ts]
+## The module [src/ProductProgram.ts]
 
 =>
 
@@ -347,7 +347,7 @@ describe('createProductProgram — a root it holds but does not list', () => {
   })
 })
 
-## The test file {Tangle}[test/ProductLanguage.test.ts]
+## The test file [test/ProductLanguage.test.ts]
 
 =>
 

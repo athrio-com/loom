@@ -8,7 +8,7 @@ Language: JSON
 
 The website is a small web application: a page the browser loads, a client that boots it, and a server that renders it first for a reader and a crawler. Vite bundles the client; the server runs under Bun. This chapter is the files around the code — the page, the manifest, the TypeScript settings, the build, and the small program that keeps the build and the server running while the site is developed.
 
-## The page {Tangle}[index.html]
+## The page [index.html]
 
 The page is the shell the application fills. It carries an empty `#root` for the view to mount into, and the module that boots the client.
 
@@ -170,7 +170,7 @@ The script reads storage inside a `try`, because a browser that blocks storage t
   </body>
 </html>
 
-## The manifest {Tangle}[package.json]
+## The manifest [package.json]
 
 The manifest names the package, its commands, and its dependencies. The site holds its own components, so it leans on only a few packages: `foldkit`, which renders a page on the server and hydrates it in the browser, `effect` and `@effect/platform-browser` beneath it, `marked` to turn the documentation's woven prose into HTML, and `shiki` to colour the book's code while the site is built.
 
@@ -226,7 +226,7 @@ The rest follow from that. The `build` command writes the bundle to `dist`, then
   }
 }
 
-## The browser TypeScript config {Tangle}[tsconfig.json]
+## The browser TypeScript config [tsconfig.json]
 
 The client runs in the browser and the server on Bun, and their type environments cannot share one program. Foldkit's runtime reads Vite's `import.meta.hot`, and Bun's platform types declare a different `import.meta.hot`; in one program the two collide, and the client's reads stop type-checking. So the configuration splits. This one checks the browser half — the client, the view, and everything they reach — reading Vite's types through the ambient declaration beside it, and leaves the rest to the server config: the server, the pages module it shares with the build, the search index, the two build programs that colour the book and render the pages ahead, and the development program.
 
@@ -255,7 +255,7 @@ The client runs in the browser and the server on Bun, and their type environment
   ]
 }
 
-## The server TypeScript config {Tangle}[tsconfig.server.json]
+## The server TypeScript config [tsconfig.server.json]
 
 This checks the server half under Bun. Because the server never imports the client runtime, Vite's `import.meta.hot` never enters its program, and the collision the browser config avoids by exclusion this one avoids by construction. The development program runs under Bun as well, and it reaches Vite only as a command it starts, so it is checked here beside the server.
 
@@ -285,7 +285,7 @@ This checks the server half under Bun. Because the server never imports the clie
   ]
 }
 
-## Text imported as text {Tangle}[src/raw.d.ts]
+## Text imported as text [src/raw.d.ts]
 
 The view reads a few files as plain text: the SVG drawings the commands are illustrated with, and the licence. Vite and Bun both read a path ending in `?raw` as the file's text, but the server's type check loads neither Vite's types nor any other declaration for such a path. This one line tells it that a `?raw` import is a string. The browser config already learns the same from Vite's own types.
 
@@ -296,7 +296,7 @@ declare module '*?raw' {
   export default text
 }
 
-## The Vite types {Tangle}[src/vite-env.d.ts]
+## The Vite types [src/vite-env.d.ts]
 
 The client reaches for Vite's ambient types — `import.meta.hot` above all, which Foldkit's runtime reads — so the first line brings them in.
 
@@ -310,7 +310,7 @@ interface ImportMetaEnv {
   readonly VITE_RELOAD_URL?: string
 }
 
-## The build {Tangle}[vite.config.ts]
+## The build [vite.config.ts]
 
 The build is Vite with the page as its input, targeting a runtime recent enough that the Effect and Foldkit output needs no down-levelling. It writes the page and its assets to `dist`, where the server reads them.
 
@@ -337,7 +337,7 @@ export default defineConfig({
   },
 })
 
-## Watchers, started and stopped as one {Tangle}[src/dev.ts]
+## Watchers, started and stopped as one [src/dev.ts]
 
 Development keeps four things current while a developer works. Vite's build rebuilds the client into `dist` whenever a source changes. Bun restarts the server whenever a module it renders from changes. The book and the documentation are woven again whenever a chapter changes. And a page open in the browser reloads once the version it shows has been replaced. The development program starts all four together and stops them together. Like the server, it is an Effect program started from the Bun runtime edge.
 
@@ -577,7 +577,7 @@ const development = Effect.scoped(
 
 BunRuntime.runMain(development.pipe(Effect.provide(BunServices.layer)))
 
-## The page listens for a rebuild {Tangle}[src/reload.ts]
+## The page listens for a rebuild [src/reload.ts]
 
 The other end of the reload channel runs in the page. The reload listener reads the channel's address from `VITE_RELOAD_URL`, which only a development build carries. Given an address, it opens an `EventSource` on it and reloads the page at each `reload` event. Given none, it opens nothing, and the page behaves exactly as a reader's does.
 

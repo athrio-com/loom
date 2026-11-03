@@ -3139,7 +3139,7 @@ The page gives way as the window narrows. Below twelve hundred pixels the gap in
   .doc-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; }
 }
 
-## The stylesheet {Tangle}[landing.css]
+## The stylesheet [landing.css]
 
 The stylesheet is the three schemes first — colour, type and measure — then the base, and the scheme redrawn for the dark theme. Then the pieces every page shares: the container and its sections, a section's header, running text, block code, and the file tree. The chrome closes it, since the nav, the palette and the footer wrap whatever a page puts between them.
 

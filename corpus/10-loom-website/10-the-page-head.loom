@@ -113,7 +113,7 @@ import { type Carpet, carpetStyle, fineSeam, loomMark } from './components'
 
 const NAVY = '#14204A'
 
-## The module {Tangle}[page-head.ts]
+## The module [page-head.ts]
 
 =>
 

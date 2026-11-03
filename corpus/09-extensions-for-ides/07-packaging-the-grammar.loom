@@ -10,7 +10,7 @@ The `tree-sitter-loom` package holds the grammar, its scanner, its queries, and 
 
 Building the package is two steps. Tangling writes `grammar.js`, `src/scanner.c`, and the queries from the book. Then `tree-sitter generate` compiles `grammar.js` into `src/parser.c` with its tables in `src/grammar.json` and `src/node-types.json`. The generated files are committed beside the tangled ones, because an editor compiles the parser without running the generator.
 
-## The manifest {Tangle}[package.json]
+## The manifest [package.json]
 
 The `generate` script runs the generator, and the `parse` script parses a file with the grammar to show its tree. The `typecheck` script checks the test's TypeScript, as every package's does. The `tree-sitter-cli` package provides the `tree-sitter` command at a pinned version, so every checkout generates the same parser. The test compares the grammar with Loom's own classifier, so `@athrio/loom-lang` and the AST types of `@athrio/loom-ast` are development dependencies, with Effect and the workspace's test helper.
 
@@ -46,7 +46,7 @@ The package's version is the grammar's own. It comes from the `grammar` variable
   }
 }
 
-## The grammar's description {Tangle}[tree-sitter.json]
+## The grammar's description [tree-sitter.json]
 
 The tree-sitter command reads `tree-sitter.json` to learn what the grammar is. It names the language `loom`, the scope `source.loom`, and the `.loom` extension, and points at the two queries. The injection pattern lets another grammar hand text to this one: a Markdown fence written `loom` is parsed as a loom, so a loom quoted in the docs is coloured as one. Its `version` is the grammar's own, the one the package carries, and the one tree-sitter writes into the parser.
 
@@ -77,7 +77,7 @@ The tree-sitter command reads `tree-sitter.json` to learn what the grammar is. I
   }
 }
 
-## The TypeScript config {Tangle}[tsconfig.json]
+## The TypeScript config [tsconfig.json]
 
 The package's only TypeScript is its test. The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers the `test` directory, and nothing is ever compiled to ship.
 
@@ -92,7 +92,7 @@ The package's only TypeScript is its test. The `tsconfig.json` extends the works
   "include": ["test"]
 }
 
-## Generated files, marked {Tangle}[.gitattributes]
+## Generated files, marked [.gitattributes]
 
 The generated parser is thousands of lines no one reviews. `.gitattributes` marks it and its tables as generated, so a diff on GitHub folds them away.
 
@@ -103,7 +103,7 @@ src/grammar.json linguist-generated
 src/node-types.json linguist-generated
 src/tree_sitter/** linguist-generated
 
-## Compiled parsers, ignored {Tangle}[.gitignore]
+## Compiled parsers, ignored [.gitignore]
 
 An editor that builds the grammar from a local checkout, as nvim-treesitter does from a path, leaves the compiled library in the package folder, and so does `tree-sitter build`. The library is specific to one machine, so Git ignores it in each form a platform gives it, and in WebAssembly.
 

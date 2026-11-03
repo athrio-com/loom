@@ -13,7 +13,7 @@ A push runs only the checks its change can affect. The repository holds a book, 
 
 The tangle check is what a literate framework owes its readers. Loom commits its tangled output so a checkout builds without re-tangling, and that output is only trustworthy if it never drifts from the looms that produce it. The check re-tangles the corpus and fails on any difference, so a loom edited without a re-tangle cannot reach the default branch.
 
-## The tools, pinned {Tangle}[mise.toml]
+## The tools, pinned [mise.toml]
 
 mise, a tool manager, pins the two tools every check runs on: Bun, at the version the workspace's manifest declares, and moon. A developer's machine and the CI runner read the same file, so a check that passes on one runs on the same tools on the other. Changing either version changes this file, and every check reads it, so a new tool asks every question again.
 
@@ -27,7 +27,7 @@ Loom stays off Bun 1.4.3 and 1.4.4. Bun 1.4.3 changed its memory allocator, and 
 bun = "1.4.2"
 "npm:@moonrepo/cli" = "2.5.6"
 
-## The projects {Tangle}[.moon/workspace.yml]
+## The projects [.moon/workspace.yml]
 
 A moon project is a directory whose `moon.yml` names its tasks. The workspace file lists the projects: the book, the eight packages, and the website. The book's project is the repository's root, since its one check reads the corpus and every directory the corpus writes into. The `corpus` folder itself holds looms and nothing else.
 
@@ -50,7 +50,7 @@ projects:
   tree-sitter-loom: "packages/tree-sitter-loom"
   site: "site"
 
-## The book {Tangle}[moon.yml]
+## The book [moon.yml]
 
 Every project's tasks need the workspace's packages, so each project has an `install` task the others depend on. It installs against the committed lockfile, from the repository's root, where the workspace is. A dependency runs before the task that needs it and never on its own, so a push that runs no task installs nothing. The install is never cached, because whether the packages are in place is a question about the machine, not about any file.
 
@@ -97,7 +97,7 @@ A package reads more than its own files. Its code imports the packages it depend
 
 The tests of most packages share one helper, `@athrio/effect-test`, which runs an Effect as a test. It has no tests or checks of its own, so it is no project; the packages whose tests use it read it as a source.
 
-## The AST's tasks {Tangle}[packages/loom-ast/moon.yml]
+## The AST's tasks [packages/loom-ast/moon.yml]
 
 The AST is the leaf. It builds on no other package, so its sources are its own and the shared configuration.
 
@@ -141,7 +141,7 @@ tasks:
       - "moon.yml"
       - "/mise.toml"
 
-## The configuration's tasks {Tangle}[packages/loom-config/moon.yml]
+## The configuration's tasks [packages/loom-config/moon.yml]
 
 The configuration package also builds on no other package, so its tasks read what the AST's read.
 
@@ -185,7 +185,7 @@ tasks:
       - "moon.yml"
       - "/mise.toml"
 
-## The language services' tasks {Tangle}[packages/loom-lang-services/moon.yml]
+## The language services' tasks [packages/loom-lang-services/moon.yml]
 
 The contract every language service satisfies builds on the AST. It has no tests, so its one task is the type check.
 
@@ -221,7 +221,7 @@ tasks:
       - "moon.yml"
       - "/mise.toml"
 
-## The TypeScript service's tasks {Tangle}[packages/loom-service-typescript/moon.yml]
+## The TypeScript service's tasks [packages/loom-service-typescript/moon.yml]
 
 The TypeScript service builds on the language services' contract, and through it on the AST.
 
@@ -269,7 +269,7 @@ tasks:
       - "moon.yml"
       - "/mise.toml"
 
-## The language's tasks {Tangle}[packages/loom-lang/moon.yml]
+## The language's tasks [packages/loom-lang/moon.yml]
 
 The Loom language, with the compiler, the tangler and the language server, builds on every package before it: the AST, the configuration, the language services' contract and the TypeScript service.
 
@@ -321,7 +321,7 @@ tasks:
       - "moon.yml"
       - "/mise.toml"
 
-## The CLI's tasks {Tangle}[packages/loom/moon.yml]
+## The CLI's tasks [packages/loom/moon.yml]
 
 The CLI builds on the language and so on everything the language builds on. It also reads the grammar of `tree-sitter-loom`: its build copies the grammar's sources into the bundle, and its tests run `loom helix` and `loom nvim`, which compile them.
 
@@ -396,7 +396,7 @@ The smoke check runs the standalone executable. It builds the bundle, compiles i
       - "moon.yml"
       - "/mise.toml"
 
-## The editor extension's tasks {Tangle}[packages/loom-vscode/moon.yml]
+## The editor extension's tasks [packages/loom-vscode/moon.yml]
 
 The VS Code extension has no tests yet, so its one task is the type check of its client.
 
@@ -430,7 +430,7 @@ tasks:
       - "moon.yml"
       - "/mise.toml"
 
-## The grammar's tasks {Tangle}[packages/tree-sitter-loom/moon.yml]
+## The grammar's tasks [packages/tree-sitter-loom/moon.yml]
 
 The tree-sitter grammar's test reads every loom in the repository with both the grammar and Loom's own classifier, and compares the two, line by line. So its sources are wider than a package's usual. They are the grammar itself, its scanner, its queries and its generated parser, the language and the AST that supply the classifier, and every `.loom` file in the book, the docs and the examples. A loom edited anywhere runs the test again, since the edit may reach a corner of the grammar no test has met.
 
@@ -496,7 +496,7 @@ tasks:
       cache: false
       runFromWorkspaceRoot: true
 
-## The website's tasks {Tangle}[site/moon.yml]
+## The website's tasks [site/moon.yml]
 
 The website builds on no package of the workspace. Its sources are its own code, its assets, the two pages and configs that build it, and the licence it shows on a page of its own. It type-checks twice, once as the client the browser runs and once as the server Bun runs, since the two compile under different configs.
 
@@ -681,7 +681,7 @@ The search index's vectors carry over from one build to the next. Before the ima
           path: site/.cache/meaning.json
           key: meaning-${{ github.run_id }}
 
-## The workflow {Tangle}[.github/workflows/ci.yaml]
+## The workflow [.github/workflows/ci.yaml]
 
 =>
 

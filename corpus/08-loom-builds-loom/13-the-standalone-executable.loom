@@ -928,7 +928,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-## The install test {Tangle}[smoke/install.smoke.ts]
+## The install test [smoke/install.smoke.ts]
 
 =>
 
@@ -976,7 +976,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { servicePackage, serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 
-## The smoke test {Tangle}[smoke/binary.smoke.ts]
+## The smoke test [smoke/binary.smoke.ts]
 
 =>
 

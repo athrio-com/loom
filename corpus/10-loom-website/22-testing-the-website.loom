@@ -65,7 +65,7 @@ Some cases look for an anchor in the markup, because the site draws a loom's anc
 
 export const anchor = (name: string): string => `::${'['}${name}]`
 
-## The helpers module {Tangle}[render.ts]
+## The helpers module [render.ts]
 
 Effect runs the renderer and supplies `Option`. Foldkit supplies the server renderer and the builder's types. The site's own model supplies the shape every view reads.
 
@@ -492,7 +492,7 @@ it('reads each path back to the route it came from, and no route from an unknown
   expect(Option.isNone(routeOf('/nowhere'))).toBe(true)
 })
 
-## The page tests {Tangle}[Page.test.ts]
+## The page tests [Page.test.ts]
 
 The page tests draw on the site's view, its pager and its routes, and on the stylesheet read from disk.
 
@@ -849,7 +849,7 @@ it('ends every nav on search and the theme switch', () => {
   expect(html).toContain('class="theme-face dark"')
 })
 
-## The documentation tests {Tangle}[DocumentationShell.test.ts]
+## The documentation tests [DocumentationShell.test.ts]
 
 The documentation tests draw on the shell's own functions, the committed docs corpus, and the site's view for the chrome around it.
 
@@ -1057,7 +1057,7 @@ it('namespaces each drawing so their filters never resolve against each other', 
   ;['in-drop', 'tg-drop', 'ej-drop', 'ej-lid'].forEach((id) => expect(html).toContain(`id="${id}"`))
 })
 
-## The example tests {Tangle}[Example.test.ts]
+## The example tests [Example.test.ts]
 
 The example tests draw on the example's clock and its drawing, and on the illustrations of the four commands.
 

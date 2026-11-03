@@ -299,7 +299,7 @@ export const {
   CopyReset,
 } = Message
 
-## The module {Tangle}[model.ts]
+## The module [model.ts]
 
 The module puts the player first, because the state is written in terms of it and a module evaluates from the top down. The chapter tells it the other way round. It introduces the state before the player, since that is the easier order to learn them in.
 

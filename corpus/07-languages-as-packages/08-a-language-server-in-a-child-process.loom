@@ -380,7 +380,7 @@ import { URI } from 'vscode-uri'
 
 type Rpc = typeof import('vscode-jsonrpc/node.js')
 
-## The module {Tangle}[src/LanguageServerProcess.ts]
+## The module [src/LanguageServerProcess.ts]
 
 =>
 
@@ -504,7 +504,7 @@ export const running = (pid: number): boolean => {
   }
 }
 
-## The stand-in module {Tangle}[test/StandInServer.ts]
+## The stand-in module [test/StandInServer.ts]
 
 =>
 
@@ -748,7 +748,7 @@ describe('LanguageServerProcess runs under Node', () => {
   })
 })
 
-## The test file {Tangle}[test/LanguageServerProcess.test.ts]
+## The test file [test/LanguageServerProcess.test.ts]
 
 =>
 

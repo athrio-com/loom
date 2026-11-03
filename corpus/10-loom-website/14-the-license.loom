@@ -127,7 +127,7 @@ import licenseFile from '../../LICENSE?raw'
 
 const NAVY = '#14204A'
 
-## The module {Tangle}[license.ts]
+## The module [license.ts]
 
 =>
 

@@ -385,7 +385,7 @@ import { Context, Effect, FileSystem, Layer } from 'effect'
 import { type Path } from '../LoomProject'
 import { LoomCompiler } from '../LoomCompiler'
 
-## The builder module {Tangle}[TableOfContentsBuilder.ts]
+## The builder module [TableOfContentsBuilder.ts]
 
 =>
 
@@ -405,7 +405,7 @@ import { LoomCompiler } from '../LoomCompiler'
 
 ::[Splicing it into the book]
 
-## The writer module {Tangle}[LoomContents.ts]
+## The writer module [LoomContents.ts]
 
 =>
 

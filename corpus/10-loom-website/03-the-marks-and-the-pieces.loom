@@ -579,7 +579,7 @@ export const editorMark = (heading: string): Option.Option<Html> =>
     ih.span([ih.Class('editor-logo'), ih.AriaHidden(true), ih.InnerHTML(svg)], []),
   )
 
-## The module {Tangle}[components.ts]
+## The module [components.ts]
 
 The module opens with the woven carpet, since the small marks a page wears are woven from it. Then come the full mark, the icons, the runtime logos and the editors' emblems.
 

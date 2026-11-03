@@ -345,7 +345,7 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-## The module {Tangle}[src/LoomStore.ts]
+## The module [src/LoomStore.ts]
 
 =>
 
@@ -479,7 +479,7 @@ describe.skipIf(process.platform === 'win32')('fetchTypeScript', () => {
   })
 })
 
-## The test file {Tangle}[test/LoomStore.test.ts]
+## The test file [test/LoomStore.test.ts]
 
 =>
 

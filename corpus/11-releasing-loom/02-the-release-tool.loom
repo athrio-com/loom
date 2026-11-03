@@ -115,7 +115,7 @@ BunRuntime.runMain(
   ),
 )
 
-## The release tool assembled {Tangle}[release.ts]
+## The release tool assembled [release.ts]
 
 =>
 

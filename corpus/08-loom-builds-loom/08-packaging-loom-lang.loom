@@ -8,7 +8,7 @@ Language: JSON
 
 The `@athrio/loom-lang` package is the language behind every `.loom` file — the Volar extended language and the engine that tangles it. The command-line tool and the VS Code extension both build on it: they import its source and bundle it into their own output, so this package exposes TypeScript source rather than a precompiled library.
 
-## The manifest {Tangle}[package.json]
+## The manifest [package.json]
 
 Two field groups carry the package's shape. The `imports` field defines one package subpath alias, `#ast/*`, for the AST source, so internal imports stay stable rather than relative. The `exports` field names the public entry points — `./LoomCompiler`, `./LoomTangler`, `./LoomFormatter`, `./WorkspaceSettings`, `./LoomServer`, and `./WorkspaceSource` — each pointing at a source file the consumer inlines. `./weave/WovenCorpus` exposes the woven-corpus schema on its own, so the reader site types its rendered pages against the same definition the weave pass produces rather than a hand-kept copy, `./weave/LoomWeaver` exposes the writer the CLI drives to emit that data, and `./weave/LoomContents` the writer it drives to regenerate the book's own table of contents. `./ast/LineRanges` and `./ast/WeftClassifier` expose the first two stages of reading a loom, so the tree-sitter grammar's test checks every line's kind against the classifier the grammar ports. `@athrio/loom-ast` supplies the shared domain types the verbs build and the toolchain reads, a workspace dependency.
 
@@ -68,7 +68,7 @@ The `main` and `bin` fields point at built output: `dist/loom-server.js` is the 
   }
 }
 
-## The launcher {Tangle}[bin/loom-language-server.js]
+## The launcher [bin/loom-language-server.js]
 
 An editor starts the language server by spawning the `loom-language-server` binary. The binary is a thin launcher over the bundle, made runnable on its own by a shebang line.
 
@@ -84,7 +84,7 @@ if (process.argv.includes('--version')) {
   require('../dist/loom-server.js')
 }
 
-## The TypeScript config {Tangle}[tsconfig.json]
+## The TypeScript config [tsconfig.json]
 
 The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers both the `src` and `test` directories. Vite produces the `dist` bundle, so the configuration is a development tool only.
 

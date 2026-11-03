@@ -184,7 +184,7 @@ export const hero = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
   )
 
-## The module {Tangle}[hero.ts]
+## The module [hero.ts]
 
 The module is the wordmark, the claim, the install line and the links, then the hero that holds them.
 

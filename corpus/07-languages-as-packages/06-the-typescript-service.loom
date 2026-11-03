@@ -665,7 +665,7 @@ import {
 
 type TypeScript = typeof import('typescript')
 
-## The module {Tangle}[src/TypescriptService.ts]
+## The module [src/TypescriptService.ts]
 
 =>
 
@@ -1218,7 +1218,7 @@ describe('productPlugin completes as the person types', () => {
   })
 })
 
-## The test file {Tangle}[test/TypescriptService.test.ts]
+## The test file [test/TypescriptService.test.ts]
 
 =>
 

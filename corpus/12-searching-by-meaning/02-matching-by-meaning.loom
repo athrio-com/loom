@@ -271,7 +271,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Entry, Result } from './search'
 
-## The module {Tangle}[meaning.ts]
+## The module [meaning.ts]
 
 =>
 

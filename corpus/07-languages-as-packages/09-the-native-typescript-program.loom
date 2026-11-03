@@ -766,7 +766,7 @@ import {
 import type { ProductFile, ProductProgram } from './ProductProgram'
 import type { ProductProject } from './TypescriptService'
 
-## The module {Tangle}[src/NativeProgram.ts]
+## The module [src/NativeProgram.ts]
 
 =>
 
@@ -1468,7 +1468,7 @@ describe('createUnavailableProgram reports its reason', () => {
   })
 })
 
-## The test file {Tangle}[test/NativeProgram.test.ts]
+## The test file [test/NativeProgram.test.ts]
 
 =>
 

@@ -243,7 +243,7 @@ import { ActiveLanguages, LanguageRegistry } from '@athrio/loom-lang-services/La
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
 import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
-## The module {Tangle}[src/LoomLanguagePlugin.ts]
+## The module [src/LoomLanguagePlugin.ts]
 
 =>
 
@@ -309,7 +309,7 @@ describe('LoomLanguagePlugin — a script Volar deletes', () => {
   })
 })
 
-## The test file {Tangle}[test/LoomLanguagePlugin.test.ts]
+## The test file [test/LoomLanguagePlugin.test.ts]
 
 =>
 
@@ -495,7 +495,7 @@ import { parseDocument, ParseLayer } from './parse'
 
 const it = effectify(it_)
 
-## The capability table test file {Tangle}[test/CapabilityTable.test.ts]
+## The capability table test file [test/CapabilityTable.test.ts]
 
 =>
 

@@ -1033,7 +1033,7 @@ export const startLanguageServer = (): void => {
   connection.listen()
 }
 
-## The server module {Tangle}[src/LoomServer.ts]
+## The server module [src/LoomServer.ts]
 
 The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
@@ -1051,7 +1051,7 @@ The server module assembles the imports, the compilers a project may ask for, th
 
 ::[The program]
 
-## The run-on-import entry {Tangle}[src/index.ts]
+## The run-on-import entry [src/index.ts]
 
 This thin entry starts the server the moment it loads. The VS Code extension bundles it as `server.js`, and the `loom-language-server` bin runs it — both expect loading the module to start the server.
 
@@ -1914,7 +1914,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { servicePackage, serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 
-## The test file {Tangle}[test/LoomServer.test.ts]
+## The test file [test/LoomServer.test.ts]
 
 =>
 

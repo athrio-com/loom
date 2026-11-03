@@ -783,7 +783,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
     ],
   )
 
-## The module {Tangle}[chrome.ts]
+## The module [chrome.ts]
 
 The module opens with what the site contains — the pages the nav names, the pages the palette searches, and the passages inside them — because every piece of chrome reads from it. Then the two bars, the search button and the theme switch, the palette built up from its fragments and keys, and the footer.
 

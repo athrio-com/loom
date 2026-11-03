@@ -682,7 +682,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (#eq? @_language "Bash")
   (#set! injection.language "bash"))
 
-## The highlights query {Tangle}[queries/highlights.scm]
+## The highlights query [queries/highlights.scm]
 
 =>
 
@@ -702,7 +702,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
 
 ::[Notes]
 
-## The injections query {Tangle}[queries/injections.scm]
+## The injections query [queries/injections.scm]
 
 =>
 
@@ -718,7 +718,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
 
 ::[A Prose section is Markdown]
 
-## The highlights query for Helix {Tangle}[editors/helix/queries/loom/highlights.scm]
+## The highlights query for Helix [editors/helix/queries/loom/highlights.scm]
 
 Helix reads its queries from its own runtime directory, so a Helix setup copies this file there in place of the shared highlights. It differs from them only in the colour of a key.
 
@@ -740,7 +740,7 @@ Helix reads its queries from its own runtime directory, so a Helix setup copies 
 
 ::[Notes]
 
-## The injections query for Helix {Tangle}[editors/helix/queries/loom/injections.scm]
+## The injections query for Helix [editors/helix/queries/loom/injections.scm]
 
 Helix's copy of the injections shares the rules that work by a file's name, and takes its own form of the two that read a language's name.
 

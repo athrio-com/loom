@@ -10,7 +10,7 @@ Zed learns a language from an extension: a folder that names the language, the g
 
 This chapter is that extension. Its manifest points at the grammar of this part. Its queries colour a loom with the names Zed's themes know. A few lines of Rust, compiled to WebAssembly, start the language server with `loom lsp`. The extension asks for nothing the two editors do not share, so one folder serves both.
 
-## The manifest {Tangle}[extension.toml]
+## The manifest [extension.toml]
 
 The manifest names the extension, the grammar, and the language server. Zed builds the grammar itself: it fetches the repository at the pinned revision, opens the subfolder that holds the grammar, and compiles the parser and the scanner to WebAssembly. The revision names the commit that last changed the grammar, the same commit the Helix form pins. Both take it from the `grammarRevision` variable of the workspace configuration, which the tool of Chapter 11 moves, and the tool raises the extension's version with it.
 
@@ -40,7 +40,7 @@ path = "packages/tree-sitter-loom"
 name = "Loom"
 languages = ["Loom"]
 
-## Starting the language server {Tangle}[src/lib.rs]
+## Starting the language server [src/lib.rs]
 
 An extension's code is a Rust library that implements Zed's `Extension` trait, and the editor calls it whenever it needs the language server. `language_server_command` answers with the command to run. The server ships with the `loom` command line, so the extension looks for `loom` on the user's `PATH`, the way the user's shell would, and runs it as `loom lsp --stdio`.
 
@@ -77,7 +77,7 @@ impl zed::Extension for LoomExtension {
 
 zed::register_extension!(LoomExtension);
 
-## The crate {Tangle}[Cargo.toml]
+## The crate [Cargo.toml]
 
 Zed compiles the library to WebAssembly, so the crate is a `cdylib`, a library with a C interface that the compiler can emit as a WebAssembly module. It depends on `zed_extension_api`, the crate that defines the trait and the types the editor passes in. The extension targets version 0.6.0, the newest interface Gram 3.3 carries, and Zed still loads it.
 
@@ -99,7 +99,7 @@ path = "src/lib.rs"
 [dependencies]
 zed_extension_api = "0.6.0"
 
-## The language {Tangle}[languages/loom/config.toml]
+## The language [languages/loom/config.toml]
 
 The language's configuration gives the name the editor shows, the grammar that parses it, and the extension that marks its files. A loom's code is indented two spaces throughout this book, so a tab is two spaces wide.
 
@@ -113,7 +113,7 @@ path_suffixes = ["loom"]
 tab_size = 2
 soft_wrap = "bounded"
 
-## Colours in Zed's names {Tangle}[languages/loom/highlights.scm]
+## Colours in Zed's names [languages/loom/highlights.scm]
 
 Zed colours a capture by the name its theme gives the colour, and its names differ from the ones Neovim and Helix use. A heading is a title, a file is a link, and a note's marker is the marker of a doc comment. The rest follows the colours of the shared queries: the frontmatter's keys are properties, its values take the colour of what they name, the arrows and tildes are operators, and an anchor's name is a label. A `Part` or `Chapter` value is a title like a heading, a `Package` value a link like a sink's file, and a `Language` value a type like a specifier's label.
 
@@ -221,7 +221,7 @@ A specifier's label is a type, except for the two labels that instruct Loom, `{T
 
 (note_marker) @comment.doc
 
-## Each section in its language {Tangle}[languages/loom/injections.scm]
+## Each section in its language [languages/loom/injections.scm]
 
 Zed finds an injected language by its name or by one of its file extensions, in any case, so `TypeScript`, `typescript`, and `ts` all reach the same grammar. It does not read a whole file name, which is why the grammar gives a sink's extension a node of its own. Nor does it subtract a captured node's children, so the patterns capture a block's `code_text` nodes, never the block with its arrow and anchors. The rules are Part IV's, taken in turn as in the shared queries: prose as Markdown, then the section's specifier, the extension of its sink, and the chapter's `Language`.
 
@@ -330,7 +330,7 @@ A `{Tangle}` section without a sink takes a rule of its own here. Such a section
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
 
-## The outline {Tangle}[languages/loom/outline.scm]
+## The outline [languages/loom/outline.scm]
 
 Zed's outline panel lists the items its outline query captures. Each section is an item, named by its heading's title, with the heading's marks beside it as context, so a long loom is one click from any of its sections.
 
@@ -341,7 +341,7 @@ Zed's outline panel lists the items its outline query captures. Each section is 
     (heading_marker) @context
     title: (title) @name)) @item
 
-## The licence {Tangle}[LICENSE]
+## The licence [LICENSE]
 
 The extension carries the licence the command line carries, MIT, in full. Zed's registry asks every extension for one at its root, and the repository that mirrors this folder publishes the code with the text beside it.
 
@@ -369,7 +369,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-## The mirror's front page {Tangle}[README.md]
+## The mirror's front page [README.md]
 
 Gram installs an extension from a repository URL and looks for the manifest at the repository's root, where this folder's manifest is not. So the folder is mirrored to a repository of its own, `athrio-com/loom-zed`, whose root is the extension. The mirror's README tells a visitor what the extension does and how to install it. It also says the mirror is generated, so a change is made here, in the book, rather than there.
 

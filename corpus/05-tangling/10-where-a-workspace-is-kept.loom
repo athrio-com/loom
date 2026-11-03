@@ -563,7 +563,7 @@ import {
   type WorkspaceSettingsApi,
 } from './WorkspaceSettings'
 
-## The module {Tangle}[src/WorkspaceSource.ts]
+## The module [src/WorkspaceSource.ts]
 
 =>
 
@@ -579,7 +579,7 @@ import {
 
 ::[Choosing the environment at startup]
 
-## The test file {Tangle}[test/WorkspaceSource.test.ts]
+## The test file [test/WorkspaceSource.test.ts]
 
 =>
 
@@ -645,7 +645,7 @@ Effect supplies `Array`, `Match`, and `Option`. Bun serves the port.
 
 import { Array, Match, Option } from 'effect'
 
-## The stub file {Tangle}[test/storageStub.ts]
+## The stub file [test/storageStub.ts]
 
 =>
 
@@ -875,7 +875,7 @@ import { RemoteEnvironment, WorkspaceSource } from '../src/WorkspaceSource'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { type StorageStub, storageStub } from './storageStub'
 
-## The remote test file {Tangle}[test/RemoteStorage.test.ts]
+## The remote test file [test/RemoteStorage.test.ts]
 
 =>
 

@@ -1386,7 +1386,7 @@ export const sourcePage = (model: Model, h: HtmlBuilder<Message>): Html =>
     h,
   )
 
-## The module {Tangle}[docs-page.ts]
+## The module [docs-page.ts]
 
 =>
 

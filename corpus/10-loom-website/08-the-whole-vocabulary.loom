@@ -147,7 +147,7 @@ export const vocabulary = (): Html =>
     ],
   )
 
-## The module {Tangle}[vocabulary.ts]
+## The module [vocabulary.ts]
 
 The module is the marks themselves, the chip that draws a glyph, the card that holds one, and the section that holds them all.
 

@@ -8,7 +8,7 @@ Language: TypeScript
 
 Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module and adds a Node shebang, the line that makes the file directly executable. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
-## Vite build {Tangle}[vite.config.ts]
+## Vite build [vite.config.ts]
 
 The `node:` built-in modules stay external, since the runtime supplies them and the bundle need not carry them. Everything else — the language server's TypeScript source and Effect — is inlined into `dist/main.js`.
 
@@ -120,7 +120,7 @@ export default defineConfig({
   },
 })
 
-## The grammar's module, declared {Tangle}[src/tree-sitter-loom.d.ts]
+## The grammar's module, declared [src/tree-sitter-loom.d.ts]
 
 TypeScript checks the CLI's source before Vite bundles it, and it cannot see a module that only a Vite plugin serves. This declaration tells it the module's shape: a default export that maps each file's path to its text.
 

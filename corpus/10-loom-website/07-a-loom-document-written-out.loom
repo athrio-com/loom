@@ -884,7 +884,7 @@ export const example = (model: Model, h: HtmlBuilder<Message>): Html => {
   )
 }
 
-## The module {Tangle}[example.ts]
+## The module [example.ts]
 
 The module is the threads a line is written in, the document itself, the cost of typing it, the frame a moment shows, what the two commands write, the stage, the transport, and the section that holds them.
 

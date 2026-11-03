@@ -31,7 +31,7 @@ TEI starts as many workers to split text into tokens as the machine has processo
 
 The model was trained to read a query and a passage differently. A query goes in after a short instruction, *Represent this sentence for searching relevant passages*, and a passage goes in bare. The model carries that instruction under the prompt name `query`, so the site asks for it by name and never copies the sentence.
 
-## Running it on a developer's machine {Tangle}[compose.yaml]
+## Running it on a developer's machine [compose.yaml]
 
 On a developer's machine the service runs in Docker, and this file starts it with `docker compose -f embeddings/compose.yaml up -d`. It answers on port 8090, which is where the site's server looks for it when nothing says otherwise. The model is downloaded once, into a volume of its own, so a restart does not fetch it again.
 

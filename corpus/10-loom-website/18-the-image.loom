@@ -8,7 +8,7 @@ Language: Dockerfile
 
 The website ships as a Docker image. It carries the bundled client, every page rendered ahead, the Bun server that sends them, and the woven documentation and book those pages read. Docker gives the site a named, managed lifecycle — a host runs one artifact, and rolls back to the one before it when a release goes wrong. The release workflow builds the image and pushes it to the registry on every green push to the default branch.
 
-## The Dockerfile {Tangle}[Dockerfile]
+## The Dockerfile [Dockerfile]
 
 The build starts from Bun's Alpine image and copies the whole workspace, because the site is one member of it and installs against the workspace's single committed lockfile. Then it bundles the client with Vite, and renders every page into the bundle's folder with `src/render-ahead.ts`.
 

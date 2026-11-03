@@ -791,7 +791,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "labelling-a-heading"
           },
-          "markdown": "A heading may also carry a label in braces, which says what Loom should make of the section rather than where its code goes.\n\n```loom\n## The module {Tangle}[parser.ts]\n\n# Table of Contents {TOC}\n\n## Installing it {Bash}\n```\n\n`{Tangle}` marks the section that composes a file, and it is the long form of the bracket on its own. `{TOC}` marks the heading whose list of parts and chapters Loom keeps up to date. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document."
+          "markdown": "A heading may also carry a label in braces, which says what Loom should make of the section rather than where its code goes.\n\n```loom\n## The module {Tangle}\n\n# Table of Contents {TOC}\n\n## Installing it {Bash}\n```\n\n`{Tangle}` marks the section that composes the one file its chapter names, so a chapter that writes a single file needs no bracket. A bracket alone is enough to name a file, and a heading never needs both. `{TOC}` marks the heading whose list of parts and chapters Loom keeps up to date. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document."
         },
         {
           "type": "heading",

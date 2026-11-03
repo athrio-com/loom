@@ -287,7 +287,7 @@ identifier: (_) => /[a-zA-Z_][a-zA-Z0-9_]*/,
 annotation: (_) => /[^=}\r\n]+/,
 default: (_) => /([^}\r\n]|\}[^}\r\n])+/,
 
-## The grammar module {Tangle}[grammar.js]
+## The grammar module [grammar.js]
 
 Tree-sitter reads the grammar from `grammar.js`. The first rule is the start rule, so the document leads the rules.
 

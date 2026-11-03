@@ -210,7 +210,7 @@ The job writes to the mirror with a deploy key, an SSH key that can push to `ath
           GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
             git push git@github.com:athrio-com/loom-zed.git "$split:refs/heads/main"
 
-## The workflow assembled {Tangle}[release.yaml]
+## The workflow assembled [release.yaml]
 
 =>
 

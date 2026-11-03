@@ -8,7 +8,7 @@ Language: JSON
 
 `@athrio/loom-service-typescript` is the first loadable language service. A project installs it to give its TypeScript product an editor program of its own, held apart from the frame's. The package builds to one ES module, `dist/index.js`, whose default export is the service — the artifact the dynamic loader imports at runtime.
 
-## The manifest {Tangle}[package.json]
+## The manifest [package.json]
 
 The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public. The `repository` field points npm at this package's directory in the monorepo, which the provenance signature verifies against the workflow that publishes it — a publish through Trusted Publishing fails without it.
 
@@ -61,7 +61,7 @@ The package carries two dependencies, which the build leaves out of the bundle, 
   }
 }
 
-## The TypeScript config {Tangle}[tsconfig.json]
+## The TypeScript config [tsconfig.json]
 
 The config extends the workspace base, which supplies the compiler options and the Node and Bun types, and typechecks `src` and `test`. The tests belong to the project, so the editor checks a test with the same options as the code it tests. It never ships.
 
@@ -75,7 +75,7 @@ The config extends the workspace base, which supplies the compiler options and t
   "include": ["src", "test"]
 }
 
-## The licence {Tangle}[LICENSE]
+## The licence [LICENSE]
 
 npm ships a package's `LICENSE` whatever the `files` field says, and until now this package shipped none — an installer had the SPDX expression in the manifest and no text to read. The file below is that text.
 

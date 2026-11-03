@@ -980,7 +980,7 @@ import type { LoomVirtualCode } from '@athrio/loom-ast/LoomVirtualCode'
 import type { AnchorDelims, WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
 
-## The module {Tangle}[src/LoomFormatter.ts]
+## The module [src/LoomFormatter.ts]
 
 =>
 
@@ -1388,7 +1388,7 @@ describe('LoomFormatter — sections that need their place', () => {
   )
 })
 
-## The test file {Tangle}[test/LoomFormatter.test.ts]
+## The test file [test/LoomFormatter.test.ts]
 
 =>
 

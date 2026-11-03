@@ -55,7 +55,7 @@ const renderAhead = Effect.gen(function* () {
 
 renderAhead.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
 
-## The program {Tangle}[render-ahead.ts]
+## The program [render-ahead.ts]
 
 The program draws on `effect` for its combinators and the file system, on Bun's platform for its file services and the runtime edge it starts from, and on the pages module for everything that renders a page, stamps the book and names a page's file. The model lends the `Corpus` type the book is read as.
 

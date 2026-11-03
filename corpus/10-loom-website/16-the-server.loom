@@ -207,7 +207,7 @@ export const pageFileOf = (buildId: string, bookStamp: string, address: string):
     `${address === '/' ? 'index' : address.slice(1)}.html`,
   )
 
-## The pages module {Tangle}[pages.ts]
+## The pages module [pages.ts]
 
 The pages module draws on `effect`, on Node's `path` and `url` helpers to find its files, on Node's `crypto` to stamp the book, and on Foldkit's experimental `Server` module, which renders a view to HTML and writes it into the shell. The site's own modules supply the rest. The view draws the page. The model lends the `Model` schema, which doubles as the shape of the flags a page carries, the `Corpus` schema the book is read against, the `Route` schema that lists every route, and the `pathOf` and `routeOf` functions, which turn a route into its path and a path into its route. The documentation shell lends the documentation itself, as `docsCorpus`, and the functions that read and write a chapter's address and cut the slice of a corpus one page shows.
 
@@ -466,7 +466,7 @@ const handle = (site: Site['Service'], url: URL) =>
         }),
       )
 
-## Serving it {Tangle}[server.ts]
+## Serving it [server.ts]
 
 The handler reads the request and answers it. The server serves that handler over a Bun HTTP layer and launches from the Bun runtime edge. There is nothing here to switch on, which is the point: this file is what a developer runs and what the image runs, and neither reads an environment variable to find out which it is.
 

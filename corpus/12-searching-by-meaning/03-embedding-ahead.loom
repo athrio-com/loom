@@ -75,7 +75,7 @@ const program = strict
 
 program.pipe(Effect.provide(Embeddings.layer), Effect.provide(BunServices.layer), BunRuntime.runMain)
 
-## The program {Tangle}[embed.ts]
+## The program [embed.ts]
 
 From `effect` come `Array`, `Effect`, `FileSystem`, `Option`, `Schedule` and `pipe`, and `@effect/platform-bun` supplies the file system and the runtime edge. The meaning module lends the client for the service, the passage and key of an entry, the shape and place of the kept vectors, and the batching that embeds many passages at once. The pages module reads the book and renders the site's own pages, and the search module builds the index from them.
 

@@ -138,7 +138,7 @@ import { type Html, inertHtml as ih } from 'foldkit/html'
 import { broadSeam, carpetMark, communityCarpet } from './components'
 import { pageHead } from './page-head'
 
-## The module {Tangle}[community.ts]
+## The module [community.ts]
 
 =>
 

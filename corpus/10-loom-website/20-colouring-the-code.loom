@@ -192,7 +192,7 @@ const colourBook = Effect.gen(function* () {
 
 colourBook.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
 
-## The program {Tangle}[colour.ts]
+## The program [colour.ts]
 
 The program draws on `effect` for its combinators, the file system and the schemas, on Bun's platform for its file services and the runtime edge it starts from, on Shiki's core, its WebAssembly engine and its grammars, and on the model for the shapes it reads and writes.
 

@@ -99,7 +99,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   body: pageFor(model, h),
 })
 
-## The module {Tangle}[view.ts]
+## The module [view.ts]
 
 The module is the two kinds of page, the route that picks one, and the title that names it.
 

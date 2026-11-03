@@ -448,7 +448,7 @@ import {
 } from './model'
 import { chapterPath, docsCorpus } from './docs-page'
 
-## The module {Tangle}[search.ts]
+## The module [search.ts]
 
 =>
 

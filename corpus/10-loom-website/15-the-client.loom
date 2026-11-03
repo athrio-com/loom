@@ -917,7 +917,7 @@ Hydration also checks that the page and the script come from the same build. A p
 
 Runtime.hydrate(application, { buildId: new URL(import.meta.url).pathname })
 
-## The module {Tangle}[client.ts]
+## The module [client.ts]
 
 =>
 
