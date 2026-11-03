@@ -46,7 +46,7 @@ A specifier that holds a single parameter may drop the key and the equals sign, 
 
 The short form serves one parameter and no more. A specifier with two or more parameters writes each of them in full, so a label beside a parameter is a fault. `{Term text=accounts}` is a fault, and `{kind=Term text=accounts}` is its correct form. A reader of a full specifier never has to guess which key a bare word stands for.
 
-A label may run to several words, separated by single spaces, as `{To be settled}` does. A specifier with no equals sign in it holds one label, so its words never read as several parameters. In the full form the same value is quoted: `{kind="To be settled" symbols=greet}`.
+A label may run to several words, separated by single spaces, as `{To be settled}` does. A specifier with no equals sign in it holds one label, so its words never read as several parameters. In the full form the same value is quoted: `{kind="To be settled" provides=greet}`.
 
 The place where a specifier stands decides which key its label stands for:
 

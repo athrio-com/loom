@@ -58,7 +58,7 @@ The `(path.loom)` target retires, and with it the `anchorModule` and `resolveRel
 
 A literate author writes a reference before its target as often as after it, because the prose follows the reader's order and not the compiler's. Programming meets the same need with a mock, which fakes a piece's behaviour so the rest of a program can run, or with a typed hole, which marks a gap the compiler can describe. Literate programming has long allowed a looser order. Knuth's WEB names its sections in reading order, so a section is often used before it is written, and the tools object only to a name that is used and never defined.
 
-Loom lets an author carve a program into named compartments first and write each one later. A compartment that holds no code yet is unsettled, and it takes one of two shapes. An anchor labelled `{To be settled}` names a section nobody has written, as `::[Greeting function]{To be settled}` does. The label says the name is meant, so the anchor raises no fault, and it asks for no prose before the author is ready to specify the section. The editor offers the label while the author types between an anchor's braces. With other parameters the label takes its full form, `{kind="To be settled" symbols=greet}`, as the chapter "Parameters in braces" requires.
+Loom lets an author carve a program into named compartments first and write each one later. A compartment that holds no code yet is unsettled, and it takes one of two shapes. An anchor labelled `{To be settled}` names a section nobody has written, as `::[Greeting function]{To be settled}` does. The label says the name is meant, so the anchor raises no fault, and it asks for no prose before the author is ready to specify the section. The editor offers the label while the author types between an anchor's braces. With other parameters the label takes its full form, `{kind="To be settled" provides=greet}`, as the chapter "Parameters in braces" requires.
 
 A section declared with its heading and the prose that specifies it, but no code yet, is unsettled too. Its prose already says what its code will do, so it is the literate counterpart of a mock. It fakes no behaviour, but it states the intent, and a reader can read it before any code exists. A box that points to a chapter not yet written leaves a whole loom to be settled.
 
@@ -88,15 +88,15 @@ A stub is code, so the section it lands in is settled. The language's placeholde
 
 ## A contract stated on the anchor
 
-An anchor may state the contract itself, before any code uses the section it reaches. Its `symbols` parameter lists the names the anchor expects that section to provide, in the grammar the chapter "Parameters in braces" gives a specifier: `::[Greeting function]{symbols=greet}` for one name, and `::[Greeting function]{symbols=[greet, farewell]}` for several.
+An anchor may state the contract itself, before any code uses the section it reaches. Its `provides` parameter lists the names the anchor expects that section to provide, in the grammar the chapter "Parameters in braces" gives a specifier. One name stands alone, as in `::[Greeting function]{provides=greet}`, and several form a list, as in `::[Greeting function]{provides=[greet, farewell]}`.
 
-The parameter is optional. Many anchors transclude a fragment that declares nothing, such as a run of imports, a piece of an expression, or the lines of a configuration file, and those anchors state no symbols.
+The parameter is optional. Many anchors transclude a fragment that declares nothing, such as a run of imports, a piece of an expression, or the lines of a configuration file. Such an anchor has no names to state, so it leaves the parameter out.
 
-What a symbol is follows the kind of edge. A composing anchor, `::[Name]`, draws the section into the scope of the section that holds it, so its symbols are the names the section declares there. A referring anchor, `::[Name](file.ext)`, names a file the book emits, so its symbols are the names that file exports. One parameter carries both meanings, and the edge decides which one applies. An import usually lists the names it takes, as `import { roomBuilder }` does, and the language service checks those, so a referring anchor needs `symbols` mainly in a language whose import names only the module, such as Python's `import room`.
+What a target provides follows the kind of edge. A composing anchor, `::[Name]`, draws the section into the scope of the section that holds it, so the section provides the names it declares in that scope. A referring anchor, `::[Name](file.ext)`, names a file the book emits, so the file provides the names it exports. One parameter carries both meanings, and the edge decides which one applies. An import usually lists the names it takes, as `import { roomBuilder }` does, and the language service already checks those. So a referring anchor needs `provides` mainly in a language whose import names only the module, such as Python's `import room`.
 
-Loom checks the contract without knowing the language. Every language server reports the symbols a document declares, each with its name and its kind, through the protocol's `textDocument/documentSymbol` request. Loom asks the service that owns the section, or the emitted file, for those symbols and compares the names. A stated name that the target does not provide is the `MissingSymbol` fault at the anchor.
+Loom checks the contract without knowing the language. A language server calls each name a document declares a symbol. It reports every symbol with its name and its kind, such as a function or a class, through the protocol's `textDocument/documentSymbol` request. Loom asks the service that owns the section, or the emitted file, for those symbols and compares their names with the names the anchor states. A stated name that the target does not provide is the `MissingSymbol` fault at the anchor.
 
-An unsettled section holds no code yet, so the symbols an anchor states for it are the contract its stub fulfils. An anchor that both labels its section to be settled and states its symbols writes the full form, `::[Greeting function]{kind="To be settled" symbols=greet}`. The stub takes its names from the anchor and its types from the uses the language service reports, as the section above describes. A language whose service infers nothing from uses still gets a stub with the right names.
+An unsettled section holds no code yet, so the names an anchor states for it are the contract its stub fulfils. An anchor that both labels its section to be settled and states what the section provides writes the full form, `::[Greeting function]{kind="To be settled" provides=greet}`. The stub takes its names from the anchor and its types from the uses the language service reports, as the section above describes. A language whose service infers nothing from uses still gets a stub with the right names.
 
 ## Waiting for a missing name
 
@@ -134,7 +134,7 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. The contract an unsettled section collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
+1. The contract an unsettled section collects, the `provides` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the unsettled chapter.
 2. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
 3. The graph as a projection of the produced corpus, with its first view.
 
