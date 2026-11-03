@@ -5,6 +5,7 @@ import { Effect, Layer, Option } from 'effect'
 import type { VirtualCode } from '@volar/language-core'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { PackageConfig } from '../src/PackageConfig'
 
 // A type error never gates the de re. `funtype` carries a section with a type error
@@ -39,7 +40,7 @@ const source: Source = {
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.merge(DocumentSource.layer, PackageConfig.layer),
+  Layer.merge(DocumentSource.layer.pipe(Layer.provide(FileSystemSource)), PackageConfig.layer),
 )
 
 // the de re product for a section is its embedded code, keyed by the section name

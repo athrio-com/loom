@@ -1,10 +1,9 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
-import { readFileSync } from 'node:fs'
-import { dirname, join, resolve as resolvePath, sep } from 'node:path'
+import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
-import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   corpusErrors,
   definitionAt,
@@ -42,7 +41,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
-import { holds, loomsIn, projectIn, type LoomProject } from './LoomProject'
+import { outputPath, WorkspaceSource } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -75,12 +74,6 @@ export interface TangledFile {
   readonly path: Path
   readonly content: string
 }
-
-export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink: string): Path =>
-  Option.match(packageRoot, {
-    onNone: () => resolvePath(dirname(entry), sink),
-    onSome: (root) => resolvePath(root, sink),
-  })
 
 const resolveSinks = (
   modules: Modules,
@@ -347,21 +340,16 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
 })
 
-export const fromDisk = (path: Path): Effect.Effect<string, ReadError> =>
-  Effect.try({
-    try: () => readFileSync(path, 'utf8'),
-    catch: (cause) => new ReadError({ path, cause }),
-  })
-
 export class DocumentSource extends Context.Service<DocumentSource>()('DocumentSource', {
   make: Effect.gen(function* () {
+    const source = yield* WorkspaceSource
     const held = yield* Ref.make<ReadonlyMap<Path, string>>(new Map())
     return {
       read: (path: Path): Effect.Effect<string, ReadError> =>
         Ref.get(held).pipe(
           Effect.flatMap((texts) =>
             Option.match(Option.fromNullishOr(texts.get(path)), {
-              onNone: () => fromDisk(path),
+              onNone: () => source.read(path),
               onSome: (text) => Effect.succeed(text),
             }),
           ),
@@ -370,10 +358,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
         Ref.update(held, (texts) => new Map([...texts, ...looms])),
       forget: (loom: Path): Effect.Effect<void> =>
         Ref.update(held, (texts) => new Map(Array.filter([...texts], ([path]) => path !== loom))),
-      list: Option.some(
-        (dir: Path, project: Option.Option<LoomProject>): Effect.Effect<ReadonlyArray<Path>> =>
-          Effect.sync(() => loomsIn(dir, project)),
-      ),
+      list: Option.some((loom: Path): Effect.Effect<ReadonlyArray<Path>> => source.corpusOf(loom)),
     }
   }),
 }) {
@@ -415,31 +400,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         )
 
-    const listFrom = (
-      list: (dir: Path, project: Option.Option<LoomProject>) => Effect.Effect<ReadonlyArray<Path>>,
-      entry: Path,
-    ): Effect.Effect<ReadonlyArray<Path>> =>
-      config.resolve(entry).pipe(
-        Effect.flatMap((settings) =>
-          Option.match(
-            Option.filter(projectIn(settings), (project) => holds(project, entry)),
-            {
-              onNone: () => list(dirname(entry), Option.none()),
-              onSome: (project) =>
-                list(
-                  Option.getOrElse(Option.fromNullishOr(settings.corpusDir), () => dirname(entry)),
-                  Option.some(project),
-                ),
-            },
-          ),
-        ),
-        Effect.map((found) => Array.dedupe([entry, ...found])),
-      )
-
     const corpusPaths = (source: Source, entry: Path): Effect.Effect<ReadonlyArray<Path>> =>
       Option.match(source.list, {
         onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
-        onSome: (list) => listFrom(list, entry),
+        onSome: (list) => list(entry).pipe(Effect.map((found) => Array.dedupe([entry, ...found]))),
       })
 
     const matchEntry = (source: Source, path: Path): Effect.Effect<void> =>

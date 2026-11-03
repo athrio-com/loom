@@ -5,6 +5,7 @@ import { Effect, Layer } from 'effect'
 import { FileSystem } from 'effect'
 import { BunServices } from '@effect/platform-bun'
 import { DocumentSource } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomTangler } from '../src/LoomTangler'
 import { PackageConfig } from '../src/PackageConfig'
 
@@ -60,6 +61,7 @@ const x = "${value}"
 // provideMerge keeps FileSystem visible to the probe for the temp dir.
 const layers = LoomTangler.layer.pipe(
   Layer.provide(DocumentSource.layer),
+  Layer.provide(FileSystemSource),
   Layer.provide(PackageConfig.layer),
   Layer.provideMerge(BunServices.layer),
 )

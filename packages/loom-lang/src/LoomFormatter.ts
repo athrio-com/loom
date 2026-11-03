@@ -2,7 +2,7 @@ import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effec
 import { fromProduct, rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { outputPath } from './LoomCompiler'
+import { outputPath } from './WorkspaceSource'
 import { type BuildSettings, PackageConfig } from './PackageConfig'
 import { loomsIn, projectIn } from './LoomProject'
 import { statSync } from 'node:fs'

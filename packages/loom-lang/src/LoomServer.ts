@@ -641,8 +641,9 @@ const settleEdits = (
   )
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, FileSystemSource).pipe(
+  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
+    Layer.provideMerge(FileSystemSource),
     Layer.provideMerge(PackageConfig.layer),
     Layer.provideMerge(LoomConfig.layer),
   ),

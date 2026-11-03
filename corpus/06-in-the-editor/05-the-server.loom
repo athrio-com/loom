@@ -849,8 +849,9 @@ The warm-up runs in one synchronous piece, with `runSync`, never as a background
 =>
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, FileSystemSource).pipe(
+  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
+    Layer.provideMerge(FileSystemSource),
     Layer.provideMerge(PackageConfig.layer),
     Layer.provideMerge(LoomConfig.layer),
   ),
@@ -1628,12 +1629,7 @@ describe('LoomServer — the pass piece by piece', () => {
     const closed = (loom: URI, text: string) =>
       Effect.runSync(
         closeOf(loom, text).pipe(
-          Effect.provide(
-            Layer.mergeAll(FileSystemSource, DocumentSource.layer).pipe(
-              Layer.provide(PackageConfig.layer),
-              Layer.provide(LoomConfig.layer),
-            ),
-          ),
+          Effect.provide(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource))),
         ),
       )
     expect(closed(uri, chapter('Saved', 'const saved = 1'))).toEqual([])
@@ -1658,6 +1654,7 @@ describe('LoomServer — the pass piece by piece', () => {
         Effect.provide(
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
+            Layer.provide(FileSystemSource),
             Layer.provide(PackageConfig.layer),
             Layer.provide(LoomConfig.layer),
           ),

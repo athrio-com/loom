@@ -21,11 +21,11 @@ The parsed tree stays derived. The `LoomCorpusAstBuilder` service builds it from
 
 ## What a source must answer
 
-The `WorkspaceSource` service is how Loom reaches a workspace. It names each loom by a location, a string that identifies the loom and means nothing to the compiler. It answers two questions that may take time, and four that may not.
+The `WorkspaceSource` service is how Loom reaches a workspace. It names each loom by a location, a string that identifies the loom and means nothing to the compiler. It answers two questions that may take time, and five that may not.
 
 The first two fetch text. The `open` method hands over a whole `Workspace` value, which holds the settings and the text of every loom. The `read` method hands over one loom's text again after that loom changes. Both may wait on a network, and both fail with the existing `ReadError`.
 
-The other four answer at once. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink of one of a workspace's looms lands, from the `Workspace` value that the `open` method handed over. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
+The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink of one of a workspace's looms lands, from the `Workspace` value that the `open` method handed over. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
 
 A `Location` is a string. In this chapter's first step it is the compiler's own `Path` type under a second name, and the `Path` type gives way to it in the fourth.
 
@@ -42,6 +42,7 @@ export interface Workspace {
 export interface WorkspaceSourceApi {
   readonly open: (workspace: Location) => Effect.Effect<Workspace, ReadError>
   readonly read: (loom: Location) => Effect.Effect<string, ReadError>
+  readonly corpusOf: (loom: Location) => Effect.Effect<ReadonlyArray<Location>>
   readonly workspaceOf: (loom: Location) => Location
   readonly placeOf: (workspace: Workspace, loom: Location, sink: string) => string
   readonly locationOf: (uri: URI) => Location
@@ -66,13 +67,23 @@ Loom ships one source for each environment. The `FileSystemSource` layer reads f
 
 ## Folders as a source
 
-The `FileSystemSource` layer keeps a workspace in a folder on a disk. A location is an absolute path there, so every loom in a folder keeps the name it has today. A read is the synchronous file read that `DocumentSource` makes, the compiler's `fromDisk` function, so it never waits.
+The `FileSystemSource` layer keeps a workspace in a folder on a disk. A location is an absolute path there, so every loom in a folder keeps the name it has today. A read is the synchronous file read of the `fromDisk` function, so it never waits. It fails with a `ReadError` when the file cannot be read.
+
+=>
+
+export const fromDisk = (path: Path): Effect.Effect<string, ReadError> =>
+  Effect.try({
+    try: () => readFileSync(path, 'utf8'),
+    catch: (cause) => new ReadError({ path, cause }),
+  })
+
+~
 
 The `open` method takes the workspace's folder. It reads the folder's `.loom/config.yaml` file through the `LoomConfig` service, then walks the corpus folder the manifest names, `corpus` unless the manifest names another. The `loomsIn` function, which the chapter "The looms in a project" describes, does the walk under the project's rules. So `open` hands over the same looms that the compiler builds and the tangler writes. A folder that holds no configuration opens as a loose workspace, with no manifest and every loom under the folder.
 
 =>
 
-const corpusOf = (workspace: Location, manifest: Option.Option<WorkspaceManifest>): Location =>
+const corpusFolderOf = (workspace: Location, manifest: Option.Option<WorkspaceManifest>): Location =>
   Option.match(manifest, {
     onNone: () => workspace,
     onSome: (m) => join(workspace, m.corpus ?? defaultCorpus),
@@ -80,9 +91,34 @@ const corpusOf = (workspace: Location, manifest: Option.Option<WorkspaceManifest
 
 ~
 
-The `placeOf` method resolves a sink the way the `outputPath` function resolves it. A sink lands under the package root, the folder above the nearest corpus folder, or beside its loom when the loom sits in no corpus folder. The `containerRoot` function of the chapter "A project's configuration" finds the package root from the location and the manifest that the `Workspace` value carries, so `placeOf` reads nothing from the disk.
+The `corpusOf` method finds the looms the compiler builds together with a loom. The settings the `PackageConfig` service resolves for the loom give its project and its corpus folder, the nearest folder above it with the corpus folder's name. A loom its project holds shares that corpus folder, or its own folder when no corpus folder lies above it, walked under the project's rules. A loom its project leaves out, such as a test fixture, or a loom outside every workspace, is loose. It shares its own folder with every loom under it, walked under no project's rules, so a fixture that imports from a sibling fixture still finds it.
 
 =>
+
+const corpusWalk = (settings: BuildSettings, loom: Location): ReadonlyArray<Location> =>
+  Option.match(
+    Option.filter(projectIn(settings), (project) => holds(project, loom)),
+    {
+      onNone: () => loomsIn(dirname(loom), Option.none()),
+      onSome: (project) =>
+        loomsIn(
+          Option.getOrElse(Option.fromNullishOr(settings.corpusDir), () => dirname(loom)),
+          Option.some(project),
+        ),
+    },
+  )
+
+~
+
+A sink lands under the package root, the folder above the nearest corpus folder, or beside its loom when the loom sits in no corpus folder. The `outputPath` function resolves a sink against the package root it is given, or against the loom's own folder when it is given none. The compiler and the formatter place a sink through it today. The `placeOf` method resolves a sink through it too. The `containerRoot` function of the chapter "A project's configuration" finds the package root from the location and the manifest that the `Workspace` value carries, so `placeOf` reads nothing from the disk.
+
+=>
+
+export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink: string): Path =>
+  Option.match(packageRoot, {
+    onNone: () => resolvePath(dirname(entry), sink),
+    onSome: (root) => resolvePath(root, sink),
+  })
 
 const packageRootOf = (workspace: Workspace, loom: Location): Option.Option<string> =>
   Option.flatMap(workspace.manifest, (m) =>
@@ -101,7 +137,7 @@ const uriOfLocation = (loom: Location): URI => (isAbsolute(loom) ? URI.file(loom
 
 ~
 
-The layer gathers the six answers. The `workspaceOf` method climbs from the loom's folder through the `findWorkspace` function, the climb the configuration makes, and names the loom's own folder when no folder above it holds a configuration. The layer takes the `LoomConfig` and `PackageConfig` services from the program that provides it.
+The layer gathers the seven answers. The `workspaceOf` method climbs from the loom's folder through the `findWorkspace` function, the climb the configuration makes, and names the loom's own folder when no folder above it holds a configuration. The layer provides the `PackageConfig` and `LoomConfig` services it reads, as every Loom layer provides its own.
 
 =>
 
@@ -115,7 +151,7 @@ export const FileSystemSource = Layer.effect(
         const manifest = Option.fromNullishOr(yield* config.manifest(workspace))
         const settings = yield* packages.resolve(workspace)
         const paths = yield* Effect.sync(() =>
-          loomsIn(corpusOf(workspace, manifest), projectIn(settings)),
+          loomsIn(corpusFolderOf(workspace, manifest), projectIn(settings)),
         )
         const looms = yield* Effect.forEach(paths, (loom) =>
           fromDisk(loom).pipe(Effect.map((text) => [loom, text] as const)),
@@ -125,6 +161,10 @@ export const FileSystemSource = Layer.effect(
     const source: WorkspaceSourceApi = {
       open,
       read: fromDisk,
+      corpusOf: (loom) =>
+        packages
+          .resolve(loom)
+          .pipe(Effect.flatMap((settings) => Effect.sync(() => corpusWalk(settings, loom)))),
       workspaceOf: (loom) =>
         Option.getOrElse(Option.fromNullishOr(findWorkspace(dirname(loom))), () => dirname(loom)),
       placeOf: (workspace, loom, sink) => outputPath(packageRootOf(workspace, loom), loom, sink),
@@ -133,7 +173,7 @@ export const FileSystemSource = Layer.effect(
     }
     return source
   }),
-)
+).pipe(Layer.provide(PackageConfig.layer), Layer.provide(LoomConfig.layer))
 
 ~
 
@@ -151,7 +191,7 @@ An editor can also open a loom from a workspace the server has not opened yet. T
 
 ## The storage contract
 
-Remote storage answers two requests, because only the `open` and `read` methods fetch anything. The other four methods must answer at once, so they cannot cross a network, and the `RemoteSource` layer answers them by rule.
+Remote storage answers two requests, because only the `open` and `read` methods fetch anything. The other five methods must answer at once, so they cannot cross a network, and the `RemoteSource` layer answers them by rule.
 
 A URL names one workspace, and each loom's location is a URL beneath it, ending in `.loom`. Volar's language lookup and the `isLoom` function both read that ending. Every request carries the secret key in an `Authorization: Bearer` header.
 
@@ -173,7 +213,7 @@ An Effect Schema defines the JSON shape, and a service written in any language c
 
 The contract holds no write request. The server never saves a loom, so writing belongs to whoever edits the text. Permissions, conflicts, and history belong there too.
 
-The `RemoteSource` layer answers the other four methods from the URL. The `workspaceOf` method always names that URL. The `placeOf` method returns the sink unchanged, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back.
+The `RemoteSource` layer answers the other five methods without a request. One URL names one workspace, and one workspace holds one corpus, so the `corpusOf` method lists every loom of the workspace the `open` method fetched. The `workspaceOf` method always names that URL. The `placeOf` method returns the sink unchanged, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back.
 
 ## The URL and the key
 
@@ -199,7 +239,7 @@ One form of anchor still reads inside a location. The anchor `::[Name](path.loom
 
 Four rules about folders sit in the compiler and its neighbours. Each one moves into the file-system source or behind a layer, so the compiler no longer depends on a folder.
 
-**Which looms belong.** The `listFrom` function finds the corpus folder, then uses the `holds` and `loomsIn` functions to walk it under the rules in `.gitignore` files. The chapter "The looms in a project" describes that walk, and none of it means anything without folders. The walk becomes part of the file-system source's `open` method, and the compiler takes the keys of the `Workspace.looms` map instead. The `list` method of the `Source` interface loses its folder and project arguments.
+**Which looms belong.** The compiler's `listFrom` function found the corpus folder, then used the `holds` and `loomsIn` functions to walk it under the rules in `.gitignore` files. The chapter "The looms in a project" describes that walk, and none of it means anything without folders. The walk is now the file-system source's `corpusOf` method. The `list` method of the `Source` interface takes only a loom's path, and the `DocumentSource` service answers it by asking the `corpusOf` method. A remote source lists every loom of its workspace, since one URL names one corpus.
 
 **Where a workspace begins.** The `LoomConfig` service climbs folders to find the `.loom/config.yaml` file, then works out `packageRoot` and `corpusDir` from folder names. The `PackageConfig` service now reads the manifest the workspace holds. The `BuildSettings` interface keeps what a manifest says, such as the anchor delimiters, the primary language, the variables, and the width.
 
@@ -245,7 +285,7 @@ The existing tests keep passing, with their stubs updated to the new shapes. The
 
 The cases build a workspace in a temporary folder: a `.loom/config.yaml` file, a book at the root of the corpus folder, and a chapter in a part's folder beneath it. A loose folder beside the workspace holds one loom and no configuration.
 
-Opening the workspace hands over its manifest and both looms with their text. A loom names its workspace, and the loose loom names its own folder. A sink of the book lands in the workspace's folder, which is the package root, and a sink of the loose loom lands beside it. A file URI crosses to its path and back, and a `memory:` URI keeps its scheme both ways.
+Opening the workspace hands over its manifest and both looms with their text. A loom names its workspace, and the loose loom names its own folder. A chapter shares its corpus with the book, and the loose loom's corpus holds the loose loom alone. A sink of the book lands in the workspace's folder, which is the package root, and a sink of the loose loom lands beside it. A file URI crosses to its path and back, and a `memory:` URI keeps its scheme both ways.
 
 `DocumentSource` answers a held loom from memory. The last case holds the opened workspace's looms and rewrites the book on the disk. A read of the book still returns the text that `DocumentSource` held, and a read of a loom it never held returns the text on the disk. Once `DocumentSource` forgets the book, a read of the book returns the rewritten text on the disk.
 
@@ -257,17 +297,10 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource } from '../src/LoomCompiler'
-import { PackageConfig } from '../src/PackageConfig'
 import { FileSystemSource, WorkspaceSource } from '../src/WorkspaceSource'
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(FileSystemSource, DocumentSource.layer).pipe(
-    Layer.provide(PackageConfig.layer),
-    Layer.provide(LoomConfig.layer),
-  ),
-)
+const runtime = ManagedRuntime.make(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)))
 
 const source = () => runtime.runPromise(WorkspaceSource.pipe(Effect.map((s) => s)))
 
@@ -310,6 +343,15 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(s.workspaceOf(loose.loom)).toBe(loose.root)
   })
 
+  it("lists a loom's corpus, or a loose loom's folder", async () => {
+    const { book, chapter } = workspace()
+    const loose = looseLoom()
+    const s = await source()
+    const corpus = (loom: string) => runtime.runPromise(s.corpusOf(loom))
+    expect([...(await corpus(chapter))].sort()).toEqual([book, chapter].sort())
+    expect(await corpus(loose.loom)).toEqual([loose.loom])
+  })
+
   it('places a sink under the package root, or beside a loose loom', async () => {
     const { root, book } = workspace()
     const loose = looseLoom()
@@ -348,12 +390,13 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
 
 ## What the source draws on
 
-Effect supplies the service, the layer, `Option`, and the effect type. Node's `path` takes a location apart, and joins a corpus folder to its workspace. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `WorkspaceManifest` type, and the `findWorkspace`, `containerRoot`, and `defaultCorpus` rules this source shares with the configuration. `Path` types a compiler path, and `ReadError` names a read that failed. The compiler lends `fromDisk`, which reads a file, and `outputPath`, which resolves a sink. `PackageConfig` gives the project's settings, and `loomsIn` and `projectIn` walk its corpus.
+Effect supplies the service, the layer, `Option`, and the effect type. Node's `fs` reads a file, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `WorkspaceManifest` type, and the `findWorkspace`, `containerRoot`, and `defaultCorpus` rules this source shares with the configuration. `Path` types a compiler path, and `ReadError` names a read that failed. `PackageConfig` gives a loom's `BuildSettings`, `projectIn` finds its project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
 
 =>
 
 import { Context, Effect, Layer, Option } from 'effect'
-import { dirname, isAbsolute, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
   containerRoot,
@@ -363,10 +406,9 @@ import {
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
-import { type ReadError } from '#ast/LoomCorpusAstBuilder'
-import { fromDisk, outputPath } from './LoomCompiler'
-import { PackageConfig } from './PackageConfig'
-import { loomsIn, projectIn } from './LoomProject'
+import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { type BuildSettings, PackageConfig } from './PackageConfig'
+import { holds, loomsIn, projectIn } from './LoomProject'
 
 ~
 

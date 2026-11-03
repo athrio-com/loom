@@ -598,12 +598,7 @@ describe('LoomServer — the pass piece by piece', () => {
     const closed = (loom: URI, text: string) =>
       Effect.runSync(
         closeOf(loom, text).pipe(
-          Effect.provide(
-            Layer.mergeAll(FileSystemSource, DocumentSource.layer).pipe(
-              Layer.provide(PackageConfig.layer),
-              Layer.provide(LoomConfig.layer),
-            ),
-          ),
+          Effect.provide(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource))),
         ),
       )
     expect(closed(uri, chapter('Saved', 'const saved = 1'))).toEqual([])
@@ -628,6 +623,7 @@ describe('LoomServer — the pass piece by piece', () => {
         Effect.provide(
           LoomCompiler.layer.pipe(
             Layer.provide(DocumentSource.layer),
+            Layer.provide(FileSystemSource),
             Layer.provide(PackageConfig.layer),
             Layer.provide(LoomConfig.layer),
           ),

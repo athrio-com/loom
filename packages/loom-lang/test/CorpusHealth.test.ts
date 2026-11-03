@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { PackageConfig } from '../src/PackageConfig'
 
 // Regression guard for the brace-in-prose gotcha, now covering the whole book. A
@@ -37,6 +38,7 @@ beforeAll(async () => {
   const runtime = ManagedRuntime.make(
     LoomCompiler.layer.pipe(
       Layer.provide(DocumentSource.layer),
+      Layer.provide(FileSystemSource),
       Layer.provide(PackageConfig.layer),
     ),
   )

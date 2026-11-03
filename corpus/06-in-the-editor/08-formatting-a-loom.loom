@@ -957,7 +957,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
 
 ## What this module draws on
 
-Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the compiler gives `outputPath`, the tangler's rule for where a sink writes, and `PackageConfig` gives a file's build settings. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
+Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `PackageConfig` gives a file's build settings. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
 
 =>
 
@@ -965,7 +965,7 @@ import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effec
 import { fromProduct, rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { outputPath } from './LoomCompiler'
+import { outputPath } from './WorkspaceSource'
 import { type BuildSettings, PackageConfig } from './PackageConfig'
 import { loomsIn, projectIn } from './LoomProject'
 import { statSync } from 'node:fs'

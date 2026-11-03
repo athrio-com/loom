@@ -66,31 +66,10 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         )
 
-    const listFrom = (
-      list: (dir: Path, project: Option.Option<LoomProject>) => Effect.Effect<ReadonlyArray<Path>>,
-      entry: Path,
-    ): Effect.Effect<ReadonlyArray<Path>> =>
-      config.resolve(entry).pipe(
-        Effect.flatMap((settings) =>
-          Option.match(
-            Option.filter(projectIn(settings), (project) => holds(project, entry)),
-            {
-              onNone: () => list(dirname(entry), Option.none()),
-              onSome: (project) =>
-                list(
-                  Option.getOrElse(Option.fromNullishOr(settings.corpusDir), () => dirname(entry)),
-                  Option.some(project),
-                ),
-            },
-          ),
-        ),
-        Effect.map((found) => Array.dedupe([entry, ...found])),
-      )
-
     const corpusPaths = (source: Source, entry: Path): Effect.Effect<ReadonlyArray<Path>> =>
       Option.match(source.list, {
         onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
-        onSome: (list) => listFrom(list, entry),
+        onSome: (list) => list(entry).pipe(Effect.map((found) => Array.dedupe([entry, ...found]))),
       })
 
     const matchEntry = (source: Source, path: Path): Effect.Effect<void> =>
@@ -341,9 +320,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
 A file's corpus is the looms around it that belong to its project, discovered from disk rather than named in imports. `buildCorpus` lists the file's corpus directory through the source and builds each loom the listing returns. So a book reaches the chapters it places and an anchor reaches the section it names, with nothing imported by hand. A source that lists nothing — a single document held in memory — yields a corpus of one.
 
-The file's project decides which looms the listing returns. It applies the one rule every walk over a workspace follows, the rule the chapter on the looms in a project sets out. So the corpus the editor composes is the corpus `tangle` writes and `orphans` counts.
-
-A loom the project leaves out belongs to no project, so its corpus follows no project's rule. A test fixture is the usual case, whether a test builds it or a person opens it in the editor. Such a loom composes with every loom under its own folder, as a loom outside any project does, so a fixture that imports from a sibling fixture still finds it. `listFrom` makes the choice. It resolves the file's settings and finds its project with `projectIn`. When the project holds the file, `listFrom` lists the corpus directory for that project. Otherwise it lists the file's own folder with no project at all.
+Which looms share a file's corpus depends on where the looms are kept, so the compiler leaves the answer to the source. `corpusPaths` asks the source's `list` for the looms around the entry, and puts the entry first whether or not the listing names it. `DocumentSource` asks the `WorkspaceSource` service's `corpusOf` method. On the file system, that method applies the one rule every walk over a workspace follows, the rule the chapter on the looms in a project sets out, as the chapter "Where a workspace is kept" describes. So the corpus the editor composes is the corpus `tangle` writes and `orphans` counts.
 
 The whole corpus is what navigation resolves against, so a name reaches a section wherever in the corpus it lives. The tangle and the diagnose narrow it: each scopes to the entry and the sections it composes across files, through `reachable`, so tangling one file never reaches a sibling it should not, and a broken sibling never fails a neighbour's build.
 
@@ -394,7 +371,7 @@ const corpusDiagnostics =
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath`, the file-system source's rule, places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, reading each through `corpusDiagnostics`, and fails with a `TangleError` when any of them carries an error. A malformed parse stops the build. So does an anchor that names no section in its own file, and an anchor whose path names a file that lacks the section. None of them leaves a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -405,12 +382,6 @@ export interface TangledFile {
   readonly path: Path
   readonly content: string
 }
-
-export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink: string): Path =>
-  Option.match(packageRoot, {
-    onNone: () => resolvePath(dirname(entry), sink),
-    onSome: (root) => resolvePath(root, sink),
-  })
 
 const resolveSinks = (
   modules: Modules,
@@ -723,29 +694,24 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 
 ## The document source
 
-`DocumentSource` is the compiler's seam to a workspace's text. Its `read` method returns a loom's text by path. When it holds that loom's text from an opened workspace, it answers from memory. Otherwise it reads the file through Node's synchronous `fs`, and fails with `ReadError` when the file cannot be read. Either way the read never waits, because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
+`DocumentSource` is the compiler's seam to a workspace's text. It stands in front of the `WorkspaceSource` service, which reaches the storage the looms are kept in, as the chapter "Where a workspace is kept" describes. Its `read` method returns a loom's text by path. When it holds that loom's text from an opened workspace, it answers from memory. Otherwise it asks the `WorkspaceSource` service to read the loom, and fails with `ReadError` when the loom cannot be read. On the file system that read never waits, because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
 
-Its `hold` method keeps the text of each loom it is given, keyed by path, and replaces any text it held for those looms. The language server hands it every loom of the workspace that the `open` method of the `WorkspaceSource` service fetches, as the chapter "Where a workspace is kept" describes. Later the server hands it each loom that storage reports as changed. Its `forget` method drops a loom that storage no longer holds. A read of that loom then goes to the disk and fails, as a read of a deleted file does. In short, the `WorkspaceSource` service fetches, and `DocumentSource` remembers.
+Its `hold` method keeps the text of each loom it is given, keyed by path, and replaces any text it held for those looms. The language server hands it every loom of the workspace that the `open` method of the `WorkspaceSource` service fetches, as the chapter "Where a workspace is kept" describes. Later the server hands it each loom that storage reports as changed. Its `forget` method drops a loom that storage no longer holds. A read of that loom then goes to the `WorkspaceSource` service and fails, as a read of a deleted file does. In short, the `WorkspaceSource` service fetches, and `DocumentSource` remembers.
 
-It also lists a directory's looms. `list` walks the directory through `loomsIn` and returns every loom the given project holds there, the siblings the compiler builds into one corpus. The tangler and the editor walk through `loomsIn` too, so every listing of a corpus follows the same rule.
+It also lists a loom's corpus. `list` asks the `WorkspaceSource` service's `corpusOf` method for the looms that share the loom's corpus, the siblings the compiler builds into one corpus. On the file system the method walks through `loomsIn`, as the tangler does, so every listing of a corpus follows the same rule.
 
 =>
 
-export const fromDisk = (path: Path): Effect.Effect<string, ReadError> =>
-  Effect.try({
-    try: () => readFileSync(path, 'utf8'),
-    catch: (cause) => new ReadError({ path, cause }),
-  })
-
 export class DocumentSource extends Context.Service<DocumentSource>()('DocumentSource', {
   make: Effect.gen(function* () {
+    const source = yield* WorkspaceSource
     const held = yield* Ref.make<ReadonlyMap<Path, string>>(new Map())
     return {
       read: (path: Path): Effect.Effect<string, ReadError> =>
         Ref.get(held).pipe(
           Effect.flatMap((texts) =>
             Option.match(Option.fromNullishOr(texts.get(path)), {
-              onNone: () => fromDisk(path),
+              onNone: () => source.read(path),
               onSome: (text) => Effect.succeed(text),
             }),
           ),
@@ -754,10 +720,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
         Ref.update(held, (texts) => new Map([...texts, ...looms])),
       forget: (loom: Path): Effect.Effect<void> =>
         Ref.update(held, (texts) => new Map(Array.filter([...texts], ([path]) => path !== loom))),
-      list: Option.some(
-        (dir: Path, project: Option.Option<LoomProject>): Effect.Effect<ReadonlyArray<Path>> =>
-          Effect.sync(() => loomsIn(dir, project)),
-      ),
+      list: Option.some((loom: Path): Effect.Effect<ReadonlyArray<Path>> => source.corpusOf(loom)),
     }
   }),
 }) {
@@ -766,17 +729,16 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From `LoomProject` come `projectIn`, which finds a file's project in its settings, `holds`, which asks whether that project holds the file, and `loomsIn`, which lists the looms a project holds under a folder. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `fs` and `path` read each file, resolve each sink, and tell what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module come the `WorkspaceSource` service that `DocumentSource` stands in front of, and `outputPath`, which places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 =>
 
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
-import { readFileSync } from 'node:fs'
-import { dirname, join, resolve as resolvePath, sep } from 'node:path'
+import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
-import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   corpusErrors,
   definitionAt,
@@ -814,7 +776,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
-import { holds, loomsIn, projectIn, type LoomProject } from './LoomProject'
+import { outputPath, WorkspaceSource } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -864,11 +826,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { PackageConfig } from '../src/PackageConfig'
 
 const runtime = ManagedRuntime.make(
   LoomCompiler.layer.pipe(
     Layer.provide(DocumentSource.layer),
+    Layer.provide(FileSystemSource),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),
   ),

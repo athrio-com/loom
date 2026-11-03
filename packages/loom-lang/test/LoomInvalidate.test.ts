@@ -5,11 +5,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { PackageConfig } from '../src/PackageConfig'
 
 const runtime = ManagedRuntime.make(
   LoomCompiler.layer.pipe(
     Layer.provide(DocumentSource.layer),
+    Layer.provide(FileSystemSource),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),
   ),

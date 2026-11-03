@@ -4,17 +4,10 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource } from '../src/LoomCompiler'
-import { PackageConfig } from '../src/PackageConfig'
 import { FileSystemSource, WorkspaceSource } from '../src/WorkspaceSource'
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(FileSystemSource, DocumentSource.layer).pipe(
-    Layer.provide(PackageConfig.layer),
-    Layer.provide(LoomConfig.layer),
-  ),
-)
+const runtime = ManagedRuntime.make(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)))
 
 const source = () => runtime.runPromise(WorkspaceSource.pipe(Effect.map((s) => s)))
 
@@ -55,6 +48,15 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     const s = await source()
     expect(s.workspaceOf(chapter)).toBe(root)
     expect(s.workspaceOf(loose.loom)).toBe(loose.root)
+  })
+
+  it("lists a loom's corpus, or a loose loom's folder", async () => {
+    const { book, chapter } = workspace()
+    const loose = looseLoom()
+    const s = await source()
+    const corpus = (loom: string) => runtime.runPromise(s.corpusOf(loom))
+    expect([...(await corpus(chapter))].sort()).toEqual([book, chapter].sort())
+    expect(await corpus(loose.loom)).toEqual([loose.loom])
   })
 
   it('places a sink under the package root, or beside a loose loom', async () => {

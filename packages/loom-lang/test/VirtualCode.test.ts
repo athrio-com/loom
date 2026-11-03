@@ -4,6 +4,7 @@ const it = effectify(it_)
 import { Effect, Layer, Option } from 'effect'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { PackageConfig } from '../src/PackageConfig'
 
 // compiler.compile assembles the Volar tree from the LoomVirtualCodeBuilder
@@ -30,7 +31,7 @@ const source: Source = { read: () => Effect.succeed(input), list: Option.none() 
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.merge(DocumentSource.layer, PackageConfig.layer),
+  Layer.merge(DocumentSource.layer.pipe(Layer.provide(FileSystemSource)), PackageConfig.layer),
 )
 
 describe('VirtualCode — root projection', () => {

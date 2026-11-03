@@ -35,6 +35,7 @@ import { delimiter, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
+import { FileSystemSource } from '@athrio/loom-lang/WorkspaceSource'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
@@ -1241,6 +1242,7 @@ const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomContents.layer),
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
+  Effect.provide(FileSystemSource),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),

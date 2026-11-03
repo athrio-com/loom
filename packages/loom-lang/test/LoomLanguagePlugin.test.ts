@@ -7,12 +7,14 @@ import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 import { PackageConfig } from '../src/PackageConfig'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
+    Layer.provide(FileSystemSource),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),
   ),

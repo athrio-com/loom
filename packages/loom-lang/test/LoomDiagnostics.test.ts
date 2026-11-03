@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { PackageConfig } from '../src/PackageConfig'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -63,6 +64,7 @@ const checkerFor = (fixture: string) => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
       Layer.provideMerge(DocumentSource.layer),
+      Layer.provide(FileSystemSource),
       Layer.provide(PackageConfig.layer),
       Layer.provide(configMock),
     ),

@@ -16,7 +16,7 @@ The service plugins are the editor features themselves: diagnostics, hover, comp
 
 `loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path and projects the file to a virtual-code tree. The de dicto root is the source itself, which Loom's own service checks and navigates; the product sections are embedded codes, which each language service checks against a program of its own. It projects through `LoomCompiler`, whose `compile` verb runs the file's composition — discovering the corpus and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `projectIsolated` runs that projection with the compiler and the document source it takes from the runtime, then marks each composition root as its own module.
 
-The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over. It reads every other loom through the `DocumentSource` service, which answers from the text it holds for an opened workspace, and from the disk for any other loom. It lists the corpus directory through the same service, which walks it with `loomsIn`, the walk the compiler and the tangler share. So the editor discovers exactly the corpus that `tangle` writes. The source never calls back into Volar, so running the composition cannot re-enter the projector.
+The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over. It reads every other loom through the `DocumentSource` service, which answers from the text it holds for an opened workspace, and asks the `WorkspaceSource` service for any other loom. It lists the loom's corpus through the same service, which asks the `WorkspaceSource` service too. So the editor discovers exactly the corpus that `tangle` writes. The source never calls back into Volar, so running the composition cannot re-enter the projector.
 
 After projecting, the plugin tells Volar what the file depends on, and Volar re-projects the file when any dependency changes. `associate` reads the corpus the projection reached and calls `ctx.getAssociatedScript` for every module the file transitively imports. The registration runs on the warm corpus, after the build, so the projection it triggers is a cache hit rather than a re-entrant build. It registers the whole transitive reach, not the direct imports alone, because Volar marks a dependent dirty one hop at a time on a snapshot change — so a change deep in a chain reaches every file that transcludes it only when each has declared the whole chain.
 
@@ -256,12 +256,14 @@ import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompiler'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 import { PackageConfig } from '../src/PackageConfig'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
     Layer.provideMerge(DocumentSource.layer),
+    Layer.provide(FileSystemSource),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),
   ),
