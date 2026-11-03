@@ -6,11 +6,11 @@ Language: TypeScript
 
 # Build settings for a file
 
-`PackageConfig` reads a `.loom` file's configuration and gives the compiler the settings it needs to build that file: the anchor delimiters its sections cut with, the primary language a section without a specifier inherits, and the root its sinks tangle under. The formatter reads the same settings, for the width the file's lines keep to. It reads through `@athrio/loom-config`, which resolves the file's configuration from the one workspace manifest — a project has no per-package configuration. This service turns that resolved configuration into the compiler's own terms.
+`PackageConfig` reads a `.loom` file's configuration and gives the compiler the settings it needs to build that file: the anchor delimiters its sections cut with, the primary language a section without a specifier inherits, and the variables a warp interpolates. The formatter reads the same settings, for the width the file's lines keep to. It reads through `@athrio/loom-config`, which resolves the file's configuration from the one workspace manifest — a project has no per-package configuration. This service turns that resolved configuration into the compiler's own terms.
 
 ## What the compiler reads
 
-`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, the width its lines keep to, and the root the file's package tangles under. It says nothing about where the workspace begins or which folder holds the file's corpus. Those are facts about folders, and only the parts of Loom that keep their folders read them, straight from `LoomConfig`: the file-system source, the build cache on disk, the tangler, and the formatter, as the chapter "Where a workspace is kept" describes.
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, and the width its lines keep to. It says nothing about where the workspace begins, which folder holds the file's corpus, or where its files land. Those are facts about folders, and only the parts of Loom that keep their folders read them, straight from `LoomConfig`: the file-system source, the build cache on disk, the tangler, and the formatter, as the chapter "Where a workspace is kept" describes. The compiler asks the `WorkspaceSource` service where a sink's file lands.
 
 The anchor delimiters are always a complete pair. A configuration may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
@@ -20,8 +20,6 @@ The variables are the workspace's named strings, the values a warp interpolates 
 
 The width is the column the file's lines keep to, which the formatter fits a code section to. The configuration supplies it, a hundred columns when it names none.
 
-The package root is the absolute directory the file's package tangles into — the directory holding the file's `corpus/`. `@athrio/loom-config` derives it from that convention, and it is absent when the file sits in no corpus directory.
-
 =>
 
 export interface BuildSettings {
@@ -29,7 +27,6 @@ export interface BuildSettings {
   readonly primaryLanguage: string | undefined
   readonly variables: Record<string, string>
   readonly width: number
-  readonly packageRoot: string | undefined
 }
 
 const anchorDelimsOf = (
@@ -56,7 +53,6 @@ export class PackageConfig extends Context.Service<PackageConfig>()('PackageConf
             primaryLanguage: c.primary,
             variables: c.variables,
             width: c.width,
-            packageRoot: c.packageRoot,
           })),
         ),
     }

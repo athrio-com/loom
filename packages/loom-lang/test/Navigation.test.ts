@@ -5,6 +5,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -51,13 +52,12 @@ const TestConfig = Layer.succeed(PackageConfig, {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
 )
 
 const makeLayer = (docs: Record<string, string>) =>
@@ -65,6 +65,7 @@ const makeLayer = (docs: Record<string, string>) =>
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
       LoomConfig.layer,
+      FileSystemSource,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(docs[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(docs))),

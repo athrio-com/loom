@@ -4,6 +4,7 @@ import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -41,6 +42,7 @@ const layerOf = (files: Record<string, string>) =>
     LoomCompiler.layer,
     Layer.mergeAll(
       LoomConfig.layer,
+      FileSystemSource,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -54,7 +56,6 @@ const layerOf = (files: Record<string, string>) =>
             primaryLanguage: 'typescript',
             variables: {},
             width: 100,
-            packageRoot: undefined,
           }),
       }),
     ),

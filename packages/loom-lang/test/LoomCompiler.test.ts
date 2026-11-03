@@ -5,6 +5,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -50,13 +51,12 @@ const TestConfig = Layer.succeed(PackageConfig, {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
 )
 
 describe('LoomCompiler — the chain projected for each consumer', () => {
@@ -124,6 +124,7 @@ const crossLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
     LoomConfig.layer,
+    FileSystemSource,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
@@ -195,6 +196,7 @@ const editableLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
     LoomConfig.layer,
+    FileSystemSource,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(editable[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(editable))),

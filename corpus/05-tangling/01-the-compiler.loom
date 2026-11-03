@@ -34,6 +34,7 @@ Every build passes through `LoomDiskCache`, which may keep the module on disk fo
 export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler', {
   make: Effect.gen(function* () {
     const documents = yield* DocumentSource
+    const workspaces = yield* WorkspaceSource
     const builder = yield* LoomCorpusAstBuilder
     const memo = yield* LoomMemo
     const disk = yield* LoomDiskCache
@@ -118,13 +119,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(scoped))
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
-              : config
-                  .resolve(path)
-                  .pipe(
-                    Effect.map(({ packageRoot }) =>
-                      resolveSinks(scoped, path, Option.fromNullishOr(packageRoot)),
-                    ),
-                  )
+              : resolveSinks(scoped, path, workspaces.placeOf)
           }),
         ),
 
@@ -132,16 +127,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) =>
             Effect.forEach(Array.fromIterable(modules.values()), (module) =>
-              config.resolve(module.path).pipe(
-                Effect.map(({ packageRoot }) =>
-                  Option.map(Option.fromNullishOr(packageRoot), (root) => [module.path, root] as const),
-                ),
-              ),
+              Effect.forEach(module.product.files, (file) =>
+                workspaces.placeOf(module.path, file.path),
+              ).pipe(Effect.map((paths) => [module.path, paths] as const)),
             ).pipe(
-              Effect.map((roots) => new Map(Array.getSomes(roots))),
-              Effect.flatMap((roots) =>
+              Effect.map((pairs) => new Map(pairs)),
+              Effect.flatMap((placed) =>
                 Ref.modify(composed, (previous) => {
-                  const next = recompose(previous, modules, roots)
+                  const next = recompose(previous, modules, placed)
                   return [composedFiles(next), next] as const
                 }),
               ),
@@ -371,7 +364,7 @@ const corpusDiagnostics =
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath`, the file-system source's rule, places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, reading each through `corpusDiagnostics`, and fails with a `TangleError` when any of them carries an error. A malformed parse stops the build. So does an anchor that names no section in its own file, and an anchor whose path names a file that lacks the section. None of them leaves a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -386,18 +379,22 @@ export interface TangledFile {
 const resolveSinks = (
   modules: Modules,
   entry: Path,
-  packageRoot: Option.Option<string>,
-): ReadonlyArray<TangledFile> =>
+  placeOf: (loom: Path, sink: string) => Effect.Effect<Path>,
+): Effect.Effect<ReadonlyArray<TangledFile>> =>
   pipe(
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
-      onNone: () => [],
+      onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
       onSome: (module) =>
-        Array.map(module.product.files, (file) => ({
-          section: file.code.origin.name,
-          path: outputPath(packageRoot, entry, file.path),
-          content: fromProduct(modules, file.code.origin).code,
-        })),
+        Effect.forEach(module.product.files, (file) =>
+          placeOf(entry, file.path).pipe(
+            Effect.map((path) => ({
+              section: file.code.origin.name,
+              path,
+              content: fromProduct(modules, file.code.origin).code,
+            })),
+          ),
+        ),
     }),
   )
 
@@ -524,9 +521,9 @@ const faceOf = (module: LoomModule): string =>
 
 The editor asks for the composition on nearly every request. The TypeScript service calls `composition` before each hover and each go-to-definition, to bring its program up to date with the book. Composing every file in a large corpus takes tens of milliseconds, and most requests come while nothing has changed. So the compiler keeps the last composition it gave and recomposes only the files a change can reach.
 
-A `Composition` holds what the last call composed. Its `modules` are the corpus that call built, its `roots` give each module the package root its files land under, and its `files` hold the files each module composed. A module with no package root has no entry in `roots`. The compiler keeps one `Composition` for the whole session, starting from `noComposition`, which holds nothing.
+A `Composition` holds what the last call composed. Its `modules` are the corpus that call built, its `placed` give each module the paths its files land at, in the order of its files, and its `files` hold the files each module composed. The compiler keeps one `Composition` for the whole session, starting from `noComposition`, which holds nothing.
 
-`changedSince` names the modules whose files may differ from last time. The memo hands back the very same module object until the module is rebuilt, so a module whose object differs from the kept one has changed. So has a module that was added or removed, or one whose package root moved.
+`changedSince` names the modules whose files may differ from last time. The memo hands back the very same module object until the module is rebuilt, so a module whose object differs from the kept one has changed. So has a module that was added or removed, or one whose files land somewhere new. `samePlaces` compares two lists of paths, place by place.
 
 A change also reaches the modules that anchor into the changed one, because their files inline its sections. `staleSince` adds them. It asks `dependentsOf` twice, once over the old corpus and once over the new. The old corpus finds a module that anchored a section the change removed. The new corpus finds a module whose anchor the change has just satisfied.
 
@@ -536,43 +533,53 @@ A change also reaches the modules that anchor into the changed one, because thei
 
 interface Composition {
   readonly modules: Modules
-  readonly roots: ReadonlyMap<Path, string>
+  readonly placed: ReadonlyMap<Path, ReadonlyArray<Path>>
   readonly files: ReadonlyMap<Path, ReadonlyArray<ComposedFile>>
 }
 
-const noComposition: Composition = { modules: new Map(), roots: new Map(), files: new Map() }
+const noComposition: Composition = { modules: new Map(), placed: new Map(), files: new Map() }
 
 const composedFilesOf = (
   modules: Modules,
   module: LoomModule,
-  packageRoot: Option.Option<string>,
+  paths: ReadonlyArray<Path>,
 ): ReadonlyArray<ComposedFile> =>
-  Array.map(module.product.files, (file): ComposedFile => ({
-    path: outputPath(packageRoot, module.path, file.path),
+  Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
+    path,
     content: fromProduct(modules, file.code.origin).code,
     loomPath: module.path,
     rootId: file.code.origin.name.toLowerCase(),
     heading: headingLocationOf(modules, module, file.code.origin.name),
   }))
 
+const samePlaces = (
+  before: ReadonlyArray<Path> | undefined,
+  after: ReadonlyArray<Path> | undefined,
+): boolean =>
+  Option.match(Option.all([Option.fromNullishOr(before), Option.fromNullishOr(after)]), {
+    onNone: () => before === after,
+    onSome: ([was, now]) =>
+      was.length === now.length && Array.every(was, (path, i) => path === now[i]),
+  })
+
 const changedSince = (
   previous: Composition,
   modules: Modules,
-  roots: ReadonlyMap<Path, string>,
+  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
 ): ReadonlyArray<Path> =>
   Array.filter(
     Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
     (path) =>
       previous.modules.get(path) !== modules.get(path) ||
-      previous.roots.get(path) !== roots.get(path),
+      !samePlaces(previous.placed.get(path), placed.get(path)),
   )
 
 const staleSince = (
   previous: Composition,
   modules: Modules,
-  roots: ReadonlyMap<Path, string>,
+  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
 ): ReadonlySet<Path> => {
-  const changed = changedSince(previous, modules, roots)
+  const changed = changedSince(previous, modules, placed)
   return changed.length === 0
     ? new Set()
     : new Set([
@@ -585,12 +592,12 @@ const staleSince = (
 const recompose = (
   previous: Composition,
   modules: Modules,
-  roots: ReadonlyMap<Path, string>,
+  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
 ): Composition => {
-  const stale = staleSince(previous, modules, roots)
+  const stale = staleSince(previous, modules, placed)
   return {
     modules,
-    roots,
+    placed,
     files: new Map(
       Array.map(
         Array.fromIterable(modules.values()),
@@ -601,7 +608,7 @@ const recompose = (
               Option.fromNullishOr(previous.files.get(module.path)),
               Option.filter(() => !stale.has(module.path)),
               Option.getOrElse(() =>
-                composedFilesOf(modules, module, Option.fromNullishOr(roots.get(module.path))),
+                composedFilesOf(modules, module, placed.get(module.path) ?? []),
               ),
             ),
           ] as const,
@@ -729,7 +736,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module come the `WorkspaceSource` service that `DocumentSource` stands in front of, and `outputPath`, which places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 =>
 
@@ -776,7 +783,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
-import { outputPath, WorkspaceSource } from './WorkspaceSource'
+import { WorkspaceSource } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -905,6 +912,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -948,7 +956,7 @@ const files: Record<string, string> = {
 
 The stand-in source reads each loom from the `files` record, which maps a path to the loom's text. It reads a path the record lacks as empty text, lists every path in the record as the corpus, and ignores any loom it is asked to hold or forget.
 
-The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. It names no package root, so each file a loom tangles lands beside the loom. The build cache on disk finds a loom's workspace through the real `LoomConfig` service, which the layer provides too. No folder above a path such as `/chapter.loom` holds a configuration, so the cache keeps nothing, and no case writes to the disk.
+The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. The layer also provides the real `LoomConfig` service and the real `FileSystemSource` layer. The source places each file a loom tangles, and the build cache on disk asks `LoomConfig` for a loom's workspace. No folder above a path such as `/chapter.loom` holds a configuration, so each file lands beside its loom, the cache keeps nothing, and no case writes to the disk.
 
 =>
 
@@ -966,7 +974,6 @@ const TestConfig = Layer.succeed(PackageConfig, {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     }),
 })
 
@@ -978,7 +985,7 @@ The `LoomMemo` cache keeps each module the compiler builds and counts its hits a
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
 )
 
 ## What a book reaches, and what the memo keeps
@@ -1072,6 +1079,7 @@ const crossLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
     LoomConfig.layer,
+    FileSystemSource,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
@@ -1157,6 +1165,7 @@ const editableLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.mergeAll(
     LoomConfig.layer,
+    FileSystemSource,
     Layer.succeed(DocumentSource, {
       read: (path: string) => Effect.succeed(editable[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(editable))),
@@ -1237,6 +1246,7 @@ import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -1286,6 +1296,7 @@ const layerOf = (files: Record<string, string>) =>
     LoomCompiler.layer,
     Layer.mergeAll(
       LoomConfig.layer,
+      FileSystemSource,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -1299,7 +1310,6 @@ const layerOf = (files: Record<string, string>) =>
             primaryLanguage: 'typescript',
             variables: {},
             width: 100,
-            packageRoot: undefined,
           }),
       }),
     ),
@@ -1528,6 +1538,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -1588,13 +1599,12 @@ const TestConfig = Layer.succeed(PackageConfig, {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
 )
 
 const makeLayer = (docs: Record<string, string>) =>
@@ -1602,6 +1612,7 @@ const makeLayer = (docs: Record<string, string>) =>
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
       LoomConfig.layer,
+      FileSystemSource,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(docs[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(docs))),
@@ -1822,6 +1833,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -1878,13 +1890,12 @@ const TestConfig = Layer.succeed(PackageConfig, {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     }),
 })
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
-  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer),
+  Layer.mergeAll(TestDocs, TestConfig, LoomConfig.layer, FileSystemSource),
 )
 
 ~
@@ -1942,6 +1953,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -2069,6 +2081,7 @@ const makeCompilerLayer = (files: Record<string, string>) =>
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
       LoomConfig.layer,
+      FileSystemSource,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -2082,7 +2095,6 @@ const makeCompilerLayer = (files: Record<string, string>) =>
             primaryLanguage: undefined,
             variables: {},
             width: 100,
-            packageRoot: undefined,
           }),
       }),
     ),

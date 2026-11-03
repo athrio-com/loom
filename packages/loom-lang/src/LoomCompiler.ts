@@ -41,7 +41,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
-import { outputPath, WorkspaceSource } from './WorkspaceSource'
+import { WorkspaceSource } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -78,18 +78,22 @@ export interface TangledFile {
 const resolveSinks = (
   modules: Modules,
   entry: Path,
-  packageRoot: Option.Option<string>,
-): ReadonlyArray<TangledFile> =>
+  placeOf: (loom: Path, sink: string) => Effect.Effect<Path>,
+): Effect.Effect<ReadonlyArray<TangledFile>> =>
   pipe(
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
-      onNone: () => [],
+      onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
       onSome: (module) =>
-        Array.map(module.product.files, (file) => ({
-          section: file.code.origin.name,
-          path: outputPath(packageRoot, entry, file.path),
-          content: fromProduct(modules, file.code.origin).code,
-        })),
+        Effect.forEach(module.product.files, (file) =>
+          placeOf(entry, file.path).pipe(
+            Effect.map((path) => ({
+              section: file.code.origin.name,
+              path,
+              content: fromProduct(modules, file.code.origin).code,
+            })),
+          ),
+        ),
     }),
   )
 
@@ -198,43 +202,53 @@ const faceOf = (module: LoomModule): string =>
 
 interface Composition {
   readonly modules: Modules
-  readonly roots: ReadonlyMap<Path, string>
+  readonly placed: ReadonlyMap<Path, ReadonlyArray<Path>>
   readonly files: ReadonlyMap<Path, ReadonlyArray<ComposedFile>>
 }
 
-const noComposition: Composition = { modules: new Map(), roots: new Map(), files: new Map() }
+const noComposition: Composition = { modules: new Map(), placed: new Map(), files: new Map() }
 
 const composedFilesOf = (
   modules: Modules,
   module: LoomModule,
-  packageRoot: Option.Option<string>,
+  paths: ReadonlyArray<Path>,
 ): ReadonlyArray<ComposedFile> =>
-  Array.map(module.product.files, (file): ComposedFile => ({
-    path: outputPath(packageRoot, module.path, file.path),
+  Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
+    path,
     content: fromProduct(modules, file.code.origin).code,
     loomPath: module.path,
     rootId: file.code.origin.name.toLowerCase(),
     heading: headingLocationOf(modules, module, file.code.origin.name),
   }))
 
+const samePlaces = (
+  before: ReadonlyArray<Path> | undefined,
+  after: ReadonlyArray<Path> | undefined,
+): boolean =>
+  Option.match(Option.all([Option.fromNullishOr(before), Option.fromNullishOr(after)]), {
+    onNone: () => before === after,
+    onSome: ([was, now]) =>
+      was.length === now.length && Array.every(was, (path, i) => path === now[i]),
+  })
+
 const changedSince = (
   previous: Composition,
   modules: Modules,
-  roots: ReadonlyMap<Path, string>,
+  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
 ): ReadonlyArray<Path> =>
   Array.filter(
     Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
     (path) =>
       previous.modules.get(path) !== modules.get(path) ||
-      previous.roots.get(path) !== roots.get(path),
+      !samePlaces(previous.placed.get(path), placed.get(path)),
   )
 
 const staleSince = (
   previous: Composition,
   modules: Modules,
-  roots: ReadonlyMap<Path, string>,
+  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
 ): ReadonlySet<Path> => {
-  const changed = changedSince(previous, modules, roots)
+  const changed = changedSince(previous, modules, placed)
   return changed.length === 0
     ? new Set()
     : new Set([
@@ -247,12 +261,12 @@ const staleSince = (
 const recompose = (
   previous: Composition,
   modules: Modules,
-  roots: ReadonlyMap<Path, string>,
+  placed: ReadonlyMap<Path, ReadonlyArray<Path>>,
 ): Composition => {
-  const stale = staleSince(previous, modules, roots)
+  const stale = staleSince(previous, modules, placed)
   return {
     modules,
-    roots,
+    placed,
     files: new Map(
       Array.map(
         Array.fromIterable(modules.values()),
@@ -263,7 +277,7 @@ const recompose = (
               Option.fromNullishOr(previous.files.get(module.path)),
               Option.filter(() => !stale.has(module.path)),
               Option.getOrElse(() =>
-                composedFilesOf(modules, module, Option.fromNullishOr(roots.get(module.path))),
+                composedFilesOf(modules, module, placed.get(module.path) ?? []),
               ),
             ),
           ] as const,
@@ -368,6 +382,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler', {
   make: Effect.gen(function* () {
     const documents = yield* DocumentSource
+    const workspaces = yield* WorkspaceSource
     const builder = yield* LoomCorpusAstBuilder
     const memo = yield* LoomMemo
     const disk = yield* LoomDiskCache
@@ -452,13 +467,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(scoped))
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
-              : config
-                  .resolve(path)
-                  .pipe(
-                    Effect.map(({ packageRoot }) =>
-                      resolveSinks(scoped, path, Option.fromNullishOr(packageRoot)),
-                    ),
-                  )
+              : resolveSinks(scoped, path, workspaces.placeOf)
           }),
         ),
 
@@ -466,16 +475,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) =>
             Effect.forEach(Array.fromIterable(modules.values()), (module) =>
-              config.resolve(module.path).pipe(
-                Effect.map(({ packageRoot }) =>
-                  Option.map(Option.fromNullishOr(packageRoot), (root) => [module.path, root] as const),
-                ),
-              ),
+              Effect.forEach(module.product.files, (file) =>
+                workspaces.placeOf(module.path, file.path),
+              ).pipe(Effect.map((paths) => [module.path, paths] as const)),
             ).pipe(
-              Effect.map((roots) => new Map(Array.getSomes(roots))),
-              Effect.flatMap((roots) =>
+              Effect.map((pairs) => new Map(pairs)),
+              Effect.flatMap((placed) =>
                 Ref.modify(composed, (previous) => {
-                  const next = recompose(previous, modules, roots)
+                  const next = recompose(previous, modules, placed)
                   return [composedFiles(next), next] as const
                 }),
               ),

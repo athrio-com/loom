@@ -32,7 +32,7 @@ const source: Source = { read: () => Effect.succeed(input), list: Option.none() 
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provide(FileSystemSource)), PackageConfig.layer, LoomConfig.layer),
+  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), PackageConfig.layer, LoomConfig.layer),
 )
 
 describe('VirtualCode — root projection', () => {

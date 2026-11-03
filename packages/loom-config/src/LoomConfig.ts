@@ -139,7 +139,7 @@ const variablesOf = (
 ): Record<string, string> =>
   Object.fromEntries(Object.entries(variables ?? {}).map(([name, value]) => [name, String(value)]))
 
-export const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
+const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
   if (basename(dir) === container) return dirname(dir)
   const parent = dirname(dir)
   return dir === workspace || parent === dir

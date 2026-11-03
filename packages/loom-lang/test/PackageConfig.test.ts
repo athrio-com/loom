@@ -37,7 +37,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: 'typescript',
       variables: {},
       width: 100,
-      packageRoot: undefined,
     })
   })
 
@@ -49,7 +48,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     })
   })
 
@@ -63,7 +61,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: 'bash',
       variables: {},
       width: 100,
-      packageRoot: undefined,
     })
   })
 
@@ -73,7 +70,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     })
   })
 
@@ -83,7 +79,6 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: undefined,
       variables: {},
       width: 100,
-      packageRoot: undefined,
     })
   })
 })

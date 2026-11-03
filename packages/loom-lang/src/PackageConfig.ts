@@ -8,7 +8,6 @@ export interface BuildSettings {
   readonly primaryLanguage: string | undefined
   readonly variables: Record<string, string>
   readonly width: number
-  readonly packageRoot: string | undefined
 }
 
 const anchorDelimsOf = (
@@ -29,7 +28,6 @@ export class PackageConfig extends Context.Service<PackageConfig>()('PackageConf
             primaryLanguage: c.primary,
             variables: c.variables,
             width: c.width,
-            packageRoot: c.packageRoot,
           })),
         ),
     }

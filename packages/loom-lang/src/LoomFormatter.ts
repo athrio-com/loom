@@ -570,14 +570,12 @@ const membersOf = (
         (members, ref) => membersOf(module, ref, members),
       )
 
-const fileOf = (module: LoomModule, settings: BuildSettings, name: string): string =>
+const fileOf = (module: LoomModule, packageRoot: Option.Option<string>, name: string): string =>
   pipe(
     Array.findFirst(module.product?.files ?? [], (file) =>
       membersOf(module, file.code.origin.name).has(name),
     ),
-    Option.map((file) =>
-      outputPath(Option.fromNullishOr(settings.packageRoot), module.path, file.path),
-    ),
+    Option.map((file) => outputPath(packageRoot, module.path, file.path)),
     Option.getOrElse(() => module.path),
   )
 
@@ -619,6 +617,7 @@ const verbatimSpans = (text: string, composed: LoomVirtualCode): ReadonlyArray<S
 const placedIn = (
   module: LoomModule,
   settings: BuildSettings,
+  packageRoot: Option.Option<string>,
   languages: ReadonlyArray<LanguageService>,
   name: string,
 ): Effect.Effect<ReadonlyArray<Edit>> => {
@@ -651,7 +650,7 @@ const placedIn = (
         const place = placed(spans, composed.code)
         return format({
           code: composed.code,
-          path: fileOf(module, settings, code.origin.name),
+          path: fileOf(module, packageRoot, code.origin.name),
           width: settings.width,
         }).pipe(
           Effect.map((formatted) => {
@@ -690,6 +689,7 @@ const composesWhole = (module: LoomModule, root: string): boolean =>
 const brokenRoots = (
   module: LoomModule,
   settings: BuildSettings,
+  packageRoot: Option.Option<string>,
   languages: ReadonlyArray<LanguageService>,
 ): Effect.Effect<ReadonlyArray<string>> =>
   Effect.map(
@@ -702,7 +702,7 @@ const brokenRoots = (
           onSome: (format) =>
             format({
               code: fromProduct(new Map([[module.path, module]]), root.origin).code,
-              path: fileOf(module, settings, root.origin.name),
+              path: fileOf(module, packageRoot, root.origin.name),
               width: settings.width,
             }).pipe(
               Effect.as(Option.none<string>()),
@@ -742,6 +742,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
       ): Effect.Effect<string> =>
         Effect.gen(function* () {
           const settings = yield* config.resolve(path)
+          const packageRoot = Option.fromNullishOr((yield* loomConfig.resolve(path)).packageRoot)
           const build = (source: string) =>
             corpus.build(
               textSource(path, source),
@@ -758,7 +759,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
               aloneEdits(
                 heldOf(section.section, text),
                 section.format,
-                fileOf(module, settings, section.name),
+                fileOf(module, packageRoot, section.name),
                 settings.width,
               ),
               (edits) => ({ name: section.name, edits }),
@@ -774,7 +775,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
           const holding = (kept: ReadonlyArray<SectionEdits>) =>
             Effect.gen(function* () {
               const next = yield* build(textWith(kept))
-              const broken = yield* brokenRoots(next, settings, languages)
+              const broken = yield* brokenRoots(next, settings, packageRoot, languages)
               const lost = new Set(
                 Array.flatMap(broken, (root) => Array.fromIterable(membersOf(next, root))),
               )
@@ -790,11 +791,11 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
             ({ name, edits }) => Option.isNone(edits) && usesOf(settledModule, name) === 1,
           )
           const placedEdits = yield* Effect.forEach(fallback, ({ name }) =>
-            placedIn(settledModule, settings, languages, name),
+            placedIn(settledModule, settings, packageRoot, languages, name),
           )
           const withFallback = applyEdits(settledText, settle(Array.flatten(placedEdits)))
           const broken = yield* Effect.flatMap(build(withFallback), (next) =>
-            brokenRoots(next, settings, languages),
+            brokenRoots(next, settings, packageRoot, languages),
           )
           return broken.length === 0 ? withFallback : settledText
         }),

@@ -41,7 +41,7 @@ const source: Source = {
 
 const layer = Layer.provide(
   LoomCompiler.layer,
-  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provide(FileSystemSource)), PackageConfig.layer, LoomConfig.layer),
+  Layer.mergeAll(DocumentSource.layer.pipe(Layer.provideMerge(FileSystemSource)), PackageConfig.layer, LoomConfig.layer),
 )
 
 // the de re product for a section is its embedded code, keyed by the section name

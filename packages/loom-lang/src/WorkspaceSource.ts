@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
-  containerRoot,
   defaultCorpus,
   findWorkspace,
   LoomConfig,
@@ -27,7 +26,7 @@ export interface WorkspaceSourceApi {
   readonly read: (loom: Location) => Effect.Effect<string, ReadError>
   readonly corpusOf: (loom: Location) => Effect.Effect<ReadonlyArray<Location>>
   readonly workspaceOf: (loom: Location) => Location
-  readonly placeOf: (workspace: Workspace, loom: Location, sink: string) => string
+  readonly placeOf: (loom: Location, sink: string) => Effect.Effect<Location>
   readonly locationOf: (uri: URI) => Location
   readonly uriOf: (loom: Location) => URI
 }
@@ -69,11 +68,6 @@ export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink
     onSome: (root) => resolvePath(root, sink),
   })
 
-const packageRootOf = (workspace: Workspace, loom: Location): Option.Option<string> =>
-  Option.flatMap(workspace.manifest, (m) =>
-    Option.fromNullishOr(containerRoot(dirname(loom), m.corpus ?? defaultCorpus, workspace.location)),
-  )
-
 const locationOfUri = (uri: URI): Location => (uri.scheme === 'file' ? uri.fsPath : uri.toString())
 
 const uriOfLocation = (loom: Location): URI => (isAbsolute(loom) ? URI.file(loom) : URI.parse(loom))
@@ -103,7 +97,14 @@ export const FileSystemSource = Layer.effect(
           .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
       workspaceOf: (loom) =>
         Option.getOrElse(Option.fromNullishOr(findWorkspace(dirname(loom))), () => dirname(loom)),
-      placeOf: (workspace, loom, sink) => outputPath(packageRootOf(workspace, loom), loom, sink),
+      placeOf: (loom, sink) =>
+        config
+          .resolve(loom)
+          .pipe(
+            Effect.map(({ packageRoot }) =>
+              outputPath(Option.fromNullishOr(packageRoot), loom, sink),
+            ),
+          ),
       locationOf: locationOfUri,
       uriOf: uriOfLocation,
     }

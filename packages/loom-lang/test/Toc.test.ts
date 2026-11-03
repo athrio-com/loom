@@ -7,6 +7,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
@@ -100,6 +101,7 @@ const makeCompilerLayer = (files: Record<string, string>) =>
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.mergeAll(
       LoomConfig.layer,
+      FileSystemSource,
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
@@ -113,7 +115,6 @@ const makeCompilerLayer = (files: Record<string, string>) =>
             primaryLanguage: undefined,
             variables: {},
             width: 100,
-            packageRoot: undefined,
           }),
       }),
     ),

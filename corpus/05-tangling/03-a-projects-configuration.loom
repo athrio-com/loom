@@ -216,13 +216,13 @@ const variablesOf = (
 
 Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, settings, width, and ignore patterns are the workspace's; the languages are its activated set; the services resolve from those languages.
 
-`containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself. The file-system source places a sink by the same convention, so it shares `containerRoot` and `defaultCorpus` rather than repeating them.
+`containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself. The file-system source names the corpus folder by the same convention, so it shares `defaultCorpus` rather than repeating it.
 
 `corpusDir` is the other half of that walk: the corpus directory the file lives in, the one Loom enumerates to discover its sibling looms. It is the same nearest ancestor `containerRoot` finds, returned whole rather than stepped above. A file in no corpus directory — a workspace whose `corpus` is `.`, or a loose file — discovers from its own directory, never climbing out to scan a whole workspace.
 
 =>
 
-export const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
+const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
   if (basename(dir) === container) return dirname(dir)
   const parent = dirname(dir)
   return dir === workspace || parent === dir

@@ -63,10 +63,9 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     const { root, book } = workspace()
     const loose = looseLoom()
     const s = await source()
-    const opened = await runtime.runPromise(s.open(root))
-    const looseOpened = await runtime.runPromise(s.open(loose.root))
-    expect(s.placeOf(opened, book, 'src/book.ts')).toBe(join(root, 'src', 'book.ts'))
-    expect(s.placeOf(looseOpened, loose.loom, 'loose.ts')).toBe(join(loose.root, 'loose.ts'))
+    const place = (loom: string, sink: string) => runtime.runPromise(s.placeOf(loom, sink))
+    expect(await place(book, 'src/book.ts')).toBe(join(root, 'src', 'book.ts'))
+    expect(await place(loose.loom, 'loose.ts')).toBe(join(loose.root, 'loose.ts'))
   })
 
   it('crosses between locations and URIs without losing a scheme', async () => {
