@@ -192,7 +192,9 @@ The page stops narrowing at four hundred and thirty pixels. Below it the page sc
 
 The pager sets that floor, because it is the first thing on the page to fail. Its two cards stand side by side at every width, since back and on are a pair rather than a sequence, and four hundred and thirty pixels is the least room the two of them can share.
 
-The page and the canvas take different grounds. The canvas is the surface a browser paints outside the document — what a rubber-band scroll uncovers above the nav and below the footer — and it takes the colour set on the root element, while the page takes the colour set on the body. So the root wears the footer's near-black and the body wears paper. A scroll flung past either end then runs out onto the dark the page ends on, instead of flashing a band of cream the reader never asked to see.
+The page and the canvas take different grounds. The canvas is the surface a browser paints outside the document, which a rubber-band scroll uncovers above the nav and below the footer. It takes the colour of the root element, while the page takes the colour of the body. The body wears paper and the root wears the footer's near-black, so a scroll flung past either end runs out onto the dark the page ends on, instead of flashing a band of cream the reader never asked to see.
+
+The root turns dark only once the footer has arrived. A browser paints a page while it is still reading it, so the first frames of a long page hold only its top, and bare canvas fills the window below. A root already in near-black would show that canvas as a dark slab under half a page: the footer's ground, long before the footer. So the root stays on paper until the document holds a footer, and every page loads on paper from its first frame.
 
 The base does not touch font smoothing, and that is deliberate. Setting `-webkit-font-smoothing: antialiased` moves a Mac from subpixel rendering to grayscale, which thins every stroke on the page by roughly a shade. On a site set entirely in a monospace, at fifteen pixels, on cream, that reads as a lighter and weaker face than the one the type was chosen for. The browser's own default is the right one here, so no rule overrides it.
 
@@ -216,7 +218,8 @@ Words a reader searched for and landed on wear a stronger mark than a selection:
 
 html, body { margin: 0; padding: 0; }
 
-html { background: var(--footer-bg); }
+html { background: var(--paper); }
+html:has(.footer) { background: var(--footer-bg); }
 
 body {
   background: var(--paper);

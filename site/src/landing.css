@@ -115,7 +115,8 @@
 
 html, body { margin: 0; padding: 0; }
 
-html { background: var(--footer-bg); }
+html { background: var(--paper); }
+html:has(.footer) { background: var(--footer-bg); }
 
 body {
   background: var(--paper);
