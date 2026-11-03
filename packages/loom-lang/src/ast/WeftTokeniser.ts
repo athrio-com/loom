@@ -1066,40 +1066,16 @@ const unexpectedIfNonEmpty = (position: Position, value: string): ReadonlyArray<
 
 const decodeWarpAnchorName = Schema.decodeUnknownResult(WarpAnchorNameTokenSchema)
 
-type AnchorSpecifier = SpecifierToken | ParametersToken | SinkToken
+type AnchorSpecifier = SpecifierToken | ParametersToken
 
 const anchorSpecifierAt = (
   openAt: number,
   lineText: string,
   linePosition: Position,
-): Option.Option<{ specifier: AnchorSpecifier; end: number }> => {
-  const line = linePosition.start.line
-  const lineStart = linePosition.start.offset
-  const ch = lineText[openAt - lineStart]
-  if (ch === '{') return bracesAt(openAt, lineText, linePosition)
-  if (ch === '[') {
-    const closeRel = lineText.indexOf(']', openAt - lineStart)
-    if (closeRel < 0) return Option.none()
-    const closeAt = lineStart + closeRel
-    const open = SinkOpenTokenSchema.make({
-      position: span(line, openAt, openAt + 1),
-      source: '[',
-      health: okHealth,
-      value: '[',
-    })
-    const closeTok = SinkCloseTokenSchema.make({
-      position: span(line, closeAt, closeAt + 1),
-      source: ']',
-      health: okHealth,
-      value: ']',
-    })
-    return Option.map(
-      constructSink([open], [closeTok], lineText, linePosition).token,
-      (specifier) => ({ specifier, end: closeAt + 1 }),
-    )
-  }
-  return Option.none()
-}
+): Option.Option<{ specifier: AnchorSpecifier; end: number }> =>
+  lineText[openAt - linePosition.start.offset] === '{'
+    ? bracesAt(openAt, lineText, linePosition)
+    : Option.none()
 
 const anchorTargetAt = (
   close: AnchorCloseToken,

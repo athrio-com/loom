@@ -570,23 +570,20 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].specifier).toBeUndefined()
   })
 
-  it('attaches a file Sink `::[A cli module][cli.ts]`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '::[A cli module][cli.ts]'], 2)
+  it('leaves square brackets after an anchor to the code `::[items][0]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', 'const first = ::[items][0]'], 2)
     expect(w.anchors).toHaveLength(1)
-    expect(w.anchors[0].name.value).toBe('A cli module')
-    expect(w.anchors[0].specifier?.type).toBe('Sink')
-    expect((w.anchors[0].specifier as { file: { value: string } }).file.value).toBe(
-      'cli.ts',
-    )
+    expect(w.anchors[0].specifier).toBeUndefined()
     expect(w.anchors[0].health.status).toBe('ok')
-    expect(w.anchors[0].source).toBe('::[A cli module][cli.ts]')
+    expect(w.anchors[0].source).toBe('::[items]')
   })
 
-  it('attaches a file Sink `::[The manifest][package.json]`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '::[The manifest][package.json]'], 2)
-    expect(w.anchors[0].specifier?.type).toBe('Sink')
-    const sink = w.anchors[0].specifier as { file: { value: string } }
-    expect(sink.file.value).toBe('package.json')
+  it('leaves square brackets after an anchor in prose to the prose', () => {
+    const out = tokenise(['## A', '~', 'see ::[The manifest][package.json] here'])
+    const w = out[2]
+    if (w.type !== 'ProseWeft') throw new Error(`expected ProseWeft, got ${w.type}`)
+    expect(w.anchors[0]!.specifier).toBeUndefined()
+    expect(w.anchors[0]!.source).toBe('::[The manifest]')
   })
 
   it('faults a label that is no kind an anchor takes `::[base]{rust}`', () => {

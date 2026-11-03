@@ -1224,7 +1224,6 @@ const slotOf =
           }),
         ),
         Match.when({ type: 'Parameters' }, () => Option.none<LabelSlot>()),
-        Match.when({ type: 'Sink' }, () => Option.none<LabelSlot>()),
         Match.when(Match.undefined, () => openSlot(text, anchor.position.end.offset, offset)),
         Match.exhaustive,
       ),

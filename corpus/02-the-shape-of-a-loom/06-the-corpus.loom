@@ -1364,7 +1364,7 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
 
 An anchor takes a label in braces right after it, as `::[Greeting function]{To be settled}` does. An author types the label one letter at a time, so the editor offers the labels an anchor takes while the cursor stands between the braces. To make that offer, the editor needs the span the chosen label replaces.
 
-The `labelSlotAt` function finds that span in one loom. A `LabelSlot` is the span, the slot a label fills: its `start` and `end` in the loom's source, and whether braces close it. Closed braces form a specifier, and the slot is the label between them. A brace the author has only opened forms nothing yet, because the tokeniser reads an open brace without its close as ordinary text. The slot then runs from just after the brace to the cursor, as long as the cursor stays on the anchor's line. Braces that hold parameters already name their keys, and a sink in square brackets takes no label, so neither holds a slot. The `slotOf` function reads the slot of one anchor, after its target when it has one, and keeps the slot only when the cursor stands inside it.
+The `labelSlotAt` function finds that span in one loom. A `LabelSlot` is the span, the slot a label fills: its `start` and `end` in the loom's source, and whether braces close it. Closed braces form a specifier, and the slot is the label between them. A brace the author has only opened forms nothing yet, because the tokeniser reads an open brace without its close as ordinary text. The slot then runs from just after the brace to the cursor, as long as the cursor stays on the anchor's line. Braces that hold parameters already name their keys, so they hold no slot. The `slotOf` function reads the slot of one anchor, after its target when it has one, and keeps the slot only when the cursor stands inside it.
 
 =>
 
@@ -1392,7 +1392,6 @@ const slotOf =
           }),
         ),
         Match.when({ type: 'Parameters' }, () => Option.none<LabelSlot>()),
-        Match.when({ type: 'Sink' }, () => Option.none<LabelSlot>()),
         Match.when(Match.undefined, () => openSlot(text, anchor.position.end.offset, offset)),
         Match.exhaustive,
       ),

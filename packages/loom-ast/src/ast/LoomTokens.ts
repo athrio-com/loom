@@ -272,9 +272,7 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   target: Schema.optional(WarpAnchorTargetTokenSchema),
-  specifier: Schema.optional(
-    Schema.Union([SpecifierTokenSchema, ParametersTokenSchema, SinkTokenSchema]),
-  ),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
 }).annotate({
   [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })

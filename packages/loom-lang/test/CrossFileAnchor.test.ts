@@ -618,3 +618,16 @@ describe("completing an anchor's label", () => {
     }),
   )
 })
+
+describe('brackets after an anchor', () => {
+  it.effect('stay code, so an index survives the tangle', () =>
+    Effect.gen(function* () {
+      const indexed = {
+        '/corpus/hello.loom': `${helloAnchoring(`${anchor('Saying hello')}[0]`)}\n${greeting}`,
+      }
+      expect(yield* settleDiagnose(indexed, '/corpus/hello.loom')).toEqual([])
+      const [file] = yield* tangled(indexed, '/corpus/hello.loom')
+      expect(file!.content).toContain('`Hello, ${name}!`[0]\n')
+    }),
+  )
+})

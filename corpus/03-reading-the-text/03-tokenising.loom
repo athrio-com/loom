@@ -1043,7 +1043,7 @@ const assembleWarp = (
 
 ## Building an anchor
 
-`buildWarpAnchor` reads a `::[…]` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty) yields an error-health name and surfaces the text as `unexpected`. `anchorTargetAt` reads an optional `(path)` right after the close — the `.loom` file a directory anchor places. The path is opaque here, for a later pass to resolve; an open paren with no close stays product code. `anchorSpecifierAt` reads what follows the anchor, right after its target when it has one, and otherwise right after its close. A `[…]` there is a sink an author wrote by mistake, read through `constructSink` so it reads the same as a heading's. A `{…}` there is read by `bracesAt`, which the next section describes. An open with no close stays product code, never a broken specifier. `assembleAnchor` gathers the parts and stretches the anchor's span across whichever trails it.
+`buildWarpAnchor` reads a `::[…]` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty) yields an error-health name and surfaces the text as `unexpected`. `anchorTargetAt` reads an optional `(path)` right after the close — the `.loom` file a directory anchor places. The path is opaque here, for a later pass to resolve; an open paren with no close stays product code. `anchorSpecifierAt` reads the braces that follow the anchor, right after its target when it has one, and otherwise right after its close, through `bracesAt`, which the next section describes. An open brace with no close stays product code, never a broken specifier. An anchor takes no sink, so square brackets after it stay code, or prose, as in `items[0]`. `assembleAnchor` gathers the parts and stretches the anchor's span across whichever trails it.
 
 =>
 
@@ -1052,40 +1052,16 @@ const unexpectedIfNonEmpty = (position: Position, value: string): ReadonlyArray<
 
 const decodeWarpAnchorName = Schema.decodeUnknownResult(WarpAnchorNameTokenSchema)
 
-type AnchorSpecifier = SpecifierToken | ParametersToken | SinkToken
+type AnchorSpecifier = SpecifierToken | ParametersToken
 
 const anchorSpecifierAt = (
   openAt: number,
   lineText: string,
   linePosition: Position,
-): Option.Option<{ specifier: AnchorSpecifier; end: number }> => {
-  const line = linePosition.start.line
-  const lineStart = linePosition.start.offset
-  const ch = lineText[openAt - lineStart]
-  if (ch === '{') return bracesAt(openAt, lineText, linePosition)
-  if (ch === '[') {
-    const closeRel = lineText.indexOf(']', openAt - lineStart)
-    if (closeRel < 0) return Option.none()
-    const closeAt = lineStart + closeRel
-    const open = SinkOpenTokenSchema.make({
-      position: span(line, openAt, openAt + 1),
-      source: '[',
-      health: okHealth,
-      value: '[',
-    })
-    const closeTok = SinkCloseTokenSchema.make({
-      position: span(line, closeAt, closeAt + 1),
-      source: ']',
-      health: okHealth,
-      value: ']',
-    })
-    return Option.map(
-      constructSink([open], [closeTok], lineText, linePosition).token,
-      (specifier) => ({ specifier, end: closeAt + 1 }),
-    )
-  }
-  return Option.none()
-}
+): Option.Option<{ specifier: AnchorSpecifier; end: number }> =>
+  lineText[openAt - linePosition.start.offset] === '{'
+    ? bracesAt(openAt, lineText, linePosition)
+    : Option.none()
 
 const anchorTargetAt = (
   close: AnchorCloseToken,

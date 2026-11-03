@@ -268,7 +268,7 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 ## Warps and anchors
 
-A `Warp` is a declaration, `{{ name [: type] = value }}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `target` — a `(path)` after its close, the `.loom` file a directory anchor places as a chapter. The path is opaque here, for a later pass to resolve relative to the anchor's own file. An anchor may also carry an optional `specifier`, right after its close or after its target: a label such as `{To be settled}`, parameters such as `{provides=greet}`, or a `[sink]` an author wrote by mistake, which the grammar keeps so the trailing token is never misread. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
+A `Warp` is a declaration, `{{ name [: type] = value }}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `target` — a `(path)` after its close, the `.loom` file a directory anchor places as a chapter. The path is opaque here, for a later pass to resolve relative to the anchor's own file. An anchor may also carry an optional `specifier`, right after its close or after its target: a label such as `{To be settled}`, or parameters such as `{provides=greet}`. An anchor takes no sink, so square brackets after it are never part of it. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
 
 An anchor's `open` and `close` are plain strings rather than fixed literals, because a package may set its own delimiter pair in `loom.json` when `::[` would collide with its product language. `AnchorDelims` is that pair, and `defaultAnchorDelims` holds the built-in `::[` and `]` — written as a concatenation so this corpus, which the tokeniser scans like any other, holds no bare `::[` of its own. For the same reason, this section writes the warp braces as the numeric character references `{` and `}`: a literal `{{` on a preamble line would tokenise as a Warp.
 
@@ -357,9 +357,7 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   target: Schema.optional(WarpAnchorTargetTokenSchema),
-  specifier: Schema.optional(
-    Schema.Union([SpecifierTokenSchema, ParametersTokenSchema, SinkTokenSchema]),
-  ),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
 }).annotate({
   [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })
