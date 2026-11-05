@@ -8,7 +8,7 @@ Language: Prose
 
 A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.
 
-There are eight of them, and each does a single thing. Learn these and you can read any corpus.
+There are nine of them, and each does a single thing. Learn these and you can read any corpus.
 
 ## The marks
 
@@ -22,7 +22,7 @@ There are eight of them, and each does a single thing. Learn these and you can r
 | `~>` | opens a code block that only `~` closes |
 | `~` | closes a code block and returns to prose |
 | `::[a section]` | draws that section in, whole |
-| `{{ name }}` | binds a value into the text |
+| `{{ name = value }}` | binds a value an anchor can draw into the code |
 
 Two more constructs look like marks but are the opposite of one, because each names a stretch of text Loom refuses to read. Three backticks fence a region left entirely alone, which is how this page quotes marks without invoking them. A `:::[Note]` block holds a remark for whoever opens the corpus next, and tangling drops it.
 
@@ -34,12 +34,12 @@ A chapter opens on a `---` fence. Inside it, a few fields say where the chapter 
 ---
 Part IV: The format
 Chapter 1: Syntax
-Target: src/
+Package: src/
 Language: TypeScript
 ---
 ```
 
-`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Target` names the directory the chapter's files are written into. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are.
+`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are.
 
 ## Sections
 
@@ -49,9 +49,9 @@ A section's title is also its name. That name is how every other part of the cor
 
 ## Parts
 
-A part is the same mark one level deeper. Where a `#` heading names a section, a `##` heading beneath it gathers the sections that follow, and a chapter divides into stages a reader can follow without dividing the file those stages tangle into.
+A part gathers chapters, and the frontmatter names it, not a heading. The chapter that opens a part names the part on its own line, as `Part IV: The format` does above. Every later chapter of the part names it by its numeral alone, before its own number and title: `Part IV, Chapter 2:` and the title.
 
-Depth is the only difference, so there is no separate mark to learn — a heading is a heading, and where you put it decides whether it names a thing or groups them.
+Headings never gather anything. A `##` heading opens a section just as a `#` heading does, and its depth only shows a reader how the chapter is laid out.
 
 ## Naming a file
 
@@ -61,7 +61,7 @@ A heading may name the file its code belongs to, by putting the path in brackets
 ## The parser [parser.ts]
 ```
 
-Everything that section composes is written to `parser.ts`, under the chapter's `Target` directory. One chapter can fill several files, and several chapters can fill one.
+Everything that section composes is written to `parser.ts`, under the chapter's `Package` directory. One chapter can fill several files, and several chapters can fill one.
 
 ## Labelling a heading
 
@@ -133,7 +133,19 @@ Inside a code block an anchor is always an anchor. To write one as an example ra
 
 ## Warps
 
-A warp binds a value into the text, written `{{ name }}`. Where a section repeats a version number, a package name or a path, the warp names it once and the corpus reads it everywhere.
+A warp binds a name to a value. It is written in the prose before a section's first arrow, and an anchor with the same name draws the value into that section's code. A quoted string lands without its quotes, so the code writes any quotes it needs around the anchor.
+
+```loom
+## The version [version.ts]
+
+{{ version = "1.2.0" }}
+
+=>
+
+export const VERSION = '::[version]'
+```
+
+Where a section repeats a version number, a package name or a path, the warp names it once.
 
 ## Tangling
 

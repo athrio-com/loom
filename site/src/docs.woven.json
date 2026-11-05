@@ -683,7 +683,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "syntax"
           },
-          "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are eight of them, and each does a single thing. Learn these and you can read any corpus."
+          "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are nine of them, and each does a single thing. Learn these and you can read any corpus."
         },
         {
           "type": "heading",
@@ -701,7 +701,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "the-marks"
           },
-          "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~>` | opens a code block that only `~` closes |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name }}` | binds a value into the text |\n\nTwo more constructs look like marks but are the opposite of one, because each names a stretch of text Loom refuses to read. Three backticks fence a region left entirely alone, which is how this page quotes marks without invoking them. A `:::[Note]` block holds a remark for whoever opens the corpus next, and tangling drops it."
+          "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~>` | opens a code block that only `~` closes |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name = value }}` | binds a value an anchor can draw into the code |\n\nTwo more constructs look like marks but are the opposite of one, because each names a stretch of text Loom refuses to read. Three backticks fence a region left entirely alone, which is how this page quotes marks without invoking them. A `:::[Note]` block holds a remark for whoever opens the corpus next, and tangling drops it."
         },
         {
           "type": "heading",
@@ -719,7 +719,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "frontmatter"
           },
-          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nTarget: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Target` names the directory the chapter's files are written into. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are."
+          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nPackage: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are."
         },
         {
           "type": "heading",
@@ -755,7 +755,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "parts"
           },
-          "markdown": "A part is the same mark one level deeper. Where a `#` heading names a section, a `##` heading beneath it gathers the sections that follow, and a chapter divides into stages a reader can follow without dividing the file those stages tangle into.\n\nDepth is the only difference, so there is no separate mark to learn — a heading is a heading, and where you put it decides whether it names a thing or groups them."
+          "markdown": "A part gathers chapters, and the frontmatter names it, not a heading. The chapter that opens a part names the part on its own line, as `Part IV: The format` does above. Every later chapter of the part names it by its numeral alone, before its own number and title: `Part IV, Chapter 2:` and the title.\n\nHeadings never gather anything. A `##` heading opens a section just as a `#` heading does, and its depth only shows a reader how the chapter is laid out."
         },
         {
           "type": "heading",
@@ -773,7 +773,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "naming-a-file"
           },
-          "markdown": "A heading may name the file its code belongs to, by putting the path in brackets:\n\n```loom\n## The parser [parser.ts]\n```\n\nEverything that section composes is written to `parser.ts`, under the chapter's `Target` directory. One chapter can fill several files, and several chapters can fill one."
+          "markdown": "A heading may name the file its code belongs to, by putting the path in brackets:\n\n```loom\n## The parser [parser.ts]\n```\n\nEverything that section composes is written to `parser.ts`, under the chapter's `Package` directory. One chapter can fill several files, and several chapters can fill one."
         },
         {
           "type": "heading",
@@ -845,7 +845,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "warps"
           },
-          "markdown": "A warp binds a value into the text, written `{{ name }}`. Where a section repeats a version number, a package name or a path, the warp names it once and the corpus reads it everywhere."
+          "markdown": "A warp binds a name to a value. It is written in the prose before a section's first arrow, and an anchor with the same name draws the value into that section's code. A quoted string lands without its quotes, so the code writes any quotes it needs around the anchor.\n\n```loom\n## The version [version.ts]\n\n{{ version = \"1.2.0\" }}\n\n=>\n\nexport const VERSION = '::[version]'\n```\n\nWhere a section repeats a version number, a package name or a path, the warp names it once."
         },
         {
           "type": "heading",
