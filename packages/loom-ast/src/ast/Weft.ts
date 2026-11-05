@@ -1,7 +1,9 @@
-import { Schema } from 'effect'
+import { Match, Option, Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
+  type BoxToken,
+  BoxTokenSchema,
   CodeFenceTokenSchema,
   CodeTokenSchema,
   FenceLabelTokenSchema,
@@ -50,11 +52,13 @@ export type TildeWeft = typeof TildeWeftSchema.Type
 export const PreambleWeftSchema = loomNode('PreambleWeft', {
   warps: Schema.Array(WarpTokenSchema),
   anchors: Schema.Array(WarpAnchorTokenSchema),
+  box: Schema.optional(BoxTokenSchema),
 })
 export type PreambleWeft = typeof PreambleWeftSchema.Type
 
 export const ProseWeftSchema = loomNode('ProseWeft', {
   anchors: Schema.Array(WarpAnchorTokenSchema),
+  box: Schema.optional(BoxTokenSchema),
 })
 export type ProseWeft = typeof ProseWeftSchema.Type
 
@@ -110,3 +114,10 @@ export const SectionBodyWeftSchema = Schema.Union([
   ProseWeftSchema,
 ])
 export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
+
+export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'PreambleWeft' }, (line) => Option.fromNullishOr(line.box)),
+    Match.when({ type: 'ProseWeft' }, (line) => Option.fromNullishOr(line.box)),
+    Match.orElse(() => Option.none<BoxToken>()),
+  )

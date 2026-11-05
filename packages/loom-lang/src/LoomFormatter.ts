@@ -83,7 +83,7 @@ interface KindedLine extends ProseLine {
 }
 
 const fenceLine = /^\s*```/
-const noteLine = /^\s*:::(?:\[Note\].*|\s*)$/
+const boxLine = /^\s*:{3,}/
 const blockLine = /^ {0,3}(?:#{1,6}(?:\s|$)|>|\||<|\{\{|\[[^\]]+\]:\s)/
 const thematicBreak = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/
 const itemLine = /^\s*(?:[-*+]|\d{1,9}[.)])\s/
@@ -105,7 +105,7 @@ const kindOf = (line: string, delims: AnchorDelims): LineKind =>
     ),
     Match.when(
       (text) =>
-        noteLine.test(text) ||
+        boxLine.test(text) ||
         blockLine.test(text) ||
         thematicBreak.test(text) ||
         onlyAnchor(text, delims),

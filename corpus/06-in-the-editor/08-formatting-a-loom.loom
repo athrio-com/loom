@@ -98,7 +98,7 @@ const proseLinesOf = (doc: LoomDocument, text: string): ReadonlyArray<ProseLine>
 Not every line of prose belongs to a paragraph. A Markdown line sorts into one of four kinds, and its kind decides whether it joins the line above it.
 
 - A **blank** line ends a paragraph.
-- A **fixed** line keeps its line break on both sides. That is any line of a fenced block, the fence lines included, a note's opening and closing lines, a heading, a block quote, a table row, a line of HTML, a link definition, a thematic break, a line that only declares a warp, and a line that holds nothing but an anchor, which composes a whole block of prose in its place.
+- A **fixed** line keeps its line break on both sides. That is any line of a fenced block, the fence lines included, a line of colons that opens or closes a box, a heading, a block quote, a table row, a line of HTML, a link definition, a thematic break, a line that only declares a warp, and a line that holds nothing but an anchor, which composes a whole block of prose in its place.
 - An **item** line opens a list item. It never joins the line above, since each item starts on a line of its own, but the lines that continue it join it.
 - Any other line is **text**, and it joins the text or item line above it.
 
@@ -113,7 +113,7 @@ interface KindedLine extends ProseLine {
 }
 
 const fenceLine = /^\s*```/
-const noteLine = /^\s*:::(?:\[Note\].*|\s*)$/
+const boxLine = /^\s*:{3,}/
 const blockLine = /^ {0,3}(?:#{1,6}(?:\s|$)|>|\||<|\{\{|\[[^\]]+\]:\s)/
 const thematicBreak = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/
 const itemLine = /^\s*(?:[-*+]|\d{1,9}[.)])\s/
@@ -135,7 +135,7 @@ const kindOf = (line: string, delims: AnchorDelims): LineKind =>
     ),
     Match.when(
       (text) =>
-        noteLine.test(text) ||
+        boxLine.test(text) ||
         blockLine.test(text) ||
         thematicBreak.test(text) ||
         onlyAnchor(text, delims),
@@ -1095,7 +1095,7 @@ const frontmatter = ['---', 'Language: TypeScript', '---', '']
 
 ## Joining prose
 
-A paragraph written over three lines comes back on one, its words joined by single spaces. The other blocks of Markdown keep their lines: a list item takes in the line that continues it but not the item after it, a fence keeps every line inside it, a heading and a table keep theirs, and a line that ends in two spaces keeps its break.
+A paragraph written over three lines comes back on one, its words joined by single spaces. The other blocks of Markdown keep their lines: a list item takes in the line that continues it but not the item after it, a fence keeps every line inside it, a heading and a table keep theirs, and a line that ends in two spaces keeps its break. A box keeps the lines of colons that open and close it, while the paragraph of a note inside it joins like any other.
 
 =>
 
@@ -1157,6 +1157,36 @@ describe('LoomFormatter — prose', () => {
           '',
           'a break  ',
           'stays',
+          '',
+        ),
+      )
+    }),
+  )
+
+  it.effect('keeps the lines that open and close a box', () =>
+    Effect.gen(function* () {
+      const text = lines(
+        ...frontmatter,
+        '# Notes',
+        '',
+        'Text above',
+        '::: Why a grid',
+        'A note that',
+        'runs on.',
+        ':::',
+        'Text below',
+        '',
+      )
+      expect(yield* formatted(text)).toBe(
+        lines(
+          ...frontmatter,
+          '# Notes',
+          '',
+          'Text above',
+          '::: Why a grid',
+          'A note that runs on.',
+          ':::',
+          'Text below',
           '',
         ),
       )

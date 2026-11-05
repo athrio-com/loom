@@ -28,6 +28,8 @@ The body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line t
 
 Every body weft carries its `anchors`, because an anchor is read in code and in prose alike. A code anchor composes the named section; a prose anchor places a chapter or merely links to it. A later pass reads which plane an anchor takes from the weft it sits on.
 
+A box sits in prose, so the line of colons that opens or closes one is a preamble weft or a prose weft. That weft carries the line's `Box` token in `box`, and holds no warp or anchor, since the line is all box. The lines of the box's body are ordinary preamble or prose wefts with no `box` of their own. A pass that wants a box's body takes the wefts between the line that opens it and the line that closes it, much as fenced code runs between its two fence wefts.
+
 =>
 
 export const ArrowWeftSchema = loomNode('ArrowWeft', {
@@ -47,11 +49,13 @@ export type TildeWeft = typeof TildeWeftSchema.Type
 export const PreambleWeftSchema = loomNode('PreambleWeft', {
   warps: Schema.Array(WarpTokenSchema),
   anchors: Schema.Array(WarpAnchorTokenSchema),
+  box: Schema.optional(BoxTokenSchema),
 })
 export type PreambleWeft = typeof PreambleWeftSchema.Type
 
 export const ProseWeftSchema = loomNode('ProseWeft', {
   anchors: Schema.Array(WarpAnchorTokenSchema),
+  box: Schema.optional(BoxTokenSchema),
 })
 export type ProseWeft = typeof ProseWeftSchema.Type
 
@@ -132,16 +136,31 @@ export const SectionBodyWeftSchema = Schema.Union([
 ])
 export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
 
-## What this module draws on
+~
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, specifier, sink, warp, and anchor schemas from `LoomTokens`.
+`boxOf` reads the `Box` token a weft carries. Only a preamble weft or a prose weft can carry one, so every other weft has none.
 
 =>
 
-import { Schema } from 'effect'
+export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'PreambleWeft' }, (line) => Option.fromNullishOr(line.box)),
+    Match.when({ type: 'ProseWeft' }, (line) => Option.fromNullishOr(line.box)),
+    Match.orElse(() => Option.none<BoxToken>()),
+  )
+
+## What this module draws on
+
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, specifier, sink, warp, and anchor schemas from `LoomTokens`. `Match` and `Option` read the box a weft carries.
+
+=>
+
+import { Match, Option, Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
+  type BoxToken,
+  BoxTokenSchema,
   CodeFenceTokenSchema,
   CodeTokenSchema,
   FenceLabelTokenSchema,

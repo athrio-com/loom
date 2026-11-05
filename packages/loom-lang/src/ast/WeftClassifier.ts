@@ -3,6 +3,9 @@ import type { LineRange } from './LineRanges'
 import { incompleteHealth, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import {
   ArrowTokenSchema,
+  BoxFenceTokenSchema,
+  type BoxToken,
+  BoxTokenSchema,
   CodeFenceTokenSchema,
   closesFence,
   type Fence,
@@ -15,6 +18,7 @@ import {
 import {
   type ArrowWeft,
   ArrowWeftSchema,
+  boxOf,
   type CodeWeft,
   CodeWeftSchema,
   type FenceWeft,
@@ -40,7 +44,7 @@ type ClassifierState = {
   readonly inFrontmatter: boolean
   readonly inToc: boolean
   readonly quote: Option.Option<Fence>
-  readonly inNote: boolean
+  readonly inBox: boolean
   readonly fenced: Option.Option<Fence>
   readonly awaitingFence: boolean
 }
@@ -51,7 +55,7 @@ const initialState: ClassifierState = {
   inFrontmatter: false,
   inToc: false,
   quote: Option.none(),
-  inNote: false,
+  inBox: false,
   fenced: Option.none(),
   awaitingFence: false,
 }
@@ -66,15 +70,15 @@ export class WeftClassifier extends Context.Service<WeftClassifier>()('WeftClass
           () => initialState,
           (state, range) => {
             const lineText = text.slice(range[0], range[1])
-            const weft = probeWeft(lineText, range, state)
+            const weft = boxed(probeWeft(lineText, range, state), state)
             const frontmatterFence = weft.type === 'FrontmatterWeft' && weft.fence !== undefined
             const next: ClassifierState = {
               prev: Option.some(weft),
               seenHeading: state.seenHeading || weft.type === 'HeadingWeft',
               inFrontmatter: state.inFrontmatter !== frontmatterFence,
               inToc: weft.type === 'HeadingWeft' ? isTocHeading(lineText) : state.inToc,
-              quote: nextQuote(state.quote, state.inNote, weft),
-              inNote: nextNote(state.inNote, Option.isSome(state.quote), weft),
+              quote: nextQuote(state.quote, state.inBox, weft),
+              inBox: nextBox(state.inBox, weft),
               fenced: nextFenced(state.fenced, weft),
               awaitingFence: nextAwaiting(state.awaitingFence, weft),
             }
@@ -100,7 +104,7 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
     return makeFrontmatterField(lineText, line, range)
   }
 
-  if (Option.isSome(state.quote) || state.inNote)
+  if (Option.isSome(state.quote) || state.inBox)
     return state.seenHeading
       ? makeProseWeft(lineText, line, range)
       : makePreambleWeft(lineText, line, range)
@@ -196,26 +200,18 @@ const frontmatterFenceProbe = Option.getOrThrow(getProbe(FrontmatterFenceTokenSc
 
 const isFrontmatterFence = (lineText: string): boolean => frontmatterFenceProbe.test(lineText)
 
-const isNoteOpen = (source: string): boolean => /^\s*:::\[Note\]/.test(source)
-
-const isNoteClose = (source: string): boolean => /^\s*:::\s*$/.test(source)
-
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'ProseWeft' || weft.type === 'TildeWeft'
 
 const nextQuote = (
   quote: Option.Option<Fence>,
-  inNote: boolean,
+  inBox: boolean,
   weft: LoomWeft,
 ): Option.Option<Fence> =>
   Option.match(quote, {
     onSome: (fence) => (closesFence(fence)(weft.source) ? Option.none() : quote),
-    onNone: () =>
-      !inNote && isProseWeft(weft) ? openingFence(weft.source) : Option.none<Fence>(),
+    onNone: () => (!inBox && isProseWeft(weft) ? openingFence(weft.source) : Option.none<Fence>()),
   })
-
-const nextNote = (inNote: boolean, inQuote: boolean, weft: LoomWeft): boolean =>
-  inNote ? !isNoteClose(weft.source) : !inQuote && isProseWeft(weft) && isNoteOpen(weft.source)
 
 const nextFenced = (fenced: Option.Option<Fence>, weft: LoomWeft): Option.Option<Fence> =>
   Match.value(weft).pipe(
@@ -246,6 +242,67 @@ const probeOf = (lineText: string): Probe => {
   if (t) return { kind: 'tilde', m: t }
   return { kind: 'plain' }
 }
+
+const boxFenceProbe = Option.getOrThrow(getProbe(BoxFenceTokenSchema))
+
+const boxed = (weft: LoomWeft, state: ClassifierState): LoomWeft =>
+  Option.isSome(state.quote)
+    ? weft
+    : Match.value(weft).pipe(
+        Match.when({ type: 'PreambleWeft' }, (line) => withBox(line, state.inBox)),
+        Match.when({ type: 'ProseWeft' }, (line) => withBox(line, state.inBox)),
+        Match.orElse(() => weft),
+      )
+
+const withBox = <Line extends PreambleWeft | ProseWeft>(line: Line, inBox: boolean): Line =>
+  Option.match(boxLineOf(line, inBox), {
+    onNone: () => line,
+    onSome: (box) => ({ ...line, box }),
+  })
+
+const boxLineOf = (line: PreambleWeft | ProseWeft, inBox: boolean): Option.Option<BoxToken> =>
+  Option.map(Option.fromNullishOr(boxFenceProbe.exec(line.source)), (match) => {
+    const content = line.source.replace(/\r?\n$/, '')
+    const colons = match[0].trimStart()
+    const column = match[0].length - colons.length
+    const at = (from: number, to: number): Position =>
+      span(
+        line.position.start.line,
+        line.position.start.offset + from,
+        line.position.start.offset + to,
+      )
+    return BoxTokenSchema.make({
+      position: at(column, content.length),
+      source: content.slice(column),
+      health: incompleteHealth,
+      side: sideOf(colons.length, inBox, content.slice(match[0].length).trim() === ''),
+      fence: BoxFenceTokenSchema.make({
+        position: at(column, match[0].length),
+        source: colons,
+        health: okHealth,
+      }),
+    })
+  })
+
+const sideOf = (colons: number, inBox: boolean, bare: boolean): BoxToken['side'] =>
+  Match.value({ three: colons === 3, inBox, bare }).pipe(
+    Match.when({ three: false }, () => 'stray' as const),
+    Match.when({ inBox: false }, () => 'open' as const),
+    Match.when({ bare: true }, () => 'close' as const),
+    Match.orElse(() => 'stray' as const),
+  )
+
+const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
+  Option.match(boxOf(weft), {
+    onNone: () => inBox,
+    onSome: (box) =>
+      Match.value(box.side).pipe(
+        Match.when('open', () => true),
+        Match.when('close', () => false),
+        Match.when('stray', () => inBox),
+        Match.exhaustive,
+      ),
+  })
 
 const makeHeadingWeft = (
   lineText: string,

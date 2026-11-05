@@ -30,6 +30,13 @@ import {
   ParametersTokenSchema,
   anchorKeys,
   anchorKinds,
+  BoxFenceTokenSchema,
+  BoxNameTokenSchema,
+  BoxTokenSchema,
+  boxKeys,
+  boxKinds,
+  type BoxNameToken,
+  type BoxToken,
   TocChapterTokenSchema,
   TocPartTokenSchema,
   TocTitleTokenSchema,
@@ -75,9 +82,12 @@ import {
   type WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
 import {
+  type BracesOn,
+  ColonRun,
   EmptyLabel,
   faulty,
   LabelBesideParameter,
+  NestedBox,
   MalformedLabel,
   MissingWarpValue,
   RepeatedKey,
@@ -419,6 +429,17 @@ const tokenisePreamble = (
   weft: PreambleWeft,
   delims: AnchorDelims,
   skipAnchors: boolean,
+): LoomWeft =>
+  Option.match(Option.fromNullishOr(weft.box), {
+    onSome: (box) => tokeniseBoxLine(text, weft, box),
+    onNone: () => tokenisePreambleLine(text, weft, delims, skipAnchors),
+  })
+
+const tokenisePreambleLine = (
+  text: string,
+  weft: PreambleWeft,
+  delims: AnchorDelims,
+  skipAnchors: boolean,
 ): LoomWeft => {
   const lineText = lineSlice(text, weft.position)
   const scanText = blankIfSkipped(lineText, skipAnchors)
@@ -446,6 +467,17 @@ const tokenisePreamble = (
 }
 
 const tokeniseProse = (
+  text: string,
+  weft: ProseWeft,
+  delims: AnchorDelims,
+  skipAnchors: boolean,
+): LoomWeft =>
+  Option.match(Option.fromNullishOr(weft.box), {
+    onSome: (box) => tokeniseBoxLine(text, weft, box),
+    onNone: () => tokeniseProseLine(text, weft, delims, skipAnchors),
+  })
+
+const tokeniseProseLine = (
   text: string,
   weft: ProseWeft,
   delims: AnchorDelims,
@@ -1098,15 +1130,15 @@ const unexpectedIfNonEmpty = (position: Position, value: string): ReadonlyArray<
 
 const decodeWarpAnchorName = Schema.decodeUnknownResult(WarpAnchorNameTokenSchema)
 
-type AnchorSpecifier = SpecifierToken | ParametersToken
+type Braces = SpecifierToken | ParametersToken
 
 const anchorSpecifierAt = (
   openAt: number,
   lineText: string,
   linePosition: Position,
-): Option.Option<{ specifier: AnchorSpecifier; end: number }> =>
+): Option.Option<{ specifier: Braces; end: number }> =>
   lineText[openAt - linePosition.start.offset] === '{'
-    ? bracesAt(openAt, lineText, linePosition)
+    ? bracesAt(openAt, lineText, linePosition, anchorBraces)
     : Option.none()
 
 const anchorTargetAt = (
@@ -1210,7 +1242,7 @@ const assembleAnchor = (
   source: string,
   end: number,
   target: WarpAnchorTargetToken | undefined,
-  specifier: AnchorSpecifier | undefined,
+  specifier: Braces | undefined,
 ): WarpAnchorToken => {
   const status = aggregateStatus([
     open.health.status,
@@ -1234,6 +1266,16 @@ const assembleAnchor = (
 
 type Span = { readonly start: number; readonly end: number; readonly value: string }
 
+type BraceRules = {
+  readonly on: BracesOn
+  readonly keys: ReadonlyArray<string>
+  readonly kinds: ReadonlyArray<string>
+}
+
+const anchorBraces: BraceRules = { on: 'anchor', keys: anchorKeys, kinds: anchorKinds }
+
+const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: boxKinds }
+
 type BraceItem =
   | { readonly type: 'word'; readonly word: Span }
   | {
@@ -1247,13 +1289,14 @@ const bracesAt = (
   openAt: number,
   lineText: string,
   linePosition: Position,
-): Option.Option<{ specifier: AnchorSpecifier; end: number }> => {
+  rules: BraceRules,
+): Option.Option<{ specifier: Braces; end: number }> => {
   const lineStart = linePosition.start.offset
   return pipe(
     itemsFrom(lineText, openAt - lineStart + 1, []),
     Option.flatMap(({ items, closeAt }) =>
       Option.map(
-        specifierOf(openAt, lineStart + closeAt, items, lineText, linePosition),
+        specifierOf(openAt, lineStart + closeAt, items, lineText, linePosition, rules),
         (specifier) => ({ specifier, end: lineStart + closeAt + 1 }),
       ),
     ),
@@ -1266,8 +1309,10 @@ const isWord = (item: BraceItem): boolean => item.type === 'word'
 const wordOf = (item: BraceItem): Option.Option<Span> =>
   item.type === 'word' ? Option.some(item.word) : Option.none()
 
-const isKind = (label: string): boolean =>
-  Array.some(anchorKinds, (kind) => kind.toLowerCase() === label.toLowerCase())
+const isKindIn =
+  (kinds: ReadonlyArray<string>) =>
+  (label: string): boolean =>
+    Array.some(kinds, (kind) => kind.toLowerCase() === label.toLowerCase())
 
 const braceTokens = (
   openAt: number,
@@ -1292,7 +1337,7 @@ const labelBracesAt = (
   openAt: number,
   lineText: string,
   linePosition: Position,
-): Option.Option<{ specifier: AnchorSpecifier; end: number }> => {
+): Option.Option<{ specifier: Braces; end: number }> => {
   const lineStart = linePosition.start.offset
   const closeRel = lineText.indexOf('}', openAt - lineStart)
   if (closeRel < 0) return Option.none()
@@ -1398,27 +1443,33 @@ const specifierOf = (
   items: ReadonlyArray<BraceItem>,
   lineText: string,
   linePosition: Position,
-): Option.Option<AnchorSpecifier> => {
+  rules: BraceRules,
+): Option.Option<Braces> => {
   const { open, close } = braceTokens(openAt, closeAt, linePosition.start.line)
   return Array.every(items, isWord)
-    ? Option.map(constructSpecifier([open], [close], lineText, linePosition).token, kindChecked)
-    : Option.some(parametersOf(open, close, items, lineText, linePosition))
+    ? Option.map(
+        constructSpecifier([open], [close], lineText, linePosition).token,
+        kindChecked(rules),
+      )
+    : Option.some(parametersOf(open, close, items, lineText, linePosition, rules))
 }
 
-const kindChecked = (specifier: SpecifierToken): SpecifierToken =>
-  specifier.label.health.status !== 'ok' || isKind(specifier.label.value)
-    ? specifier
-    : SpecifierTokenSchema.make({
-        ...specifier,
-        health: { status: 'error', diagnostics: [] },
-        label: SpecifierLabelTokenSchema.make({
-          ...specifier.label,
-          health: faulty(
-            UnknownKind({ kind: specifier.label.value, kinds: anchorKinds }),
-            specifier.label.position,
-          ),
-        }),
-      })
+const kindChecked =
+  (rules: BraceRules) =>
+  (specifier: SpecifierToken): SpecifierToken =>
+    specifier.label.health.status !== 'ok' || isKindIn(rules.kinds)(specifier.label.value)
+      ? specifier
+      : SpecifierTokenSchema.make({
+          ...specifier,
+          health: { status: 'error', diagnostics: [] },
+          label: SpecifierLabelTokenSchema.make({
+            ...specifier.label,
+            health: faulty(
+              UnknownKind({ kind: specifier.label.value, kinds: rules.kinds, on: rules.on }),
+              specifier.label.position,
+            ),
+          }),
+        })
 
 const parametersOf = (
   open: SpecifierOpenToken,
@@ -1426,13 +1477,14 @@ const parametersOf = (
   items: ReadonlyArray<BraceItem>,
   lineText: string,
   linePosition: Position,
+  rules: BraceRules,
 ): ParametersToken => {
   const lineStart = linePosition.start.offset
   const at = (piece: Span): Position =>
     span(linePosition.start.line, lineStart + piece.start, lineStart + piece.end)
   const written = Array.getSomes(Array.map(items, parameterOf))
   const parameters = Array.map(written, (parameter, index) =>
-    parameterToken(parameter, Array.take(written, index), lineText, at),
+    parameterToken(parameter, Array.take(written, index), lineText, at, rules),
   )
   const labels = labelFaults(items, at)
   const position = span(
@@ -1466,23 +1518,24 @@ const parameterToken = (
   earlier: ReadonlyArray<WrittenParameter>,
   lineText: string,
   at: (piece: Span) => Position,
+  rules: BraceRules,
 ): ParameterToken => {
   const key = parameter.key.value
-  const strange = Array.findFirst(parameter.values, (value) => !isKind(value.value))
+  const strange = Array.findFirst(parameter.values, (value) => !isKindIn(rules.kinds)(value.value))
   const health = Match.value({
     repeated: Array.some(earlier, (before) => before.key.value === key),
-    known: Array.contains(anchorKeys, key),
+    known: Array.contains(rules.keys, key),
     kind: key === 'kind',
   }).pipe(
     Match.when({ repeated: true }, () => faulty(RepeatedKey({ key }), at(parameter.key))),
     Match.when({ known: false }, () =>
-      faulty(UnknownKey({ key, keys: anchorKeys }), at(parameter.key)),
+      faulty(UnknownKey({ key, keys: rules.keys, on: rules.on }), at(parameter.key)),
     ),
     Match.when({ kind: true }, () =>
       Option.match(strange, {
         onNone: () => okHealth,
         onSome: (value) =>
-          faulty(UnknownKind({ kind: value.value, kinds: anchorKinds }), at(value)),
+          faulty(UnknownKind({ kind: value.value, kinds: rules.kinds, on: rules.on }), at(value)),
       }),
     ),
     Match.orElse(() => okHealth),
@@ -1539,6 +1592,90 @@ const labelFaults = (
         ),
       ),
   })
+
+const tokeniseBoxLine = <Line extends PreambleWeft | ProseWeft>(
+  text: string,
+  weft: Line,
+  box: BoxToken,
+): Line => {
+  const settled = settledBox(text, weft.position, box)
+  return {
+    ...weft,
+    source: lineSlice(text, weft.position),
+    health: { status: settled.health.status, diagnostics: [] },
+    box: settled,
+  }
+}
+
+const settledBox = (text: string, linePosition: Position, box: BoxToken): BoxToken =>
+  Match.value(box.side).pipe(
+    Match.when('open', () => openedBox(text, linePosition, box)),
+    Match.when('close', () => BoxTokenSchema.make({ ...box, health: okHealth })),
+    Match.when('stray', () => strayBox(box)),
+    Match.exhaustive,
+  )
+
+const trailingBraces = /\{[^{}]*\}[ \t]*$/
+
+const trailingBracesAt = (content: string, from: number): Option.Option<number> =>
+  Option.map(
+    Option.fromNullishOr(trailingBraces.exec(content.slice(from))),
+    (match) => from + match.index,
+  )
+
+const boxNameAt = (raw: string, rawStart: number, line: number): Option.Option<BoxNameToken> => {
+  const { value, start, end } = trimSpan(raw, rawStart)
+  return value === ''
+    ? Option.none()
+    : Option.some(
+        BoxNameTokenSchema.make({
+          position: span(line, start, end),
+          source: value,
+          health: okHealth,
+          value,
+        }),
+      )
+}
+
+const openedBox = (text: string, linePosition: Position, box: BoxToken): BoxToken => {
+  const lineText = lineSlice(text, linePosition)
+  const lineStart = linePosition.start.offset
+  const content = lineText.replace(/\r?\n$/, '')
+  const from = box.fence.position.end.offset - lineStart
+  const braces = Option.flatMap(trailingBracesAt(content, from), (openAt) =>
+    bracesAt(lineStart + openAt, lineText, linePosition, boxBraces),
+  )
+  const specifier = Option.map(braces, (held) => held.specifier)
+  const nameEnd = Option.match(specifier, {
+    onNone: () => content.length,
+    onSome: (held) => held.position.start.offset - lineStart,
+  })
+  const name = boxNameAt(content.slice(from, nameEnd), lineStart + from, linePosition.start.line)
+  return BoxTokenSchema.make({
+    ...box,
+    health: {
+      status: aggregateStatus([
+        box.fence.health.status,
+        ...Option.toArray(specifier).map((held) => held.health.status),
+      ]),
+      diagnostics: [],
+    },
+    name: Option.getOrUndefined(name),
+    specifier: Option.getOrUndefined(specifier),
+  })
+}
+
+const strayBox = (box: BoxToken): BoxToken => {
+  const health = faulty(
+    box.fence.source.length > 3 ? ColonRun({ colons: box.fence.source }) : NestedBox(),
+    box.fence.position,
+  )
+  return BoxTokenSchema.make({
+    ...box,
+    health: { status: health.status, diagnostics: [] },
+    fence: BoxFenceTokenSchema.make({ ...box.fence, health }),
+  })
+}
 
 const constructWarps = (
   lineText: string,

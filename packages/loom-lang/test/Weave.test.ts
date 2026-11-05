@@ -238,7 +238,7 @@ describe('sections still to be settled', () => {
   })
 })
 
-// A chapter with a note in its prose. The `:::[Note] … :::` block is split into a
+// A chapter with a note in its prose. The box from `:::` to `:::` is split into a
 // note block, and a `#` inside it stays inert — no phantom section.
 const noted = `---
 Part I, Chapter 1: A greeting
@@ -249,7 +249,7 @@ Language: Prose
 
 The opening paragraph.
 
-:::[Note] { }
+::: Tighten the opening
 > The opening paragraph.
 
 # Not a heading — inert inside the note
@@ -260,7 +260,7 @@ The paragraph after the note.
 `
 
 describe('notes in prose', () => {
-  it('splits a :::[Note] block out and keeps its body inert', () => {
+  it('splits a note out and keeps its body inert', () => {
     const page = weave(buildCorpus({ '/corpus/note.loom': noted })).pages[0]!
     const kinds = page.blocks.map((b) => b.type)
     expect(kinds).toContain('note')
@@ -286,12 +286,12 @@ describe('notes in prose', () => {
       'A note is written like this:',
       '',
       '```loom',
-      ':::[Note] { }',
+      '::: {Note}',
       'Quoted, not a note.',
       ':::',
       '```',
       '',
-      ':::[Note] { }',
+      ':::',
       'A real note.',
       ':::',
       '',
@@ -302,7 +302,29 @@ describe('notes in prose', () => {
     const notes = page.blocks.filter((b) => b.type === 'note')
     expect(notes.map((n) => n.markdown)).toEqual(['A real note.'])
     const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : [])).join('\n')
-    expect(prose).toContain('```loom\n:::[Note] { }\nQuoted, not a note.\n:::\n```')
+    expect(prose).toContain('```loom\n::: {Note}\nQuoted, not a note.\n:::\n```')
     expect(prose).toContain('The paragraph after.')
+  })
+
+  it('leaves a box of another kind in the prose around it', () => {
+    const boxed = [
+      '---',
+      'Part I, Chapter 1: A greeting',
+      'Language: Prose',
+      '---',
+      '',
+      '# A greeting',
+      '',
+      'Before.',
+      '::: Cells {Mermaid}',
+      'flowchart LR',
+      ':::',
+      'After.',
+      '',
+    ].join('\n')
+    const page = weave(buildCorpus({ '/corpus/boxed.loom': boxed })).pages[0]!
+    expect(page.blocks.filter((b) => b.type === 'note')).toEqual([])
+    const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : []))
+    expect(prose).toEqual(['Before.\n::: Cells {Mermaid}\nflowchart LR\n:::\nAfter.'])
   })
 })

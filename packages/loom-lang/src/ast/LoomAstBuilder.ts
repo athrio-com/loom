@@ -12,15 +12,17 @@ import {
 import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
-import { faulty, HeadingAgainstCode, UnclosedFence } from './LoomFault'
-import type {
-  FenceWeft,
-  FrontmatterWeft,
-  HeadingWeft,
-  LoomWeft,
-  PreambleWeft,
-  SectionBodyWeft,
-  TocWeft,
+import { faulty, HeadingAgainstCode, UnclosedBox, UnclosedFence } from './LoomFault'
+import {
+  boxOf,
+  type FenceWeft,
+  type FrontmatterWeft,
+  type HeadingWeft,
+  type LoomWeft,
+  type PreambleWeft,
+  type ProseWeft,
+  type SectionBodyWeft,
+  type TocWeft,
 } from '@athrio/loom-ast/Weft'
 
 export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBuilder', {
@@ -30,7 +32,7 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBu
         Effect.map((wefts) =>
           makeDocument(
             Array.reduce(
-              groupNodes(warnHeadingAgainstCode(faultUnclosedFence(wefts))),
+              groupNodes(warnHeadingAgainstCode(faultUnclosedBox(faultUnclosedFence(wefts)))),
               initialDocument,
               appendToDocument,
             ),
@@ -65,6 +67,43 @@ const faultUnclosedFence = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomW
     onNone: () => wefts,
     onSome: (open) =>
       Array.map(wefts, (weft, at) => (at === open && isFence(weft) ? faultedFence(weft) : weft)),
+  })
+
+const isBoxEdge = (weft: LoomWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side !== 'stray')
+
+const opensBox = (weft: LoomWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side === 'open')
+
+const unclosedBox = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
+  pipe(
+    Array.findLastIndex(wefts, isBoxEdge),
+    Option.filter((at) => Option.exists(Array.get(wefts, at), opensBox)),
+  )
+
+const faultedBox = <Line extends PreambleWeft | ProseWeft>(line: Line): Line =>
+  Option.match(Option.fromNullishOr(line.box), {
+    onNone: () => line,
+    onSome: (box) => ({
+      ...line,
+      box: {
+        ...box,
+        fence: { ...box.fence, health: faulty(UnclosedBox(), box.fence.position) },
+      },
+    }),
+  })
+
+const faultedBoxLine = (weft: LoomWeft): LoomWeft =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'PreambleWeft' }, faultedBox),
+    Match.when({ type: 'ProseWeft' }, faultedBox),
+    Match.orElse(() => weft),
+  )
+
+const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+  Option.match(unclosedBox(wefts), {
+    onNone: () => wefts,
+    onSome: (open) => Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(weft) : weft)),
   })
 
 const isFlushCode = (weft: LoomWeft): boolean =>

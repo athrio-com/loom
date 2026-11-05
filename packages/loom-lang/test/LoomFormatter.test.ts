@@ -136,6 +136,36 @@ describe('LoomFormatter — prose', () => {
     }),
   )
 
+  it.effect('keeps the lines that open and close a box', () =>
+    Effect.gen(function* () {
+      const text = lines(
+        ...frontmatter,
+        '# Notes',
+        '',
+        'Text above',
+        '::: Why a grid',
+        'A note that',
+        'runs on.',
+        ':::',
+        'Text below',
+        '',
+      )
+      expect(yield* formatted(text)).toBe(
+        lines(
+          ...frontmatter,
+          '# Notes',
+          '',
+          'Text above',
+          '::: Why a grid',
+          'A note that runs on.',
+          ':::',
+          'Text below',
+          '',
+        ),
+      )
+    }),
+  )
+
   it.effect('changes nothing twice', () =>
     Effect.gen(function* () {
       const once = yield* formatted(lines(...frontmatter, '# Notes', '', 'Two', 'lines.', ''))

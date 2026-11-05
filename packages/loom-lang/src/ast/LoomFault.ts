@@ -10,6 +10,8 @@ export type Sibling = 'section' | 'chapter'
 
 export type Declaration = { readonly at: Position; readonly text: string }
 
+export type BracesOn = 'anchor' | 'box'
+
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
   EmptyLabel: { readonly construct: EmptyConstruct }
@@ -44,8 +46,12 @@ export type LoomFault = Data.TaggedEnum<{
   StrayFragment: { readonly value: string }
   RepeatedKey: { readonly key: string }
   LabelBesideParameter: { readonly label: string }
-  UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
-  UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
+  UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string>; readonly on: BracesOn }
+  UnknownKind: {
+    readonly kind: string
+    readonly kinds: ReadonlyArray<string>
+    readonly on: BracesOn
+  }
   MissingSymbol: { readonly name: string; readonly section: string }
   StrayTarget: { readonly target: string; readonly at: Position }
   NoSuchFile: {
@@ -64,6 +70,9 @@ export type LoomFault = Data.TaggedEnum<{
   SpecifierUnknown: { readonly name: string; readonly language: string; readonly reason: string }
   TangleBesideSink: { readonly sink: string; readonly specifier: Position }
   TangleWithoutFile: { readonly folder?: string }
+  ColonRun: { readonly colons: string }
+  NestedBox: {}
+  UnclosedBox: {}
   HeadingAgainstCode: {}
 }>
 
@@ -97,6 +106,9 @@ export const {
   SpecifierUnknown,
   TangleBesideSink,
   TangleWithoutFile,
+  ColonRun,
+  NestedBox,
+  UnclosedBox,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -118,6 +130,14 @@ const noun: Record<EmptyConstruct, string> = {
   warpAnnotation: 'warp annotation',
   warpDefault: 'warp default',
 }
+
+const bearer: Record<BracesOn, string> = { anchor: 'an anchor', box: 'a box' }
+
+const knownList = (known: ReadonlyArray<string>): string =>
+  Array.join(
+    Array.map(known, (each) => `\`${each}\``),
+    ' and ',
+  )
 
 const siblingPlace: Record<Sibling, (where: string) => string> = {
   section: (line) => `a section of this loom (line ${line})`,
@@ -202,20 +222,10 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Label beside parameters: \`${label}\` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as \`kind="${label}"\`.`,
       ),
-    UnknownKey: ({ key, keys }) =>
-      error(
-        `Unknown key: an anchor takes no \`${key}\` key. It takes ${Array.join(
-          Array.map(keys, (known) => `\`${known}\``),
-          ' and ',
-        )}.`,
-      ),
-    UnknownKind: ({ kind, kinds }) =>
-      error(
-        `Unknown kind: an anchor takes no kind \`${kind}\`. It takes ${Array.join(
-          Array.map(kinds, (known) => `\`${known}\``),
-          ' and ',
-        )}.`,
-      ),
+    UnknownKey: ({ key, keys, on }) =>
+      error(`Unknown key: ${bearer[on]} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
+    UnknownKind: ({ kind, kinds, on }) =>
+      error(`Unknown kind: ${bearer[on]} takes no kind \`${kind}\`. It takes ${knownList(kinds)}.`),
     MissingSymbol: ({ name, section }) =>
       error(
         `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
@@ -275,6 +285,18 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Unclosed fence: this fenced code runs to the end of the loom, because nothing closes it. Close it with \`${fence}\` at the same column, on a line of its own.`,
       ),
+    ColonRun: ({ colons }) =>
+      error(
+        `Too many colons: a box line starts with three colons, so \`${colons}\` opens and closes nothing. Write \`:::\`.`,
+      ),
+    NestedBox: () =>
+      error(
+        'Box inside a box: a box never holds another, so this line opens nothing. Close the open box with `:::` on a line of its own, then open this one.',
+      ),
+    UnclosedBox: () =>
+      error(
+        'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
+      ),
     FenceLabelAgainstLanguage: ({ label, language }) =>
       error(
         `Fence label against the language: this fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
@@ -322,6 +344,7 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('TangleBesideSink', ({ specifier }): ReadonlyArray<Fix> => [
       { title: 'Remove `{Tangle}`', text: '', at: specifier },
     ]),
+    Match.tag('ColonRun', (): ReadonlyArray<Fix> => [{ title: 'Write `:::`', text: ':::' }]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )
 

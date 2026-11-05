@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The build
 
-Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `faultUnclosedFence` first marks fenced code that never closes, and `warnHeadingAgainstCode` marks a heading that most likely belonged to the code above it. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
+Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `faultUnclosedFence` first marks fenced code that never closes, `faultUnclosedBox` a box that never closes, and `warnHeadingAgainstCode` a heading that most likely belonged to the code above it. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
 
 =>
 
@@ -21,7 +21,7 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBu
         Effect.map((wefts) =>
           makeDocument(
             Array.reduce(
-              groupNodes(warnHeadingAgainstCode(faultUnclosedFence(wefts))),
+              groupNodes(warnHeadingAgainstCode(faultUnclosedBox(faultUnclosedFence(wefts)))),
               initialDocument,
               appendToDocument,
             ),
@@ -64,6 +64,51 @@ const faultUnclosedFence = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomW
     onNone: () => wefts,
     onSome: (open) =>
       Array.map(wefts, (weft, at) => (at === open && isFence(weft) ? faultedFence(weft) : weft)),
+  })
+
+## A box that never closes
+
+A box holds its lines until a line of three colons alone. The classifier honours that line by line, so when no such line comes, every line to the end of the file reads as the box's body, headings included. As with fenced code, only the builder sees the whole weft list, so the check lives here too.
+
+Only the last box can be open, since a box never opens inside another. `unclosedBox` finds the last line that opens or closes a box, and keeps it only when that line opens one. A stray opens and closes nothing, so `isBoxEdge` passes it by. `faultUnclosedBox` then gives the opening line's colons an `UnclosedBox` fault. The fault is an error, so a tangle refuses the file rather than lose the sections the box swallowed.
+
+=>
+
+const isBoxEdge = (weft: LoomWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side !== 'stray')
+
+const opensBox = (weft: LoomWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side === 'open')
+
+const unclosedBox = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
+  pipe(
+    Array.findLastIndex(wefts, isBoxEdge),
+    Option.filter((at) => Option.exists(Array.get(wefts, at), opensBox)),
+  )
+
+const faultedBox = <Line extends PreambleWeft | ProseWeft>(line: Line): Line =>
+  Option.match(Option.fromNullishOr(line.box), {
+    onNone: () => line,
+    onSome: (box) => ({
+      ...line,
+      box: {
+        ...box,
+        fence: { ...box.fence, health: faulty(UnclosedBox(), box.fence.position) },
+      },
+    }),
+  })
+
+const faultedBoxLine = (weft: LoomWeft): LoomWeft =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'PreambleWeft' }, faultedBox),
+    Match.when({ type: 'ProseWeft' }, faultedBox),
+    Match.orElse(() => weft),
+  )
+
+const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+  Option.match(unclosedBox(wefts), {
+    onNone: () => wefts,
+    onSome: (open) => Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(weft) : weft)),
   })
 
 ## A heading against the code
@@ -354,7 +399,7 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty` and the `UnclosedFence` and `HeadingAgainstCode` faults.
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty` and the `UnclosedFence`, `UnclosedBox`, and `HeadingAgainstCode` faults, and `Weft` lends `boxOf`, which reads the box a weft carries.
 
 =>
 
@@ -372,15 +417,17 @@ import {
 import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
-import { faulty, HeadingAgainstCode, UnclosedFence } from './LoomFault'
-import type {
-  FenceWeft,
-  FrontmatterWeft,
-  HeadingWeft,
-  LoomWeft,
-  PreambleWeft,
-  SectionBodyWeft,
-  TocWeft,
+import { faulty, HeadingAgainstCode, UnclosedBox, UnclosedFence } from './LoomFault'
+import {
+  boxOf,
+  type FenceWeft,
+  type FrontmatterWeft,
+  type HeadingWeft,
+  type LoomWeft,
+  type PreambleWeft,
+  type ProseWeft,
+  type SectionBodyWeft,
+  type TocWeft,
 } from '@athrio/loom-ast/Weft'
 
 ## The module {Tangle}
@@ -392,6 +439,8 @@ import type {
 ::[The build]
 
 ::[Fenced code that never closes]
+
+::[A box that never closes]
 
 ::[A heading against the code]
 

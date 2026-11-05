@@ -98,7 +98,7 @@ Code often puts a brace right after a name. Go writes a composite literal as a t
 
 ## What the tokeniser reads
 
-An anchor's braces already read as a run of tokens: a label alone, or a `Parameters` token whose parameters each hold a key and the values of a list. Loom's own diagnostics place a fault on the exact parameter that is wrong. A heading's specifier still matches one label through the `SpecifierLabelTokenSchema` schema, and it becomes the same run of tokens. The editor colours each token.
+The braces of an anchor and of a box already read as a run of tokens: a label alone, or a `Parameters` token whose parameters each hold a key and the values of a list. Loom's own diagnostics place a fault on the exact parameter that is wrong. A heading's specifier still matches one label through the `SpecifierLabelTokenSchema` schema, and it becomes the same run of tokens. The editor colours each token.
 
 ## What to work out
 
@@ -107,9 +107,9 @@ An anchor's braces already read as a run of tokens: a label alone, or a `Paramet
 
 ## What this chapter grows into
 
-1. Specifiers on headings and boxes in the tokeniser: parameters with bare, quoted, and list values, and the short form, as an anchor's braces already read them.
-2. The faults for a repeated key, a label beside a parameter, and a key that nothing defines on headings and boxes, as anchors already raise them, and the fault for a value of the wrong type.
-3. The key a label stands for at each place: `kind` on a box and on an anchor, and `kind` or `lang` on a heading.
+1. Specifiers on headings in the tokeniser: parameters with bare, quoted, and list values, and the short form, as the braces of an anchor and of a box already read them.
+2. The faults for a repeated key, a label beside a parameter, and a key that nothing defines on headings, as anchors and boxes already raise them, and the fault for a value of the wrong type.
+3. The key a label stands for on a heading: `kind` or `lang`. On a box and on an anchor, a label already stands for `kind`.
 4. The value types, read through each key's declared type, with completion and hover from the registry.
 5. The keys of the core's own kinds, and the keys a trope's manifest declares for each kind it contributes.
 6. Specifiers in the tree-sitter grammar and in each editor's colouring.

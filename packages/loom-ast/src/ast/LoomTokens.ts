@@ -1,4 +1,4 @@
-import { Data, Effect, Option, Schema } from 'effect'
+import { Array, Data, Effect, Match, Option, Schema, pipe } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
 export const Probe = 'loom/Probe'
@@ -220,6 +220,57 @@ export const closesFence =
         line.slice(found.column + found.length).trim() === '',
     )
 
+export const BoxFenceTokenSchema = loomNode('BoxFence', {}).annotate({
+  [Probe]: /^[ \t]*:{3,}/,
+})
+export type BoxFenceToken = typeof BoxFenceTokenSchema.Type
+
+export const BoxNameTokenSchema = loomNode('BoxName', {
+  value: Schema.String,
+})
+export type BoxNameToken = typeof BoxNameTokenSchema.Type
+
+export const BoxTokenSchema = loomNode('Box', {
+  side: Schema.Literals(['open', 'close', 'stray']),
+  fence: BoxFenceTokenSchema,
+  name: Schema.optional(BoxNameTokenSchema),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
+})
+export type BoxToken = typeof BoxTokenSchema.Type
+
+export const noteKind = 'Note'
+
+export const boxKinds: ReadonlyArray<string> = [noteKind]
+
+export const boxKeys: ReadonlyArray<string> = ['kind']
+
+export const specifierKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
+  Match.value(specifier).pipe(
+    Match.when({ type: 'Specifier' }, (labelled) => Option.some(labelled.label.value)),
+    Match.when({ type: 'Parameters' }, (held) =>
+      pipe(
+        Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
+        Option.flatMap((parameter) => Array.head(parameter.values)),
+        Option.map((value) => value.value),
+      ),
+    ),
+    Match.exhaustive,
+  )
+
+const knownBoxKind = (kind: string): string =>
+  Option.getOrElse(
+    Array.findFirst(boxKinds, (known) => known.toLowerCase() === kind.toLowerCase()),
+    () => kind,
+  )
+
+export const boxKind = (box: BoxToken): string =>
+  pipe(
+    Option.fromNullishOr(box.specifier),
+    Option.flatMap(specifierKind),
+    Option.map(knownBoxKind),
+    Option.getOrElse(() => noteKind),
+  )
+
 export const WarpOpenTokenSchema = loomNode('WarpOpen', {
   value: Schema.Literal('{{'),
 }).annotate({
@@ -396,6 +447,9 @@ export const LoomTokenSchema = Schema.Union([
   ProseTokenSchema,
   CodeFenceTokenSchema,
   FenceLabelTokenSchema,
+  BoxFenceTokenSchema,
+  BoxNameTokenSchema,
+  BoxTokenSchema,
   WarpTokenSchema,
   WarpAnchorTokenSchema,
 ])

@@ -1,7 +1,7 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
-import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
-import type { WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
+import { boxOf, type PreambleWeft, type SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import { boxKind, noteKind, type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
   type LoomCorpusAst,
   type LoomModule,
@@ -320,33 +320,57 @@ const codeLanguage = (module: LoomModule, section: LoomSection): string => {
   )
 }
 
-const noteOrFence =
-  /^([ \t]*)(`{3,})[^\n]*\n(?:[\s\S]*?\n)?\1\2`*[ \t]*$|^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+type Stretch = { readonly note: boolean; readonly wefts: ReadonlyArray<BodyWeft> }
 
-const notesOf = (markdown: string): ReadonlyArray<RegExpMatchArray> =>
-  Array.filter(Array.fromIterable(markdown.matchAll(noteOrFence)), (match) => match[3] !== undefined)
+const opensNote = (weft: BodyWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side === 'open' && boxKind(box) === noteKind)
+
+const closesBox = (weft: BodyWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side === 'close')
+
+const stretchEnd = (wefts: ReadonlyArray<BodyWeft>, note: boolean): number =>
+  note
+    ? pipe(
+        Array.findFirstIndex(wefts, (weft, at) => at > 0 && closesBox(weft)),
+        Option.map((at) => at + 1),
+        Option.getOrElse(() => wefts.length),
+      )
+    : pipe(
+        Array.findFirstIndex(wefts, (weft, at) => at > 0 && opensNote(weft)),
+        Option.getOrElse(() => wefts.length),
+      )
+
+const stretchesOf = (run: ReadonlyArray<BodyWeft>): ReadonlyArray<Stretch> =>
+  Array.chop(run, (wefts) => {
+    const note = opensNote(Array.headNonEmpty(wefts))
+    const end = stretchEnd(wefts, note)
+    return [{ note, wefts: Array.take(wefts, end) }, Array.drop(wefts, end)]
+  })
+
+const bodyOf = (note: ReadonlyArray<BodyWeft>): ReadonlyArray<BodyWeft> => {
+  const inside = Array.drop(note, 1)
+  return Option.exists(Array.last(inside), closesBox) ? Array.dropRight(inside, 1) : inside
+}
+
+const textOf = (module: LoomModule, wefts: ReadonlyArray<BodyWeft>): string =>
+  Option.match(runSpan(wefts), {
+    onNone: () => '',
+    onSome: (span) => sliceContent(module.text, span).trim(),
+  })
 
 const proseBlockOf = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> =>
-  markdown.trim().length === 0 ? [] : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
+  markdown.length === 0 ? [] : [ProseBlockSchema.make({ source, markdown })]
 
-const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> => {
-  const walked = Array.reduce(
-    notesOf(markdown),
-    { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
-    (acc, match) => {
-      const at = match.index ?? 0
-      return {
-        blocks: [
-          ...acc.blocks,
-          ...proseBlockOf(markdown.slice(acc.cursor, at), source),
-          NoteBlockSchema.make({ source, markdown: (match[3] ?? '').trim() }),
-        ],
-        cursor: at + match[0].length,
-      }
-    },
+const proseBlocks = (
+  module: LoomModule,
+  run: ReadonlyArray<BodyWeft>,
+  source: SourceAnchor,
+): ReadonlyArray<WovenBlock> =>
+  Array.flatMap(stretchesOf(run), (stretch) =>
+    stretch.note
+      ? [NoteBlockSchema.make({ source, markdown: textOf(module, bodyOf(stretch.wefts)) })]
+      : proseBlockOf(textOf(module, stretch.wefts), source),
   )
-  return [...walked.blocks, ...proseBlockOf(markdown.slice(walked.cursor), source)]
-}
 
 const codeBlock = (
   module: LoomModule,
@@ -411,7 +435,7 @@ const runBlocks =
                   closed,
                 ),
               ]),
-              Match.orElse(() => proseBlocks(sliceContent(module.text, span), source)),
+              Match.orElse(() => proseBlocks(module, run, source)),
             ),
         }),
     })
