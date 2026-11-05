@@ -5,6 +5,7 @@ import {
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
+  type FoldingRange,
   type InlayHint,
   StreamMessageReader,
   StreamMessageWriter,
@@ -160,6 +161,10 @@ const editorAt = async (folder: string) => {
       })) ?? [],
       (hint) => ({ position: hint.position, label: hint.label }),
     )
+  const folds = async (path: string): Promise<ReadonlyArray<FoldingRange>> =>
+    (await connection.sendRequest<FoldingRange[] | null>('textDocument/foldingRange', {
+      textDocument: { uri: pathToFileURL(path).href },
+    })) ?? []
   const completions = async (
     path: string,
     line: number,
@@ -186,7 +191,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, hints, completions, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, hints, folds, completions, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -640,6 +645,38 @@ describe('LoomServer — the title beside a number', () => {
       expect(await editor.hints(main)).toEqual([
         { position: { line: 8, character: 12 }, label: 'Words' },
       ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+describe('LoomServer — a box folded under its caption', () => {
+  it('folds a box from its opening line to its closing line', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const grid = chapterAt(
+      root,
+      'grid.loom',
+      lines(
+        '# Grid',
+        '',
+        'The room is small.',
+        '',
+        '::: Why a grid',
+        'The room needs no engine.',
+        ':::',
+      ),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(grid)
+      expect(await editor.folds(grid)).toContainEqual({
+        startLine: 4,
+        endLine: 6,
+        kind: 'region',
+        collapsedText: 'Why a grid',
+      })
     } finally {
       editor.close()
     }

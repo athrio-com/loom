@@ -46,7 +46,12 @@ const CodeBlock = S.Struct({
 })
 export type CodeBlock = typeof CodeBlock.Type
 
-const NoteBlock = S.Struct({ type: S.Literal('note'), markdown: S.String })
+const NoteBlock = S.Struct({
+  type: S.Literal('note'),
+  caption: S.optional(S.String),
+  markdown: S.String,
+})
+export type NoteBlock = typeof NoteBlock.Type
 
 export const Block = S.Union([HeadingBlock, ProseBlock, CodeBlock, NoteBlock])
 export type Block = typeof Block.Type

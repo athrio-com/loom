@@ -14,6 +14,7 @@ import {
   type Corpus,
   type HeadingBlock,
   type Message,
+  type NoteBlock,
   type Model,
   type Page,
   type Part,
@@ -493,11 +494,25 @@ const blockOf = (
       ),
     ),
     Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
-    Match.when({ type: 'note' }, (note) =>
-      note.markdown.trim() === '' ? [] : [textOf(note.markdown, 'docs-prose doc-note', model.copied, h)],
-    ),
+    Match.when({ type: 'note' }, (note) => noteOf(note, model.copied, h)),
     Match.exhaustive,
   )
+
+const captionLine = (note: NoteBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  Option.match(Option.fromNullishOr(note.caption), {
+    onNone: () => [],
+    onSome: (caption) => [h.p([h.Class('doc-note-caption')], [caption])],
+  })
+
+const noteOf = (note: NoteBlock, copied: string, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  note.markdown.trim() === '' && Option.isNone(Option.fromNullishOr(note.caption))
+    ? []
+    : [
+        h.div(
+          [h.Class('doc-note')],
+          [...captionLine(note, h), textOf(note.markdown, 'docs-prose', copied, h)],
+        ),
+      ]
 
 const settleMark = (heading: HeadingBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
   heading.unsettled ? [h.span([h.Class('pill settle')], ['To be settled'])] : []

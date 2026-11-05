@@ -3,12 +3,16 @@ import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref }
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
+import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   bookOf,
   type Book,
   BoxNotice,
   boxNoticesIn,
+  captionOf,
+  openedBoxesOf,
+  type OpenedBox,
   corpusErrors,
   definitionAt,
   dependentsOf,
@@ -54,6 +58,7 @@ import {
   type ComposedFile,
   type FrameCompletion,
   type FrameContract,
+  type FrameBox,
   type FrameHint,
   type FrameLocation,
   type FrameToken,
@@ -299,6 +304,12 @@ const byLoom = (
     Array.groupBy((one) => one.path),
     Record.toEntries,
     Array.map(([path, each]) => ({ path, diagnostics: Array.map(each, (one) => one.diagnostic) })),
+  )
+
+const lastLineOf = (opened: OpenedBox): LoomWeft =>
+  Option.getOrElse(
+    Option.orElse(opened.closer, () => Array.last(opened.body)),
+    () => opened.opener,
   )
 
 const lineCharAt = (
@@ -585,6 +596,7 @@ const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
       format: true,
       semantic: { shouldHighlight: () => false },
       completion: true,
+      structure: true,
     })),
     Match.when('product', () => productFeatures),
     Match.when(Match.defined, (symbol) => profileOf(symbol).features),
@@ -941,6 +953,21 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   ),
               }),
             ),
+          ),
+        ),
+
+      boxes: (path: Location): Effect.Effect<ReadonlyArray<FrameBox>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.match(Option.fromNullishOr(modules.get(path)), {
+              onNone: (): ReadonlyArray<FrameBox> => [],
+              onSome: (module) =>
+                Array.map(openedBoxesOf(module.doc), (opened): FrameBox => ({
+                  startLine: lineCharAt(module.text, opened.opener.position.start.offset).line,
+                  endLine: lineCharAt(module.text, lastLineOf(opened).position.start.offset).line,
+                  caption: captionOf(opened),
+                })),
+            }),
           ),
         ),
 

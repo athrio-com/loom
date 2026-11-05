@@ -3060,7 +3060,7 @@ A source page runs from one short block of code to the next, so its sheet sits c
 
 What frames the code stays outside the sheet, in the prose column. Above it runs a head line that opens with the arrow and then names the language in small muted capitals beside its icon. Under it, a tilde that closed the block sits on a line of its own. The arrow and the tilde wear the chips the landing's example draws them in: the arrow in the green of `init`, the tilde in the accent's orange, each in bold type on a wash of its own colour. They stand outside the code because they are the loom's syntax and not the program's. The arrow keeps Lilex's ligature, which joins `=>` into one double arrow, as it does everywhere else the site sets one.
 
-A note is a reader's annotation rather than part of the chapter, so it reads quieter than the prose around it. It sits on the pale card ground in muted ink, with a rule in the accent down its left edge.
+A note is a reader's annotation rather than part of the chapter, so it reads quieter than the prose around it. It sits on the pale card ground in muted ink, with a rule in the accent down its left edge. A note's caption heads the card in bold, in the ink of the prose, so a reader sees what the note is about before reading it.
 
 =>
 
@@ -3134,6 +3134,12 @@ A note is a reader's annotation rather than part of the chapter, so it reads qui
 }
 
 .doc-note blockquote { margin: 0 0 10px; padding: 0; border: 0; }
+
+.doc-note-caption {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
 
 ~
 

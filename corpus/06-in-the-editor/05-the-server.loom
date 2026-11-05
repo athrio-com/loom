@@ -1131,7 +1131,7 @@ const workspaceAt = (root: string, service: string): string => {
 
 The cases start the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The client hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit.
 
 =>
 
@@ -1204,6 +1204,10 @@ const editorAt = async (folder: string) => {
       })) ?? [],
       (hint) => ({ position: hint.position, label: hint.label }),
     )
+  const folds = async (path: string): Promise<ReadonlyArray<FoldingRange>> =>
+    (await connection.sendRequest<FoldingRange[] | null>('textDocument/foldingRange', {
+      textDocument: { uri: pathToFileURL(path).href },
+    })) ?? []
   const completions = async (
     path: string,
     line: number,
@@ -1230,7 +1234,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, hints, completions, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, hints, folds, completions, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -1764,6 +1768,44 @@ describe('LoomServer — the title beside a number', () => {
   }, 30_000)
 })
 
+## Testing a box folded under its caption
+
+The editor folds a box away under its caption. `Grid` holds a note named `Why a grid`, which opens on line 4 and closes on line 6. The server answers a folding request with a range over those lines, which shows the note's name when folded.
+
+=>
+
+describe('LoomServer — a box folded under its caption', () => {
+  it('folds a box from its opening line to its closing line', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const grid = chapterAt(
+      root,
+      'grid.loom',
+      lines(
+        '# Grid',
+        '',
+        'The room is small.',
+        '',
+        '::: Why a grid',
+        'The room needs no engine.',
+        ':::',
+      ),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(grid)
+      expect(await editor.folds(grid)).toContainEqual({
+        startLine: 4,
+        endLine: 6,
+        kind: 'region',
+        collapsedText: 'Why a grid',
+      })
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## Testing a label as it is typed
 
 The server offers the labels an anchor takes while the author types between the anchor's braces. `Main` anchors `Greeting` on line 8, and the author has typed `To b` between the braces, from character 13 to character 17. Asked at the end of those four characters, the server offers both kinds an anchor takes, `To be settled` and `Reference`, each of which replaces them.
@@ -2163,7 +2205,7 @@ describe('LoomServer — the pass piece by piece', () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `CompletionList` a label typed in braces arrives in, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `CompletionList` a label typed in braces arrives in, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
@@ -2174,6 +2216,7 @@ import {
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
+  type FoldingRange,
   type InlayHint,
   StreamMessageReader,
   StreamMessageWriter,
@@ -2225,6 +2268,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a fix for an ambiguous anchor]
 
 ::[Testing the title beside a number]
+
+::[Testing a box folded under its caption]
 
 ::[Testing a label as it is typed]
 

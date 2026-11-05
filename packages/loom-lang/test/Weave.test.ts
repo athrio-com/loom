@@ -269,6 +269,7 @@ describe('notes in prose', () => {
     const note = page.blocks.find((b) => b.type === 'note')
     expect(note?.type).toBe('note')
     if (note?.type === 'note') {
+      expect(note.caption).toBe('Tighten the opening')
       expect(note.markdown).toContain('Tighten this opening')
       expect(note.markdown).toContain('> The opening paragraph.')
     }
@@ -301,6 +302,7 @@ describe('notes in prose', () => {
     const page = weave(buildCorpus({ '/corpus/quoted.loom': quoted })).pages[0]!
     const notes = page.blocks.filter((b) => b.type === 'note')
     expect(notes.map((n) => n.markdown)).toEqual(['A real note.'])
+    expect(notes.map((n) => n.caption)).toEqual([undefined])
     const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : [])).join('\n')
     expect(prose).toContain('```loom\n::: {Note}\nQuoted, not a note.\n:::\n```')
     expect(prose).toContain('The paragraph after.')

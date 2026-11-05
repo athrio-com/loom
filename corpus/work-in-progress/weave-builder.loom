@@ -295,7 +295,7 @@ A section's body is its preamble and its code together. `sectionBody` joins the 
 
 `runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that an arrow opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with each note split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the arrow or tilde itself, so the `code` holds nothing that is not code. A fence line around fenced code bounds no content either, so `pieceOfWeft` counts it as blank, and the span runs from the first line of code to the last.
 
-A note is a box of the `Note` kind, and the classifier has already marked the lines of colons that open and close it. `stretchesOf` cuts a prose run at those marks into stretches, each either a note or the prose between notes. A stretch that a note opens runs to the line that closes it, and `bodyOf` drops the two lines of colons, so a note block holds its body alone. A note quoted inside a fence is text, not a note: the classifier marks no line inside a quote, so nothing there can start a stretch of its own. A box of any other kind stays in the prose around it, as the author wrote it.
+A note is a box of the `Note` kind, and the classifier has already marked the lines of colons that open and close it. `stretchesOf` cuts a prose run at those marks into stretches, each either a note or the prose between notes. A stretch that a note opens runs to the line that closes it, and `bodyOf` drops the two lines of colons, so a note block holds its body alone. The note's name, when it has one, becomes the block's `caption`, which `captionOfNote` reads from the line that opens the note. A note quoted inside a fence is text, not a note: the classifier marks no line inside a quote, so nothing there can start a stretch of its own. A box of any other kind stays in the prose around it, as the author wrote it.
 
 The frame is not lost, though, because a reader learning Loom needs to see it. A code block keeps the arrow that opened it, as it was written. Whether a tilde closed it is a fact about the next run, not this one: `tildeOpens` looks at the run that follows, and a run that begins with a tilde means this block was closed by it. A block followed by nothing, or by the next heading, ran on to its end. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
 
@@ -422,6 +422,14 @@ const stretchesOf = (run: ReadonlyArray<BodyWeft>): ReadonlyArray<Stretch> =>
     return [{ note, wefts: Array.take(wefts, end) }, Array.drop(wefts, end)]
   })
 
+const captionOfNote = (note: ReadonlyArray<BodyWeft>): Option.Option<string> =>
+  pipe(
+    Array.head(note),
+    Option.flatMap(boxOf),
+    Option.flatMapNullishOr((box) => box.name),
+    Option.map((name) => name.value),
+  )
+
 const bodyOf = (note: ReadonlyArray<BodyWeft>): ReadonlyArray<BodyWeft> => {
   const inside = Array.drop(note, 1)
   return Option.exists(Array.last(inside), closesBox) ? Array.dropRight(inside, 1) : inside
@@ -443,7 +451,13 @@ const proseBlocks = (
 ): ReadonlyArray<WovenBlock> =>
   Array.flatMap(stretchesOf(run), (stretch) =>
     stretch.note
-      ? [NoteBlockSchema.make({ source, markdown: textOf(module, bodyOf(stretch.wefts)) })]
+      ? [
+          NoteBlockSchema.make({
+            source,
+            caption: Option.getOrUndefined(captionOfNote(stretch.wefts)),
+            markdown: textOf(module, bodyOf(stretch.wefts)),
+          }),
+        ]
       : proseBlockOf(textOf(module, stretch.wefts), source),
   )
 

@@ -97,7 +97,7 @@ const flattened = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
 A chapter of the docs or the book becomes one entry for its opening and one for each of its sections. It is cut where each second-level heading starts a section, as the documentation shell cuts it for drawing. The opening's entry is headed by the chapter's title and reaches the chapter itself. A section's entry is headed by its own heading and reaches the chapter at that heading's id.
 
-Every block gives its words to the entry it falls in. Prose and notes give the words they show, and code gives its text as written, so a reader can find a function by its name. A third-level heading stays inside its section, as it does on the page, and its title joins the section's words.
+Every block gives its words to the entry it falls in. Prose and notes give the words they show, a note's caption among them, and code gives its text as written, so a reader can find a function by its name. A third-level heading stays inside its section, as it does on the page, and its title joins the section's words.
 
 =>
 
@@ -105,7 +105,12 @@ const blockWords = (block: Block): string =>
   Match.value(block).pipe(
     Match.when({ type: 'heading' }, (heading) => heading.title),
     Match.when({ type: 'prose' }, (prose) => proseText(prose.markdown)),
-    Match.when({ type: 'note' }, (note) => proseText(note.markdown)),
+    Match.when({ type: 'note' }, (note) =>
+      Array.join(
+        [...Option.toArray(Option.fromNullishOr(note.caption)), proseText(note.markdown)],
+        ' ',
+      ),
+    ),
     Match.when({ type: 'code' }, (code) => code.code),
     Match.exhaustive,
   )

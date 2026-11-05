@@ -68,7 +68,12 @@ const blockWords = (block: Block): string =>
   Match.value(block).pipe(
     Match.when({ type: 'heading' }, (heading) => heading.title),
     Match.when({ type: 'prose' }, (prose) => proseText(prose.markdown)),
-    Match.when({ type: 'note' }, (note) => proseText(note.markdown)),
+    Match.when({ type: 'note' }, (note) =>
+      Array.join(
+        [...Option.toArray(Option.fromNullishOr(note.caption)), proseText(note.markdown)],
+        ' ',
+      ),
+    ),
     Match.when({ type: 'code' }, (code) => code.code),
     Match.exhaustive,
   )

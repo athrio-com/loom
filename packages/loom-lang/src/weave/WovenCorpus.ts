@@ -58,6 +58,7 @@ export type CodeBlock = typeof CodeBlockSchema.Type
 export const NoteBlockSchema = Schema.Struct({
   type: Schema.tag('note'),
   source: SourceAnchorSchema,
+  caption: Schema.optional(Schema.String),
   markdown: Schema.String,
 })
 export type NoteBlock = typeof NoteBlockSchema.Type

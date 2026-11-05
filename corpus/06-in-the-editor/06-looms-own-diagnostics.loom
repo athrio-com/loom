@@ -405,9 +405,32 @@ const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+## Folding a box under its caption
+
+A box's name is its caption, and the editor shows the caption when it folds the box away. `loomFolding` asks `FrameQuery` for the loom's boxes and gives each one a folding range, from the line that opens it to the line that closes it, with the caption as the text the editor shows in the box's place. A note without a name shows its kind. Like the diagnostics, it answers for the root alone, where the whole loom is mapped.
+
+=>
+
+const loomFolding = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-folding',
+  capabilities: { foldingRangeProvider: true },
+  create: (context) => ({
+    provideFoldingRanges: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(frame.boxes(frame.locationOf(decoded[0])), (box): FoldingRange => ({
+        startLine: box.startLine,
+        endLine: box.endLine,
+        kind: 'region',
+        collapsedText: box.caption,
+      }))
+    },
+  }),
+})
+
 ## Composing the services
 
-`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
+`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
 
 =>
 
@@ -426,6 +449,7 @@ export const LoomLanguage = defineLanguageService({
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),
+        loomFolding(frame),
         loomCompletions(frame),
         loomFormatting(frame),
       ]
@@ -434,7 +458,7 @@ export const LoomLanguage = defineLanguageService({
 
 ## What this module draws on
 
-From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
+From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `FoldingRange` a box folds into, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
 
 =>
 
@@ -444,6 +468,7 @@ import type {
   CompletionItem,
   DocumentSymbol,
   Diagnostic as LspDiagnostic,
+  FoldingRange,
   InlayHint,
   LanguageServicePlugin,
   LocationLink,
@@ -484,5 +509,7 @@ import {
 ::[Colouring the source]
 
 ::[Formatting the file]
+
+::[Folding a box under its caption]
 
 ::[Composing the services]

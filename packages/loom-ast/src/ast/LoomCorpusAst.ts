@@ -409,13 +409,16 @@ const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
     Array.flatMap((weft) => weft.anchors),
   )
 
-export type BoxRef = {
-  readonly module: Location
+export type OpenedBox = {
   readonly box: BoxToken
-  readonly name: BoxNameToken
   readonly opener: LoomWeft
   readonly body: ReadonlyArray<LoomWeft>
   readonly closer: Option.Option<LoomWeft>
+}
+
+export type BoxRef = OpenedBox & {
+  readonly module: Location
+  readonly name: BoxNameToken
 }
 
 const linesOf = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
@@ -427,9 +430,8 @@ const closesBox = (weft: LoomWeft): boolean =>
   Option.exists(boxOf(weft), (box) => box.side === 'close')
 
 const boxFrom = (
-  module: Location,
   lines: Array.NonEmptyReadonlyArray<LoomWeft>,
-): readonly [Option.Option<BoxRef>, ReadonlyArray<LoomWeft>] => {
+): readonly [Option.Option<OpenedBox>, ReadonlyArray<LoomWeft>] => {
   const opener = Array.headNonEmpty(lines)
   const rest = Array.tailNonEmpty(lines)
   return Option.match(
@@ -439,14 +441,12 @@ const boxFrom = (
       onSome: (box) => {
         const end = Option.getOrElse(Array.findFirstIndex(rest, closesBox), () => rest.length)
         return [
-          Option.map(Option.fromNullishOr(box.name), (name): BoxRef => ({
-            module,
+          Option.some({
             box,
-            name,
             opener,
             body: Array.take(rest, end),
             closer: Array.get(rest, end),
-          })),
+          }),
           Array.drop(rest, end + 1),
         ]
       },
@@ -454,8 +454,25 @@ const boxFrom = (
   )
 }
 
+export const openedBoxesOf = (doc: LoomDocument): ReadonlyArray<OpenedBox> =>
+  Array.getSomes(Array.chop(linesOf(doc), boxFrom))
+
+export const captionOf = (opened: OpenedBox): string =>
+  Option.getOrElse(
+    Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value),
+    () => boxKind(opened.box),
+  )
+
 const boxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
-  Array.getSomes(Array.chop(linesOf(module.doc), (lines) => boxFrom(module.path, lines)))
+  Array.getSomes(
+    Array.map(openedBoxesOf(module.doc), (opened) =>
+      Option.map(Option.fromNullishOr(opened.box.name), (name): BoxRef => ({
+        ...opened,
+        module: module.path,
+        name,
+      })),
+    ),
+  )
 
 const chapterBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
   Array.filter(boxesOf(module), (ref) => boxKind(ref.box) === chapterKind)

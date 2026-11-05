@@ -87,6 +87,12 @@ export interface FrameHint {
   readonly label: string
 }
 
+export interface FrameBox {
+  readonly startLine: number
+  readonly endLine: number
+  readonly caption: string
+}
+
 export interface FrameCompletion {
   readonly label: string
   readonly range: FrameLocation['range']
@@ -108,6 +114,7 @@ export interface FrameQueryApi {
   readonly navigationRange: (path: string, offset: number) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
   readonly hints: (path: string) => ReadonlyArray<FrameHint>
+  readonly boxes: (path: string) => ReadonlyArray<FrameBox>
   readonly completions: (path: string, offset: number) => ReadonlyArray<FrameCompletion>
   readonly contracts: (path: string) => ReadonlyArray<FrameContract>
   readonly format: (path: string, text: string) => Promise<string>

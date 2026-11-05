@@ -347,6 +347,14 @@ const stretchesOf = (run: ReadonlyArray<BodyWeft>): ReadonlyArray<Stretch> =>
     return [{ note, wefts: Array.take(wefts, end) }, Array.drop(wefts, end)]
   })
 
+const captionOfNote = (note: ReadonlyArray<BodyWeft>): Option.Option<string> =>
+  pipe(
+    Array.head(note),
+    Option.flatMap(boxOf),
+    Option.flatMapNullishOr((box) => box.name),
+    Option.map((name) => name.value),
+  )
+
 const bodyOf = (note: ReadonlyArray<BodyWeft>): ReadonlyArray<BodyWeft> => {
   const inside = Array.drop(note, 1)
   return Option.exists(Array.last(inside), closesBox) ? Array.dropRight(inside, 1) : inside
@@ -368,7 +376,13 @@ const proseBlocks = (
 ): ReadonlyArray<WovenBlock> =>
   Array.flatMap(stretchesOf(run), (stretch) =>
     stretch.note
-      ? [NoteBlockSchema.make({ source, markdown: textOf(module, bodyOf(stretch.wefts)) })]
+      ? [
+          NoteBlockSchema.make({
+            source,
+            caption: Option.getOrUndefined(captionOfNote(stretch.wefts)),
+            markdown: textOf(module, bodyOf(stretch.wefts)),
+          }),
+        ]
       : proseBlockOf(textOf(module, stretch.wefts), source),
   )
 

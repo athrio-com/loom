@@ -4,6 +4,7 @@ import type {
   CompletionItem,
   DocumentSymbol,
   Diagnostic as LspDiagnostic,
+  FoldingRange,
   InlayHint,
   LanguageServicePlugin,
   LocationLink,
@@ -342,6 +343,23 @@ const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const loomFolding = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-folding',
+  capabilities: { foldingRangeProvider: true },
+  create: (context) => ({
+    provideFoldingRanges: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(frame.boxes(frame.locationOf(decoded[0])), (box): FoldingRange => ({
+        startLine: box.startLine,
+        endLine: box.endLine,
+        kind: 'region',
+        collapsedText: box.caption,
+      }))
+    },
+  }),
+})
+
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
   displayName: 'Loom',
@@ -357,6 +375,7 @@ export const LoomLanguage = defineLanguageService({
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),
+        loomFolding(frame),
         loomCompletions(frame),
         loomFormatting(frame),
       ]

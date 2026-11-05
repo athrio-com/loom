@@ -2587,6 +2587,12 @@ h2, .subhead {
 
 .doc-note blockquote { margin: 0 0 10px; padding: 0; border: 0; }
 
+.doc-note-caption {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
 @media (max-width: 1179px) { .doc-hero-grid { gap: 56px; } }
 
 @media (max-width: 999px) {

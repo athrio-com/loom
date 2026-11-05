@@ -34,6 +34,7 @@ import {
   type Corpus,
   type HeadingBlock,
   type Message,
+  type NoteBlock,
   type Model,
   type Page,
   type Part,
@@ -605,7 +606,7 @@ const codeOf = (
 
 ## A section, under its heading
 
-A block draws as one of four things, so the match closes on four cases. A heading inside a section draws as a third-level heading carrying its slug. A run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides. A run of code draws as `codeOf` draws it. A note is a reader's annotation kept in the loom, so it draws as prose on a quieter card, and an empty note draws nothing.
+A block draws as one of four things, so the match closes on four cases. A heading inside a section draws as a third-level heading carrying its slug. A run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides. A run of code draws as `codeOf` draws it. A note is a reader's annotation kept in the loom, so `noteOf` draws it as prose on a quieter card, under its caption when the note has one. `captionLine` draws the caption. A note with neither words nor a caption draws nothing.
 
 =>
 
@@ -628,11 +629,25 @@ const blockOf = (
       ),
     ),
     Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
-    Match.when({ type: 'note' }, (note) =>
-      note.markdown.trim() === '' ? [] : [textOf(note.markdown, 'docs-prose doc-note', model.copied, h)],
-    ),
+    Match.when({ type: 'note' }, (note) => noteOf(note, model.copied, h)),
     Match.exhaustive,
   )
+
+const captionLine = (note: NoteBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  Option.match(Option.fromNullishOr(note.caption), {
+    onNone: () => [],
+    onSome: (caption) => [h.p([h.Class('doc-note-caption')], [caption])],
+  })
+
+const noteOf = (note: NoteBlock, copied: string, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  note.markdown.trim() === '' && Option.isNone(Option.fromNullishOr(note.caption))
+    ? []
+    : [
+        h.div(
+          [h.Class('doc-note')],
+          [...captionLine(note, h), textOf(note.markdown, 'docs-prose', copied, h)],
+        ),
+      ]
 
 ~
 

@@ -10,11 +10,7 @@ Language: TypeScript
 
 A loom holds more than prose and code. An author sketches a diagram, leaves a note for a reader, and keeps the command that starts a server. An author also meets thoughts too large for the section they start in, and points to a chapter or a discussion of their own. An author writes every one of these as the same block, the box, and a trope can teach Loom a new kind of box without any new syntax.
 
-Loom already reads a box. The chapter "The leaf tokens" gives its shape: a line of three colons with an optional name and braces, then the body, then a line of three colons alone. The chapters "The classifier stage", "The tokeniser stage", and "The document builder" read that shape, and fault a box opened inside another, a run of four or more colons, and a box that never closes. A box that names no kind is a note, and a box of the `Chapter` kind points to a chapter, as the chapter "The multi-file AST" describes. This chapter describes the kinds that follow those two, and the caption a box's name becomes.
-
-## The name is a caption
-
-The name identifies the box in the book, the way a heading's title identifies a section. The name is also the box's caption, which the editor and the woven page show with the box. A box therefore never repeats its name in a parameter.
+Loom already reads a box. The chapter "The leaf tokens" gives its shape: a line of three colons with an optional name and braces, then the body, then a line of three colons alone. The chapters "The classifier stage", "The tokeniser stage", and "The document builder" read that shape, and fault a box opened inside another, a run of four or more colons, and a box that never closes. A box that names no kind is a note, and a box of the `Chapter` kind points to a chapter, as the chapter "The multi-file AST" describes. A box's name is its caption, which the editor shows when it folds the box and the woven page shows above a note. This chapter describes the kinds that follow the note and the chapter box.
 
 ## Boxes that point to looms
 
@@ -74,7 +70,6 @@ A kind that neither the core nor an installed trope knows is a fault, so a missp
 1. Discussion boxes, once the chapter "Discussions" gives discussions their loom: found by name, opened as a discussion, and their summaries, conclusions included, kept in step.
 2. A copy and its source edited as one in the editor, with the side panel that edits a loom's opening from its box.
 3. The registry of kinds: `Discussion`, `Conclusion`, and `Wildcard` beside `Note` and `Chapter` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
-4. The name as a caption, in the editor and on the woven page.
-5. Boxes in the tree-sitter grammar and in each editor's highlighting.
+4. Boxes in the tree-sitter grammar and in each editor's highlighting.
 
 When every kind of box reads and draws in the editor, the rest of this chapter joins the chapters that hold the box.
