@@ -67,22 +67,6 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
     : { ...vc, code, mappings: clipMappings(vc.mappings, code.length) }
 }
 
-export type Placeholder = (language: string, names: ReadonlyArray<string>) => Option.Option<string>
-
-export const noPlaceholder: Placeholder = () => Option.none()
-
-const promisedLeaf = (part: Ref, language: string, placeholder: Placeholder): LoomVirtualCode =>
-  pipe(
-    Option.liftPredicate(part.provides, Array.isReadonlyArrayNonEmpty),
-    Option.flatMap((provided) =>
-      placeholder(
-        language,
-        Array.map(provided, (name) => name.name),
-      ),
-    ),
-    Option.match({ onNone: () => emptyLeaf, onSome: (code) => leaf('', '', code, []) }),
-  )
-
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
@@ -90,8 +74,6 @@ const inlinePart =
     seen: ReadonlySet<string>,
     home: Location,
     owner: Location,
-    language: string,
-    placeholder: Placeholder,
   ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
@@ -103,28 +85,18 @@ const inlinePart =
       }
       return leaf('', '', part.text, owner === home ? [origin] : [])
     }
-    return Option.match(unsettledRef(modules, book, owner, part), {
-      onSome: () => promisedLeaf(part, language, placeholder),
-      onNone: () =>
-        pipe(
-          targetOf(book, owner, part),
-          Option.filter((t) => !seen.has(keyOf(t))),
-          Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
-          Option.match({
-            onNone: () => emptyLeaf,
-            onSome: ([t, node]) =>
-              absorbTrailingNewline(
-                inlineComposed(
-                  modules,
-                  book,
-                  new Set([...seen, keyOf(t)]),
-                  home,
-                  placeholder,
-                )(node),
-              ),
-          }),
-        ),
-    })
+    return pipe(
+      targetOf(book, owner, part),
+      Option.filter((t) => !seen.has(keyOf(t))),
+      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
+      Option.match({
+        onNone: () => emptyLeaf,
+        onSome: ([t, node]) =>
+          absorbTrailingNewline(
+            inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home)(node),
+          ),
+      }),
+    )
   }
 
 const inlineComposed =
@@ -133,18 +105,9 @@ const inlineComposed =
     book: Book,
     seen: ReadonlySet<string>,
     home: Location,
-    placeholder: Placeholder,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(
-      modules,
-      book,
-      seen,
-      home,
-      node.origin.path,
-      node.languageId,
-      placeholder,
-    )
+    const build = inlinePart(modules, book, seen, home, node.origin.path)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -176,6 +139,7 @@ export type Unsettled = {
   readonly anchor: Position
   readonly name: string
   readonly section: Option.Option<SectionId>
+  readonly provides: ReadonlyArray<Provided>
 }
 
 const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId>): Unsettled => ({
@@ -183,6 +147,7 @@ const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId
   anchor: ref.anchor,
   name: ref.name,
   section,
+  provides: ref.provides,
 })
 
 export const unsettledRef = (
@@ -394,15 +359,8 @@ export const fromCode = (
   modules: ReadonlyMap<Location, LoomModule>,
   node: Code,
   book: Book = bookOf(modules),
-  placeholder: Placeholder = noPlaceholder,
 ): LoomVirtualCode => ({
-  ...inlineComposed(
-    modules,
-    book,
-    new Set([keyOf(node.origin)]),
-    node.origin.path,
-    placeholder,
-  )(node),
+  ...inlineComposed(modules, book, new Set([keyOf(node.origin)]), node.origin.path)(node),
   id: node.origin.name.toLowerCase(),
   languageId: node.languageId,
 })
@@ -411,13 +369,12 @@ export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
   book: Book = bookOf(modules),
-  placeholder: Placeholder = noPlaceholder,
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => fromCode(modules, node, book, placeholder),
+      onSome: (node) => fromCode(modules, node, book),
     }),
   )
 

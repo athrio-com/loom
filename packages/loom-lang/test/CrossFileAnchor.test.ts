@@ -1,12 +1,11 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
-import { DocumentSource, LoomCompiler, Placeholders } from '../src/LoomCompiler'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
 
 const it = effectify(it_)
 
@@ -673,47 +672,20 @@ describe('what an anchor says its section provides', () => {
   )
 })
 
-const promising: LanguageService = {
-  id: 'typescript',
-  displayName: 'TypeScript',
-  extensions: ['.ts'],
-  plugins: () => Effect.succeed([]),
-  placeholder: (names) => `promised ${names.join(' ')}`,
-}
-
-const composedWith = (text: string, services: ReadonlyArray<LanguageService>) =>
-  Effect.gen(function* () {
-    const placeholders = yield* Placeholders
-    yield* placeholders.register(services)
-    const c = yield* LoomCompiler
-    const root = yield* c.compile(
-      {
-        read: () => Effect.succeed(text),
-        list: Option.some(() => Effect.succeed(['/corpus/hello.loom'])),
-      },
-      '/corpus/hello.loom',
-    )
-    const product = Option.getOrThrow(
-      Array.findFirst(root.embeddedCodes ?? [], (code) => code.id === 'theprogram'),
-    )
-    return product.snapshot.getText(0, product.snapshot.getLength())
-  }).pipe(
-    Effect.provide(
-      layerOf({ '/corpus/hello.loom': text }).pipe(Layer.provideMerge(Placeholders.layer)),
-    ),
+const promisedOf = (text: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.promised('/corpus/hello.loom', 'theprogram')),
+    Effect.provide(layerOf({ '/corpus/hello.loom': text })),
   )
 
-describe('a placeholder for promised names', () => {
-  it.effect('composes in the editor where the anchor stands, and never in a tangle', () =>
+describe('what a program is promised', () => {
+  it.effect('names what an unsettled section is promised, and nothing once it is written', () =>
     Effect.gen(function* () {
-      const promised = helloAnchoring(`${anchor('Greeting')}{provides=greet}`)
-      expect(yield* composedWith(promised, [promising])).toBe(
-        "promised greet\nconsole.log(greet('world'))\n",
-      )
-      expect(yield* composedWith(promised, [])).not.toContain('promised')
-      expect(yield* refusal({ '/corpus/hello.loom': promised }, '/corpus/hello.loom')).toContain(
-        'To be settled: no section is named `Greeting` yet',
-      )
+      expect(yield* promisedOf(helloAnchoring(`${anchor('Greeting')}{provides=greet}`))).toEqual([
+        { name: 'greet', section: 'Greeting' },
+      ])
+      const settled = `${helloAnchoring(`${anchor('Saying hello')}{provides=greet}`)}\n${greeting}`
+      expect(yield* promisedOf(settled)).toEqual([])
     }),
   )
 })

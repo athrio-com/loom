@@ -57,7 +57,7 @@ import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource, Placeholders, stringSnapshot, within } from './LoomCompiler'
+import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -921,7 +921,7 @@ const settleEdits = (
 
 ## The program
 
-A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. It builds them over the `Environment` layer of the chapter "Where a workspace is kept", which picks the file system or remote storage from the `LOOM_STORAGE_URL` variable. A configuration that fails, such as a URL with no key, becomes a defect, so the runtime itself never fails and the server reports the defect as the editor connects. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it. The runtime also holds the compiler's `Placeholders`, so the services a workspace loads register their placeholders where the projection reads them.
+A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. It builds them over the `Environment` layer of the chapter "Where a workspace is kept", which picks the file system or remote storage from the `LOOM_STORAGE_URL` variable. A configuration that fails, such as a URL with no key, becomes a defect, so the runtime itself never fails and the server reports the defect as the editor connects. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it.
 
 The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. `homeOf` turns the folder's address into a location through the `WorkspaceSource` service, and asks the source for the workspace that location belongs to. Remote storage names its one workspace whatever folder the editor opened, or when it opened none. It takes `home` to be the workspace that folder belongs to. It opens `home` through `openWorkspace`, which asks the `WorkspaceSource` service for the workspace and hands every loom's text to the `DocumentSource` service to hold, as the chapter "Where a workspace is kept" describes. Only a folder with a manifest is opened, so a folder outside every workspace holds nothing, and its looms are read from the disk as they are asked for. A failure to read the manifest fails the `initialize` request, so the editor hears of a wrong storage key as it connects. A failure to open a workspace whose manifest arrived only logs, since every read falls back to the source. The program then builds the `TypescriptSdk` with `typescriptSdkFor`, from the options the editor sent, and loads no compiler while it does.
 
@@ -935,7 +935,6 @@ The warm-up runs in one synchronous piece, with `runSync`, never as a background
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
-    Layer.provideMerge(Placeholders.layer),
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(Layer.orDie(Environment)),
     Layer.provideMerge(LoomConfig.layer),

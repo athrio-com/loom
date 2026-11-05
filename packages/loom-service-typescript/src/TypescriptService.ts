@@ -2,6 +2,7 @@ import { Array, Effect, Match, Option, pipe, Result } from 'effect'
 import type {
   CodeAction,
   CreateFile,
+  Diagnostic,
   LanguageServicePlugin,
   LocationLink,
   Range,
@@ -21,6 +22,7 @@ import {
   defineLanguageService,
   type FetchedTypeScript,
   type FormatRequest,
+  type PromisedName,
   ServiceError,
   TypescriptSdk,
   type TypescriptSdkApi,
@@ -313,6 +315,12 @@ export const productPlugin = (
         reach,
       )
 
+    const promisedOf = (uri: string): ReadonlyArray<PromisedName> =>
+      Option.match(Option.fromNullishOr(context.decodeEmbeddedDocumentUri(URI.parse(uri))), {
+        onNone: () => [],
+        onSome: ([loomUri, rootId]) => composition.promisedIn(loomUri.fsPath, rootId),
+      })
+
     const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string => {
       const path = URI.parse(uri).fsPath
       return Option.match(
@@ -384,7 +392,11 @@ export const productPlugin = (
     return {
       provideDiagnostics: (document) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
-        return target === undefined ? undefined : target.program.diagnostics(target.fileName)
+        return target === undefined
+          ? undefined
+          : target.program
+              .diagnostics(target.fileName)
+              .then((found) => lowerPromised(found, document.getText(), promisedOf(document.uri)))
       },
       provideHover: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
@@ -528,15 +540,39 @@ const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceErr
     })
   })
 
-const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+const missingNameCodes: ReadonlySet<number | string> = new Set([2304, 2552])
 
-const placeholderFor = (names: ReadonlyArray<string>): string =>
-  pipe(
-    names,
-    Array.filter((name) => identifier.test(name)),
-    Array.map((name) => `const ${name}: any = undefined\ntype ${name} = any`),
-    Array.join('\n'),
+const textIn = (lines: ReadonlyArray<string>, range: Range): string =>
+  range.start.line === range.end.line
+    ? (lines[range.start.line] ?? '').slice(range.start.character, range.end.character)
+    : ''
+
+export const lowerPromised = (
+  diagnostics: Diagnostic[],
+  text: string,
+  promised: ReadonlyArray<PromisedName>,
+): Diagnostic[] => {
+  const lines = text.split('\n')
+  return Array.map(diagnostics, (diagnostic) =>
+    pipe(
+      Option.liftPredicate(
+        diagnostic,
+        (found) => found.code !== undefined && missingNameCodes.has(found.code),
+      ),
+      Option.flatMap((found) =>
+        Array.findFirst(promised, (promise) => promise.name === textIn(lines, found.range)),
+      ),
+      Option.match({
+        onNone: () => diagnostic,
+        onSome: (promise): Diagnostic => ({
+          ...diagnostic,
+          severity: 2,
+          message: `\`${promise.name}\` is promised by the section \`${promise.section}\`, which is not written yet.`,
+        }),
+      }),
+    ),
   )
+}
 
 export const TypescriptService = defineLanguageService({
   id: 'typescript',
@@ -549,7 +585,6 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
-  placeholder: placeholderFor,
 })
 
 export default TypescriptService

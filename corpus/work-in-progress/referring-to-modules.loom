@@ -33,7 +33,7 @@ Directory sinks, the bracket forms that place a file under a folder, keep their 
 
 ## Naming a module in code
 
-An import names its module with an anchor that carries a file in parentheses. A plain anchor composes, and an anchor with a file refers:
+An import names its module with an anchor that stands where the import's path would stand:
 
 ```
 ## Interior
@@ -41,16 +41,25 @@ An import names its module with an anchor that carries a file in parentheses. A 
 The room is built empty, and everything else is added to it.
 
 =>
-import { roomBuilder } from ::[Room's 2d system](room.ts)
+import { roomBuilder } from ::[Room's 2d system]
 
 const spookyRoom = roomBuilder.createNewRoom()
 ```
 
-The two forms stay distinct because they do different work. A composing anchor draws code in place, and the code becomes part of the file being written. A referring anchor names a file, and the code stays in that other file.
+A referring anchor is written like a composing one, yet the two do different work. A composing anchor draws code in place, and the code becomes part of the file being written. A referring anchor names a file, and the code stays in that other file. Where the anchor stands tells the two apart.
 
-The name finds a chapter or a section nearest first, by the rule the chapter "Names through the book" sets for every name. The file in the parentheses must be one that the node the name finds emits: a file written by a sink on the node's own heading, or on a section inside it. A reference usually names the chapter, not the section that holds the sink. Code moves between sections as the prose is revised, while the chapter that emits the file stays put.
+Loom treats code as opaque text, so the language package tells it where an anchor stands. Loom hands the package a section's code and the place of an anchor in that code, and the package answers whether a module path goes there. The TypeScript package answers from TypeScript's parser: a path goes after `from` in an import or an export, and inside `import()` or `require()`. The Python package answers for `import` and for `from … import`. An anchor where a path goes refers, and an anchor anywhere else composes.
 
-The file always carries its extension, written exactly as the sink declares it, even when the chapter emits a single file. The reference then reads the same as the sink, and the reader sees which file the code depends on without leaving the page.
+The name finds a chapter or a section nearest first, by the rule the chapter "Names through the book" sets for every name. What the name finds must fit the place where the anchor stands:
+
+- **Anywhere else,** a section composes its code, and a chapter composes its opening section, as the chapter "Names through the book" describes.
+- **Where a path goes,** a chapter, or a section whose heading carries a sink, gives the path to the file it emits. A section with no sink gives the path to the one file it lands in, the file of the root that composes it.
+
+A wildcard, the box the chapter "Names through the book" defines, fits its place as the section or chapter it points to does. While the wildcard points nowhere, it gives a module of its own where a path goes, and it composes nothing anywhere else.
+
+A reference usually names the chapter, not the section that holds the sink. Code moves between sections as the prose is revised, while the chapter that emits the file stays put.
+
+A chapter that emits several files leaves the reference to pick one. The reference names the file in parentheses, with the extension written exactly as the sink declares it, as in `::[Room's 2d system](room.ts)`. An author may name the file even when the chapter emits only one, so the reader sees which file the code depends on without leaving the page. The file must then be one that the node the name finds emits: a file written by a sink on the node's own heading, or on a section inside it.
 
 ## Writing the import
 
@@ -68,10 +77,11 @@ Some languages tie modules to the folders they live in, and their packages need 
 
 ## When a reference cannot be written
 
-A reference fails in three ways, and each failure is a Loom fault at the reference:
+A reference fails in four ways, and each failure is a Loom fault at the reference:
 
 - **The name matches nothing.** The `UnresolvedAnchor` fault reports it. The reference waits for its name as a forward reference, so the fault clears the moment the module is written.
-- **The node emits no such file.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses. The fault lists the files the node does emit. A chapter that emits no file at all yet, or a box whose chapter is not written, is not at fault. It is unsettled, as the chapter "Names through the book" describes: the reference resolves, and the editor collects the module's contract from the code that uses it and from the names the reference's `provides` parameter states.
+- **The node emits no such file, or several.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses, or the reference names no file and the node emits more than one. The fault lists the files the node does emit. A chapter that emits no file at all yet, a box whose chapter is not written, and a wildcard that points nowhere are not at fault. Each is unsettled, as the chapter "Names through the book" describes. The reference resolves, and the editor collects the module's contract from the code that uses it and from the names a `provides` parameter states.
+- **The section has no file to name.** A section with no sink stands where a path goes, and it lands in no file, in several, or in the very file the reference stands in. No path can be written, and the author most likely meant to compose the section, so the fault says to move the anchor out of the import and let it compose.
 - **The module lacks a name it should provide.** The reference lists names in its `provides` parameter, as the chapter "Names through the book" describes, and the file it names does not export every one of them. The `MissingSymbol` fault names each one the file lacks.
 
 ## Libraries outside the book
@@ -99,7 +109,7 @@ Every heading in the book that carries both `{Tangle}` and a bracket sink loses 
 The design lands in steps, each one useful on its own.
 
 1. The sink rule and its two faults, with the book rewritten to match.
-2. References in code: the parenthesised file, resolved by its place in the book, with the faults for a reference that cannot be written.
+2. References in code: the language package's answer to where a module path goes, the name resolved by its place in the book and fitted to where the anchor stands, the parenthesised file where a chapter emits several, and the faults for a reference that cannot be written.
 3. The TypeScript package writing each import into the tangled file and into the editor's projection, with errors mapped back onto the reference.
 4. The editor: the list of names in reach, navigation, rename, and checking again the looms that refer to a changed module.
 5. The woven link.

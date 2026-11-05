@@ -36,12 +36,12 @@ The test is a machine with no trope installed. On it, every loom still parses, c
 
 A trope contributes one or more of seven things.
 
-- **A language:** the editor support that Part VII's `LanguageService` interface defines, namely diagnostics, hover, completion, and formatting. A language trope also writes the stub for an unsettled section, the work the chapter "Names through the book" gives to a language's package.
+- **A language:** the editor support that Part VII's `LanguageService` interface defines, namely diagnostics, hover, completion, and formatting. A language trope also tells Loom where a module path goes in its code, which of its diagnostics say that a name is missing, and what module stands in for a wildcard, as the chapter "Names through the book" describes.
 - **Syntax:** a mark that Loom reads in a loom, such as a citation of a paper in a research book, or a field of its own in the frontmatter. The trope declares the mark as a pattern in its manifest, and the classifier applies the pattern itself, so none of the trope's code runs while the classifier reads a line. The trope's process gives the mark its meaning: what the mark refers to, and what is wrong with it. On a machine without the trope, the mark reads as plain prose.
 - **Kinds:** a kind of loom, of section, of box, or of anchor, with the parameters its specifier takes and the rules it follows, as the section "Extending the language" describes. A kind of box also says how the editor draws the box, whether the box runs, and what the box's body must satisfy, as the chapter "Boxes" describes.
 - **A view:** a surface the editor shows beside a loom, the way a browser shows one page inside another. A web view shows a page, such as the game a chapter builds, running beside its code. A terminal view shows a process's output, such as that of the command a box of kind `Run` starts.
 - **A decorator:** something the editor draws on one structure of the syntax in every loom, such as a heading, a box of one kind, or a reference, without changing the loom's text. A Run button above every box of kind `Run` is one. The chapter "Decorators" gives the six kinds of decorator, and how each editor draws them.
-- **An assist:** an answer to a question the editor asks at a place in a loom, such as the code that completes a line or the body of a stub. An assist may call a model to find its answer.
+- **An assist:** an answer to a question the editor asks at a place in a loom, such as the code that completes a line, or the stub that a section waiting for its code takes from its contract. An assist may call a model to find its answer.
 - **Looms:** a way of doing something, written as chapters that any book can take up. Part XI, Releasing Loom, is one such way: another book that ships a command line could release itself the same way. A book takes such looms up by copying them into its corpus, as the section "Three planes" describes.
 
 ## Three planes

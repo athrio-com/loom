@@ -328,6 +328,7 @@ import { Result } from 'effect'
 import type { CompletionContext } from '@volar/language-service'
 import {
   ClassicTypeScriptMissing,
+  type PromisedName,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 
@@ -359,11 +360,16 @@ const lending = (
   fetched: { version: '7.0.0-test', executable: '/nowhere/tsc', fetch },
 })
 
-const pluginWith = (sdk: TypescriptSdkApi, root: Act = act) =>
+const pluginWith = (
+  sdk: TypescriptSdkApi,
+  root: Act = act,
+  promised: ReadonlyArray<PromisedName> = [],
+) =>
   productPlugin(sdk, {
     rootsFor: () => [
       { path: root.path, content: root.code, loomPath: root.loom, rootId: 'main', heading: headOf(root.loom) },
     ],
+    promisedIn: () => promised,
   }).create(standInContext)
 
 const embeddedOf = (root: Act): string =>
@@ -479,17 +485,23 @@ describe('productPlugin completes as the person types', () => {
   })
 })
 
-import { TypescriptService } from '../src/TypescriptService'
+describe('productPlugin warns of a name promised before it is written', () => {
+  const calling = actIn(
+    join(import.meta.dir, 'promised'),
+    "console.log(greet('world'))\nconsole.log(farewell('world'))\n",
+  )
 
-describe('the TypeScript placeholder', () => {
-  it('declares each promised name as a value and a type', () => {
-    expect(TypescriptService.placeholder?.(['greet', 'Room', 'not a name'])).toBe(
-      [
-        'const greet: any = undefined',
-        'type greet = any',
-        'const Room: any = undefined',
-        'type Room = any',
-      ].join('\n'),
-    )
+  it('lowers the error for a promised name, and keeps every other', async () => {
+    const instance = pluginWith(lending(Result.succeed(ts)), calling, [
+      { name: 'greet', section: 'Greeting function' },
+    ])
+    const diagnostics = (await instance.provideDiagnostics!(documentOf(calling), never)) ?? []
+    const reported = diagnostics.map((diagnostic) => [diagnostic.severity, diagnostic.message])
+    expect(reported).toHaveLength(2)
+    expect(reported).toContainEqual([
+      2,
+      '`greet` is promised by the section `Greeting function`, which is not written yet.',
+    ])
+    expect(reported).toContainEqual([1, "Cannot find name 'farewell'."])
   })
 })

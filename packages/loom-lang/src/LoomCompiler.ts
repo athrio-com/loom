@@ -43,15 +43,13 @@ import {
   type FrameHint,
   type FrameLocation,
   type FrameToken,
-  type LanguageService,
+  type PromisedName,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   contractsIn,
   fromCode,
   fromProduct,
-  noPlaceholder,
-  type Placeholder,
   type Unsettled,
   unsettledIn,
   fromProse,
@@ -367,40 +365,33 @@ const recompose = (
 const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
   Array.flatten(Array.fromIterable(composition.files.values()))
 
-export type PlaceholderWriter = (names: ReadonlyArray<string>) => string
-
-export class Placeholders extends Context.Service<Placeholders>()('Placeholders', {
-  make: Effect.gen(function* () {
-    const writers = yield* Ref.make<ReadonlyMap<string, PlaceholderWriter>>(new Map())
-    return {
-      register: (services: ReadonlyArray<LanguageService>): Effect.Effect<void> =>
-        Ref.update(
-          writers,
-          (held) =>
-            new Map([
-              ...held,
-              ...Array.getSomes(
-                Array.map(services, (service) =>
-                  Option.map(
-                    Option.fromNullishOr(service.placeholder),
-                    (write) => [service.id, write] as const,
-                  ),
-                ),
-              ),
-            ]),
+const promisedNamesIn = (
+  modules: Modules,
+  path: Location,
+  rootId: string,
+): ReadonlyArray<PromisedName> =>
+  pipe(
+    Option.fromNullishOr(modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(module.product.code, (code) => code.origin.name.toLowerCase() === rootId),
+    ),
+    Option.match({
+      onNone: (): ReadonlyArray<PromisedName> => [],
+      onSome: (root) =>
+        pipe(
+          unsettledIn(modules, root),
+          Array.flatMap((unsettled) =>
+            Array.map(unsettled.provides, (provided): PromisedName => ({
+              name: provided.name,
+              section: unsettled.name,
+            })),
+          ),
+          Array.dedupeWith(
+            (one, other) => one.name === other.name && one.section === other.section,
+          ),
         ),
-      placeholder: Ref.get(writers).pipe(
-        Effect.map(
-          (held): Placeholder =>
-            (language, names) =>
-              Option.map(Option.fromNullishOr(held.get(language)), (write) => write(names)),
-        ),
-      ),
-    }
-  }),
-}) {
-  static readonly layer = Layer.effect(this, this.make)
-}
+    }),
+  )
 
 const namesAt = (modules: Modules, path: Location): ReadonlyArray<string> =>
   pipe(
@@ -416,11 +407,7 @@ const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
 
-const projectTree = (
-  modules: Modules,
-  entry: LoomModule,
-  placeholder: Placeholder = noPlaceholder,
-): LoomVirtualCode => {
+const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
   const book = bookOf(modules)
   return rootVirtualCode(
     entry.text,
@@ -428,7 +415,7 @@ const projectTree = (
       fromProse(modules, entry.path),
       ...pipe(
         rootsAt(modules, entry.path),
-        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book, placeholder)),
+        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book)),
       ),
     ],
     symbolMappings(entry.doc),
@@ -513,11 +500,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
-    const placeholders = yield* Effect.serviceOption(Placeholders)
-    const placeholderNow: Effect.Effect<Placeholder> = Option.match(placeholders, {
-      onNone: () => Effect.succeed(noPlaceholder),
-      onSome: (registry) => registry.placeholder,
-    })
     const composed = yield* Ref.make<Composition>(noComposition)
 
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
@@ -576,11 +558,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         matchEntry(source, path).pipe(
           Effect.andThen(buildCorpus(source, path)),
           Effect.flatMap((modules) => entryOf(modules, path)),
-          Effect.flatMap(({ modules, entry }) =>
-            Effect.map(placeholderNow, (placeholder) =>
-              toVolar(projectTree(modules, entry, placeholder)),
-            ),
-          ),
+          Effect.map(({ modules, entry }) => toVolar(projectTree(modules, entry))),
           Effect.catchCause((cause) =>
             Effect.logError('loom: projection failed; serving bare document', cause).pipe(
               Effect.andThen(
@@ -812,6 +790,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               ),
             ),
           ),
+        ),
+
+      promised: (path: Location, rootId: string): Effect.Effect<ReadonlyArray<PromisedName>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) => promisedNamesIn(modules, path, rootId)),
         ),
 
       reach: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>

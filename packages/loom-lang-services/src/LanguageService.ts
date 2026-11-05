@@ -17,7 +17,6 @@ export interface LanguageService {
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
-  readonly placeholder?: (names: ReadonlyArray<string>) => string
 }
 
 export interface FormatRequest {
@@ -120,8 +119,14 @@ export interface ComposedFile {
   readonly heading: FrameLocation
 }
 
+export interface PromisedName {
+  readonly name: string
+  readonly section: string
+}
+
 export interface CompositionApi {
   readonly rootsFor: (path: string) => ReadonlyArray<ComposedFile>
+  readonly promisedIn: (path: string, rootId: string) => ReadonlyArray<PromisedName>
 }
 
 export class Composition extends Context.Service<Composition>()('Composition', {

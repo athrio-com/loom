@@ -43,7 +43,7 @@ Editor features take a different route. The host runs each service's `plugins` E
 
   @athrio/loom-lang-services
     LanguageService { id, displayName, extensions, plugins(ctx) → Effect<Plugin[]>,
-                      format?(request) → Effect<string>, placeholder?(names) → string }
+                      format?(request) → Effect<string> }
     isLanguageService · defineLanguageService
     LanguageLoader.loadActive(ids, root)
 
@@ -84,7 +84,6 @@ export interface LanguageService {
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
-  readonly placeholder?: (names: ReadonlyArray<string>) => string
 }
 
 ## Formatting a language
@@ -101,12 +100,6 @@ export interface FormatRequest {
   readonly width: number
 }
 
-## Promising a name to a language
-
-An anchor may promise names that a section nobody has written yet will provide, as `::[Greeting function]{provides=greet}` does. The code around the anchor already uses those names, so a language service checking it would report each one as undeclared. A service may therefore write a placeholder that declares the names in its language, through `placeholder`. It takes the promised names and answers with code that declares each of them, which the editor composes where the anchor stands. The placeholder stays in the code the editor checks. A tangle never writes one, since it refuses a composition that reaches a section to be settled.
-
-The field is optional too. A language whose service writes no placeholder reports the promised names as its checker would report any undeclared name.
-
 ## Host capabilities
 
 A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. There are three.
@@ -120,6 +113,8 @@ The capability answers two questions. `classic` gives the TypeScript 6 that a pr
 `Composition` is the host's read of the de re as a filesystem: every composition root in a file's corpus, each as the resolved code it tangles to, named by the path it tangles to. A product service builds its analyzer's program over these, so a cross-file `import` resolves to another section's live composition rather than its last-tangled output on disk. Each root also carries its `heading`, the `FrameLocation` of the section that tangles it, so go-to on that `import` lands on the section in the `.loom` rather than the transcluded code the composed file opens with. Like the others it carries no default; the host builds it over the warm corpus. The product service takes it.
 
 A product service still asks nothing about its own file's sections: the editor hands it each Product directly — a resolved root, its members folded in — so the file's own roots travel with the data, never a query. `Composition` adds only the rest of the corpus, the roots a file imports across.
+
+`Composition` also tells a product service which names a root is promised. An anchor may promise names that a section nobody has written yet will provide, as `::[Greeting function]{provides=greet}` does, and the code around the anchor already uses them. `promisedIn` takes a loom and the id of one of its roots, and gives each such name that the root's composition reaches. A `PromisedName` pairs the `name`, such as `greet`, with the `section` the anchor names, such as `Greeting function`. A service checking the root would report each of these names as undeclared, so it may lower that error to a warning that names the promise, as the TypeScript service does. Nothing is composed in the anchor's place, so the service checks only the code the author wrote.
 
 `HostCapabilities` is the union of these capabilities — the environment a service's `plugins` Effect may require.
 
@@ -219,8 +214,14 @@ export interface ComposedFile {
   readonly heading: FrameLocation
 }
 
+export interface PromisedName {
+  readonly name: string
+  readonly section: string
+}
+
 export interface CompositionApi {
   readonly rootsFor: (path: string) => ReadonlyArray<ComposedFile>
+  readonly promisedIn: (path: string, rootId: string) => ReadonlyArray<PromisedName>
 }
 
 export class Composition extends Context.Service<Composition>()('Composition', {

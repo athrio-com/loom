@@ -85,7 +85,7 @@ describe('conformance — the service runs on the host runtime alone', () => {
               fetch: () => Promise.reject(new Error('the tests fetch nothing')),
             },
           }),
-          Effect.provideService(Composition, { rootsFor: () => [] }),
+          Effect.provideService(Composition, { rootsFor: () => [], promisedIn: () => [] }),
         ),
     )
     expect(plugins.length).toBeGreaterThan(0)

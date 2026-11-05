@@ -10,3 +10,4 @@ The program greets the world before anyone writes the greeting.
 
 ::[Greeting function]{provides=greet}
 console.log(greet('world'))
+console.log(farewell('world'))

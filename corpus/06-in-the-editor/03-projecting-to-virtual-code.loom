@@ -58,8 +58,6 @@ The de re walk inlines a section's fragments. `inlineComposed` folds them left t
 
 `inlinePart` handles each fragment. A `Fragment` becomes a `product` leaf, and a reference is bound, followed, and inlined, contributing nothing when its target is unresolved, missing, or cyclic. It learns which loom holds the reference from the section being folded, the `owner`, because an open reference resolves its name from there. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
 
-A reference that reaches a section to be settled has no code to compose. When its anchor promises names, as `{provides=greet}` does, the walk asks a `Placeholder` for code that declares those names in the language of the section being folded, so the code that uses them still checks. `promisedLeaf` composes that code with no mapping, since no source wrote it. The editor passes a placeholder that the language packages write, which the chapter "The compile layer" holds. Every other caller takes `noPlaceholder`, which writes nothing, so a tangle and a format never hold a placeholder.
-
 A leaf maps to its origin only when its section lives in the file being projected, the `home` file the walk carries down from its root. A mapping is a span in that one file's source, while a `Fragment`'s origin is a span in the file its own section came from. So a block that a cross-file anchor pulls in still lands in the code, and the product type-checks whole, but the block maps nowhere in the home file. Its own file projects it again, with mappings of its own, and an edit to that block belongs there.
 
 =>
@@ -82,22 +80,6 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
     : { ...vc, code, mappings: clipMappings(vc.mappings, code.length) }
 }
 
-export type Placeholder = (language: string, names: ReadonlyArray<string>) => Option.Option<string>
-
-export const noPlaceholder: Placeholder = () => Option.none()
-
-const promisedLeaf = (part: Ref, language: string, placeholder: Placeholder): LoomVirtualCode =>
-  pipe(
-    Option.liftPredicate(part.provides, Array.isReadonlyArrayNonEmpty),
-    Option.flatMap((provided) =>
-      placeholder(
-        language,
-        Array.map(provided, (name) => name.name),
-      ),
-    ),
-    Option.match({ onNone: () => emptyLeaf, onSome: (code) => leaf('', '', code, []) }),
-  )
-
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
@@ -105,8 +87,6 @@ const inlinePart =
     seen: ReadonlySet<string>,
     home: Location,
     owner: Location,
-    language: string,
-    placeholder: Placeholder,
   ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
@@ -118,28 +98,18 @@ const inlinePart =
       }
       return leaf('', '', part.text, owner === home ? [origin] : [])
     }
-    return Option.match(unsettledRef(modules, book, owner, part), {
-      onSome: () => promisedLeaf(part, language, placeholder),
-      onNone: () =>
-        pipe(
-          targetOf(book, owner, part),
-          Option.filter((t) => !seen.has(keyOf(t))),
-          Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
-          Option.match({
-            onNone: () => emptyLeaf,
-            onSome: ([t, node]) =>
-              absorbTrailingNewline(
-                inlineComposed(
-                  modules,
-                  book,
-                  new Set([...seen, keyOf(t)]),
-                  home,
-                  placeholder,
-                )(node),
-              ),
-          }),
-        ),
-    })
+    return pipe(
+      targetOf(book, owner, part),
+      Option.filter((t) => !seen.has(keyOf(t))),
+      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
+      Option.match({
+        onNone: () => emptyLeaf,
+        onSome: ([t, node]) =>
+          absorbTrailingNewline(
+            inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home)(node),
+          ),
+      }),
+    )
   }
 
 const inlineComposed =
@@ -148,18 +118,9 @@ const inlineComposed =
     book: Book,
     seen: ReadonlySet<string>,
     home: Location,
-    placeholder: Placeholder,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(
-      modules,
-      book,
-      seen,
-      home,
-      node.origin.path,
-      node.languageId,
-      placeholder,
-    )
+    const build = inlinePart(modules, book, seen, home, node.origin.path)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -188,7 +149,7 @@ const inlineComposed =
 
 ## What a composition leaves to be settled
 
-A tangle writes no file whose composition reaches a section that holds no code yet. `unsettledIn` walks a root's composition the way `inlineComposed` does, binding each reference with `targetOf` and following it into the section it reaches. It reports an `Unsettled` reference at each edge that stops short of code: the loom that holds the anchor, the anchor's span, the name it writes, and the section it reaches when a section of that name is declared. `unsettledRef` judges one reference on its own, and the weave asks it too, to mark the woven page. `unsettledAt` builds the report from the loom that holds the reference.
+A tangle writes no file whose composition reaches a section that holds no code yet. `unsettledIn` walks a root's composition the way `inlineComposed` does, binding each reference with `targetOf` and following it into the section it reaches. It reports an `Unsettled` reference at each edge that stops short of code: the loom that holds the anchor, the anchor's span, the name it writes, the section it reaches when a section of that name is declared, and the names the anchor says the section provides. `unsettledRef` judges one reference on its own, and the weave asks it too, to mark the woven page. `unsettledAt` builds the report from the loom that holds the reference.
 
 An edge stops short in two ways. It reaches a section whose `Code` holds no fragments, a section declared but not yet written. Or it binds to nothing while its anchor promises the section, with the `{To be settled}` label or by stating what the section provides, so the section is not declared at all. `isMeant` asks whether an edge promises its section. An edge that binds to nothing without a promise is a fault the diagnostics already raise, so the walk passes it by. A section the walk has already entered is not entered again, which ends a cycle.
 
@@ -199,6 +160,7 @@ export type Unsettled = {
   readonly anchor: Position
   readonly name: string
   readonly section: Option.Option<SectionId>
+  readonly provides: ReadonlyArray<Provided>
 }
 
 const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId>): Unsettled => ({
@@ -206,6 +168,7 @@ const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId
   anchor: ref.anchor,
   name: ref.name,
   section,
+  provides: ref.provides,
 })
 
 export const unsettledRef = (
@@ -449,7 +412,7 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 
 `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. It takes the corpus's `Book` for the open references it binds. A caller that projects many sections over one corpus builds the book once and passes it in, and any other caller lets `fromProduct` build it.
 
-`fromProduct` finds a section by its identity, then hands it to `fromCode`, the same pass started from a `Code` in hand. A tangle sink already holds its own `Code`, so the compiler composes a sink through `fromCode` and never looks the section up again by name. Both take the `Placeholder` the walk asks for promised names, and both default to `noPlaceholder`.
+`fromProduct` finds a section by its identity, then hands it to `fromCode`, the same pass started from a `Code` in hand. A tangle sink already holds its own `Code`, so the compiler composes a sink through `fromCode` and never looks the section up again by name.
 
 `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
@@ -461,15 +424,8 @@ export const fromCode = (
   modules: ReadonlyMap<Location, LoomModule>,
   node: Code,
   book: Book = bookOf(modules),
-  placeholder: Placeholder = noPlaceholder,
 ): LoomVirtualCode => ({
-  ...inlineComposed(
-    modules,
-    book,
-    new Set([keyOf(node.origin)]),
-    node.origin.path,
-    placeholder,
-  )(node),
+  ...inlineComposed(modules, book, new Set([keyOf(node.origin)]), node.origin.path)(node),
   id: node.origin.name.toLowerCase(),
   languageId: node.languageId,
 })
@@ -478,13 +434,12 @@ export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
   book: Book = bookOf(modules),
-  placeholder: Placeholder = noPlaceholder,
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => fromCode(modules, node, book, placeholder),
+      onSome: (node) => fromCode(modules, node, book),
     }),
   )
 

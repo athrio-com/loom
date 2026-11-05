@@ -189,6 +189,8 @@ export const productTarget = (
 
 The plugin reads the composed corpus from the `Composition` capability the host provides. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. References and rename reach the whole corpus, and every other feature reaches the edited root's project.
 
+Diagnostics take one more step. `promisedOf` asks `Composition` which names the edited root is promised, from the `.loom` the embedded document came from and the root's id. The plugin hands TypeScript's diagnostics and those names to `lowerPromised`, which the section "A promised name warns" describes.
+
 The compiler is chosen per project, and a project uses one compiler for everything. `compilerChoiceFor`, from the chapter on the native TypeScript program, makes the choice, and `programFor` builds the program it names. The plugin loads no compiler of its own. It takes each from the `TypescriptSdk` capability, `sdk` here, when the first project that needs it asks.
 
 A `Classic` project gets the TypeScript 6 program, whose analysis is `volar-service-typescript`'s, run inside the program. `classicProgramFor` builds it on the TypeScript 6 that the capability's `classic` loads for the project's folder. When `classic` finds none, the project gets a program that fails every question with the reason, as an `Unavailable` one does, and never another compiler.
@@ -368,6 +370,12 @@ export const productPlugin = (
         reach,
       )
 
+    const promisedOf = (uri: string): ReadonlyArray<PromisedName> =>
+      Option.match(Option.fromNullishOr(context.decodeEmbeddedDocumentUri(URI.parse(uri))), {
+        onNone: () => [],
+        onSome: ([loomUri, rootId]) => composition.promisedIn(loomUri.fsPath, rootId),
+      })
+
     const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string => {
       const path = URI.parse(uri).fsPath
       return Option.match(
@@ -439,7 +447,11 @@ export const productPlugin = (
     return {
       provideDiagnostics: (document) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
-        return target === undefined ? undefined : target.program.diagnostics(target.fileName)
+        return target === undefined
+          ? undefined
+          : target.program
+              .diagnostics(target.fileName)
+              .then((found) => lowerPromised(found, document.getText(), promisedOf(document.uri)))
       },
       provideHover: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
@@ -595,25 +607,53 @@ const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceErr
     })
   })
 
-## Promising names to TypeScript
+## A promised name warns
 
-An anchor may promise names that a section still to be settled will provide, as `::[Greeting function]{provides=greet}` does. The editor composes TypeScript's placeholder for them where the anchor stands, so the code that uses `greet` checks before anyone writes it. `placeholderFor` declares each name twice, as a value and as a type, both `any`: `const greet: any = undefined` and `type greet = any`. The pair lets the code call the name, construct it with `new`, and write it as a type. The pair is valid at the top of a module and inside a function body alike, where a `declare` would not be. `any` checks nothing about the uses, which is the price of a name nobody has written yet. A promised name that is no TypeScript identifier gets no placeholder, since no declaration could carry it.
+An anchor may promise names that a section still to be settled will provide, as `::[Greeting function]{provides=greet}` does. The code around the anchor calls `greet` before anyone writes it, so TypeScript reports `Cannot find name 'greet'.`, an error that tells the author nothing new. `lowerPromised` turns that error into a warning that names the promise: "`greet` is promised by the section `Greeting function`, which is not written yet."
+
+TypeScript reports a name it cannot find under code 2304, or under 2552 when it can suggest a name close to the one it cannot find. The `missingNameCodes` set holds both. A diagnostic with either code whose range covers a name the root is promised becomes the warning. `textIn` reads the text a range covers. A name never spans two lines, so a range that does covers no promised name. Every other diagnostic passes through as TypeScript reported it.
+
+Nothing is composed in the anchor's place, so TypeScript checks nothing about how the code uses a promised name. A call that passes `greet` the wrong arguments goes unnoticed until the section is written. Once it is written, the root is promised nothing, and a missing name is TypeScript's error again.
 
 =>
 
-const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+const missingNameCodes: ReadonlySet<number | string> = new Set([2304, 2552])
 
-const placeholderFor = (names: ReadonlyArray<string>): string =>
-  pipe(
-    names,
-    Array.filter((name) => identifier.test(name)),
-    Array.map((name) => `const ${name}: any = undefined\ntype ${name} = any`),
-    Array.join('\n'),
+const textIn = (lines: ReadonlyArray<string>, range: Range): string =>
+  range.start.line === range.end.line
+    ? (lines[range.start.line] ?? '').slice(range.start.character, range.end.character)
+    : ''
+
+export const lowerPromised = (
+  diagnostics: Diagnostic[],
+  text: string,
+  promised: ReadonlyArray<PromisedName>,
+): Diagnostic[] => {
+  const lines = text.split('\n')
+  return Array.map(diagnostics, (diagnostic) =>
+    pipe(
+      Option.liftPredicate(
+        diagnostic,
+        (found) => found.code !== undefined && missingNameCodes.has(found.code),
+      ),
+      Option.flatMap((found) =>
+        Array.findFirst(promised, (promise) => promise.name === textIn(lines, found.range)),
+      ),
+      Option.match({
+        onNone: () => diagnostic,
+        onSome: (promise): Diagnostic => ({
+          ...diagnostic,
+          severity: 2,
+          message: `\`${promise.name}\` is promised by the section \`${promise.section}\`, which is not written yet.`,
+        }),
+      }),
+    ),
   )
+}
 
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`, and its `placeholder` is `placeholderFor`.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -630,14 +670,13 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
-  placeholder: placeholderFor,
 })
 
 export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, `Match` to read which file an edit creates, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`, and `CreateFile` and `RenameFile` for the files an edit makes; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, the `PromisedName` a root is promised, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, `Match` to read which file an edit creates, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`, `Diagnostic` for the reports it lowers, and `CreateFile` and `RenameFile` for the files an edit makes; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
 
 =>
 
@@ -645,6 +684,7 @@ import { Array, Effect, Match, Option, pipe, Result } from 'effect'
 import type {
   CodeAction,
   CreateFile,
+  Diagnostic,
   LanguageServicePlugin,
   LocationLink,
   Range,
@@ -664,6 +704,7 @@ import {
   defineLanguageService,
   type FetchedTypeScript,
   type FormatRequest,
+  type PromisedName,
   ServiceError,
   TypescriptSdk,
   type TypescriptSdkApi,
@@ -696,7 +737,7 @@ type TypeScript = typeof import('typescript')
 
 ::[Formatting the product]
 
-::[Promising names to TypeScript]
+::[A promised name warns]
 
 ::[The service]
 
@@ -1058,7 +1099,7 @@ describe('knownEdit keeps only the places the editor can reach', () => {
 
 These cases drive `productPlugin` itself, with a stand-in for the part of Volar's context it reads. `standInContext` encodes an embedded document's address as a `loom-embedded` URI that carries the `.loom`'s path and the root's id, and decodes it back.
 
-`pluginWith` builds the plugin over one root, `act.ts`, composed from `act.loom`. `actIn` names that root in a folder, with the code it composes. The usual root, `act`, adds two numbers and doubles one. Its files are named in the test's own folder, though neither is on disk, so the root's project finds the TypeScript 6 this repository installs and is `Classic`.
+`pluginWith` builds the plugin over one root, `act.ts`, composed from `act.loom`, and a case may hand it the names that root is promised. `actIn` names that root in a folder, with the code it composes. The usual root, `act`, adds two numbers and doubles one. Its files are named in the test's own folder, though neither is on disk, so the root's project finds the TypeScript 6 this repository installs and is `Classic`.
 
 The plugin takes its compilers from the capability, and `lending` stands in for the capability. It lends the TypeScript 6 these cases run on, or the failure of a search that found none. It describes a fetched TypeScript 7 whose fetch fails unless a case hands in one of its own, so a case that reached for it by mistake would say so. `documentOf` gives the embedded document of a root as the editor would hand it over.
 
@@ -1068,6 +1109,7 @@ import { Result } from 'effect'
 import type { CompletionContext } from '@volar/language-service'
 import {
   ClassicTypeScriptMissing,
+  type PromisedName,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 
@@ -1099,11 +1141,16 @@ const lending = (
   fetched: { version: '7.0.0-test', executable: '/nowhere/tsc', fetch },
 })
 
-const pluginWith = (sdk: TypescriptSdkApi, root: Act = act) =>
+const pluginWith = (
+  sdk: TypescriptSdkApi,
+  root: Act = act,
+  promised: ReadonlyArray<PromisedName> = [],
+) =>
   productPlugin(sdk, {
     rootsFor: () => [
       { path: root.path, content: root.code, loomPath: root.loom, rootId: 'main', heading: headOf(root.loom) },
     ],
+    promisedIn: () => promised,
   }).create(standInContext)
 
 const embeddedOf = (root: Act): string =>
@@ -1237,24 +1284,30 @@ describe('productPlugin completes as the person types', () => {
   })
 })
 
-## Testing the placeholder
+## Testing a promised name
 
-The service's placeholder declares each promised name as a value and as a type, both `any`, and skips a name that is no TypeScript identifier.
+The root calls `greet`, which an anchor promises, and `farewell`, which nothing promises. TypeScript finds neither name. The plugin lowers the error for `greet` to the warning that names its promise, and keeps the error for `farewell`.
 
 =>
 
-import { TypescriptService } from '../src/TypescriptService'
+describe('productPlugin warns of a name promised before it is written', () => {
+  const calling = actIn(
+    join(import.meta.dir, 'promised'),
+    "console.log(greet('world'))\nconsole.log(farewell('world'))\n",
+  )
 
-describe('the TypeScript placeholder', () => {
-  it('declares each promised name as a value and a type', () => {
-    expect(TypescriptService.placeholder?.(['greet', 'Room', 'not a name'])).toBe(
-      [
-        'const greet: any = undefined',
-        'type greet = any',
-        'const Room: any = undefined',
-        'type Room = any',
-      ].join('\n'),
-    )
+  it('lowers the error for a promised name, and keeps every other', async () => {
+    const instance = pluginWith(lending(Result.succeed(ts)), calling, [
+      { name: 'greet', section: 'Greeting function' },
+    ])
+    const diagnostics = (await instance.provideDiagnostics!(documentOf(calling), never)) ?? []
+    const reported = diagnostics.map((diagnostic) => [diagnostic.severity, diagnostic.message])
+    expect(reported).toHaveLength(2)
+    expect(reported).toContainEqual([
+      2,
+      '`greet` is promised by the section `Greeting function`, which is not written yet.',
+    ])
+    expect(reported).toContainEqual([1, "Cannot find name 'farewell'."])
   })
 })
 
@@ -1270,4 +1323,4 @@ describe('the TypeScript placeholder', () => {
 
 ::[Testing the plugin itself]
 
-::[Testing the placeholder]
+::[Testing a promised name]
