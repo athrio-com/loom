@@ -1004,7 +1004,7 @@ import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
-## The module {Tangle}[src/LoomCompiler.ts]
+## The module [src/LoomCompiler.ts]
 
 =>
 
@@ -1111,7 +1111,7 @@ describe('LoomCompiler — what an edit evicts', () => {
   })
 })
 
-## The test file {Tangle}[test/LoomInvalidate.test.ts]
+## The test file [test/LoomInvalidate.test.ts]
 
 =>
 
@@ -1441,7 +1441,7 @@ The second case changes `c = 1` to `c = 2` in the chapter and invalidates the ch
   )
 })
 
-## The compiler test file {Tangle}[test/LoomCompiler.test.ts]
+## The compiler test file [test/LoomCompiler.test.ts]
 
 =>
 
@@ -2357,7 +2357,7 @@ describe('a placeholder for promised names', () => {
   )
 })
 
-## The cross-file anchor test file {Tangle}[test/CrossFileAnchor.test.ts]
+## The cross-file anchor test file [test/CrossFileAnchor.test.ts]
 
 =>
 
@@ -2850,7 +2850,7 @@ The `rename` verb rewrites three spans, the definition's name and each anchor's.
   )
 })
 
-## The navigation test file {Tangle}[test/Navigation.test.ts]
+## The navigation test file [test/Navigation.test.ts]
 
 =>
 
@@ -2975,7 +2975,7 @@ Only two tokens are operators, the arrow that opens the code and the tilde that 
   )
 })
 
-## The semantic token test file {Tangle}[test/SemanticTokens.test.ts]
+## The semantic token test file [test/SemanticTokens.test.ts]
 
 =>
 
@@ -3403,7 +3403,7 @@ The editor can navigate from a part but cannot rename it. The `navigationRange` 
   )
 })
 
-## The contents test file {Tangle}[test/Toc.test.ts]
+## The contents test file [test/Toc.test.ts]
 
 =>
 
