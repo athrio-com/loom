@@ -12,7 +12,7 @@ The scanner consumes nothing for a line's kind. Each kind is a zero-width token 
 
 ## The tokens it emits
 
-The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first thirteen name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A code fence line opens or closes fenced code. A verbatim line is inside a quote or opens one. A box line opens a box, a box body line sits inside it, and a box close line closes it. The box name is the name on a line that opens a box. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
+The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first fourteen name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A code fence line opens or closes fenced code. A verbatim line is inside a quote or opens one. A box line opens a box, a box body line sits inside it, and a box close line closes it. A divider line is a line of dashes that divides a chapter. The box name is the name on a line that opens a box. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
 
 =>
 
@@ -30,6 +30,7 @@ enum TokenType {
   BOX_LINE,
   BOX_BODY_LINE,
   BOX_CLOSE_LINE,
+  DIVIDER_LINE,
   BOX_NAME,
   NEWLINE,
   ERROR_SENTINEL,
@@ -128,7 +129,7 @@ static void peek_line(TSLexer *lexer, Line *line) {
 
 Each marker test is one of the token patterns of Part II, read off the line's head. `head_has` tests for text at a position, `indent_of` measures the leading spaces, and `hashes_of` counts the leading `#` marks.
 
-A heading is one to six `#` and a space, at the very start of the line. A frontmatter fence is `---` and nothing after it but spaces. An arrow is `=>` after any indent, and `is_bare_arrow` tells an arrow with nothing after it, the one that waits for a fence. A tilde stands at the start of the line, followed by a space or by the end of the line, so `~/bin` and a run of three tildes stay text.
+A heading is one to six `#` and a space, at the very start of the line. A frontmatter fence is `---` and nothing after it but spaces. An arrow is `=>` after any indent, and `is_bare_arrow` tells an arrow with nothing after it, the one that waits for a fence. A tilde stands at the start of the line, followed by a space or by the end of the line, so `~/bin` and a run of three tildes stay text. A divider is three or more dashes at the very start of the line and nothing after them but spaces.
 
 =>
 
@@ -152,6 +153,12 @@ static uint32_t hashes_of(const Line *line) {
 static bool is_heading(const Line *line) {
   uint32_t hashes = hashes_of(line);
   return hashes >= 1 && hashes <= 6 && head_has(line, hashes, " ");
+}
+
+static bool is_divider(const Line *line) {
+  uint32_t dashes = 0;
+  while (dashes < line->head_length && line->head[dashes] == '-') dashes++;
+  return dashes >= 3 && line->last_mark == (int32_t)dashes - 1;
 }
 
 static bool is_frontmatter_fence(const Line *line) {
@@ -282,7 +289,7 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
 
 ## Fenced code and the headings
 
-Fenced code outranks every rule after the inert regions. Inside it, the line that closes the fence is a code fence line that hands the next line to prose, and every other line is code, a `#` line included. A waiting arrow comes next: a fence on the first line after it that is not blank opens fenced code. A heading comes next. Inside a table of contents a deeper heading is a contents line, so only a top-level `#` closes the contents. Any other heading opens a section, and opens a table of contents when it bears `{TOC}`. Every line of a contents section is a contents line, and every line before the first heading is preamble.
+Fenced code outranks every rule after the inert regions. Inside it, the line that closes the fence is a code fence line that hands the next line to prose, and every other line is code, a `#` line included. A waiting arrow comes next: a fence on the first line after it that is not blank opens fenced code. A heading comes next. Inside a table of contents a deeper heading is a contents line, so only a top-level `#` closes the contents. Any other heading opens a section, and opens a table of contents when it bears `{TOC}`. Every line of a contents section is a contents line, and every line before the first heading is preamble. A divider comes last of these. Past the first heading, a line of dashes ends code or prose, as a heading does, and hands the next line to the preamble of its division.
 
 =>
 
@@ -321,6 +328,11 @@ if (s->in_toc) {
 }
 
 if (!s->seen_heading) return prose_kind(s, line, PROSE_LINE, PREAMBLE);
+
+if (is_divider(line)) {
+  s->mode = PREAMBLE;
+  return DIVIDER_LINE;
+}
 
 ## The three modes
 

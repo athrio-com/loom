@@ -10,6 +10,8 @@ Language: TypeScript
 
 A long chapter falls into stretches, and a reader likes to see where one stretch ends and the next begins. Headings already structure a chapter, but every heading looks like every other heading of its level. A division marks a larger turn. A line of dashes called a divider opens it, and the editor and the woven page draw the divider as a rule across the page, with the division's label at the rule's centre.
 
+Loom already reads a divider. The chapters "The leaf tokens", "The classifier stage", and "The document builder" read it: a division is a section that a divider opens, titled by its label, so an anchor finds a division by its label as it finds any section, and a label that repeats a section's title is a duplicate. The tree-sitter grammar reads dividers too. This chapter describes how a division draws, and what it means in a discussion.
+
 ## A label and a rule
 
 Loom borrows the divider from Markdown. In Markdown, a line of dashes directly under a line of text turns that text into a heading, and a line of dashes after a blank line draws a horizontal rule. A Loom divider reads the same two ways. A line of three or more dashes directly under a line of prose labels the division with that line:
@@ -42,14 +44,12 @@ The room draws itself one cell at a time.
 
 A divider ends code as well as prose, just as a heading does. Only a line of prose labels a divider, so a divider that ends code is always bare, and it stands after a blank line.
 
-A divider written directly under a line of code most likely belongs to the code, as a YAML file's document separator does. Such a divider is a fault, the `DividerAgainstCode` fault, the twin of the `HeadingAgainstCode` fault that the chapter "Fenced code" keeps. Its fix is the same: code that holds a line of dashes of its own is guarded with a fence. Two chapters of Part IX hold such lines today. The chapter "Loom in Neovim and Helix" writes empty Lua doc comments as three dashes, and the chapter "Loom in Zed and Gram" underlines the headings of a README with dashes.
+A divider written directly under a line of code most likely belongs to the code, as a YAML file's document separator does. Such a divider is the `DividerAgainstCode` warning, the twin of the `HeadingAgainstCode` warning, and the formatter fixes it by fencing the code. Two chapters of Part IX hold such lines. The chapter "Loom in Neovim and Helix" writes empty Lua doc comments as three dashes, and the chapter "Loom in Zed and Gram" underlines the headings of a README with dashes. The published Loom tangles both chapters, and it predates fenced code, so the two stay unfenced until a Loom that reads fenced code is published.
 
 ## Where a line of dashes is never a divider
 
 - **In a box or a fence,** where every line stays inert. A note is a box too.
 - **In the frontmatter.** Three dashes on a loom's first line open the frontmatter, and the next line of three dashes closes it. The line above the closer is frontmatter, not a label.
-
-Today a line of dashes past the frontmatter is ordinary content, and the classifier has no weft for it. A divider becomes a weft of its own, a `DividerWeft`. When the classifier meets a divider directly under a line of prose, the divider takes that line as its label, so the line no longer counts as prose of the section the divider ends.
 
 ## Topics in a discussion
 
@@ -57,17 +57,11 @@ A discussion, which the chapter "Discussions" describes, divides its thread into
 
 So in a discussion a division carries meaning as well as drawing a rule. The limit of one conclusion to a topic counts conclusions between one divider and the next. The summary that a discussion box shows gathers one conclusion from each topic, under the topic's label.
 
-## What to work out
-
-- **Finding a division.** The label names the division, but whether a reference finds a division by that name, as it finds a section, is open. A discussion would use such a reference to link to one of its topics.
-- **The division in the tree of names.** Whether a division holds the sections after it, or only stands between them, is open.
-
 ## What this chapter grows into
 
-1. The `DividerWeft` in the classifier and the tree: its label, taken from the line of prose directly above it, and the end of the section above it.
-2. The `DividerAgainstCode` fault, and the code in Part IX's Neovim and Zed chapters that holds lines of dashes, guarded with fences.
-3. Dividers in the woven page, and in the editor's preview, as a rule with its label at the centre.
-4. Divisions in the editor's outline, as labels that group the headings between one divider and the next.
-5. Divisions as the topics of a discussion, each closed by at most one conclusion.
+1. Dividers in the woven page, and in the editor's preview, as a rule with its label at the centre.
+2. Divisions in the editor's outline, as labels that group the headings between one divider and the next.
+3. Divisions as the topics of a discussion, each closed by at most one conclusion.
+4. The Neovim and Zed chapters of Part IX fenced by the formatter, once a Loom that reads fenced code is published.
 
-When dividers draw in the editor and on the woven page, this chapter joins Part III, Reading the text.
+When dividers draw in the editor and on the woven page, the rest of this chapter joins the chapters that read a divider.

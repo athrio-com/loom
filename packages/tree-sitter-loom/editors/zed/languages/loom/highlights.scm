@@ -123,6 +123,8 @@
 
 (box_fence) @punctuation.special
 
+(divider_marker) @punctuation.special
+
 (box_name) @title
 
 (box_specifier

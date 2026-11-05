@@ -851,13 +851,92 @@ const brokenRoots = (
     Array.getSomes,
   )
 
+## Fencing code that a divider would cut
+
+A line of dashes directly under a line of code is a divider, so it ends the code there, and the document builder warns about it. Such dashes almost always belong to the code, as a Lua doc comment's or a YAML file's do. The formatter fences the code, so the dashes stay in it and the warning goes.
+
+`dividedArrows` finds each arrow whose code a divider cut: the arrow of the section just above a divider that stands flush under a line of code or under the arrow itself. An arrow with code on its own line opens no fenced code, so it is passed by. `fenceOf` gives the two edits that fence one arrow's code. The code runs from the line after the arrow to the first line that ends code without dividers, a heading or a tilde, so it takes back every line the dividers cut. The fence opens on the line after the arrow and closes after the code's last line with words on it. `fenceLength` makes the fence longer than any run of backticks that starts a line of the code, so nothing inside it closes it. `linesFrom` cuts a text into lines from an offset on, each with the offsets where it starts and ends.
+
+=>
+
+interface Line {
+  readonly start: number
+  readonly end: number
+  readonly text: string
+}
+
+const linesFrom = (text: string, from: number): ReadonlyArray<Line> =>
+  Array.mapAccum(text.slice(from).split(/(?<=\n)/), from, (start, line) => [
+    start + line.length,
+    { start, end: start + line.length, text: line },
+  ])[1]
+
+const cutsCode = (weft: SectionBodyWeft): boolean =>
+  (weft.type === 'CodeWeft' && weft.source.trim() !== '') || weft.type === 'ArrowWeft'
+
+const cutArrowOf = (section: LoomSection): Option.Option<ArrowWeft> =>
+  pipe(
+    Array.last(section.code),
+    Option.filter(cutsCode),
+    Option.flatMap(() =>
+      Array.findLast(section.code, (weft): weft is ArrowWeft => weft.type === 'ArrowWeft'),
+    ),
+    Option.filter((arrow) => arrow.code === undefined),
+  )
+
+const dividedArrows = (doc: LoomDocument): ReadonlyArray<ArrowWeft> =>
+  pipe(
+    doc.sections,
+    Array.flatMap((section, at) =>
+      section.heading.marker.type === 'Divider'
+        ? Option.toArray(Option.flatMap(Array.get(doc.sections, at - 1), cutArrowOf))
+        : [],
+    ),
+    Array.dedupeWith((one, other) => one.position.start.offset === other.position.start.offset),
+  )
+
+const endsCode = (line: Line): boolean => /^#{1,6} |^~(\s|$)/.test(line.text)
+
+const fenceLength = (lines: ReadonlyArray<Line>): number =>
+  Math.max(
+    3,
+    1 + Math.max(0, ...Array.map(lines, (line) => /^\s*(`*)/.exec(line.text)![1]!.length)),
+  )
+
+const fenceOf = (text: string, arrow: ArrowWeft): ReadonlyArray<Edit> => {
+  const from = arrow.position.end.offset
+  const code = Array.takeWhile(linesFrom(text, from), (line) => !endsCode(line))
+  const written = Array.reverse(
+    Array.dropWhile(Array.reverse(code), (line) => line.text.trim() === ''),
+  )
+  return Array.match(written, {
+    onEmpty: (): ReadonlyArray<Edit> => [],
+    onNonEmpty: (all) => {
+      const fence = '`'.repeat(fenceLength(all))
+      const last = Array.lastNonEmpty(all)
+      return [
+        { start: from, end: from, text: `${fence}\n` },
+        {
+          start: last.end,
+          end: last.end,
+          text: last.text.endsWith('\n') ? `${fence}\n` : `\n${fence}\n`,
+        },
+      ]
+    },
+  })
+}
+
+const fencesOf = (doc: LoomDocument, text: string): ReadonlyArray<Edit> =>
+  Array.flatMap(dividedArrows(doc), (arrow) => fenceOf(text, arrow))
+
 ## The service
 
-`LoomFormatter` runs the pass. Its `format` takes a loom's path, the text to format, and the languages the project serves, and answers with the text formatted. It reads the file's build settings for the anchor delimiters, the primary language and the width, builds the module from the text it was given rather than from disk, and works in three steps.
+`LoomFormatter` runs the pass. Its `format` takes a loom's path, the text to format, and the languages the project serves, and answers with the text formatted. It reads the file's build settings for the anchor delimiters, the primary language and the width, builds the module from the text it was given rather than from disk, and works in four steps.
 
-1. It joins the prose and formats every section that its language can read alone.
-2. It composes the file again and puts back the sections of any root that no longer reads. When it put any back it looks a second time, and a second look that still finds one puts back every section, so the code stays as written and the prose is still joined.
-3. It formats, inside their files, the sections that could not be read alone and that one anchor uses, and keeps that step only if every root still reads after it.
+1. It fences the code that a divider would cut, as the section "Fencing code that a divider would cut" describes, and works on the fenced text from then on.
+2. It joins the prose and formats every section that its language can read alone.
+3. It composes the file again and puts back the sections of any root that no longer reads. When it put any back it looks a second time, and a second look that still finds one puts back every section, so the code stays as written and the prose is still joined.
+4. It formats, inside their files, the sections that could not be read alone and that one anchor uses, and keeps that step only if every root still reads after it.
 
 The file's module is built through a `Source` that knows only this one text, so the build never reads another file and never sees an older copy of this one.
 
@@ -888,7 +967,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
     return {
       format: (
         path: Location,
-        text: string,
+        written: string,
         languages: ReadonlyArray<LanguageService>,
       ): Effect.Effect<string> =>
         Effect.gen(function* () {
@@ -902,6 +981,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
               settings.primaryLanguage,
               settings.variables,
             )
+          const text = applyEdits(written, fencesOf((yield* build(written)).doc, written))
           const module = yield* build(text)
           const prose = proseEdits(module.doc, text, settings.delims)
           const sections = formattableOf(module, languages)
@@ -964,7 +1044,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
 
 ## What this module draws on
 
-Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `WorkspaceSettings` gives a file's build settings, and `LoomConfig` the configuration that names a folder's project and the package root a file's sinks land under. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
+Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind and an insertion's edge, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots, and the product pass gives `sectionNameOf`, the name a section and its `Code` share. The corpus builder parses the text into a module through a `Source`, the file-system source gives `outputPath`, the tangler's rule for where a sink writes, and `WorkspaceSettings` gives a file's build settings, and `LoomConfig` the configuration that names a folder's project and the package root a file's sinks land under. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document and its sections, their prose and code wefts, the arrows a divider can cut, and the anchor tokens in them, the module, the product's `Code`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
 
 =>
 
@@ -978,7 +1058,7 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomsIn, projectIn, type Path } from './LoomProject'
 import { statSync } from 'node:fs'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
-import type { CodeWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { ArrowWeft, CodeWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { Location, LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import type { Code } from '@athrio/loom-ast/ProductAst'
 import type { LoomVirtualCode } from '@athrio/loom-ast/LoomVirtualCode'
@@ -1006,6 +1086,8 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 ::[When a section does not parse alone]
 
 ::[The composed files still hold]
+
+::[Fencing code that a divider would cut]
 
 ::[The service]
 
@@ -1197,6 +1279,44 @@ describe('LoomFormatter — prose', () => {
     Effect.gen(function* () {
       const once = yield* formatted(lines(...frontmatter, '# Notes', '', 'Two', 'lines.', ''))
       expect(yield* formatted(once)).toBe(once)
+    }),
+  )
+})
+
+## Fencing what a divider cut
+
+Code that holds a line of dashes flush under one of its lines comes back fenced, so the dashes stay part of the code and divide nothing. Every line the dashes would have cut off comes back inside the fence. Code already fenced comes back as it was.
+
+=>
+
+describe('LoomFormatter — fencing what a divider cut', () => {
+  it.effect('fences code whose dashes would end it', () =>
+    Effect.gen(function* () {
+      const cut = (...code: ReadonlyArray<string>) =>
+        lines(...frontmatter, '# Notes', '', '## Data [data.yaml]', '', '=>', ...code, '')
+      expect(yield* formatted(cut('a: 1', '---', 'b: 2'))).toBe(
+        cut('```', 'a: 1', '---', 'b: 2', '```'),
+      )
+    }),
+  )
+
+  it.effect('leaves fenced code as it was', () =>
+    Effect.gen(function* () {
+      const text = lines(
+        ...frontmatter,
+        '# Notes',
+        '',
+        '## Data [data.yaml]',
+        '',
+        '=>',
+        '```',
+        'a: 1',
+        '---',
+        'b: 2',
+        '```',
+        '',
+      )
+      expect(yield* formatted(text)).toBe(text)
     }),
   )
 })
@@ -1430,6 +1550,8 @@ describe('LoomFormatter — sections that need their place', () => {
 ::[Testing the formatter]
 
 ::[Joining prose]
+
+::[Fencing what a divider cut]
 
 ::[Formatting code]
 

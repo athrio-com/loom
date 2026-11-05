@@ -8,7 +8,7 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomsIn, projectIn, type Path } from './LoomProject'
 import { statSync } from 'node:fs'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
-import type { CodeWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { ArrowWeft, CodeWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { Location, LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import type { Code } from '@athrio/loom-ast/ProductAst'
 import type { LoomVirtualCode } from '@athrio/loom-ast/LoomVirtualCode'
@@ -719,6 +719,76 @@ const brokenRoots = (
     Array.getSomes,
   )
 
+interface Line {
+  readonly start: number
+  readonly end: number
+  readonly text: string
+}
+
+const linesFrom = (text: string, from: number): ReadonlyArray<Line> =>
+  Array.mapAccum(text.slice(from).split(/(?<=\n)/), from, (start, line) => [
+    start + line.length,
+    { start, end: start + line.length, text: line },
+  ])[1]
+
+const cutsCode = (weft: SectionBodyWeft): boolean =>
+  (weft.type === 'CodeWeft' && weft.source.trim() !== '') || weft.type === 'ArrowWeft'
+
+const cutArrowOf = (section: LoomSection): Option.Option<ArrowWeft> =>
+  pipe(
+    Array.last(section.code),
+    Option.filter(cutsCode),
+    Option.flatMap(() =>
+      Array.findLast(section.code, (weft): weft is ArrowWeft => weft.type === 'ArrowWeft'),
+    ),
+    Option.filter((arrow) => arrow.code === undefined),
+  )
+
+const dividedArrows = (doc: LoomDocument): ReadonlyArray<ArrowWeft> =>
+  pipe(
+    doc.sections,
+    Array.flatMap((section, at) =>
+      section.heading.marker.type === 'Divider'
+        ? Option.toArray(Option.flatMap(Array.get(doc.sections, at - 1), cutArrowOf))
+        : [],
+    ),
+    Array.dedupeWith((one, other) => one.position.start.offset === other.position.start.offset),
+  )
+
+const endsCode = (line: Line): boolean => /^#{1,6} |^~(\s|$)/.test(line.text)
+
+const fenceLength = (lines: ReadonlyArray<Line>): number =>
+  Math.max(
+    3,
+    1 + Math.max(0, ...Array.map(lines, (line) => /^\s*(`*)/.exec(line.text)![1]!.length)),
+  )
+
+const fenceOf = (text: string, arrow: ArrowWeft): ReadonlyArray<Edit> => {
+  const from = arrow.position.end.offset
+  const code = Array.takeWhile(linesFrom(text, from), (line) => !endsCode(line))
+  const written = Array.reverse(
+    Array.dropWhile(Array.reverse(code), (line) => line.text.trim() === ''),
+  )
+  return Array.match(written, {
+    onEmpty: (): ReadonlyArray<Edit> => [],
+    onNonEmpty: (all) => {
+      const fence = '`'.repeat(fenceLength(all))
+      const last = Array.lastNonEmpty(all)
+      return [
+        { start: from, end: from, text: `${fence}\n` },
+        {
+          start: last.end,
+          end: last.end,
+          text: last.text.endsWith('\n') ? `${fence}\n` : `\n${fence}\n`,
+        },
+      ]
+    },
+  })
+}
+
+const fencesOf = (doc: LoomDocument, text: string): ReadonlyArray<Edit> =>
+  Array.flatMap(dividedArrows(doc), (arrow) => fenceOf(text, arrow))
+
 const textSource = (path: Location, text: string): Source => ({
   read: (at) =>
     at === path
@@ -742,7 +812,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
     return {
       format: (
         path: Location,
-        text: string,
+        written: string,
         languages: ReadonlyArray<LanguageService>,
       ): Effect.Effect<string> =>
         Effect.gen(function* () {
@@ -756,6 +826,7 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
               settings.primaryLanguage,
               settings.variables,
             )
+          const text = applyEdits(written, fencesOf((yield* build(written)).doc, written))
           const module = yield* build(text)
           const prose = proseEdits(module.doc, text, settings.delims)
           const sections = formattableOf(module, languages)

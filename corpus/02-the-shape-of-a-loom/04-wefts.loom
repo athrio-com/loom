@@ -108,6 +108,17 @@ export const TocWeftSchema = loomNode('TocWeft', {
 })
 export type TocWeft = typeof TocWeftSchema.Type
 
+## The divider weft
+
+A `DividerWeft` is a line of dashes that divides a chapter, holding its `dashes`. A divider ends the section above it and opens a division, as a heading opens a section. The weft carries nothing from the line above it, because a weft spans one line. The document builder pairs a divider with its label, the line of prose directly above it, as the chapter "The document builder" describes.
+
+=>
+
+export const DividerWeftSchema = loomNode('DividerWeft', {
+  dashes: DividerTokenSchema,
+})
+export type DividerWeft = typeof DividerWeftSchema.Type
+
 ## The weft unions
 
 `LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, fence, tilde, and prose, in the forward-only order the classifier enforces.
@@ -124,6 +135,7 @@ export const LoomWeftSchema = Schema.Union([
   FenceWeftSchema,
   FrontmatterWeftSchema,
   TocWeftSchema,
+  DividerWeftSchema,
 ])
 export type LoomWeft = typeof LoomWeftSchema.Type
 
@@ -169,7 +181,7 @@ export const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
 
 ## What this module draws on
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, specifier, sink, warp, and anchor schemas from `LoomTokens`. `Match` and `Option` read the box a weft carries and follow whether a box is open.
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, divider, specifier, sink, warp, and anchor schemas from `LoomTokens`. `Match` and `Option` read the box a weft carries and follow whether a box is open.
 
 =>
 
@@ -181,6 +193,7 @@ import {
   BoxTokenSchema,
   CodeFenceTokenSchema,
   CodeTokenSchema,
+  DividerTokenSchema,
   FenceLabelTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterFenceTokenSchema,
@@ -215,5 +228,7 @@ import {
 ::[The frontmatter weft]
 
 ::[The table-of-contents weft]
+
+::[The divider weft]
 
 ::[The weft unions]

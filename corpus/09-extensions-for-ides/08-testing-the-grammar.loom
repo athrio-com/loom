@@ -14,13 +14,14 @@ Two smaller checks come first. The parser in `src/` must be the one `grammar.js`
 
 A line's kind, for this comparison, is the block the line belongs to, or the mark it opens with. The frontmatter, a heading, and a table of contents are kinds of their own. A code block starts at its arrow and continues as code, and a prose block starts at its tilde. A fence around fenced code is a kind of its own, and so is a line that opens or closes a box. Every other line of prose is text, a box's body and a stray line of colons included. The classifier tells a preamble line from a prose line by the mode it is in, and the grammar folds both into its prose blocks, so the comparison names both text.
 
-`kindOfWeft` maps each weft the classifier emits to its kind. It is a record over every weft's type, so a new weft kind fails to compile here until the test decides what it is. A box line is a preamble weft or a prose weft by its type, so `kindOf` first asks `boxOf` whether the weft carries a box that opens or closes, and asks the record only when it does not.
+`kindOfWeft` maps each weft the classifier emits to its kind. It is a record over every weft's type, so a new weft kind fails to compile here until the test decides what it is. A divider is a line of its own kind, as it is to the grammar. A box line is a preamble weft or a prose weft by its type, so `kindOf` first asks `boxOf` whether the weft carries a box that opens or closes, and asks the record only when it does not.
 
 =>
 
 type LineKind =
   | 'frontmatter'
   | 'heading'
+  | 'divider'
   | 'toc'
   | 'arrow'
   | 'code'
@@ -40,6 +41,7 @@ const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   TildeWeft: 'tilde',
   PreambleWeft: 'text',
   ProseWeft: 'text',
+  DividerWeft: 'divider',
 }
 
 const kindOf = (weft: LoomWeft): LineKind =>
@@ -131,11 +133,12 @@ The marks then name the rows they open. An arrow, a tilde, a code fence, and the
 
 =>
 
-type Block = 'frontmatter' | 'heading' | 'toc' | 'preamble' | 'code' | 'prose'
+type Block = 'frontmatter' | 'heading' | 'divider' | 'toc' | 'preamble' | 'code' | 'prose'
 
 const blockKind: Record<Block, LineKind> = {
   frontmatter: 'frontmatter',
   heading: 'heading',
+  divider: 'divider',
   toc: 'toc',
   preamble: 'text',
   code: 'code',
@@ -143,7 +146,7 @@ const blockKind: Record<Block, LineKind> = {
 }
 
 const blockPattern =
-  /\((frontmatter|heading|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
+  /\((frontmatter|heading|divider|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
 
 const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKind]> => {
   const [, block, startRow, endRow, endColumn] = match

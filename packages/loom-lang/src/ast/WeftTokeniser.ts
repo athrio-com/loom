@@ -182,6 +182,7 @@ const tokeniseWeft = (
     Match.when({ type: 'FenceWeft' }, (w) => tokeniseFence(w)),
     Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
     Match.when({ type: 'TocWeft' }, (w) => tokeniseToc(w)),
+    Match.when({ type: 'DividerWeft' }, (w) => w),
     Match.exhaustive,
   )
 

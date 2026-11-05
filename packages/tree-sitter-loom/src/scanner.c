@@ -19,6 +19,7 @@ enum TokenType {
   BOX_LINE,
   BOX_BODY_LINE,
   BOX_CLOSE_LINE,
+  DIVIDER_LINE,
   BOX_NAME,
   NEWLINE,
   ERROR_SENTINEL,
@@ -115,6 +116,12 @@ static uint32_t hashes_of(const Line *line) {
 static bool is_heading(const Line *line) {
   uint32_t hashes = hashes_of(line);
   return hashes >= 1 && hashes <= 6 && head_has(line, hashes, " ");
+}
+
+static bool is_divider(const Line *line) {
+  uint32_t dashes = 0;
+  while (dashes < line->head_length && line->head[dashes] == '-') dashes++;
+  return dashes >= 3 && line->last_mark == (int32_t)dashes - 1;
 }
 
 static bool is_frontmatter_fence(const Line *line) {
@@ -265,6 +272,11 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
   }
 
   if (!s->seen_heading) return prose_kind(s, line, PROSE_LINE, PREAMBLE);
+
+  if (is_divider(line)) {
+    s->mode = PREAMBLE;
+    return DIVIDER_LINE;
+  }
 
   switch (s->mode) {
     case PREAMBLE:

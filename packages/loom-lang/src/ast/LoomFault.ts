@@ -79,6 +79,7 @@ export type LoomFault = Data.TaggedEnum<{
   UnwrittenChapter: { readonly name: string; readonly opening: Opening }
   StaleSummary: { readonly name: string; readonly summary: string; readonly at: Position }
   HeadingAgainstCode: {}
+  DividerAgainstCode: {}
 }>
 
 export const {
@@ -119,6 +120,7 @@ export const {
   UnwrittenChapter,
   StaleSummary,
   HeadingAgainstCode,
+  DividerAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -289,6 +291,10 @@ export const describe = (fault: LoomFault): Note =>
     HeadingAgainstCode: () =>
       warning(
         'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, fence the block: write three backticks on the line after its arrow, and three more where the code ends. If it is a heading, leave a blank line above it.',
+      ),
+    DividerAgainstCode: () =>
+      warning(
+        'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
       ),
     UnclosedFence: ({ fence }) =>
       error(

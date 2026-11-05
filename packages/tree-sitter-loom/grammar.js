@@ -27,6 +27,7 @@ module.exports = grammar({
     $._box_line,
     $._box_body_line,
     $._box_close_line,
+    $._divider_line,
     $.box_name,
     $._newline,
     $._error_sentinel,
@@ -59,7 +60,7 @@ module.exports = grammar({
 
     section: ($) =>
       seq(
-        $.heading,
+        choice($.heading, $.divider),
         optional($.toc),
         optional($.preamble),
         repeat(choice($.code, $.prose)),
@@ -91,6 +92,9 @@ module.exports = grammar({
     file: ($) => seq(optional($._file_stem), field('extension', $.extension)),
     _file_stem: (_) => /[^\]\r\n]*\./,
     extension: (_) => /[^\].\r\n]+/,
+
+    divider: ($) => seq($._divider_line, $.divider_marker, $._newline),
+    divider_marker: (_) => token(seq(/---+/, /[ \t]*/)),
 
     toc: ($) =>
       repeat1(

@@ -207,10 +207,11 @@ const sectionBlocks =
 
 const titleSource = (section: LoomSection): string => section.heading.title?.source ?? ''
 
-const headingLevel = (section: LoomSection): number => {
-  const marks = section.heading.headingStart.source.replace(/[^#]/g, '').length
-  return marks === 0 ? 1 : marks
-}
+const headingLevel = (section: LoomSection): number =>
+  Match.value(section.heading.marker).pipe(
+    Match.when({ type: 'Divider' }, () => 2),
+    Match.orElse((marker) => Math.max(1, marker.source.replace(/[^#]/g, '').length)),
+  )
 
 const headingBlock = (
   module: LoomModule,

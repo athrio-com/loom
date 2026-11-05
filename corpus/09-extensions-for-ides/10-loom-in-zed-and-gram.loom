@@ -248,6 +248,8 @@ The braces that touch an anchor take the colour of the anchor's own delimiters. 
 
 (box_fence) @punctuation.special
 
+(divider_marker) @punctuation.special
+
 (box_name) @title
 
 (box_specifier

@@ -1,6 +1,7 @@
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  DividerTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
@@ -14,7 +15,7 @@ import {
 import { PreambleWeftSchema, SectionBodyWeftSchema, TocWeftSchema } from './Weft'
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
-  headingStart: HeadingStartTokenSchema,
+  marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
   title: Schema.optional(HeadingTitleTokenSchema),
   specifier: Schema.optional(SpecifierTokenSchema),
   sink: Schema.optional(SinkTokenSchema),

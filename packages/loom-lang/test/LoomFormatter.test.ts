@@ -174,6 +174,38 @@ describe('LoomFormatter — prose', () => {
   )
 })
 
+describe('LoomFormatter — fencing what a divider cut', () => {
+  it.effect('fences code whose dashes would end it', () =>
+    Effect.gen(function* () {
+      const cut = (...code: ReadonlyArray<string>) =>
+        lines(...frontmatter, '# Notes', '', '## Data [data.yaml]', '', '=>', ...code, '')
+      expect(yield* formatted(cut('a: 1', '---', 'b: 2'))).toBe(
+        cut('```', 'a: 1', '---', 'b: 2', '```'),
+      )
+    }),
+  )
+
+  it.effect('leaves fenced code as it was', () =>
+    Effect.gen(function* () {
+      const text = lines(
+        ...frontmatter,
+        '# Notes',
+        '',
+        '## Data [data.yaml]',
+        '',
+        '=>',
+        '```',
+        'a: 1',
+        '---',
+        'b: 2',
+        '```',
+        '',
+      )
+      expect(yield* formatted(text)).toBe(text)
+    }),
+  )
+})
+
 describe('LoomFormatter — code', () => {
   const program = lines(
     ...frontmatter,

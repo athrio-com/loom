@@ -16,6 +16,7 @@ const it = effectify(it_)
 type LineKind =
   | 'frontmatter'
   | 'heading'
+  | 'divider'
   | 'toc'
   | 'arrow'
   | 'code'
@@ -35,6 +36,7 @@ const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   TildeWeft: 'tilde',
   PreambleWeft: 'text',
   ProseWeft: 'text',
+  DividerWeft: 'divider',
 }
 
 const kindOf = (weft: LoomWeft): LineKind =>
@@ -92,11 +94,12 @@ beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])), {
 const parseTree = (file: string): Effect.Effect<string> =>
   treeSitter(['parse', '--lib-path', library, '--lang-name', 'loom', file])
 
-type Block = 'frontmatter' | 'heading' | 'toc' | 'preamble' | 'code' | 'prose'
+type Block = 'frontmatter' | 'heading' | 'divider' | 'toc' | 'preamble' | 'code' | 'prose'
 
 const blockKind: Record<Block, LineKind> = {
   frontmatter: 'frontmatter',
   heading: 'heading',
+  divider: 'divider',
   toc: 'toc',
   preamble: 'text',
   code: 'code',
@@ -104,7 +107,7 @@ const blockKind: Record<Block, LineKind> = {
 }
 
 const blockPattern =
-  /\((frontmatter|heading|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
+  /\((frontmatter|heading|divider|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
 
 const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKind]> => {
   const [, block, startRow, endRow, endColumn] = match

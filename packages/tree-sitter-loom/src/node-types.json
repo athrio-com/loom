@@ -208,6 +208,21 @@
     "fields": {}
   },
   {
+    "type": "divider",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "divider_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "document",
     "named": true,
     "root": true,
@@ -452,6 +467,10 @@
           "named": true
         },
         {
+          "type": "divider",
+          "named": true
+        },
+        {
           "type": "heading",
           "named": true
         },
@@ -647,6 +666,10 @@
   },
   {
     "type": "default",
+    "named": true
+  },
+  {
+    "type": "divider_marker",
     "named": true
   },
   {

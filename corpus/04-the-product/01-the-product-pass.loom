@@ -28,7 +28,12 @@ From the product side come the schema constructors for every node the pass build
 =>
 
 import { Array, Context, Data, Effect, Layer, Match, Option, Order, pipe, Record, Result } from 'effect'
-import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
+import type {
+  LoomDocument,
+  LoomFrontmatter,
+  LoomHeading,
+  LoomSection,
+} from '@athrio/loom-ast/LoomAst'
 import {
   okHealth,
   type Diagnostic,
@@ -850,7 +855,7 @@ An open edge resolves its name through the book, and `nameHealth` judges what `t
 
 The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
 
-`declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
+`declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. `headingMarkOf` gives that level's run of `#` marks, and a division, which a divider opens, counts as a heading of the second level, as Markdown reads a line underlined with dashes. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
 =>
 
@@ -953,6 +958,9 @@ const pointAtEnd = (text: string): Point => {
   return { line: lines.length, column: lines[lines.length - 1]!.length + 1, offset: text.length }
 }
 
+const headingMarkOf = (heading: LoomHeading): string =>
+  heading.marker.type === 'HeadingStart' ? heading.marker.source.trim() : '##'
+
 const declarationBelow = (
   module: LoomModule,
   host: Code,
@@ -964,7 +972,7 @@ const declarationBelow = (
       (section) => sectionNameOf(section) === host.origin.name,
     ),
     (index): Declaration => {
-      const heading = `${module.doc.sections[index]!.heading.headingStart.source.trim()} ${name}\n`
+      const heading = `${headingMarkOf(module.doc.sections[index]!.heading)} ${name}\n`
       return Option.match(Array.get(module.doc.sections, index + 1), {
         onSome: (next) => ({
           at: between(next.heading.position.start, next.heading.position.start),

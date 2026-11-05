@@ -1,5 +1,10 @@
 import { Array, Context, Data, Effect, Layer, Match, Option, Order, pipe, Record, Result } from 'effect'
-import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
+import type {
+  LoomDocument,
+  LoomFrontmatter,
+  LoomHeading,
+  LoomSection,
+} from '@athrio/loom-ast/LoomAst'
 import {
   okHealth,
   type Diagnostic,
@@ -812,6 +817,9 @@ const pointAtEnd = (text: string): Point => {
   return { line: lines.length, column: lines[lines.length - 1]!.length + 1, offset: text.length }
 }
 
+const headingMarkOf = (heading: LoomHeading): string =>
+  heading.marker.type === 'HeadingStart' ? heading.marker.source.trim() : '##'
+
 const declarationBelow = (
   module: LoomModule,
   host: Code,
@@ -823,7 +831,7 @@ const declarationBelow = (
       (section) => sectionNameOf(section) === host.origin.name,
     ),
     (index): Declaration => {
-      const heading = `${module.doc.sections[index]!.heading.headingStart.source.trim()} ${name}\n`
+      const heading = `${headingMarkOf(module.doc.sections[index]!.heading)} ${name}\n`
       return Option.match(Array.get(module.doc.sections, index + 1), {
         onSome: (next) => ({
           at: between(next.heading.position.start, next.heading.position.start),

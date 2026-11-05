@@ -7,6 +7,7 @@ import {
   type BoxToken,
   BoxTokenSchema,
   CodeFenceTokenSchema,
+  DividerTokenSchema,
   closesFence,
   type Fence,
   FrontmatterFenceTokenSchema,
@@ -20,6 +21,8 @@ import {
   ArrowWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type DividerWeft,
+  DividerWeftSchema,
   type FenceWeft,
   FenceWeftSchema,
   type FrontmatterWeft,
@@ -128,6 +131,8 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
 
   if (!state.seenHeading) return makePreambleWeft(lineText, line, range)
 
+  if (isDivider(lineText)) return makeDividerWeft(lineText, line, range)
+
   return pipe(
     Match.value(modeOf(state.prev)),
     Match.when('preamble', () =>
@@ -183,6 +188,7 @@ const modeOf = (prev: Option.Option<LoomWeft>): Mode =>
         Match.when({ type: 'ProseWeft' }, () => 'prose' as const),
         Match.when({ type: 'FrontmatterWeft' }, () => 'preamble' as const),
         Match.when({ type: 'TocWeft' }, () => 'preamble' as const),
+        Match.when({ type: 'DividerWeft' }, () => 'preamble' as const),
         Match.exhaustive,
       ),
   })
@@ -199,6 +205,10 @@ const tildeProbe = Option.getOrThrow(getProbe(TildeTokenSchema))
 const frontmatterFenceProbe = Option.getOrThrow(getProbe(FrontmatterFenceTokenSchema))
 
 const isFrontmatterFence = (lineText: string): boolean => frontmatterFenceProbe.test(lineText)
+
+const dividerProbe = Option.getOrThrow(getProbe(DividerTokenSchema))
+
+const isDivider = (lineText: string): boolean => dividerProbe.test(lineText)
 
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'ProseWeft' || weft.type === 'TildeWeft'
@@ -416,6 +426,18 @@ const makeFrontmatterField = (lineText: string, line: number, range: LineRange):
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
+  })
+
+const makeDividerWeft = (lineText: string, line: number, range: LineRange): DividerWeft =>
+  DividerWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: okHealth,
+    dashes: DividerTokenSchema.make({
+      position: span(line, range[0], range[0] + lineText.trimEnd().length),
+      source: lineText.trimEnd(),
+      health: okHealth,
+    }),
   })
 
 const makeTocWeft = (lineText: string, line: number, range: LineRange): TocWeft =>

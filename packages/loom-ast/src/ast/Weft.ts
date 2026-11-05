@@ -6,6 +6,7 @@ import {
   BoxTokenSchema,
   CodeFenceTokenSchema,
   CodeTokenSchema,
+  DividerTokenSchema,
   FenceLabelTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterFenceTokenSchema,
@@ -93,6 +94,11 @@ export const TocWeftSchema = loomNode('TocWeft', {
 })
 export type TocWeft = typeof TocWeftSchema.Type
 
+export const DividerWeftSchema = loomNode('DividerWeft', {
+  dashes: DividerTokenSchema,
+})
+export type DividerWeft = typeof DividerWeftSchema.Type
+
 export const LoomWeftSchema = Schema.Union([
   HeadingWeftSchema,
   ArrowWeftSchema,
@@ -103,6 +109,7 @@ export const LoomWeftSchema = Schema.Union([
   FenceWeftSchema,
   FrontmatterWeftSchema,
   TocWeftSchema,
+  DividerWeftSchema,
 ])
 export type LoomWeft = typeof LoomWeftSchema.Type
 

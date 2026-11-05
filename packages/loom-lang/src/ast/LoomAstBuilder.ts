@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import {
   LoomDocumentSchema,
   LoomFrontmatterSchema,
@@ -14,11 +14,15 @@ import {
   type BoxToken,
   chapterKind,
   type FrontmatterValueToken,
+  type HeadingTitleToken,
+  HeadingTitleTokenSchema,
+  openingFence,
 } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import {
   ChapterBoxBesideCode,
+  DividerAgainstCode,
   faulty,
   HeadingAgainstCode,
   type LoomFault,
@@ -28,6 +32,7 @@ import {
 } from './LoomFault'
 import {
   boxOf,
+  type DividerWeft,
   type FenceWeft,
   type FrontmatterWeft,
   type HeadingWeft,
@@ -45,7 +50,11 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBu
         Effect.map((wefts) =>
           makeDocument(
             Array.reduce(
-              groupNodes(warnHeadingAgainstCode(faultUnclosedBox(faultUnclosedFence(wefts)))),
+              groupNodes(
+                warnDividerAgainstCode(
+                  warnHeadingAgainstCode(faultUnclosedBox(faultUnclosedFence(wefts))),
+                ),
+              ),
               initialDocument,
               appendToDocument,
             ),
@@ -161,7 +170,26 @@ const warnHeadingAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<L
       : weft,
   )
 
+const dividesCode = (weft: LoomWeft): boolean => isFlushCode(weft) || weft.type === 'ArrowWeft'
+
+const warnedDivider = (weft: DividerWeft): DividerWeft => ({
+  ...weft,
+  dashes: {
+    ...weft.dashes,
+    health: faulty(DividerAgainstCode(), weft.dashes.position),
+  },
+})
+
+const warnDividerAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+  Array.map(wefts, (weft, at) =>
+    isDivider(weft) && Option.exists(Array.get(wefts, at - 1), dividesCode)
+      ? warnedDivider(weft)
+      : weft,
+  )
+
 const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
+
+const isDivider = (w: LoomWeft): w is DividerWeft => w.type === 'DividerWeft'
 
 const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
   w.type === 'ArrowWeft' ||
@@ -179,12 +207,73 @@ const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
 
 type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
 
+type LabelLine = PreambleWeft | ProseWeft
+
+type Opener = Data.TaggedEnum<{
+  Heading: { readonly heading: HeadingWeft }
+  Division: { readonly divider: DividerWeft; readonly label: Option.Option<LabelLine> }
+}>
+
+const Opener = Data.taggedEnum<Opener>()
+
+const isLabelLine = (w: LoomWeft): w is LabelLine =>
+  (w.type === 'PreambleWeft' || w.type === 'ProseWeft') &&
+  w.source.trim() !== '' &&
+  Option.isNone(boxOf(w)) &&
+  Option.isNone(openingFence(w.source))
+
+const labelsAt = (wefts: ReadonlyArray<LoomWeft>, at: number): boolean =>
+  Option.exists(Array.get(wefts, at), isLabelLine) &&
+  Option.exists(Array.get(wefts, at + 1), isDivider)
+
+const opensSection = (wefts: ReadonlyArray<LoomWeft>, at: number): boolean =>
+  Option.exists(
+    Array.get(wefts, at),
+    (w) => isHeading(w) || labelsAt(wefts, at) || (isDivider(w) && !labelsAt(wefts, at - 1)),
+  )
+
+const labelledDivision = (
+  group: ReadonlyArray<LoomWeft>,
+): Option.Option<readonly [Opener, number]> =>
+  Option.map(
+    Option.all([
+      Option.filter(Array.get(group, 0), isLabelLine),
+      Option.filter(Array.get(group, 1), isDivider),
+    ]),
+    ([label, divider]) => [Opener.Division({ divider, label: Option.some(label) }), 2] as const,
+  )
+
+const openerOf = (
+  group: Array.NonEmptyReadonlyArray<LoomWeft>,
+): Option.Option<readonly [Opener, number]> =>
+  Option.orElse(labelledDivision(group), () =>
+    Match.value(Array.headNonEmpty(group)).pipe(
+      Match.when({ type: 'HeadingWeft' }, (heading) =>
+        Option.some([Opener.Heading({ heading }), 1] as const),
+      ),
+      Match.when({ type: 'DividerWeft' }, (divider) =>
+        Option.some([Opener.Division({ divider, label: Option.none() }), 1] as const),
+      ),
+      Match.orElse(() => Option.none<readonly [Opener, number]>()),
+    ),
+  )
+
 const sectionChunk = (
   group: Array.NonEmptyReadonlyArray<LoomWeft>,
 ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
-  const [body, rest] = Array.span(Array.drop(group, 1), (w) => !isHeading(w))
-  const heading = group[0]
-  return [isHeading(heading) ? Option.some(buildSection(heading, body)) : Option.none(), rest]
+  const opened = openerOf(group)
+  const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
+  const end = pipe(
+    Array.findFirstIndex(Array.drop(group, width), (_, at) => opensSection(group, at + width)),
+    Option.map((at) => at + width),
+    Option.getOrElse(() => group.length),
+  )
+  return [
+    Option.map(opened, ([opener]) =>
+      buildSection(opener, Array.take(Array.drop(group, width), end - width)),
+    ),
+    Array.drop(group, end),
+  ]
 }
 
 const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode> => {
@@ -225,8 +314,8 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
     Match.exhaustive,
   )
 
-const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): LoomSection => {
-  const h = headingOf(heading)
+const buildSection = (opener: Opener, body: ReadonlyArray<LoomWeft>): LoomSection => {
+  const h = headingOf(opener)
   const judged = judgeChapterBoxes(body)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
@@ -242,16 +331,50 @@ const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): Loom
   })
 }
 
-const headingOf = (weft: HeadingWeft): LoomHeading =>
+const headingOf = (opener: Opener): LoomHeading =>
+  Opener.$match(opener, {
+    Heading: ({ heading }) =>
+      LoomHeadingSchema.make({
+        position: heading.position,
+        source: heading.source,
+        health: heading.health,
+        unexpected: heading.unexpected,
+        marker: heading.headingStart,
+        title: heading.title,
+        specifier: heading.specifier,
+        sink: heading.sink,
+      }),
+    Division: ({ divider, label }) => divisionHeadingOf(divider, label),
+  })
+
+const titleOfLabel = (line: LabelLine): HeadingTitleToken => {
+  const content = line.source.replace(/\r?\n$/, '')
+  const words = content.trim()
+  const start = line.position.start.offset + content.length - content.trimStart().length
+  return HeadingTitleTokenSchema.make({
+    position: {
+      start: { line: line.position.start.line, offset: start },
+      end: { line: line.position.start.line, offset: start + words.length },
+    },
+    source: words,
+    health: okHealth,
+  })
+}
+
+const divisionHeadingOf = (divider: DividerWeft, label: Option.Option<LabelLine>): LoomHeading =>
   LoomHeadingSchema.make({
-    position: weft.position,
-    source: weft.source,
-    health: weft.health,
-    unexpected: weft.unexpected,
-    headingStart: weft.headingStart,
-    title: weft.title,
-    specifier: weft.specifier,
-    sink: weft.sink,
+    position: {
+      start: Option.match(label, {
+        onNone: () => divider.position.start,
+        onSome: (line) => line.position.start,
+      }),
+      end: divider.position.end,
+    },
+    source:
+      Option.match(label, { onNone: () => '', onSome: (line) => line.source }) + divider.source,
+    health: divider.health,
+    marker: divider.dashes,
+    title: Option.getOrUndefined(Option.map(label, titleOfLabel)),
   })
 
 const sourceOf = (

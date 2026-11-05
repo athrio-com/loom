@@ -273,6 +273,11 @@ export const boxKind = (box: BoxToken): string =>
     Option.getOrElse(() => noteKind),
   )
 
+export const DividerTokenSchema = loomNode('Divider', {}).annotate({
+  [Probe]: /^-{3,}\s*$/,
+})
+export type DividerToken = typeof DividerTokenSchema.Type
+
 export const WarpOpenTokenSchema = loomNode('WarpOpen', {
   value: Schema.Literal('{{'),
 }).annotate({
@@ -452,6 +457,7 @@ export const LoomTokenSchema = Schema.Union([
   BoxFenceTokenSchema,
   BoxNameTokenSchema,
   BoxTokenSchema,
+  DividerTokenSchema,
   WarpTokenSchema,
   WarpAnchorTokenSchema,
 ])

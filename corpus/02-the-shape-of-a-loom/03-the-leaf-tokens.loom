@@ -384,6 +384,17 @@ export const boxKind = (box: BoxToken): string =>
     Option.getOrElse(() => noteKind),
   )
 
+## Dividers
+
+A divider marks a larger turn in a chapter than a heading does. It is a line of three or more dashes, alone on its line, and `Divider` is that run of dashes. Its `Probe` matches the whole line. The line of prose directly above a divider labels it, and a divider after a blank line stands bare, as the chapter "The document builder" describes. Three dashes on a loom's first line open its frontmatter instead, and a line of dashes inside a box, a quote, or fenced code is no divider.
+
+=>
+
+export const DividerTokenSchema = loomNode('Divider', {}).annotate({
+  [Probe]: /^-{3,}\s*$/,
+})
+export type DividerToken = typeof DividerTokenSchema.Type
+
 ## Warps and anchors
 
 A `Warp` is a declaration, `{{ name [: type] = value }}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `target`, a `(file)` after its close. A reference, an anchor of the `Reference` kind, names in it one of the files its module emits. The file is opaque here, and the product pass reads it, as the chapter "Referring to modules" describes. An anchor may also carry an optional `specifier`, right after its close or after its target: a label such as `{To be settled}`, or parameters such as `{provides=greet}`. An anchor takes no sink, so square brackets after it are never part of it. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
@@ -583,6 +594,7 @@ export const LoomTokenSchema = Schema.Union([
   BoxFenceTokenSchema,
   BoxNameTokenSchema,
   BoxTokenSchema,
+  DividerTokenSchema,
   WarpTokenSchema,
   WarpAnchorTokenSchema,
 ])
@@ -626,6 +638,8 @@ import { loomNode } from '#ast/LoomNode'
 ::[Code fences]
 
 ::[Boxes]
+
+::[Dividers]
 
 ::[Warps and anchors]
 

@@ -224,7 +224,7 @@ const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
 
 `buildPage` builds a chapter's page. Every module is a chapter except the book root, so a loom with no frontmatter title still yields a page, its title read from the first heading instead. The page takes its slug from its path, its title from `chapterTitleOf`, its part from the navigation tree — absent for a loose chapter — its frontmatter from the source text the frontmatter node covers, and its blocks from its sections.
 
-`buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. Every block a section yields shares one `source` anchor, which `sectionSource` builds from the chapter's slug and the section's heading id — the pin back to the loom. `headingBlock` reads the heading's level from the count of its `#` marks, and its title straight from the source. It marks the heading `unsettled` when the weaving holds its section among those to be settled. Cutting the body into runs is the next section's work.
+`buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. Every block a section yields shares one `source` anchor, which `sectionSource` builds from the chapter's slug and the section's heading id — the pin back to the loom. `headingBlock` reads the heading's level from the count of its `#` marks, and a division's as the second, as Markdown reads a line underlined with dashes, and its title straight from the source. It marks the heading `unsettled` when the weaving holds its section among those to be settled. Cutting the body into runs is the next section's work.
 
 =>
 
@@ -270,10 +270,11 @@ const sectionBlocks =
 
 const titleSource = (section: LoomSection): string => section.heading.title?.source ?? ''
 
-const headingLevel = (section: LoomSection): number => {
-  const marks = section.heading.headingStart.source.replace(/[^#]/g, '').length
-  return marks === 0 ? 1 : marks
-}
+const headingLevel = (section: LoomSection): number =>
+  Match.value(section.heading.marker).pipe(
+    Match.when({ type: 'Divider' }, () => 2),
+    Match.orElse((marker) => Math.max(1, marker.source.replace(/[^#]/g, '').length)),
+  )
 
 const headingBlock = (
   module: LoomModule,

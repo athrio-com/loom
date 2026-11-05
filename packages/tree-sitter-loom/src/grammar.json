@@ -198,8 +198,17 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "heading"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "heading"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "divider"
+            }
+          ]
         },
         {
           "type": "CHOICE",
@@ -419,6 +428,39 @@
     "extension": {
       "type": "PATTERN",
       "value": "[^\\].\\r\\n]+"
+    },
+    "divider": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_divider_line"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "divider_marker"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_newline"
+        }
+      ]
+    },
+    "divider_marker": {
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "PATTERN",
+            "value": "---+"
+          },
+          {
+            "type": "PATTERN",
+            "value": "[ \\t]*"
+          }
+        ]
+      }
     },
     "toc": {
       "type": "REPEAT1",
@@ -1556,6 +1598,10 @@
     {
       "type": "SYMBOL",
       "name": "_box_close_line"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_divider_line"
     },
     {
       "type": "SYMBOL",

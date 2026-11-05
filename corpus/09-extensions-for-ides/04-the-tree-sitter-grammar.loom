@@ -18,7 +18,7 @@ Loom reads a loom one line at a time, and what a line means depends on the lines
 
 A tree-sitter grammar cannot express that state, because it describes its tokens with regular expressions, and a regular expression cannot see the lines before it. Tree-sitter lets a grammar hand some tokens to an external scanner, a C function the parser calls before its own lexer. Loom's external scanner is the next chapter. It runs the classifier's state machine, and at the start of every line it emits a token that names the line's kind and consumes nothing. The grammar takes that token as the line's first symbol and then reads the line's marks.
 
-The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first thirteen name a line's kind, from a frontmatter fence to the line that closes a box. `box_name` is the one token the scanner reads in the middle of a line, the name of a box, and the section "Boxes" says why. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
+The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first fourteen name a line's kind, from a frontmatter fence to a divider. `box_name` is the one token the scanner reads in the middle of a line, the name of a box, and the section "Boxes" says why. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
 
 =>
 
@@ -35,6 +35,7 @@ $._verbatim_line,
 $._box_line,
 $._box_body_line,
 $._box_close_line,
+$._divider_line,
 $.box_name,
 $._newline,
 $._error_sentinel,
@@ -81,13 +82,13 @@ _space: (_) => /[ \t]+/,
 
 ## Sections and their headings
 
-A section is a heading and the body that follows it, up to the next heading. The body opens with the section's preamble, the prose before any arrow or tilde. Code and prose blocks then alternate, each opened by its own arrow or tilde. A contents section takes a table of contents in place of a body.
+A section is a heading or a divider, and the body that follows it, up to the next heading or divider. The body opens with the section's preamble, the prose before any arrow or tilde. Code and prose blocks then alternate, each opened by its own arrow or tilde. A contents section takes a table of contents in place of a body.
 
 =>
 
 section: ($) =>
   seq(
-    $.heading,
+    choice($.heading, $.divider),
     optional($.toc),
     optional($.preamble),
     repeat(choice($.code, $.prose)),
@@ -133,6 +134,15 @@ sink: ($) => seq('[', field('file', $.file), ']'),
 file: ($) => seq(optional($._file_stem), field('extension', $.extension)),
 _file_stem: (_) => /[^\]\r\n]*\./,
 extension: (_) => /[^\].\r\n]+/,
+
+~
+
+A divider opens a section too, as the chapter "The leaf tokens" describes: a line of three or more dashes that the scanner marks as a divider line. Its marker is the run of dashes, three of them and any more after, with any spaces that end the line. The line of prose above it, which labels the division in Loom's own tree, stays a line of the section above it here, since the scanner names a line's kind before it reads the next line.
+
+=>
+
+divider: ($) => seq($._divider_line, $.divider_marker, $._newline),
+divider_marker: (_) => token(seq(/---+/, /[ \t]*/)),
 
 ## The table of contents
 

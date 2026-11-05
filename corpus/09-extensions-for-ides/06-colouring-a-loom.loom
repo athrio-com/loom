@@ -218,11 +218,13 @@ A warp declares a variable, so its name takes the variable colour. Its annotatio
 
 ## Boxes
 
-A box's colons mark where the box opens and where it closes, as the frontmatter's fences mark the frontmatter, so they take the same special punctuation. A box's name is its caption. It titles the box the way a `Part` or `Chapter` value titles a chapter, so it takes the heading colour that value takes. A box's braces instruct Loom as an anchor's braces do. The braces take the colour of the anchor's delimiters, the kind takes the directive colour, and a parameter's key and value take the colours the patterns above give any parameter. The body is prose, and the injections below hand it to Markdown.
+A box's colons mark where the box opens and where it closes, as the frontmatter's fences mark the frontmatter, so they take the same special punctuation. A divider's dashes mark a turn in the chapter, and they take it too. A box's name is its caption. It titles the box the way a `Part` or `Chapter` value titles a chapter, so it takes the heading colour that value takes. A box's braces instruct Loom as an anchor's braces do. The braces take the colour of the anchor's delimiters, the kind takes the directive colour, and a parameter's key and value take the colours the patterns above give any parameter. The body is prose, and the injections below hand it to Markdown.
 
 =>
 
 (box_fence) @punctuation.special
+
+(divider_marker) @punctuation.special
 
 (box_name) @markup.heading
 

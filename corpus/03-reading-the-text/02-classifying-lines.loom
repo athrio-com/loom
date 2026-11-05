@@ -70,7 +70,7 @@ export class WeftClassifier extends Context.Service<WeftClassifier>()('WeftClass
 
 ## Classifying one line
 
-`probeWeft` is the decision table. A `---` on the first line opens a frontmatter block, and every line through the closing `---` is a frontmatter weft; outside that block the rest of the table takes over. A fence in prose opens a quote the same way. Every line inside it is verbatim until the fence closes, so a `#`, `=>`, or `~` there stays text — the quote shows a loom, it does not compose one. A box is inert in just the same way, so its body never composes. A quoted line is a preamble weft in the document preamble, where nothing else may appear, and a prose weft inside a section. Inside a table-of-contents section every line is a toc weft — a deeper `##`–`######` heading and a `1.` list item alike — so a part heading never opens a section and a chapter entry never reads as prose; only the next top-level `#` closes the section and reads as an ordinary heading again. A `#` line is a heading in any other mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes elsewhere is ordinary content, classified by the current mode like any other line — there is no separator weft.
+`probeWeft` is the decision table. A `---` on the first line opens a frontmatter block, and every line through the closing `---` is a frontmatter weft; outside that block the rest of the table takes over. A fence in prose opens a quote the same way. Every line inside it is verbatim until the fence closes, so a `#`, `=>`, or `~` there stays text — the quote shows a loom, it does not compose one. A box is inert in just the same way, so its body never composes. A quoted line is a preamble weft in the document preamble, where nothing else may appear, and a prose weft inside a section. Inside a table-of-contents section every line is a toc weft — a deeper `##`–`######` heading and a `1.` list item alike — so a part heading never opens a section and a chapter entry never reads as prose; only the next top-level `#` closes the section and reads as an ordinary heading again. A `#` line is a heading in any other mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, a line of three or more dashes is a divider in any mode, since a divider ends code as well as prose, just as a heading does. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes elsewhere is ordinary content, classified by the current mode like any other line — there is no separator weft.
 
 Fenced code outranks every rule after the quote and the box. Inside it, the line that closes the fence is a fence weft, and every other line is code: a `#` line, an arrow, a tilde, a line of dashes. A waiting arrow comes next, and a fence there opens fenced code. Both checks run before the heading rule, since a heading is exactly what fenced code exists to hold. A quote or a box still comes first, so fenced code quoted in prose stays prose.
 
@@ -113,6 +113,8 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
   if (state.inToc) return makeTocWeft(lineText, line, range)
 
   if (!state.seenHeading) return makePreambleWeft(lineText, line, range)
+
+  if (isDivider(lineText)) return makeDividerWeft(lineText, line, range)
 
   return pipe(
     Match.value(modeOf(state.prev)),
@@ -160,7 +162,7 @@ const span = (line: number, start: number, end: number): Position => ({
 
 ## Mode and probe
 
-Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type; a frontmatter weft and a toc weft both read as preamble, since neither sits in a section body. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry. `isFrontmatterFence` tests one more marker: the `---` that opens or closes the frontmatter block. `headingLevel` counts a heading's `#` marks, so the top-level heading that closes a contents section is told from a deeper one, and `isTocHeading` tests a heading line for a `{TOC}` specifier, the marker that opens that section. `nextQuote` follows a quote. It opens one on a prose weft whose line opens a fence, which `isProseWeft` identifies, so a fence inside code is left to that code's own language, and it closes the quote on the line `closesFence` accepts. `nextQuote` refuses to open a quote while a box is open, and the section "Marking a box" refuses to open a box while a quote is open, so a box and a quote never nest. `nextFenced` follows fenced code: an opening fence weft sets it from its line, and a closing one clears it. A fence weft that closes fenced code hands the next line to prose, so `modeOf` reads it as prose. `nextAwaiting` keeps the wait for a fence: an arrow with no code on its line starts it, a blank code line keeps it, and any other line ends it.
+Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type; a frontmatter weft and a toc weft both read as preamble, since neither sits in a section body, and a divider reads as preamble, since the lines after it open its division as the lines after a heading open its section. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry. `isFrontmatterFence` tests one more marker: the `---` that opens or closes the frontmatter block. `isDivider` tests a line of dashes past it. `headingLevel` counts a heading's `#` marks, so the top-level heading that closes a contents section is told from a deeper one, and `isTocHeading` tests a heading line for a `{TOC}` specifier, the marker that opens that section. `nextQuote` follows a quote. It opens one on a prose weft whose line opens a fence, which `isProseWeft` identifies, so a fence inside code is left to that code's own language, and it closes the quote on the line `closesFence` accepts. `nextQuote` refuses to open a quote while a box is open, and the section "Marking a box" refuses to open a box while a quote is open, so a box and a quote never nest. `nextFenced` follows fenced code: an opening fence weft sets it from its line, and a closing one clears it. A fence weft that closes fenced code hands the next line to prose, so `modeOf` reads it as prose. `nextAwaiting` keeps the wait for a fence: an arrow with no code on its line starts it, a blank code line keeps it, and any other line ends it.
 
 =>
 
@@ -181,6 +183,7 @@ const modeOf = (prev: Option.Option<LoomWeft>): Mode =>
         Match.when({ type: 'ProseWeft' }, () => 'prose' as const),
         Match.when({ type: 'FrontmatterWeft' }, () => 'preamble' as const),
         Match.when({ type: 'TocWeft' }, () => 'preamble' as const),
+        Match.when({ type: 'DividerWeft' }, () => 'preamble' as const),
         Match.exhaustive,
       ),
   })
@@ -197,6 +200,10 @@ const tildeProbe = Option.getOrThrow(getProbe(TildeTokenSchema))
 const frontmatterFenceProbe = Option.getOrThrow(getProbe(FrontmatterFenceTokenSchema))
 
 const isFrontmatterFence = (lineText: string): boolean => frontmatterFenceProbe.test(lineText)
+
+const dividerProbe = Option.getOrThrow(getProbe(DividerTokenSchema))
+
+const isDivider = (lineText: string): boolean => dividerProbe.test(lineText)
 
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'ProseWeft' || weft.type === 'TildeWeft'
@@ -419,7 +426,7 @@ const makeProseWeft = (lineText: string, line: number, range: LineRange): ProseW
 
 ~
 
-A frontmatter line splits two ways. `makeFrontmatterFence` builds a `---`, already whole, and `makeFrontmatterField` a membership or `key: value` line, left for the tokeniser to fill. `makeTocWeft` builds one line of a contents section the same way — a part heading, a chapter item, or a blank — its parts left for the tokeniser.
+A frontmatter line splits two ways. `makeFrontmatterFence` builds a `---`, already whole, and `makeFrontmatterField` a membership or `key: value` line, left for the tokeniser to fill. `makeTocWeft` builds one line of a contents section the same way — a part heading, a chapter item, or a blank — its parts left for the tokeniser. `makeDividerWeft` builds a divider whole, its dashes and all, since nothing on its line waits for the tokeniser.
 
 =>
 
@@ -440,6 +447,18 @@ const makeFrontmatterField = (lineText: string, line: number, range: LineRange):
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
+  })
+
+const makeDividerWeft = (lineText: string, line: number, range: LineRange): DividerWeft =>
+  DividerWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: okHealth,
+    dashes: DividerTokenSchema.make({
+      position: span(line, range[0], range[0] + lineText.trimEnd().length),
+      source: lineText.trimEnd(),
+      health: okHealth,
+    }),
   })
 
 const makeTocWeft = (lineText: string, line: number, range: LineRange): TocWeft =>
@@ -464,6 +483,7 @@ import {
   type BoxToken,
   BoxTokenSchema,
   CodeFenceTokenSchema,
+  DividerTokenSchema,
   closesFence,
   type Fence,
   FrontmatterFenceTokenSchema,
@@ -477,6 +497,8 @@ import {
   ArrowWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type DividerWeft,
+  DividerWeftSchema,
   type FenceWeft,
   FenceWeftSchema,
   type FrontmatterWeft,

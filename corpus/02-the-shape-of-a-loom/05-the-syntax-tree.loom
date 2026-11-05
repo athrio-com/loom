@@ -6,16 +6,16 @@ Language: TypeScript
 
 # The container nodes
 
-`LoomAst` defines the container nodes — the tree the parse pipeline builds from a file's wefts. A `LoomDocument` holds one `LoomSection` per heading, and each section holds a `LoomHeading` plus its body wefts. The tree is flat: heading level is for the reader, never nesting.
+`LoomAst` defines the container nodes — the tree the parse pipeline builds from a file's wefts. A `LoomDocument` holds one `LoomSection` per heading or divider, and each section holds a `LoomHeading` plus its body wefts. The tree is flat: heading level is for the reader, never nesting, and a division stands between the sections around it rather than holding them.
 
 ## The heading
 
-A `LoomHeading` is a section's heading — the same parts the `HeadingWeft` carried: the start marker, an optional title, an optional language `specifier`, and an optional `sink`.
+A `LoomHeading` is what opens a section. It carries the parts the `HeadingWeft` carried: a `marker`, an optional title, an optional language `specifier`, and an optional `sink`. The marker is a heading's run of `#` marks, or a divider's dashes when a divider opens the section. A division's title is its label, the line of prose directly above the divider, so the heading of a division spans both lines. A bare divider gives a heading with no title. A divider carries no specifier and no sink.
 
 =>
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
-  headingStart: HeadingStartTokenSchema,
+  marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
   title: Schema.optional(HeadingTitleTokenSchema),
   specifier: Schema.optional(SpecifierTokenSchema),
   sink: Schema.optional(SinkTokenSchema),
@@ -24,7 +24,7 @@ export type LoomHeading = typeof LoomHeadingSchema.Type
 
 ## The section
 
-A `LoomSection` is one structural unit, opened by a heading at any level. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order. A `{TOC}` section carries a third run, its `entries` — the toc wefts that list the book's parts and chapters. An ordinary section has none.
+A `LoomSection` is one structural unit, opened by a heading at any level or by a divider. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order. A `{TOC}` section carries a third run, its `entries` — the toc wefts that list the book's parts and chapters. An ordinary section has none.
 
 =>
 
@@ -76,6 +76,7 @@ Each container is a `loomNode` built from Effect's `Schema`. The heading's subto
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  DividerTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,

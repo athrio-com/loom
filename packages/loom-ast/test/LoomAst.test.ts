@@ -92,37 +92,50 @@ const specifier = (label: string) => ({
 // =============================================================================
 // LoomHeading — one shape for every heading level.
 //
-// `headingStart` is the single heading-start token (HeadingStartTokenSchema).
+// `marker` is a heading's start token (HeadingStartTokenSchema), or a divider's
+// dashes (DividerTokenSchema) when a divider opens the section.
 // `title` is the optional single HeadingTitle token.
 // `specifier` (a `{Lang}` token) and `sink` (a `[dir, file]` token) are both
 // optional, independent slots.
 // =============================================================================
 
-describe('LoomHeading.headingStart', () => {
-  it('accepts a heading built with headingStart field', () => {
+describe('LoomHeading.marker', () => {
+  it('accepts a heading whose marker is a heading start', () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
         health: okHealth,
-        headingStart,
+        marker: headingStart,
         sink: sink('Arithmetic.scala'),
         specifier: specifier('Loom'),
       }),
     ).toBe(true)
   })
 
-  it('rejects a heading whose headingStart has the wrong type discriminator', () => {
+  it('rejects a heading whose marker has the wrong type discriminator', () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
         health: okHealth,
-        headingStart: { ...headingStart, type: 'Arrow' },
+        marker: { ...headingStart, type: 'Arrow' },
       }),
     ).toBe(false)
+  })
+
+  it('accepts a heading whose marker is a divider', () => {
+    expect(
+      Schema.is(LoomHeadingSchema)({
+        type: 'LoomHeading',
+        position: pos,
+        source: src,
+        health: okHealth,
+        marker: { ...headingStart, type: 'Divider', source: '---' },
+      }),
+    ).toBe(true)
   })
 
   it('accepts a heading carrying a file Sink in the `sink` slot', () => {
@@ -132,7 +145,7 @@ describe('LoomHeading.headingStart', () => {
         position: pos,
         source: src,
         health: okHealth,
-        headingStart,
+        marker: headingStart,
         title: title('Tangling the library'),
         sink: sink('Arithmetic.scala'),
       }),
@@ -148,7 +161,7 @@ describe('LoomHeading.title', () => {
         position: pos,
         source: src,
         health: okHealth,
-        headingStart,
+        marker: headingStart,
         sink: sink('build.sh'),
       }),
     ).toBe(true)
@@ -161,7 +174,7 @@ describe('LoomHeading.title', () => {
         position: pos,
         source: src,
         health: okHealth,
-        headingStart,
+        marker: headingStart,
         title: title('Section title'),
         sink: sink('build.sh'),
       }),
@@ -175,7 +188,7 @@ describe('LoomHeading.title', () => {
         position: pos,
         source: src,
         health: okHealth,
-        headingStart,
+        marker: headingStart,
         // a Sink is the wrong kind here
         title: sink('build.sh') as unknown as ReturnType<typeof title>,
       }),
@@ -203,7 +216,7 @@ const heading = () => ({
   position: pos,
   source: src,
   health: okHealth,
-  headingStart,
+  marker: headingStart,
 })
 
 const section = () => ({

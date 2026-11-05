@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The tokeniser service
 
-Prose carries anchors too, so the tokeniser respects Markdown: an anchor inside an inline code span or a fenced block stays inert, the literal text it appears to be. An inline span is a per-line affair the prose handlers mask, but a fence spans many lines, so `tokeniseWefts` threads a `QuoteState` through the weft stream with `Stream.mapAccum`. `quoteStep` advances that state by the rules the classifier keeps. A prose line that opens a fence opens a quote, and only a line that `closesFence` accepts closes it again. Any line outside prose, a line of code or a heading, ends the quote. `quoteStep` reports `skipAnchors` on every line the quote covers, its two fences included. `tokeniseWeft` then dispatches each weft by kind to the per-weft handlers, telling each whether to skip its anchors.
+Prose carries anchors too, so the tokeniser respects Markdown: an anchor inside an inline code span or a fenced block stays inert, the literal text it appears to be. An inline span is a per-line affair the prose handlers mask, but a fence spans many lines, so `tokeniseWefts` threads a `QuoteState` through the weft stream with `Stream.mapAccum`. `quoteStep` advances that state by the rules the classifier keeps. A prose line that opens a fence opens a quote, and only a line that `closesFence` accepts closes it again. Any line outside prose, a line of code or a heading, ends the quote. `quoteStep` reports `skipAnchors` on every line the quote covers, its two fences included. `tokeniseWeft` then dispatches each weft by kind to the per-weft handlers, telling each whether to skip its anchors. A divider is whole as the classifier made it, so it passes through.
 
 A quote never opens inside a box, because the classifier keeps a box's body free of every mark, a fence included. So the state also records whether a box is open, which `nextBox` follows line by line, and a fence in a box's body opens no quote. The anchors after that fence stay live, in the box's body and after it.
 
@@ -77,6 +77,7 @@ const tokeniseWeft = (
     Match.when({ type: 'FenceWeft' }, (w) => tokeniseFence(w)),
     Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
     Match.when({ type: 'TocWeft' }, (w) => tokeniseToc(w)),
+    Match.when({ type: 'DividerWeft' }, (w) => w),
     Match.exhaustive,
   )
 

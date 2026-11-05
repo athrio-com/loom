@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The build
 
-Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `faultUnclosedFence` first marks fenced code that never closes, `faultUnclosedBox` a box that never closes, and `warnHeadingAgainstCode` a heading that most likely belonged to the code above it. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
+Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `faultUnclosedFence` first marks fenced code that never closes, `faultUnclosedBox` a box that never closes, `warnHeadingAgainstCode` a heading that most likely belonged to the code above it, and `warnDividerAgainstCode` a divider that most likely did. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
 
 =>
 
@@ -21,7 +21,11 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBu
         Effect.map((wefts) =>
           makeDocument(
             Array.reduce(
-              groupNodes(warnHeadingAgainstCode(faultUnclosedBox(faultUnclosedFence(wefts)))),
+              groupNodes(
+                warnDividerAgainstCode(
+                  warnHeadingAgainstCode(faultUnclosedBox(faultUnclosedFence(wefts))),
+                ),
+              ),
               initialDocument,
               appendToDocument,
             ),
@@ -167,13 +171,40 @@ const warnHeadingAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<L
       : weft,
   )
 
+~
+
+A divider ends code just as a heading does, and code holds lines of dashes of its own more often than lines that start with `#`. A YAML file separates its documents with three dashes, a Lua doc comment opens with them, and a Markdown file underlines a heading with them. So a divider directly under a line of code, or directly under the arrow that opens code, gets a `DividerAgainstCode` warning on its dashes. Such dashes are no good loom either way: the cure is to fence the code, which the formatter does, as the chapter "Formatting a loom" describes.
+
+=>
+
+const dividesCode = (weft: LoomWeft): boolean => isFlushCode(weft) || weft.type === 'ArrowWeft'
+
+const warnedDivider = (weft: DividerWeft): DividerWeft => ({
+  ...weft,
+  dashes: {
+    ...weft.dashes,
+    health: faulty(DividerAgainstCode(), weft.dashes.position),
+  },
+})
+
+const warnDividerAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+  Array.map(wefts, (weft, at) =>
+    isDivider(weft) && Option.exists(Array.get(wefts, at - 1), dividesCode)
+      ? warnedDivider(weft)
+      : weft,
+  )
+
 ## Grouping the wefts
 
-`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest heading by heading: each `sectionChunk` takes a heading and the body wefts up to the next heading, and `buildSection` turns that pair into a `LoomSection`. Every chunk leads with a heading, so `sectionChunk` guards on `isHeading`; a well-formed file never trips that guard. The `isHeading`, `isSectionBody`, `isPreamble`, and `isToc` predicates classify each weft.
+`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest one opener at a time: each `sectionChunk` takes an opener and the body wefts up to the next one, and `buildSection` turns them into a `LoomSection`. The `isHeading`, `isDivider`, `isSectionBody`, `isPreamble`, and `isToc` predicates classify each weft.
+
+An opener is a heading or a division, and `Opener` names the two. A division opens with a divider. When the line directly above the divider is a line of prose, that line labels the division, so the label opens the chunk together with its divider and no longer counts as prose of the section above. `isLabelLine` tells such a line: a preamble or prose line with words on it, which is no box line and no fence. `labelsAt` tells a label from the divider below it, and `opensSection` tells where the next chunk begins. `openerOf` reads the opener at the head of a chunk, with the number of lines it spans, one for a heading or a bare divider and two for a labelled one. A chunk always begins where the previous one ended, at an opener, so `openerOf` finds one in a well-formed file.
 
 =>
 
 const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
+
+const isDivider = (w: LoomWeft): w is DividerWeft => w.type === 'DividerWeft'
 
 const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
   w.type === 'ArrowWeft' ||
@@ -191,12 +222,73 @@ const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
 
 type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
 
+type LabelLine = PreambleWeft | ProseWeft
+
+type Opener = Data.TaggedEnum<{
+  Heading: { readonly heading: HeadingWeft }
+  Division: { readonly divider: DividerWeft; readonly label: Option.Option<LabelLine> }
+}>
+
+const Opener = Data.taggedEnum<Opener>()
+
+const isLabelLine = (w: LoomWeft): w is LabelLine =>
+  (w.type === 'PreambleWeft' || w.type === 'ProseWeft') &&
+  w.source.trim() !== '' &&
+  Option.isNone(boxOf(w)) &&
+  Option.isNone(openingFence(w.source))
+
+const labelsAt = (wefts: ReadonlyArray<LoomWeft>, at: number): boolean =>
+  Option.exists(Array.get(wefts, at), isLabelLine) &&
+  Option.exists(Array.get(wefts, at + 1), isDivider)
+
+const opensSection = (wefts: ReadonlyArray<LoomWeft>, at: number): boolean =>
+  Option.exists(
+    Array.get(wefts, at),
+    (w) => isHeading(w) || labelsAt(wefts, at) || (isDivider(w) && !labelsAt(wefts, at - 1)),
+  )
+
+const labelledDivision = (
+  group: ReadonlyArray<LoomWeft>,
+): Option.Option<readonly [Opener, number]> =>
+  Option.map(
+    Option.all([
+      Option.filter(Array.get(group, 0), isLabelLine),
+      Option.filter(Array.get(group, 1), isDivider),
+    ]),
+    ([label, divider]) => [Opener.Division({ divider, label: Option.some(label) }), 2] as const,
+  )
+
+const openerOf = (
+  group: Array.NonEmptyReadonlyArray<LoomWeft>,
+): Option.Option<readonly [Opener, number]> =>
+  Option.orElse(labelledDivision(group), () =>
+    Match.value(Array.headNonEmpty(group)).pipe(
+      Match.when({ type: 'HeadingWeft' }, (heading) =>
+        Option.some([Opener.Heading({ heading }), 1] as const),
+      ),
+      Match.when({ type: 'DividerWeft' }, (divider) =>
+        Option.some([Opener.Division({ divider, label: Option.none() }), 1] as const),
+      ),
+      Match.orElse(() => Option.none<readonly [Opener, number]>()),
+    ),
+  )
+
 const sectionChunk = (
   group: Array.NonEmptyReadonlyArray<LoomWeft>,
 ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
-  const [body, rest] = Array.span(Array.drop(group, 1), (w) => !isHeading(w))
-  const heading = group[0]
-  return [isHeading(heading) ? Option.some(buildSection(heading, body)) : Option.none(), rest]
+  const opened = openerOf(group)
+  const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
+  const end = pipe(
+    Array.findFirstIndex(Array.drop(group, width), (_, at) => opensSection(group, at + width)),
+    Option.map((at) => at + width),
+    Option.getOrElse(() => group.length),
+  )
+  return [
+    Option.map(opened, ([opener]) =>
+      buildSection(opener, Array.take(Array.drop(group, width), end - width)),
+    ),
+    Array.drop(group, end),
+  ]
 }
 
 const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode> => {
@@ -245,12 +337,12 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
 
 ## Building a section
 
-`buildSection` turns a heading and its body chunk into a `LoomSection`: it judges the chapter boxes in the body, partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+`buildSection` turns an opener and its body chunk into a `LoomSection`: it judges the chapter boxes in the body, partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts an opener to a `LoomHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
 
 =>
 
-const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): LoomSection => {
-  const h = headingOf(heading)
+const buildSection = (opener: Opener, body: ReadonlyArray<LoomWeft>): LoomSection => {
+  const h = headingOf(opener)
   const judged = judgeChapterBoxes(body)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
@@ -266,16 +358,50 @@ const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): Loom
   })
 }
 
-const headingOf = (weft: HeadingWeft): LoomHeading =>
+const headingOf = (opener: Opener): LoomHeading =>
+  Opener.$match(opener, {
+    Heading: ({ heading }) =>
+      LoomHeadingSchema.make({
+        position: heading.position,
+        source: heading.source,
+        health: heading.health,
+        unexpected: heading.unexpected,
+        marker: heading.headingStart,
+        title: heading.title,
+        specifier: heading.specifier,
+        sink: heading.sink,
+      }),
+    Division: ({ divider, label }) => divisionHeadingOf(divider, label),
+  })
+
+const titleOfLabel = (line: LabelLine): HeadingTitleToken => {
+  const content = line.source.replace(/\r?\n$/, '')
+  const words = content.trim()
+  const start = line.position.start.offset + content.length - content.trimStart().length
+  return HeadingTitleTokenSchema.make({
+    position: {
+      start: { line: line.position.start.line, offset: start },
+      end: { line: line.position.start.line, offset: start + words.length },
+    },
+    source: words,
+    health: okHealth,
+  })
+}
+
+const divisionHeadingOf = (divider: DividerWeft, label: Option.Option<LabelLine>): LoomHeading =>
   LoomHeadingSchema.make({
-    position: weft.position,
-    source: weft.source,
-    health: weft.health,
-    unexpected: weft.unexpected,
-    headingStart: weft.headingStart,
-    title: weft.title,
-    specifier: weft.specifier,
-    sink: weft.sink,
+    position: {
+      start: Option.match(label, {
+        onNone: () => divider.position.start,
+        onSome: (line) => line.position.start,
+      }),
+      end: divider.position.end,
+    },
+    source:
+      Option.match(label, { onNone: () => '', onSome: (line) => line.source }) + divider.source,
+    health: divider.health,
+    marker: divider.dashes,
+    title: Option.getOrUndefined(Option.map(label, titleOfLabel)),
   })
 
 const sourceOf = (
@@ -430,11 +556,11 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, and the faults raised here. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind` and `chapterKind`, which tell a chapter box.
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, `Data` to name the two openers, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, and the faults raised here. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind` and `chapterKind`, which tell a chapter box, `openingFence`, which tells a fence from a label, and the title token a label becomes.
 
 =>
 
-import { Array, Context, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import {
   LoomDocumentSchema,
   LoomFrontmatterSchema,
@@ -450,11 +576,15 @@ import {
   type BoxToken,
   chapterKind,
   type FrontmatterValueToken,
+  type HeadingTitleToken,
+  HeadingTitleTokenSchema,
+  openingFence,
 } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import {
   ChapterBoxBesideCode,
+  DividerAgainstCode,
   faulty,
   HeadingAgainstCode,
   type LoomFault,
@@ -464,6 +594,7 @@ import {
 } from './LoomFault'
 import {
   boxOf,
+  type DividerWeft,
   type FenceWeft,
   type FrontmatterWeft,
   type HeadingWeft,
