@@ -91,6 +91,7 @@ const partDeclOf = (module: LoomModule): Option.Option<PartDecl> =>
 const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
+    Option.filter((frontmatter) => frontmatter.discussion === undefined),
     Option.flatMap((frontmatter) =>
       Option.map(Option.fromNullishOr(frontmatter.title), (title) => ({
         partId: frontmatter.part?.value ?? frontmatter.partName?.value,

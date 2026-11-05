@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The classifier service
 
-The state opens before the first heading — the Document Preamble — and tracks whether a heading has been emitted, whether the line sits inside a frontmatter block, whether it sits inside a table-of-contents section, and whether it sits inside a fenced block. `classifyWefts` threads that state through the line-range stream with `Stream.mapAccum`, classifying each line and carrying the result forward. A `---` toggles the frontmatter flag: the first one opens the block, the next closes it. A `{TOC}` heading opens a contents section, and the next top-level `#` heading closes it — so the toc flag follows every heading, set when the heading bears `{TOC}` and cleared by any other. A fence in prose opens a quote. Inside it a person quotes a loom verbatim, so a `#`, `=>`, or `~` there reads as text, not as a mark. Only a fence that matches the opening one closes the quote: one at the same column, at least as long, with nothing after it. So the state keeps the open quote's `Fence`, not a flag, and a shorter run of backticks inside the quote stays text. A box is a third such region. A line of three colons opens it, a line of three colons alone closes it, and the body between the two stays inert, so a box never reads as loom structure. A box and a quote never open inside each other. The state keeps whether a box is open, because the same line of three colons alone opens a box outside one and closes the box inside one.
+The state opens before the first heading — the Document Preamble — and tracks whether a heading has been emitted, whether the line sits inside a frontmatter block, whether it sits inside a table-of-contents section, and whether it sits inside a fenced block. `classifyWefts` threads that state through the line-range stream with `Stream.mapAccum`, classifying each line and carrying the result forward. A `---` toggles the frontmatter flag: the first one opens the block, the next closes it. A `{TOC}` heading opens a contents section, and the next top-level `#` heading closes it — so the toc flag follows every heading, set when the heading bears `{TOC}` and cleared by any other. A fence in prose opens a quote. Inside it a person quotes a loom verbatim, so a `#`, `=>`, or `~` there reads as text, not as a mark. Only a fence that matches the opening one closes the quote: one at the same column, at least as long, with nothing after it. So the state keeps the open quote's `Fence`, not a flag, and a shorter run of backticks inside the quote stays text. A box is a third such region. A line of three colons opens it, a line of three colons alone closes it, and the body between the two stays inert, so a box never reads as loom structure. A box and a quote never open inside each other. The state keeps whether a box is open, because the same line of three colons alone opens a box outside one and closes the box inside one. It also keeps whether the loom is a discussion, which its identity line says, since a discussion reads its lines by rules of its own.
 
 Fenced code keeps two more pieces of state. An arrow with nothing after it on its line leaves the classifier waiting for a fence, and blank lines keep it waiting. If the first line that is not blank opens a fence, that line opens fenced code, and the state holds its `Fence` until the line that closes it. While fenced code is open, every line is code that no heading can close, so a Markdown file or a commented script keeps its `#` lines. Any other line ends the wait, and the block is plain code.
 
@@ -23,6 +23,7 @@ type ClassifierState = {
   readonly inToc: boolean
   readonly quote: Option.Option<Fence>
   readonly inBox: boolean
+  readonly discussion: boolean
   readonly fenced: Option.Option<Fence>
   readonly awaitingFence: boolean
 }
@@ -34,6 +35,7 @@ const initialState: ClassifierState = {
   inToc: false,
   quote: Option.none(),
   inBox: false,
+  discussion: false,
   fenced: Option.none(),
   awaitingFence: false,
 }
@@ -57,6 +59,7 @@ export class WeftClassifier extends Context.Service<WeftClassifier>()('WeftClass
               inToc: weft.type === 'HeadingWeft' ? isTocHeading(lineText) : state.inToc,
               quote: nextQuote(state.quote, state.inBox, weft),
               inBox: nextBox(state.inBox, weft),
+              discussion: state.discussion || (state.inFrontmatter && namesDiscussion(lineText)),
               fenced: nextFenced(state.fenced, weft),
               awaitingFence: nextAwaiting(state.awaitingFence, weft),
             }
@@ -70,7 +73,7 @@ export class WeftClassifier extends Context.Service<WeftClassifier>()('WeftClass
 
 ## Classifying one line
 
-`probeWeft` is the decision table. A `---` on the first line opens a frontmatter block, and every line through the closing `---` is a frontmatter weft; outside that block the rest of the table takes over. A fence in prose opens a quote the same way. Every line inside it is verbatim until the fence closes, so a `#`, `=>`, or `~` there stays text — the quote shows a loom, it does not compose one. A box is inert in just the same way, so its body never composes. A quoted line is a preamble weft in the document preamble, where nothing else may appear, and a prose weft inside a section. Inside a table-of-contents section every line is a toc weft — a deeper `##`–`######` heading and a `1.` list item alike — so a part heading never opens a section and a chapter entry never reads as prose; only the next top-level `#` closes the section and reads as an ordinary heading again. A `#` line is a heading in any other mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, a line of three or more dashes is a divider in any mode, since a divider ends code as well as prose, just as a heading does. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes elsewhere is ordinary content, classified by the current mode like any other line — there is no separator weft.
+`probeWeft` is the decision table. A `---` on the first line opens a frontmatter block, and every line through the closing `---` is a frontmatter weft; outside that block the rest of the table takes over. A fence in prose opens a quote the same way. Every line inside it is verbatim until the fence closes, so a `#`, `=>`, or `~` there stays text — the quote shows a loom, it does not compose one. A box is inert in just the same way, so its body never composes. A quoted line is a preamble weft in the document preamble, where nothing else may appear, and a prose weft inside a section. Inside a table-of-contents section every line is a toc weft — a deeper `##`–`######` heading and a `1.` list item alike — so a part heading never opens a section and a chapter entry never reads as prose; only the next top-level `#` closes the section and reads as an ordinary heading again. A `#` line is a heading in any other mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, a line of three or more dashes is a divider in any mode, since a divider ends code as well as prose, just as a heading does. A discussion then reads its lines by rules of its own, which `discussionWeftOf` keeps, before any mode decides. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes elsewhere is ordinary content, classified by the current mode like any other line — there is no separator weft.
 
 Fenced code outranks every rule after the quote and the box. Inside it, the line that closes the fence is a fence weft, and every other line is code: a `#` line, an arrow, a tilde, a line of dashes. A waiting arrow comes next, and a fence there opens fenced code. Both checks run before the heading rule, since a heading is exactly what fenced code exists to hold. A quote or a box still comes first, so fenced code quoted in prose stays prose.
 
@@ -116,6 +119,8 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
 
   if (isDivider(lineText)) return makeDividerWeft(lineText, line, range)
 
+  if (state.discussion) return discussionWeftOf(lineText, line, range, probe, state.prev)
+
   return pipe(
     Match.value(modeOf(state.prev)),
     Match.when('preamble', () =>
@@ -143,6 +148,32 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
     Match.exhaustive,
   )
 }
+
+## The lines of a discussion
+
+A discussion holds no code, as the chapter "Discussions" describes, so two marks change their meaning in one. A tilde opens a message wherever it stands, since there is no code for it to close, and an arrow opens nothing, so its line reads as prose. `discussionWeftOf` reads a line of a discussion by those rules: a tilde line is a tilde weft, whose prose is the name of the message's author, and every other line is prose, or preamble before the first message. `namesDiscussion` tells the frontmatter line that names a discussion, `Discussion 1: Waking` alone or joined to its part.
+
+=>
+
+const discussionLine = /^\s*(Part\s+[^,:]+,\s*)?Discussion(\s+[^:]*)?:/
+
+const namesDiscussion = (lineText: string): boolean => discussionLine.test(lineText)
+
+const discussionWeftOf = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+  probe: Probe,
+  prev: Option.Option<LoomWeft>,
+): LoomWeft =>
+  Match.value(probe).pipe(
+    Match.when({ kind: 'tilde' }, (tilde) => makeTildeWeft(lineText, line, range, tilde.m)),
+    Match.orElse(() =>
+      modeOf(prev) === 'preamble'
+        ? makePreambleWeft(lineText, line, range)
+        : makeProseWeft(lineText, line, range),
+    ),
+  )
 
 ## Line positions
 
@@ -532,5 +563,7 @@ import {
 ::[Mode and probe]
 
 ::[Marking a box]
+
+::[The lines of a discussion]
 
 ::[Building the wefts]

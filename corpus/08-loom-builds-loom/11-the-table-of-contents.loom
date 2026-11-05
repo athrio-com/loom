@@ -90,7 +90,7 @@ export const buildContents = (corpus: LoomCorpusAst): TableOfContents => {
 
 ## A chapter's place in the corpus
 
-A part is declared by any loom that names it: a numbered part in an opener's `Part R: name` line, a numberless part in a bare `Part: name`. `partDeclOf` reads that declaration — the number, empty when there is none, and the name. A chapter is any loom with a `title`, and `chapterDeclOf` reads it: the part it belongs to, its own number, its title, its status and priority, and its path. A chapter names its part by number when the part is numbered and by name when it is numberless, so `partId` is one or the other — and absent when the loom declares no part, which makes the chapter loose.
+A part is declared by any loom that names it: a numbered part in an opener's `Part R: name` line, a numberless part in a bare `Part: name`. `partDeclOf` reads that declaration — the number, empty when there is none, and the name. A chapter is any loom with a `title` that is no discussion, and `chapterDeclOf` reads it: the part it belongs to, its own number, its title, its status and priority, and its path. A chapter names its part by number when the part is numbered and by name when it is numberless, so `partId` is one or the other — and absent when the loom declares no part, which makes the chapter loose.
 
 =>
 
@@ -120,6 +120,7 @@ const partDeclOf = (module: LoomModule): Option.Option<PartDecl> =>
 const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
+    Option.filter((frontmatter) => frontmatter.discussion === undefined),
     Option.flatMap((frontmatter) =>
       Option.map(Option.fromNullishOr(frontmatter.title), (title) => ({
         partId: frontmatter.part?.value ?? frontmatter.partName?.value,

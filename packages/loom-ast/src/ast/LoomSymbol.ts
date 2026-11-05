@@ -136,6 +136,7 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterPart', fm.part),
   ...optSymbol('frontmatterPartName', fm.partName),
   ...optSymbol('frontmatterMembership', fm.chapter),
+  ...optSymbol('frontmatterMembership', fm.discussion),
   ...optSymbol('frontmatterTitle', fm.title),
   ...optSymbol('frontmatterValue', fm.package),
   ...optSymbol('frontmatterValue', fm.language),

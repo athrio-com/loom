@@ -48,6 +48,7 @@ type ClassifierState = {
   readonly inToc: boolean
   readonly quote: Option.Option<Fence>
   readonly inBox: boolean
+  readonly discussion: boolean
   readonly fenced: Option.Option<Fence>
   readonly awaitingFence: boolean
 }
@@ -59,6 +60,7 @@ const initialState: ClassifierState = {
   inToc: false,
   quote: Option.none(),
   inBox: false,
+  discussion: false,
   fenced: Option.none(),
   awaitingFence: false,
 }
@@ -82,6 +84,7 @@ export class WeftClassifier extends Context.Service<WeftClassifier>()('WeftClass
               inToc: weft.type === 'HeadingWeft' ? isTocHeading(lineText) : state.inToc,
               quote: nextQuote(state.quote, state.inBox, weft),
               inBox: nextBox(state.inBox, weft),
+              discussion: state.discussion || (state.inFrontmatter && namesDiscussion(lineText)),
               fenced: nextFenced(state.fenced, weft),
               awaitingFence: nextAwaiting(state.awaitingFence, weft),
             }
@@ -132,6 +135,8 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
   if (!state.seenHeading) return makePreambleWeft(lineText, line, range)
 
   if (isDivider(lineText)) return makeDividerWeft(lineText, line, range)
+
+  if (state.discussion) return discussionWeftOf(lineText, line, range, probe, state.prev)
 
   return pipe(
     Match.value(modeOf(state.prev)),
@@ -300,6 +305,26 @@ const sideOf = (colons: number, inBox: boolean, bare: boolean): BoxToken['side']
     Match.when({ inBox: false }, () => 'open' as const),
     Match.when({ bare: true }, () => 'close' as const),
     Match.orElse(() => 'stray' as const),
+  )
+
+const discussionLine = /^\s*(Part\s+[^,:]+,\s*)?Discussion(\s+[^:]*)?:/
+
+const namesDiscussion = (lineText: string): boolean => discussionLine.test(lineText)
+
+const discussionWeftOf = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+  probe: Probe,
+  prev: Option.Option<LoomWeft>,
+): LoomWeft =>
+  Match.value(probe).pipe(
+    Match.when({ kind: 'tilde' }, (tilde) => makeTildeWeft(lineText, line, range, tilde.m)),
+    Match.orElse(() =>
+      modeOf(prev) === 'preamble'
+        ? makePreambleWeft(lineText, line, range)
+        : makeProseWeft(lineText, line, range),
+    ),
   )
 
 const makeHeadingWeft = (

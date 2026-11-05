@@ -159,7 +159,7 @@ export type SinkToken = typeof SinkTokenSchema.Type
 
 ## Frontmatter tokens
 
-A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. A chapter always names itself, and its part is named once, by the chapter that opens it: that opener announces the part on its own line and its chapter on the next — `Part III: The shape of a loom`, then `Chapter 1: The node foundation`. A later chapter carries the part by its Roman numeral alone and names itself after the comma — `Part III, Chapter 3: Wefts`. `FrontmatterPart` holds the Roman numeral, `FrontmatterPartName` the part's name where the opener declares it, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` its title. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
+A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. A chapter always names itself, and its part is named once, by the chapter that opens it: that opener announces the part on its own line and its chapter on the next — `Part III: The shape of a loom`, then `Chapter 1: The node foundation`. A later chapter carries the part by its Roman numeral alone and names itself after the comma — `Part III, Chapter 3: Wefts`. `FrontmatterPart` holds the Roman numeral, `FrontmatterPartName` the part's name where the opener declares it, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` its title. A discussion names itself the same way, with `Discussion` in place of `Chapter`, as in `Part I, Discussion 1: Waking`, and `FrontmatterDiscussion` holds its number. A discussion without a number holds an empty one, so the token still says the loom is a discussion. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
 
 =>
 
@@ -182,6 +182,11 @@ export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
   value: Schema.String,
 })
 export type FrontmatterChapterToken = typeof FrontmatterChapterTokenSchema.Type
+
+export const FrontmatterDiscussionTokenSchema = loomNode('FrontmatterDiscussion', {
+  value: Schema.String,
+})
+export type FrontmatterDiscussionToken = typeof FrontmatterDiscussionTokenSchema.Type
 
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,
@@ -343,7 +348,7 @@ export type BoxToken = typeof BoxTokenSchema.Type
 
 ~
 
-A box's braces name its kind. A box takes one key, `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, a remark for whoever opens the loom next. A box of the `Chapter` kind points to a chapter, the one its name titles, and its body holds a copy of that chapter's opening prose, as the chapter "The multi-file AST" describes. `boxKeys` holds the key a box takes, and `boxKinds` the two kinds, `noteKind` and `chapterKind`.
+A box's braces name its kind. A box takes one key, `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, a remark for whoever opens the loom next. A box of the `Chapter` kind points to a chapter, the one its name titles, and its body holds a copy of that chapter's opening prose, as the chapter "The multi-file AST" describes. A box of the `Conclusion` kind closes a topic of a discussion with the answer the topic settled on, as the chapter "The document builder" describes. `boxKeys` holds the key a box takes, and `boxKinds` the three kinds, `noteKind`, `chapterKind`, and `conclusionKind`.
 
 `specifierKind` reads the kind that any specifier names, an anchor's or a box's: its label, or the value of its `kind` parameter. `boxKind` reads a box's kind through it. A box with no braces, or braces that name no kind, reads as `noteKind`. A kind written in another case of letters, such as `{note}`, reads as the kind it names.
 
@@ -353,7 +358,9 @@ export const noteKind = 'Note'
 
 export const chapterKind = 'Chapter'
 
-export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind]
+export const conclusionKind = 'Conclusion'
+
+export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind, conclusionKind]
 
 export const boxKeys: ReadonlyArray<string> = ['kind']
 

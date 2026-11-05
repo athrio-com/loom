@@ -13,6 +13,7 @@ import {
   boxKind,
   type BoxToken,
   chapterKind,
+  conclusionKind,
   type FrontmatterValueToken,
   type HeadingTitleToken,
   HeadingTitleTokenSchema,
@@ -22,6 +23,8 @@ import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import {
   ChapterBoxBesideCode,
+  ConclusionOutsideTopic,
+  SecondConclusion,
   DividerAgainstCode,
   faulty,
   HeadingAgainstCode,
@@ -152,6 +155,29 @@ const judgeChapterBoxes = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWef
   )
 }
 
+const isConclusion = (weft: LoomWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side === 'open' && boxKind(box) === conclusionKind)
+
+const conclusionFault = (topic: boolean, earlier: number): Option.Option<LoomFault> =>
+  Match.value({ topic, earlier }).pipe(
+    Match.when({ topic: false }, () => Option.some(ConclusionOutsideTopic())),
+    Match.when({ earlier: 0 }, () => Option.none()),
+    Match.orElse(() => Option.some(SecondConclusion())),
+  )
+
+const judgeConclusions = (body: ReadonlyArray<LoomWeft>, topic: boolean): ReadonlyArray<LoomWeft> =>
+  Array.mapAccum(body, 0, (earlier, weft) =>
+    isConclusion(weft)
+      ? [
+          earlier + 1,
+          Option.match(conclusionFault(topic, earlier), {
+            onNone: () => weft,
+            onSome: (fault) => faultedBoxLine(fault)(weft),
+          }),
+        ]
+      : [earlier, weft],
+  )[1]
+
 const isFlushCode = (weft: LoomWeft): boolean =>
   weft.type === 'CodeWeft' && weft.source.trim() !== ''
 
@@ -258,29 +284,35 @@ const openerOf = (
     ),
   )
 
-const sectionChunk = (
-  group: Array.NonEmptyReadonlyArray<LoomWeft>,
-): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
-  const opened = openerOf(group)
-  const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
-  const end = pipe(
-    Array.findFirstIndex(Array.drop(group, width), (_, at) => opensSection(group, at + width)),
-    Option.map((at) => at + width),
-    Option.getOrElse(() => group.length),
-  )
-  return [
-    Option.map(opened, ([opener]) =>
-      buildSection(opener, Array.take(Array.drop(group, width), end - width)),
-    ),
-    Array.drop(group, end),
-  ]
-}
+const sectionChunk =
+  (discussion: boolean) =>
+  (
+    group: Array.NonEmptyReadonlyArray<LoomWeft>,
+  ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+    const opened = openerOf(group)
+    const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
+    const end = pipe(
+      Array.findFirstIndex(Array.drop(group, width), (_, at) => opensSection(group, at + width)),
+      Option.map((at) => at + width),
+      Option.getOrElse(() => group.length),
+    )
+    return [
+      Option.map(opened, ([opener]) =>
+        buildSection(opener, Array.take(Array.drop(group, width), end - width), discussion),
+      ),
+      Array.drop(group, end),
+    ]
+  }
+
+const namesDiscussion = (w: LoomWeft): boolean =>
+  w.type === 'FrontmatterWeft' && w.discussion !== undefined
 
 const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode> => {
   const [preamble, sections] = Array.span(wefts, (w) => !isHeading(w))
+  const discussion = Array.some(preamble, namesDiscussion)
   return [
     ...Array.filter(preamble, isTopLevelWeft),
-    ...Array.getSomes(Array.chop(sections, sectionChunk)),
+    ...Array.getSomes(Array.chop(sections, sectionChunk(discussion))),
   ]
 }
 
@@ -314,9 +346,14 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
     Match.exhaustive,
   )
 
-const buildSection = (opener: Opener, body: ReadonlyArray<LoomWeft>): LoomSection => {
+const buildSection = (
+  opener: Opener,
+  body: ReadonlyArray<LoomWeft>,
+  discussion: boolean,
+): LoomSection => {
   const h = headingOf(opener)
-  const judged = judgeChapterBoxes(body)
+  const topic = discussion && opener._tag === 'Division'
+  const judged = judgeConclusions(judgeChapterBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
   const entries = judged.filter(isToc)
@@ -408,10 +445,14 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined || w.title !== undefined)),
+    Option.fromNullishOr(
+      wefts.find(
+        (w) => w.chapter !== undefined || w.discussion !== undefined || w.title !== undefined,
+      ),
+    ),
     {
       onNone: () => ({}),
-      onSome: (w) => ({ chapter: w.chapter, title: w.title }),
+      onSome: (w) => ({ chapter: w.chapter, discussion: w.discussion, title: w.title }),
     },
   )
   return Option.some(

@@ -100,6 +100,7 @@ import {
   StrayTarget,
   TangleBesideSink,
   TangleWithoutFile,
+  FileInDiscussion,
   UnsettledModule,
   UnsettledSection,
   UnknownVariable,
@@ -141,7 +142,7 @@ export const buildProduct = (
   const first = firstHolders(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, first, lang, modulePath, pkg, variables)),
+    Array.map(buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc))),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -361,6 +362,7 @@ const buildSection =
     modulePath: string,
     pkg: Option.Option<string>,
     variables: Record<string, string>,
+    discussion: boolean,
   ) =>
   (section: LoomSection): Built => {
     const values = valueWarps(
@@ -373,13 +375,13 @@ const buildSection =
       [
         duplicateHealth(first, section),
         labelHealth(section, languageId),
-        tangleHealth(section, pkg),
+        discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
       ],
       okHealth,
       withHealth,
     )
     const code = buildCode(section, values, index, origin, languageId, health)
-    const file = tangleFile(section, pkg, code)
+    const file = discussion ? Option.none<File>() : tangleFile(section, pkg, code)
     return { code, file }
   }
 
@@ -439,6 +441,8 @@ The sink and the `{Tangle}` specifier each say that a section writes a file, so 
 
 A `{Tangle}` with no sink means the chapter's one file. When the `Package` names a folder, or the chapter names no `Package` at all, the specifier has no file to mean. It raises the `TangleWithoutFile` fault, and the section writes nothing. The fault names the folder when there is one, so the author sees why the folder cannot stand for a file.
 
+A discussion writes no file, as the chapter "Discussions" describes, so the section of a discussion writes nothing whatever its heading says, and `fileInDiscussion` gives a sink or a `{Tangle}` on its heading the `FileInDiscussion` fault. `isDiscussion` tells a discussion by the number its identity line gives it.
+
 `removalOf` gives the span the fix removes: the specifier and the spaces that part it from the sink, so the heading keeps no doubled space.
 
 =>
@@ -466,6 +470,19 @@ const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health 
           }),
       }),
   })
+
+const isDiscussion = (doc: LoomDocument): boolean => doc.frontmatter?.discussion !== undefined
+
+const fileInDiscussion = (section: LoomSection): Health =>
+  Option.match(
+    Option.orElse(Option.fromNullishOr(section.heading.sink), () =>
+      Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle),
+    ),
+    {
+      onNone: () => okHealth,
+      onSome: (mark) => faulty(FileInDiscussion(), mark.position),
+    },
+  )
 
 const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
   specifier.position.start.offset < sink.position.start.offset

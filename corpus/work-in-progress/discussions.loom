@@ -12,6 +12,8 @@ Some questions take more than a paragraph to settle. An author argues them out w
 
 A discussion is a kind of loom, as a chapter is. A chapter explains code and composes it. A discussion holds no code. It is where a thought runs freely before any of it becomes a chapter, or where a question goes when a chapter raises more than its own prose can hold.
 
+Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
+
 ## Where a discussion sits
 
 A discussion's identity line names its kind, as a chapter's does, and places the discussion under a part:
@@ -106,16 +108,11 @@ A git submodule or a separate branch would also give discussions a history of th
 
 ## What to work out
 
-- **Who makes the separate commits.** Whether the editor commits a discussion's changes on its own, or leaves the commit to the author, is open.
-- **The woven page.** Whether the woven book shows discussions to its readers, or only the summaries their boxes carry, is open.
 - **Discussions under a chapter.** Whether a discussion may also sit under a chapter, as well as under a part, is open.
 
 ## What this chapter grows into
 
-1. The discussion in the frontmatter: its identity line, the `FrontmatterDiscussion` token, and numbering within its part.
-2. Discussions found by name, and listed under their part in the back matter of the table of contents.
-3. The classifier's mode for a discussion's lines: messages, arrows read as prose, and the fault for a sink.
-4. Topics and the `Conclusion` box, with the fault for a second conclusion in one topic.
-5. The `discussions` folder, and commits that keep a discussion's history apart from the history of the code.
+1. Discussions listed under their part in the back matter of the table of contents, each with a woven page of its own.
+2. The `discussions` folder, where the editor opens a discussion from a discussion box.
 
 When discussions parse and show in the editor, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.

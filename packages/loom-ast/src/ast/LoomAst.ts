@@ -3,6 +3,7 @@ import { loomNode } from '#ast/LoomNode'
 import {
   DividerTokenSchema,
   FrontmatterChapterTokenSchema,
+  FrontmatterDiscussionTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
@@ -34,6 +35,7 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   part: Schema.optional(FrontmatterPartTokenSchema),
   partName: Schema.optional(FrontmatterPartNameTokenSchema),
   chapter: Schema.optional(FrontmatterChapterTokenSchema),
+  discussion: Schema.optional(FrontmatterDiscussionTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),
   language: Schema.optional(FrontmatterValueTokenSchema),

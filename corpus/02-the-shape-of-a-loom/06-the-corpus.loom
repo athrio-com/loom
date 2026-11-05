@@ -89,6 +89,7 @@ type PartRef = {
 type Chapter = {
   readonly title: string
   readonly number: Option.Option<string>
+  readonly discussion: boolean
   readonly part: PartRef
   readonly module: LoomModule
 }
@@ -140,10 +141,14 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map(Array.fromIterable(modules.values()), (module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
-        number: Option.map(
-          Option.fromNullishOr(module.doc.frontmatter?.chapter),
-          (chapter) => chapter.value,
+        number: pipe(
+          Option.fromNullishOr(
+            module.doc.frontmatter?.chapter ?? module.doc.frontmatter?.discussion,
+          ),
+          Option.map((ordinal) => ordinal.value),
+          Option.filter((ordinal) => ordinal !== ''),
         ),
+        discussion: module.doc.frontmatter?.discussion !== undefined,
         part: partOf(names, module),
         module,
       })),
@@ -200,7 +205,7 @@ export type Trail = Array.NonEmptyReadonlyArray<Step>
 
 ~
 
-A name in a path is a title or a number. `Part II` names a part by its number and `Chapter 6` a chapter by its number, the way a loom's identity line names them, and any other name is a title. `numberIn` reads the number out of a name that opens with a keyword, `Part` or `Chapter`.
+A name in a path is a title or a number. `Part II` names a part by its number, `Chapter 6` a chapter by its number, and `Discussion 1` a discussion by its number, the way a loom's identity line names them, and any other name is a title. A discussion is a loom of its own kind, which sits in its part beside the chapters, so a title finds a discussion wherever it finds a chapter. Chapters and discussions are numbered apart, so a number finds only its own kind, through `numberedSteps`. `numberIn` reads the number out of a name that opens with a keyword: `Part`, `Chapter`, or `Discussion`.
 
 `stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top of the book, a segment names a part or a chapter. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's chapter boxes by its name. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part by a test on its `PartRef` and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a scope that pass a test.
 
@@ -237,6 +242,27 @@ const partsWhere = (book: Book, test: (part: PartRef) => boolean): ReadonlyArray
 const sectionTitled = (book: Book, module: Location, title: string): Option.Option<SectionRef> =>
   Option.fromNullishOr(book.titles.get(module)?.get(title))
 
+const numberedSteps = (
+  book: Book,
+  part: Option.Option<PartRef>,
+  keyword: string,
+  discussion: boolean,
+  step: (place: Place) => Step,
+  segment: Segment,
+): ReadonlyArray<Step> =>
+  Option.match(numberIn(keyword, segment.text), {
+    onNone: (): ReadonlyArray<Step> => [],
+    onSome: (number) =>
+      Array.map(
+        chaptersWithin(
+          book,
+          part,
+          (chapter) => chapter.discussion === discussion && Option.contains(chapter.number, number),
+        ),
+        (chapter) => step(Place.Chapter({ chapter })),
+      ),
+  })
+
 const stepsNamed = (
   book: Book,
   scope: Option.Option<Place>,
@@ -250,14 +276,8 @@ const stepsNamed = (
       chaptersWithin(book, part, (chapter) => chapter.title === segment.text),
       (chapter) => step(false)(Place.Chapter({ chapter })),
     ),
-    ...Option.match(numberIn('Chapter', segment.text), {
-      onNone: (): ReadonlyArray<Step> => [],
-      onSome: (number) =>
-        Array.map(
-          chaptersWithin(book, part, (chapter) => Option.contains(chapter.number, number)),
-          (chapter) => step(true)(Place.Chapter({ chapter })),
-        ),
-    }),
+    ...numberedSteps(book, part, 'Chapter', false, step(true), segment),
+    ...numberedSteps(book, part, 'Discussion', true, step(true), segment),
   ]
   return Option.match(scope, {
     onNone: () => [
@@ -564,12 +584,13 @@ const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
 
 ~
 
-`boxChapter` finds the chapter a box points to. It looks first among the chapters of the box's own part, where the editor opens a new chapter, and then across the book. `boxNamed` finds a chapter box of one loom by its name. `boxPlace` is the place a box stands for in a lookup: its chapter once the chapter is written, and the box itself until then. `boxTrail` is the lookup's step among the chapter boxes of an anchor's own loom, which `trailsOf` takes after the loom's sections and before the book's chapters. So `::[Rooms]` beside a box `::: Rooms {Chapter}` resolves before the chapter exists and after.
+`boxChapter` finds the chapter a box points to, and never a discussion of the same title. It looks first among the chapters of the box's own part, where the editor opens a new chapter, and then across the book. `boxNamed` finds a chapter box of one loom by its name. `boxPlace` is the place a box stands for in a lookup: its chapter once the chapter is written, and the box itself until then. `boxTrail` is the lookup's step among the chapter boxes of an anchor's own loom, which `trailsOf` takes after the loom's sections and before the book's chapters. So `::[Rooms]` beside a box `::: Rooms {Chapter}` resolves before the chapter exists and after.
 
 =>
 
 const boxChapter = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
-  const titled = (chapter: Chapter): boolean => chapter.title === ref.name.value
+  const titled = (chapter: Chapter): boolean =>
+    !chapter.discussion && chapter.title === ref.name.value
   return Option.orElse(
     Option.flatMap(chapterOf(book, ref.module), (own) =>
       Array.head(chaptersWithin(book, Option.some(own.part), titled)),
@@ -1653,7 +1674,7 @@ const openingProseOf = (module: LoomModule): string =>
 
 ~
 
-A box may point to a chapter nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new chapter stands beside the loom of the box, in the box's own part, and takes the part's next number, which `nextNumber` finds. Its file is named for that number and for its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A part without numbers names its chapters by title alone, so its new chapter takes neither a number nor one in its file name. `membership` writes the identity line in the form the part already uses. The new chapter's status is `Canvas`, as the chapter "Canvases" describes. It keeps the language of the box's chapter, and its opening prose is the box's body, so the copy and its source agree from the start.
+A box may point to a chapter nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new chapter stands beside the loom of the box, in the box's own part, and takes the part's next chapter number, which `nextNumber` finds among the part's chapters, since discussions are numbered apart. Its file is named for that number and for its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A part without numbers names its chapters by title alone, so its new chapter takes neither a number nor one in its file name. `membership` writes the identity line in the form the part already uses. The new chapter's status is `Canvas`, as the chapter "Canvases" describes. It keeps the language of the box's chapter, and its opening prose is the box's body, so the copy and its source agree from the start.
 
 =>
 
@@ -1684,7 +1705,7 @@ const nextNumber = (book: Book, part: PartRef): Option.Option<number> =>
       Math.max(
         0,
         ...Array.map(
-          chaptersWithin(book, Option.some(part), () => true),
+          chaptersWithin(book, Option.some(part), (chapter) => !chapter.discussion),
           numberOf,
         ),
       ),

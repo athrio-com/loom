@@ -63,6 +63,7 @@ type PartRef = {
 type Chapter = {
   readonly title: string
   readonly number: Option.Option<string>
+  readonly discussion: boolean
   readonly part: PartRef
   readonly module: LoomModule
 }
@@ -114,10 +115,14 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map(Array.fromIterable(modules.values()), (module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
-        number: Option.map(
-          Option.fromNullishOr(module.doc.frontmatter?.chapter),
-          (chapter) => chapter.value,
+        number: pipe(
+          Option.fromNullishOr(
+            module.doc.frontmatter?.chapter ?? module.doc.frontmatter?.discussion,
+          ),
+          Option.map((ordinal) => ordinal.value),
+          Option.filter((ordinal) => ordinal !== ''),
         ),
+        discussion: module.doc.frontmatter?.discussion !== undefined,
         part: partOf(names, module),
         module,
       })),
@@ -189,6 +194,27 @@ const partsWhere = (book: Book, test: (part: PartRef) => boolean): ReadonlyArray
 const sectionTitled = (book: Book, module: Location, title: string): Option.Option<SectionRef> =>
   Option.fromNullishOr(book.titles.get(module)?.get(title))
 
+const numberedSteps = (
+  book: Book,
+  part: Option.Option<PartRef>,
+  keyword: string,
+  discussion: boolean,
+  step: (place: Place) => Step,
+  segment: Segment,
+): ReadonlyArray<Step> =>
+  Option.match(numberIn(keyword, segment.text), {
+    onNone: (): ReadonlyArray<Step> => [],
+    onSome: (number) =>
+      Array.map(
+        chaptersWithin(
+          book,
+          part,
+          (chapter) => chapter.discussion === discussion && Option.contains(chapter.number, number),
+        ),
+        (chapter) => step(Place.Chapter({ chapter })),
+      ),
+  })
+
 const stepsNamed = (
   book: Book,
   scope: Option.Option<Place>,
@@ -202,14 +228,8 @@ const stepsNamed = (
       chaptersWithin(book, part, (chapter) => chapter.title === segment.text),
       (chapter) => step(false)(Place.Chapter({ chapter })),
     ),
-    ...Option.match(numberIn('Chapter', segment.text), {
-      onNone: (): ReadonlyArray<Step> => [],
-      onSome: (number) =>
-        Array.map(
-          chaptersWithin(book, part, (chapter) => Option.contains(chapter.number, number)),
-          (chapter) => step(true)(Place.Chapter({ chapter })),
-        ),
-    }),
+    ...numberedSteps(book, part, 'Chapter', false, step(true), segment),
+    ...numberedSteps(book, part, 'Discussion', true, step(true), segment),
   ]
   return Option.match(scope, {
     onNone: () => [
@@ -481,7 +501,8 @@ const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
   Option.getOrElse(Option.fromNullishOr(book.boxes.get(module)), () => [])
 
 const boxChapter = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
-  const titled = (chapter: Chapter): boolean => chapter.title === ref.name.value
+  const titled = (chapter: Chapter): boolean =>
+    !chapter.discussion && chapter.title === ref.name.value
   return Option.orElse(
     Option.flatMap(chapterOf(book, ref.module), (own) =>
       Array.head(chaptersWithin(book, Option.some(own.part), titled)),
@@ -1484,7 +1505,7 @@ const nextNumber = (book: Book, part: PartRef): Option.Option<number> =>
       Math.max(
         0,
         ...Array.map(
-          chaptersWithin(book, Option.some(part), () => true),
+          chaptersWithin(book, Option.some(part), (chapter) => !chapter.discussion),
           numberOf,
         ),
       ),

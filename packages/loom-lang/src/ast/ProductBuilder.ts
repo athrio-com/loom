@@ -71,6 +71,7 @@ import {
   StrayTarget,
   TangleBesideSink,
   TangleWithoutFile,
+  FileInDiscussion,
   UnsettledModule,
   UnsettledSection,
   UnknownVariable,
@@ -104,7 +105,7 @@ export const buildProduct = (
   const first = firstHolders(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, first, lang, modulePath, pkg, variables)),
+    Array.map(buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc))),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -290,6 +291,7 @@ const buildSection =
     modulePath: string,
     pkg: Option.Option<string>,
     variables: Record<string, string>,
+    discussion: boolean,
   ) =>
   (section: LoomSection): Built => {
     const values = valueWarps(
@@ -302,13 +304,13 @@ const buildSection =
       [
         duplicateHealth(first, section),
         labelHealth(section, languageId),
-        tangleHealth(section, pkg),
+        discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
       ],
       okHealth,
       withHealth,
     )
     const code = buildCode(section, values, index, origin, languageId, health)
-    const file = tangleFile(section, pkg, code)
+    const file = discussion ? Option.none<File>() : tangleFile(section, pkg, code)
     return { code, file }
   }
 
@@ -377,6 +379,19 @@ const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health 
           }),
       }),
   })
+
+const isDiscussion = (doc: LoomDocument): boolean => doc.frontmatter?.discussion !== undefined
+
+const fileInDiscussion = (section: LoomSection): Health =>
+  Option.match(
+    Option.orElse(Option.fromNullishOr(section.heading.sink), () =>
+      Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle),
+    ),
+    {
+      onNone: () => okHealth,
+      onSome: (mark) => faulty(FileInDiscussion(), mark.position),
+    },
+  )
 
 const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
   specifier.position.start.offset < sink.position.start.offset

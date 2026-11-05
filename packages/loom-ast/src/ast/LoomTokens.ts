@@ -138,6 +138,11 @@ export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
 })
 export type FrontmatterChapterToken = typeof FrontmatterChapterTokenSchema.Type
 
+export const FrontmatterDiscussionTokenSchema = loomNode('FrontmatterDiscussion', {
+  value: Schema.String,
+})
+export type FrontmatterDiscussionToken = typeof FrontmatterDiscussionTokenSchema.Type
+
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,
 })
@@ -242,7 +247,9 @@ export const noteKind = 'Note'
 
 export const chapterKind = 'Chapter'
 
-export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind]
+export const conclusionKind = 'Conclusion'
+
+export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind, conclusionKind]
 
 export const boxKeys: ReadonlyArray<string> = ['kind']
 

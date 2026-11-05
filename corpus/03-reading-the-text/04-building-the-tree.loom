@@ -145,6 +145,35 @@ const judgeChapterBoxes = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWef
   )
 }
 
+## A conclusion closes a topic
+
+A discussion divides its thread into topics, and a divider opens each one, as the chapter "Discussions" describes. A topic closes with at most one box of the `Conclusion` kind, the answer the topic settled on. `judgeConclusions` reads a section's body for its conclusions. A conclusion anywhere but in a topic, a section that a divider opens in a discussion, earns a `ConclusionOutsideTopic` fault. In a topic, every conclusion after the first earns a `SecondConclusion` fault. `isConclusion` tells the line that opens a conclusion, and `conclusionFault` decides each one's fault from whether it stands in a topic and how many came before it.
+
+=>
+
+const isConclusion = (weft: LoomWeft): boolean =>
+  Option.exists(boxOf(weft), (box) => box.side === 'open' && boxKind(box) === conclusionKind)
+
+const conclusionFault = (topic: boolean, earlier: number): Option.Option<LoomFault> =>
+  Match.value({ topic, earlier }).pipe(
+    Match.when({ topic: false }, () => Option.some(ConclusionOutsideTopic())),
+    Match.when({ earlier: 0 }, () => Option.none()),
+    Match.orElse(() => Option.some(SecondConclusion())),
+  )
+
+const judgeConclusions = (body: ReadonlyArray<LoomWeft>, topic: boolean): ReadonlyArray<LoomWeft> =>
+  Array.mapAccum(body, 0, (earlier, weft) =>
+    isConclusion(weft)
+      ? [
+          earlier + 1,
+          Option.match(conclusionFault(topic, earlier), {
+            onNone: () => weft,
+            onSome: (fault) => faultedBoxLine(fault)(weft),
+          }),
+        ]
+      : [earlier, weft],
+  )[1]
+
 ## A heading against the code
 
 An arrow holds its code until the next heading. A `#` comment in a script, or a heading inside a Markdown file, reads as that heading, and the code stops short without a word. Fencing the code is the cure, but an author has to know to reach for it.
@@ -198,7 +227,7 @@ const warnDividerAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<L
 
 `groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest one opener at a time: each `sectionChunk` takes an opener and the body wefts up to the next one, and `buildSection` turns them into a `LoomSection`. The `isHeading`, `isDivider`, `isSectionBody`, `isPreamble`, and `isToc` predicates classify each weft.
 
-An opener is a heading or a division, and `Opener` names the two. A division opens with a divider. When the line directly above the divider is a line of prose, that line labels the division, so the label opens the chunk together with its divider and no longer counts as prose of the section above. `isLabelLine` tells such a line: a preamble or prose line with words on it, which is no box line and no fence. `labelsAt` tells a label from the divider below it, and `opensSection` tells where the next chunk begins. `openerOf` reads the opener at the head of a chunk, with the number of lines it spans, one for a heading or a bare divider and two for a labelled one. A chunk always begins where the previous one ended, at an opener, so `openerOf` finds one in a well-formed file.
+An opener is a heading or a division, and `Opener` names the two. A division opens with a divider. When the line directly above the divider is a line of prose, that line labels the division, so the label opens the chunk together with its divider and no longer counts as prose of the section above. `isLabelLine` tells such a line: a preamble or prose line with words on it, which is no box line and no fence. `labelsAt` tells a label from the divider below it, and `opensSection` tells where the next chunk begins. `openerOf` reads the opener at the head of a chunk, with the number of lines it spans, one for a heading or a bare divider and two for a labelled one. A chunk always begins where the previous one ended, at an opener, so `openerOf` finds one in a well-formed file. `namesDiscussion` tells from the frontmatter whether the loom is a discussion, which every chunk is told, since a division of a discussion is a topic.
 
 =>
 
@@ -273,29 +302,35 @@ const openerOf = (
     ),
   )
 
-const sectionChunk = (
-  group: Array.NonEmptyReadonlyArray<LoomWeft>,
-): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
-  const opened = openerOf(group)
-  const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
-  const end = pipe(
-    Array.findFirstIndex(Array.drop(group, width), (_, at) => opensSection(group, at + width)),
-    Option.map((at) => at + width),
-    Option.getOrElse(() => group.length),
-  )
-  return [
-    Option.map(opened, ([opener]) =>
-      buildSection(opener, Array.take(Array.drop(group, width), end - width)),
-    ),
-    Array.drop(group, end),
-  ]
-}
+const sectionChunk =
+  (discussion: boolean) =>
+  (
+    group: Array.NonEmptyReadonlyArray<LoomWeft>,
+  ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+    const opened = openerOf(group)
+    const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
+    const end = pipe(
+      Array.findFirstIndex(Array.drop(group, width), (_, at) => opensSection(group, at + width)),
+      Option.map((at) => at + width),
+      Option.getOrElse(() => group.length),
+    )
+    return [
+      Option.map(opened, ([opener]) =>
+        buildSection(opener, Array.take(Array.drop(group, width), end - width), discussion),
+      ),
+      Array.drop(group, end),
+    ]
+  }
+
+const namesDiscussion = (w: LoomWeft): boolean =>
+  w.type === 'FrontmatterWeft' && w.discussion !== undefined
 
 const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode> => {
   const [preamble, sections] = Array.span(wefts, (w) => !isHeading(w))
+  const discussion = Array.some(preamble, namesDiscussion)
   return [
     ...Array.filter(preamble, isTopLevelWeft),
-    ...Array.getSomes(Array.chop(sections, sectionChunk)),
+    ...Array.getSomes(Array.chop(sections, sectionChunk(discussion))),
   ]
 }
 
@@ -337,13 +372,18 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
 
 ## Building a section
 
-`buildSection` turns an opener and its body chunk into a `LoomSection`: it judges the chapter boxes in the body, partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts an opener to a `LoomHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+`buildSection` turns an opener and its body chunk into a `LoomSection`: it judges the chapter boxes and the conclusions in the body, the latter by whether the section is a topic of a discussion, partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts an opener to a `LoomHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
 
 =>
 
-const buildSection = (opener: Opener, body: ReadonlyArray<LoomWeft>): LoomSection => {
+const buildSection = (
+  opener: Opener,
+  body: ReadonlyArray<LoomWeft>,
+  discussion: boolean,
+): LoomSection => {
   const h = headingOf(opener)
-  const judged = judgeChapterBoxes(body)
+  const topic = discussion && opener._tag === 'Division'
+  const judged = judgeConclusions(judgeChapterBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
   const entries = judged.filter(isToc)
@@ -427,7 +467,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
 
 =>
 
@@ -441,10 +481,14 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined || w.title !== undefined)),
+    Option.fromNullishOr(
+      wefts.find(
+        (w) => w.chapter !== undefined || w.discussion !== undefined || w.title !== undefined,
+      ),
+    ),
     {
       onNone: () => ({}),
-      onSome: (w) => ({ chapter: w.chapter, title: w.title }),
+      onSome: (w) => ({ chapter: w.chapter, discussion: w.discussion, title: w.title }),
     },
   )
   return Option.some(
@@ -575,6 +619,7 @@ import {
   boxKind,
   type BoxToken,
   chapterKind,
+  conclusionKind,
   type FrontmatterValueToken,
   type HeadingTitleToken,
   HeadingTitleTokenSchema,
@@ -584,6 +629,8 @@ import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import {
   ChapterBoxBesideCode,
+  ConclusionOutsideTopic,
+  SecondConclusion,
   DividerAgainstCode,
   faulty,
   HeadingAgainstCode,
@@ -618,6 +665,8 @@ import {
 ::[A box that never closes]
 
 ::[A box that points to a chapter]
+
+::[A conclusion closes a topic]
 
 ::[A heading against the code]
 

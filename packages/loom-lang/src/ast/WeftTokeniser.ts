@@ -9,6 +9,7 @@ import {
 import {
   CodeTokenSchema,
   FrontmatterChapterTokenSchema,
+  FrontmatterDiscussionTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
@@ -208,6 +209,8 @@ const buildFrontmatterField = (
 ): FrontmatterWeft => {
   if (key.value.startsWith('Part ') && key.value.includes(', Chapter '))
     return belongingField(weft, line, key, value)
+  if (key.value.startsWith('Part ') && key.value.includes(', Discussion '))
+    return belongingDiscussion(weft, line, key, value)
   if (key.value.startsWith('Part '))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -238,6 +241,14 @@ const buildFrontmatterField = (
       health: okHealth,
       title: fieldToken(FrontmatterTitleTokenSchema, line, value),
     })
+  if (key.value === 'Discussion' || key.value.startsWith('Discussion '))
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, key, 'Discussion'),
+      title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+    })
   if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -247,6 +258,25 @@ const buildFrontmatterField = (
       value: fieldToken(FrontmatterValueTokenSchema, line, value),
     })
   return bareFrontmatter(weft)
+}
+
+const belongingDiscussion = (
+  weft: FrontmatterWeft,
+  line: number,
+  key: TrimmedSpan,
+  value: TrimmedSpan,
+): FrontmatterWeft => {
+  const comma = key.value.indexOf(',')
+  const partSpan = trimSpan(key.value.slice(0, comma), key.start)
+  const discussionSpan = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
+  return FrontmatterWeftSchema.make({
+    position: weft.position,
+    source: weft.source,
+    health: okHealth,
+    part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
+    discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, discussionSpan, 'Discussion'),
+    title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+  })
 }
 
 const belongingField = (

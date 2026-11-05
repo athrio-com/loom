@@ -80,6 +80,9 @@ export type LoomFault = Data.TaggedEnum<{
   StaleSummary: { readonly name: string; readonly summary: string; readonly at: Position }
   HeadingAgainstCode: {}
   DividerAgainstCode: {}
+  FileInDiscussion: {}
+  ConclusionOutsideTopic: {}
+  SecondConclusion: {}
 }>
 
 export const {
@@ -121,6 +124,9 @@ export const {
   StaleSummary,
   HeadingAgainstCode,
   DividerAgainstCode,
+  FileInDiscussion,
+  ConclusionOutsideTopic,
+  SecondConclusion,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -144,11 +150,12 @@ const noun: Record<EmptyConstruct, string> = {
 
 const bearer: Record<BracesOn, string> = { anchor: 'an anchor', box: 'a box' }
 
-const knownList = (known: ReadonlyArray<string>): string =>
-  Array.join(
-    Array.map(known, (each) => `\`${each}\``),
-    ' and ',
-  )
+const knownList = (known: ReadonlyArray<string>): string => {
+  const marked = Array.map(known, (each) => `\`${each}\``)
+  return marked.length > 2
+    ? `${Array.join(Array.dropRight(marked, 1), ', ')}, and ${marked[marked.length - 1]}`
+    : Array.join(marked, ' and ')
+}
 
 const siblingPlace: Record<Sibling, (where: string) => string> = {
   section: (line) => `a section of this loom (line ${line})`,
@@ -295,6 +302,18 @@ export const describe = (fault: LoomFault): Note =>
     DividerAgainstCode: () =>
       warning(
         'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
+      ),
+    FileInDiscussion: () =>
+      error(
+        'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',
+      ),
+    ConclusionOutsideTopic: () =>
+      error(
+        'Conclusion outside a topic: a conclusion closes a topic of a discussion, and a divider opens each topic. Move it under a topic, or make it a note.',
+      ),
+    SecondConclusion: () =>
+      error(
+        'Second conclusion: this topic already closes with a conclusion. Merge the two, or open a new topic with a divider.',
       ),
     UnclosedFence: ({ fence }) =>
       error(
