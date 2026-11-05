@@ -24,7 +24,7 @@ Language: TypeScript
 ---
 ```
 
-Every new chapter starts as a canvas. The editor writes `Status: Canvas` into the frontmatter of each chapter it opens, whether from a box or from scratch. The author settles a chapter by deleting the line, so a chapter with no status is a settled one, as every chapter in the book is today.
+Every new chapter starts as a canvas. The editor writes `Status: Canvas` into the frontmatter of each chapter it opens, whether from a box or from scratch, and a chapter opened from a chapter box carries it already. The author settles a chapter by deleting the line, so a chapter with no status is a settled one, as every chapter in the book is today.
 
 ## Leaning on a canvas
 
@@ -49,7 +49,7 @@ A canvas keeps its number and its title when it settles, so no reference changes
 
 ## What this chapter grows into
 
-1. `Status: Canvas` in the frontmatter, written into every chapter the editor opens.
+1. `Status: Canvas` in the frontmatter of every chapter the editor opens from scratch, as a chapter opened from a box already carries it.
 2. The warning for an anchor that reaches a canvas from another chapter, in the editor and in `loom tangle`.
 3. The canvas's mark in the editor and in the table of contents.
 

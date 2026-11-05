@@ -6,7 +6,7 @@ import {
   type LoomHeading,
   type LoomSection,
 } from '#ast/LoomAst'
-import { type SectionBodyWeft, type TocWeft } from '#ast/Weft'
+import { boxOf, type LoomWeft, type SectionBodyWeft, type TocWeft } from '#ast/Weft'
 import { type WarpAnchorToken, type WarpToken } from '#ast/LoomTokens'
 
 export const SymbolKindSchema = Schema.Literals([
@@ -26,6 +26,7 @@ export const SymbolKindSchema = Schema.Literals([
   'frontmatterPartName',
   'tocPart',
   'tocEntry',
+  'boxName',
 ])
 export type SymbolKind = typeof SymbolKindSchema.Type
 
@@ -100,6 +101,13 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
         verification: true,
       }),
     ),
+    Match.when('boxName', () =>
+      profile(Option.some('namespace'), {
+        navigation: true,
+        structure: true,
+        verification: true,
+      }),
+    ),
     Match.exhaustive,
   )
 
@@ -146,6 +154,13 @@ const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...Option.toArray(Option.map(Option.fromNullishOr(heading.sink), (s) => at('sink', s.position))),
 ]
 
+const boxSymbols = (weft: LoomWeft): ReadonlyArray<Symbol> =>
+  Option.toArray(
+    Option.flatMap(boxOf(weft), (box) =>
+      Option.map(Option.fromNullishOr(box.name), (name) => at('boxName', name.position)),
+    ),
+  )
+
 const delimiterOf = (weft: SectionBodyWeft): ReadonlyArray<Symbol> =>
   Match.value(weft).pipe(
     Match.when({ type: 'ArrowWeft' }, (w) => [at('arrow', w.arrow.position)]),
@@ -168,6 +183,7 @@ const sectionSymbols = (
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
     ...Array.map(anchors, (anchor) => at(anchorKind(scope, anchor), anchor.name.position)),
     ...Array.flatMap(section.code, delimiterOf),
+    ...Array.flatMap([...section.preamble, ...section.code], boxSymbols),
     ...Array.flatMap(section.entries ?? [], tocSymbols),
   ]
 }
@@ -182,6 +198,7 @@ export const symbolsOf = (doc: LoomDocument): ReadonlyArray<Symbol> => {
       Array.flatMap(doc.preamble, (weft) => weft.anchors),
       (anchor) => at(anchorKind(scope, anchor), anchor.name.position),
     ),
+    ...Array.flatMap(doc.preamble, boxSymbols),
     ...Array.flatMap(doc.sections, (section) => sectionSymbols(section, namesOf(warps))),
   ]
 }

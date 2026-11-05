@@ -343,7 +343,7 @@ export type BoxToken = typeof BoxTokenSchema.Type
 
 ~
 
-A box's braces name its kind. A box takes one key, `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, and the note is the one kind the core gives a box. `boxKeys` holds the key a box takes, and `boxKinds` the kinds.
+A box's braces name its kind. A box takes one key, `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, a remark for whoever opens the loom next. A box of the `Chapter` kind points to a chapter, the one its name titles, and its body holds a copy of that chapter's opening prose, as the chapter "The multi-file AST" describes. `boxKeys` holds the key a box takes, and `boxKinds` the two kinds, `noteKind` and `chapterKind`.
 
 `specifierKind` reads the kind that any specifier names, an anchor's or a box's: its label, or the value of its `kind` parameter. `boxKind` reads a box's kind through it. A box with no braces, or braces that name no kind, reads as `noteKind`. A kind written in another case of letters, such as `{note}`, reads as the kind it names.
 
@@ -351,7 +351,9 @@ A box's braces name its kind. A box takes one key, `kind`, and a label alone sta
 
 export const noteKind = 'Note'
 
-export const boxKinds: ReadonlyArray<string> = [noteKind]
+export const chapterKind = 'Chapter'
+
+export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind]
 
 export const boxKeys: ReadonlyArray<string> = ['kind']
 

@@ -20,6 +20,7 @@
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",
     "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts",
     "./weave/LoomContents": "./src/weave/LoomContents.ts",
+    "./LoomSummaries": "./src/LoomSummaries.ts",
     "./ast/LineRanges": "./src/ast/LineRanges.ts",
     "./ast/WeftClassifier": "./src/ast/WeftClassifier.ts"
   },

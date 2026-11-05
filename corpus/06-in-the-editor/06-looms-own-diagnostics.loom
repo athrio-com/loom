@@ -123,34 +123,56 @@ const missingSymbols = async (
 
 A Loom diagnostic may carry fixes, and `loomFixes` offers them as the editor's quick fixes. The editor asks for code actions over a range of a file, and Volar passes the request on to the root, the same whole-file mirror the diagnostics answer for. `loomFixes` reads that loom's diagnostics from `FrameQuery` again and keeps each one whose span `meets` the range.
 
-`fixActions` turns each fix of a kept diagnostic into a `CodeAction` of the `quickfix` kind. The action names the diagnostic it repairs, and its edit writes the fix's text over the diagnostic's span in the loom, or over the span the fix's `at` names. So an unresolved anchor's fix declares its section further down the loom. So the editor lists one action for each path an ambiguous anchor offers, and choosing one writes that path where the anchor's name stood.
+`fixActions` turns each fix of a kept diagnostic into a `CodeAction` of the `quickfix` kind. The action names the diagnostic it repairs, and its edit writes the fix's text over the diagnostic's span in the loom, or over the span the fix's `at` names. So an unresolved anchor's fix declares its section further down the loom. So the editor lists one action for each path an ambiguous anchor offers, and choosing one writes that path where the anchor's name stood. A fix that names a `file` writes a new loom instead, and `newLoom` gives its edit: it creates the file, refusing one that already exists, and writes the fix's text into it. So a box that points to a chapter nobody has written offers an action that writes the chapter.
 
 =>
 
 const meets = (diagnostic: Diagnostic, start: number, end: number): boolean =>
   diagnostic.position.start.offset <= end && start <= diagnostic.position.end.offset
 
+const newLoom = (uri: string, text: string): WorkspaceEdit => ({
+  documentChanges: [
+    { kind: 'create', uri, options: { overwrite: false, ignoreIfExists: false } },
+    {
+      textDocument: { uri, version: null },
+      edits: [
+        {
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+          newText: text,
+        },
+      ],
+    },
+  ],
+})
+
 const fixActions =
-  (uri: string, at: (offset: number) => LspDiagnostic['range']['start']) =>
+  (
+    uri: string,
+    uriOf: (file: string) => string,
+    at: (offset: number) => LspDiagnostic['range']['start'],
+  ) =>
   (diagnostic: Diagnostic): ReadonlyArray<CodeAction> => {
     const repaired = toLspDiagnostic(at, diagnostic)
     return Array.map(diagnostic.fixes ?? [], (fix): CodeAction => ({
       title: fix.title,
       kind: 'quickfix',
       diagnostics: [repaired],
-      edit: {
-        changes: {
-          [uri]: [
-            {
-              range: Option.match(Option.fromNullishOr(fix.at), {
-                onNone: () => repaired.range,
-                onSome: (span) => ({ start: at(span.start.offset), end: at(span.end.offset) }),
-              }),
-              newText: fix.text,
-            },
-          ],
-        },
-      },
+      edit: Option.match(Option.fromNullishOr(fix.file), {
+        onSome: (file) => newLoom(uriOf(file), fix.text),
+        onNone: () => ({
+          changes: {
+            [uri]: [
+              {
+                range: Option.match(Option.fromNullishOr(fix.at), {
+                  onNone: () => repaired.range,
+                  onSome: (span) => ({ start: at(span.start.offset), end: at(span.end.offset) }),
+                }),
+                newText: fix.text,
+              },
+            ],
+          },
+        }),
+      }),
     }))
   }
 
@@ -168,7 +190,11 @@ const loomFixes = (frame: FrameQueryApi): LanguageServicePlugin => ({
         frame.diagnostics(loom),
         Array.filter((diagnostic) => meets(diagnostic, start, end)),
         Array.flatMap(
-          fixActions(frame.uriOf(loom).toString(), (offset) => document.positionAt(offset)),
+          fixActions(
+            frame.uriOf(loom).toString(),
+            (file) => frame.uriOf(file).toString(),
+            (offset) => document.positionAt(offset),
+          ),
         ),
       )
     },
@@ -408,7 +434,7 @@ export const LoomLanguage = defineLanguageService({
 
 ## What this module draws on
 
-From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
+From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
 
 =>
 
@@ -423,6 +449,7 @@ import type {
   LocationLink,
   SemanticToken,
   TextEdit,
+  WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'

@@ -763,7 +763,10 @@ const trailHealth = (
   Option.match(
     Option.flatMap(sectionOf(trail), (reached) => codeOf(modules, reached)),
     {
-      onNone: () => unresolved(ref.name, ref.anchor),
+      onNone: () =>
+        Array.lastNonEmpty(trail).place._tag === 'Box'
+          ? faulty(UnsettledSection({ name: ref.name, declared: true }), ref.anchor)
+          : unresolved(ref.name, ref.anchor),
       onSome: (code) =>
         reachedHealth(
           ref.name,
@@ -939,6 +942,7 @@ const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, 
         }),
       ),
     ),
+    Match.tag('Box', () => Result.fail(Referred.Unsettled({ declared: true }))),
     Match.tag('Part', () =>
       Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
     ),

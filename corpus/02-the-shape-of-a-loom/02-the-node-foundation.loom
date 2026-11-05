@@ -44,7 +44,7 @@ export type Position = typeof PositionSchema.Type
 
 A `Diagnostic` is a positioned message with a `Severity` — `error`, `warning`, or `info`. `info` is not a failure: a node carrying only `info` diagnostics stays healthy.
 
-A diagnostic may also carry `fixes`, the edits an editor offers to repair what it reports. A `Fix` holds the `title` the editor shows and the `text` it writes. The text replaces the span the diagnostic covers, or the span `at` names when the fix edits somewhere else. An ambiguous anchor offers one fix for each path that names one of its candidates alone, and each fix writes that path in place of the anchor's name. An anchor that names no section offers a fix that declares the section: a heading, written at the point below the section that holds the anchor.
+A diagnostic may also carry `fixes`, the edits an editor offers to repair what it reports. A `Fix` holds the `title` the editor shows and the `text` it writes. The text replaces the span the diagnostic covers, or the span `at` names when the fix edits somewhere else. A fix that names a `file` writes a new loom there instead, whose whole text is the fix's text, as a box that points to a chapter nobody has written offers to write it. An ambiguous anchor offers one fix for each path that names one of its candidates alone, and each fix writes that path in place of the anchor's name. An anchor that names no section offers a fix that declares the section: a heading, written at the point below the section that holds the anchor.
 
 =>
 
@@ -55,6 +55,7 @@ export const FixSchema = Schema.Struct({
   title: Schema.String,
   text: Schema.String,
   at: Schema.optional(PositionSchema),
+  file: Schema.optional(Schema.String),
 })
 export type Fix = typeof FixSchema.Type
 

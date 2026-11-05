@@ -40,6 +40,7 @@ import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
+import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -142,6 +143,17 @@ const toc = (file: string) =>
     const contents = yield* LoomContents
     const written = yield* contents.write(resolvePath(process.cwd(), file))
     yield* Console.log(`loom: wrote the table of contents into ${written}`)
+  })
+
+const refresh = (file: string) =>
+  Effect.gen(function* () {
+    const writer = yield* LoomSummaries
+    const written = yield* writer.write(resolvePath(process.cwd(), file))
+    yield* Array.isReadonlyArrayNonEmpty(written)
+      ? Effect.forEach(written, (loom) => Console.log(`loom: refreshed the summaries in ${loom}`), {
+          discard: true,
+        })
+      : Console.log('loom: every chapter box is in step')
   })
 
 const format = (path: string, check: boolean) =>
@@ -1175,6 +1187,10 @@ const formatCommand = Command.make(
 
 const tocCommand = Command.make('toc', { path: Argument.String('path') }, ({ path }) => toc(path))
 
+const refreshCommand = Command.make('refresh', { path: Argument.String('path') }, ({ path }) =>
+  refresh(path),
+)
+
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.Directory('dir')) },
@@ -1222,6 +1238,7 @@ const loom = Command.make('loom').pipe(
     orphansCommand,
     weaveCommand,
     tocCommand,
+    refreshCommand,
     formatCommand,
     initCommand,
     addCommand,
@@ -1240,6 +1257,7 @@ const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomContents.layer),
+  Effect.provide(LoomSummaries.layer),
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(LanguagePackages.layer),

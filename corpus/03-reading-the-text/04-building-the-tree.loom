@@ -70,7 +70,7 @@ const faultUnclosedFence = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomW
 
 A box holds its lines until a line of three colons alone. The classifier honours that line by line, so when no such line comes, every line to the end of the file reads as the box's body, headings included. As with fenced code, only the builder sees the whole weft list, so the check lives here too.
 
-Only the last box can be open, since a box never opens inside another. `unclosedBox` finds the last line that opens or closes a box, and keeps it only when that line opens one. A stray opens and closes nothing, so `isBoxEdge` passes it by. `faultUnclosedBox` then gives the opening line's colons an `UnclosedBox` fault. The fault is an error, so a tangle refuses the file rather than lose the sections the box swallowed.
+Only the last box can be open, since a box never opens inside another. `unclosedBox` finds the last line that opens or closes a box, and keeps it only when that line opens one. A stray opens and closes nothing, so `isBoxEdge` passes it by. `faultUnclosedBox` then gives the opening line an `UnclosedBox` fault through `faultedBoxLine`, which places a fault on a box line. The fault is an error, so a tangle refuses the file rather than lose the sections the box swallowed.
 
 =>
 
@@ -86,30 +86,60 @@ const unclosedBox = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
     Option.filter((at) => Option.exists(Array.get(wefts, at), opensBox)),
   )
 
-const faultedBox = <Line extends PreambleWeft | ProseWeft>(line: Line): Line =>
-  Option.match(Option.fromNullishOr(line.box), {
-    onNone: () => line,
-    onSome: (box) => ({
-      ...line,
-      box: {
-        ...box,
-        fence: { ...box.fence, health: faulty(UnclosedBox(), box.fence.position) },
-      },
-    }),
-  })
+const faultedBox =
+  (fault: LoomFault) =>
+  <Line extends PreambleWeft | ProseWeft>(line: Line): Line =>
+    Option.match(Option.fromNullishOr(line.box), {
+      onNone: () => line,
+      onSome: (box) => ({
+        ...line,
+        box: { ...box, fence: { ...box.fence, health: faulty(fault, box.position) } },
+      }),
+    })
 
-const faultedBoxLine = (weft: LoomWeft): LoomWeft =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'PreambleWeft' }, faultedBox),
-    Match.when({ type: 'ProseWeft' }, faultedBox),
-    Match.orElse(() => weft),
-  )
+const faultedBoxLine =
+  (fault: LoomFault) =>
+  (weft: LoomWeft): LoomWeft =>
+    Match.value(weft).pipe(
+      Match.when({ type: 'PreambleWeft' }, faultedBox(fault)),
+      Match.when({ type: 'ProseWeft' }, faultedBox(fault)),
+      Match.orElse(() => weft),
+    )
 
 const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
   Option.match(unclosedBox(wefts), {
     onNone: () => wefts,
-    onSome: (open) => Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(weft) : weft)),
+    onSome: (open) =>
+      Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(UnclosedBox())(weft) : weft)),
   })
+
+## A box that points to a chapter
+
+A box of the `Chapter` kind points to the chapter its name titles. It marks the place where a thought leaves its section for a chapter of its own, so the code of that section belongs in the chapter. `judgeChapterBoxes` reads a section's body, and `chapterBoxFault` gives each chapter box there the fault it earns. A chapter box in a section that holds code earns a `ChapterBoxBesideCode` fault, and a section holds code when an arrow opens some in it. A chapter box with no name points to no chapter, so it earns an `UnnamedChapterBox` fault. Both faults are errors, and `faultedBoxLine` places each on its box line.
+
+=>
+
+const chapterBoxFault = (box: BoxToken, code: boolean): Option.Option<LoomFault> =>
+  box.side !== 'open' || boxKind(box) !== chapterKind
+    ? Option.none()
+    : Option.match(Option.fromNullishOr(box.name), {
+        onNone: () => Option.some(UnnamedChapterBox()),
+        onSome: (name) =>
+          code ? Option.some(ChapterBoxBesideCode({ name: name.value })) : Option.none(),
+      })
+
+const judgeChapterBoxes = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> => {
+  const code = Array.some(body, (weft) => weft.type === 'ArrowWeft')
+  return Array.map(body, (weft) =>
+    Option.match(
+      Option.flatMap(boxOf(weft), (box) => chapterBoxFault(box, code)),
+      {
+        onNone: () => weft,
+        onSome: (fault) => faultedBoxLine(fault)(weft),
+      },
+    ),
+  )
+}
 
 ## A heading against the code
 
@@ -215,15 +245,16 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
 
 ## Building a section
 
-`buildSection` turns a heading and its body chunk into a `LoomSection`: it partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+`buildSection` turns a heading and its body chunk into a `LoomSection`: it judges the chapter boxes in the body, partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
 
 =>
 
 const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): LoomSection => {
   const h = headingOf(heading)
-  const preamble = body.filter(isPreamble)
-  const code = body.filter(isSectionBody)
-  const entries = body.filter(isToc)
+  const judged = judgeChapterBoxes(body)
+  const preamble = judged.filter(isPreamble)
+  const code = judged.filter(isSectionBody)
+  const entries = judged.filter(isToc)
   return LoomSectionSchema.make({
     position: spanFrom(h.position, preamble, code, entries),
     source: sourceOf(h, preamble, code, entries),
@@ -399,7 +430,7 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty` and the `UnclosedFence`, `UnclosedBox`, and `HeadingAgainstCode` faults, and `Weft` lends `boxOf`, which reads the box a weft carries.
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, and the faults raised here. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind` and `chapterKind`, which tell a chapter box.
 
 =>
 
@@ -414,10 +445,23 @@ import {
   type LoomHeading,
   type LoomSection,
 } from '@athrio/loom-ast/LoomAst'
-import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  boxKind,
+  type BoxToken,
+  chapterKind,
+  type FrontmatterValueToken,
+} from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
-import { faulty, HeadingAgainstCode, UnclosedBox, UnclosedFence } from './LoomFault'
+import {
+  ChapterBoxBesideCode,
+  faulty,
+  HeadingAgainstCode,
+  type LoomFault,
+  UnclosedBox,
+  UnclosedFence,
+  UnnamedChapterBox,
+} from './LoomFault'
 import {
   boxOf,
   type FenceWeft,
@@ -441,6 +485,8 @@ import {
 ::[Fenced code that never closes]
 
 ::[A box that never closes]
+
+::[A box that points to a chapter]
 
 ::[A heading against the code]
 

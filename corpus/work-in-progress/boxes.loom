@@ -10,7 +10,7 @@ Language: TypeScript
 
 A loom holds more than prose and code. An author sketches a diagram, leaves a note for a reader, and keeps the command that starts a server. An author also meets thoughts too large for the section they start in, and points to a chapter or a discussion of their own. An author writes every one of these as the same block, the box, and a trope can teach Loom a new kind of box without any new syntax.
 
-Loom already reads a box. The chapter "The leaf tokens" gives its shape: a line of three colons with an optional name and braces, then the body, then a line of three colons alone. The chapters "The classifier stage", "The tokeniser stage", and "The document builder" read that shape, and fault a box opened inside another, a run of four or more colons, and a box that never closes. A box that names no kind is a note, the one kind the core gives a box so far. This chapter describes the kinds that follow the note, and the caption a box's name becomes.
+Loom already reads a box. The chapter "The leaf tokens" gives its shape: a line of three colons with an optional name and braces, then the body, then a line of three colons alone. The chapters "The classifier stage", "The tokeniser stage", and "The document builder" read that shape, and fault a box opened inside another, a run of four or more colons, and a box that never closes. A box that names no kind is a note, and a box of the `Chapter` kind points to a chapter, as the chapter "The multi-file AST" describes. This chapter describes the kinds that follow those two, and the caption a box's name becomes.
 
 ## The name is a caption
 
@@ -34,15 +34,17 @@ How to model the room without a game engine: a grid of cells and the things that
 
 Such a box moves the opposite way to an anchor. An anchor pulls a section's code into the place where the anchor stands. A box that points to a loom pushes a thought out of the text, into a loom of its own, and leaves a short account of the thought behind.
 
-The loom may not exist yet. The box then leaves its chapter to be settled, as the chapter "Names through the book" describes: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes.
+The loom may not exist yet. The box then leaves its loom to be settled: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes. A chapter box does all this already, as the chapter "The multi-file AST" describes, and a discussion box does the same once discussions exist.
 
 Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the text of the discussion's conclusions. Each conclusion arrives as plain prose, without its box, because a box never holds another. The loom holds the summary's source, and the box holds a copy.
 
-The editor keeps the two in step. An edit to either one reaches the other, and the author can open the box in a side panel to edit the loom's opening without leaving the section. Loom's command line refreshes every copy from its source, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost.
+A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost. The warning's fix copies the source into the box, and `loom refresh` refreshes every copy at once, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. A chapter box works this way already.
+
+The editor goes further and keeps the two in step as the author types. An edit to either one reaches the other, and the author can open the box in a side panel to edit the loom's opening without leaving the section.
 
 A settled discussion therefore reads in its chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
 
-A section that holds a box of kind `Chapter` holds no code. The box marks where a chapter of its own begins, so the code it stands for belongs in that chapter. A chapter box in a section with code is a fault. A discussion box may sit beside code, since a discussion often argues about the code beside it.
+A section that holds a box of kind `Chapter` holds no code, and the document builder faults one that does. A discussion box may sit beside code, since a discussion often argues about the code beside it.
 
 ## Kinds come from tropes
 
@@ -69,9 +71,10 @@ A kind that neither the core nor an installed trope knows is a fault, so a missp
 
 ## What this chapter grows into
 
-1. Boxes that point to looms: found by name, opened as a chapter or a discussion, their summaries kept in step with the loom's opening prose, and the fault for a chapter box beside code.
-2. The registry of kinds: `Chapter`, `Discussion`, `Conclusion`, and `Wildcard` beside `Note` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
-3. The name as a caption, in the editor and on the woven page.
-4. Boxes in the tree-sitter grammar and in each editor's highlighting.
+1. Discussion boxes, once the chapter "Discussions" gives discussions their loom: found by name, opened as a discussion, and their summaries, conclusions included, kept in step.
+2. A copy and its source edited as one in the editor, with the side panel that edits a loom's opening from its box.
+3. The registry of kinds: `Discussion`, `Conclusion`, and `Wildcard` beside `Note` and `Chapter` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
+4. The name as a caption, in the editor and on the woven page.
+5. Boxes in the tree-sitter grammar and in each editor's highlighting.
 
 When every kind of box reads and draws in the editor, the rest of this chapter joins the chapters that hold the box.

@@ -25,6 +25,7 @@ export const FixSchema = Schema.Struct({
   title: Schema.String,
   text: Schema.String,
   at: Schema.optional(PositionSchema),
+  file: Schema.optional(Schema.String),
 })
 export type Fix = typeof FixSchema.Type
 

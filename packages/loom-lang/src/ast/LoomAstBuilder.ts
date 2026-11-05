@@ -9,10 +9,23 @@ import {
   type LoomHeading,
   type LoomSection,
 } from '@athrio/loom-ast/LoomAst'
-import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  boxKind,
+  type BoxToken,
+  chapterKind,
+  type FrontmatterValueToken,
+} from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
-import { faulty, HeadingAgainstCode, UnclosedBox, UnclosedFence } from './LoomFault'
+import {
+  ChapterBoxBesideCode,
+  faulty,
+  HeadingAgainstCode,
+  type LoomFault,
+  UnclosedBox,
+  UnclosedFence,
+  UnnamedChapterBox,
+} from './LoomFault'
 import {
   boxOf,
   type FenceWeft,
@@ -81,30 +94,54 @@ const unclosedBox = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
     Option.filter((at) => Option.exists(Array.get(wefts, at), opensBox)),
   )
 
-const faultedBox = <Line extends PreambleWeft | ProseWeft>(line: Line): Line =>
-  Option.match(Option.fromNullishOr(line.box), {
-    onNone: () => line,
-    onSome: (box) => ({
-      ...line,
-      box: {
-        ...box,
-        fence: { ...box.fence, health: faulty(UnclosedBox(), box.fence.position) },
-      },
-    }),
-  })
+const faultedBox =
+  (fault: LoomFault) =>
+  <Line extends PreambleWeft | ProseWeft>(line: Line): Line =>
+    Option.match(Option.fromNullishOr(line.box), {
+      onNone: () => line,
+      onSome: (box) => ({
+        ...line,
+        box: { ...box, fence: { ...box.fence, health: faulty(fault, box.position) } },
+      }),
+    })
 
-const faultedBoxLine = (weft: LoomWeft): LoomWeft =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'PreambleWeft' }, faultedBox),
-    Match.when({ type: 'ProseWeft' }, faultedBox),
-    Match.orElse(() => weft),
-  )
+const faultedBoxLine =
+  (fault: LoomFault) =>
+  (weft: LoomWeft): LoomWeft =>
+    Match.value(weft).pipe(
+      Match.when({ type: 'PreambleWeft' }, faultedBox(fault)),
+      Match.when({ type: 'ProseWeft' }, faultedBox(fault)),
+      Match.orElse(() => weft),
+    )
 
 const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
   Option.match(unclosedBox(wefts), {
     onNone: () => wefts,
-    onSome: (open) => Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(weft) : weft)),
+    onSome: (open) =>
+      Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(UnclosedBox())(weft) : weft)),
   })
+
+const chapterBoxFault = (box: BoxToken, code: boolean): Option.Option<LoomFault> =>
+  box.side !== 'open' || boxKind(box) !== chapterKind
+    ? Option.none()
+    : Option.match(Option.fromNullishOr(box.name), {
+        onNone: () => Option.some(UnnamedChapterBox()),
+        onSome: (name) =>
+          code ? Option.some(ChapterBoxBesideCode({ name: name.value })) : Option.none(),
+      })
+
+const judgeChapterBoxes = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> => {
+  const code = Array.some(body, (weft) => weft.type === 'ArrowWeft')
+  return Array.map(body, (weft) =>
+    Option.match(
+      Option.flatMap(boxOf(weft), (box) => chapterBoxFault(box, code)),
+      {
+        onNone: () => weft,
+        onSome: (fault) => faultedBoxLine(fault)(weft),
+      },
+    ),
+  )
+}
 
 const isFlushCode = (weft: LoomWeft): boolean =>
   weft.type === 'CodeWeft' && weft.source.trim() !== ''
@@ -190,9 +227,10 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
 
 const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): LoomSection => {
   const h = headingOf(heading)
-  const preamble = body.filter(isPreamble)
-  const code = body.filter(isSectionBody)
-  const entries = body.filter(isToc)
+  const judged = judgeChapterBoxes(body)
+  const preamble = judged.filter(isPreamble)
+  const code = judged.filter(isSectionBody)
+  const entries = judged.filter(isToc)
   return LoomSectionSchema.make({
     position: spanFrom(h.position, preamble, code, entries),
     source: sourceOf(h, preamble, code, entries),

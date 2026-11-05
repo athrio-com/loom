@@ -2,11 +2,13 @@ import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
-import { type Diagnostic, type Position } from '@athrio/loom-ast/LoomNode'
+import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   bookOf,
   type Book,
+  BoxNotice,
+  boxNoticesIn,
   corpusErrors,
   definitionAt,
   dependentsOf,
@@ -19,6 +21,7 @@ import {
   renameAt,
   renameRangeAt,
   navigationRangeAt,
+  refreshedSummaries,
   transitiveDependents,
   unresolvedTocEntriesIn,
   type CorpusLocation,
@@ -31,7 +34,9 @@ import {
   faulty,
   MissingSymbol,
   SpecifierUnknown,
+  StaleSummary,
   UnresolvedTocEntry,
+  UnwrittenChapter,
   UnsettledModule,
   UnsettledSection,
 } from '#ast/LoomFault'
@@ -115,6 +120,14 @@ const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnosti
       ).diagnostics,
   })
 
+const boxNoticeHealth = (notice: BoxNotice): Health =>
+  BoxNotice.$match(notice, {
+    Unwritten: ({ name, opening }) =>
+      faulty(UnwrittenChapter({ name: name.value, opening }), name.position),
+    Stale: ({ name, chapter, summary, body }) =>
+      faulty(StaleSummary({ name: chapter, summary, at: body }), name.position),
+  })
+
 const corpusDiagnostics = (modules: Modules) => {
   const book = bookOf(modules)
   const landing = landingOf(book, modules)
@@ -122,6 +135,10 @@ const corpusDiagnostics = (modules: Modules) => {
     ...moduleDiagnostics(module),
     ...crossFileFaults(book, modules, module, landing),
     ...namesakeFaults(book, module),
+    ...Array.flatMap(
+      boxNoticesIn({ modules }, module),
+      (notice) => boxNoticeHealth(notice).diagnostics,
+    ),
   ]
 }
 
@@ -816,6 +833,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               .pipe(Effect.map((toc) => rewriteBook({ modules }, path, toc))),
           ),
         ),
+
+      summaries: (
+        path: Location,
+      ): Effect.Effect<ReadonlyArray<{ readonly path: Location; readonly text: string }>> =>
+        buildCorpus(documents, path).pipe(Effect.map((modules) => refreshedSummaries({ modules }))),
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
         buildCorpus(documents, path).pipe(

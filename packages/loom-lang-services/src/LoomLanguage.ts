@@ -9,6 +9,7 @@ import type {
   LocationLink,
   SemanticToken,
   TextEdit,
+  WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -112,27 +113,49 @@ const missingSymbols = async (
 const meets = (diagnostic: Diagnostic, start: number, end: number): boolean =>
   diagnostic.position.start.offset <= end && start <= diagnostic.position.end.offset
 
+const newLoom = (uri: string, text: string): WorkspaceEdit => ({
+  documentChanges: [
+    { kind: 'create', uri, options: { overwrite: false, ignoreIfExists: false } },
+    {
+      textDocument: { uri, version: null },
+      edits: [
+        {
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+          newText: text,
+        },
+      ],
+    },
+  ],
+})
+
 const fixActions =
-  (uri: string, at: (offset: number) => LspDiagnostic['range']['start']) =>
+  (
+    uri: string,
+    uriOf: (file: string) => string,
+    at: (offset: number) => LspDiagnostic['range']['start'],
+  ) =>
   (diagnostic: Diagnostic): ReadonlyArray<CodeAction> => {
     const repaired = toLspDiagnostic(at, diagnostic)
     return Array.map(diagnostic.fixes ?? [], (fix): CodeAction => ({
       title: fix.title,
       kind: 'quickfix',
       diagnostics: [repaired],
-      edit: {
-        changes: {
-          [uri]: [
-            {
-              range: Option.match(Option.fromNullishOr(fix.at), {
-                onNone: () => repaired.range,
-                onSome: (span) => ({ start: at(span.start.offset), end: at(span.end.offset) }),
-              }),
-              newText: fix.text,
-            },
-          ],
-        },
-      },
+      edit: Option.match(Option.fromNullishOr(fix.file), {
+        onSome: (file) => newLoom(uriOf(file), fix.text),
+        onNone: () => ({
+          changes: {
+            [uri]: [
+              {
+                range: Option.match(Option.fromNullishOr(fix.at), {
+                  onNone: () => repaired.range,
+                  onSome: (span) => ({ start: at(span.start.offset), end: at(span.end.offset) }),
+                }),
+                newText: fix.text,
+              },
+            ],
+          },
+        }),
+      }),
     }))
   }
 
@@ -150,7 +173,11 @@ const loomFixes = (frame: FrameQueryApi): LanguageServicePlugin => ({
         frame.diagnostics(loom),
         Array.filter((diagnostic) => meets(diagnostic, start, end)),
         Array.flatMap(
-          fixActions(frame.uriOf(loom).toString(), (offset) => document.positionAt(offset)),
+          fixActions(
+            frame.uriOf(loom).toString(),
+            (file) => frame.uriOf(file).toString(),
+            (offset) => document.positionAt(offset),
+          ),
         ),
       )
     },

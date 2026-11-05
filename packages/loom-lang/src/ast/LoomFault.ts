@@ -1,5 +1,6 @@
 import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+import { type Opening } from '@athrio/loom-ast/LoomCorpusAst'
 import { settleKind } from '@athrio/loom-ast/LoomTokens'
 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
@@ -73,6 +74,10 @@ export type LoomFault = Data.TaggedEnum<{
   ColonRun: { readonly colons: string }
   NestedBox: {}
   UnclosedBox: {}
+  UnnamedChapterBox: {}
+  ChapterBoxBesideCode: { readonly name: string }
+  UnwrittenChapter: { readonly name: string; readonly opening: Opening }
+  StaleSummary: { readonly name: string; readonly summary: string; readonly at: Position }
   HeadingAgainstCode: {}
 }>
 
@@ -109,6 +114,10 @@ export const {
   ColonRun,
   NestedBox,
   UnclosedBox,
+  UnnamedChapterBox,
+  ChapterBoxBesideCode,
+  UnwrittenChapter,
+  StaleSummary,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -297,6 +306,22 @@ export const describe = (fault: LoomFault): Note =>
       error(
         'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
       ),
+    UnnamedChapterBox: () =>
+      error(
+        'Chapter box without a name: a box of the `Chapter` kind points to the chapter its name titles, so it needs a name, as in `::: Rooms {Chapter}`.',
+      ),
+    ChapterBoxBesideCode: ({ name }) =>
+      error(
+        `Chapter box beside code: this box marks where the chapter \`${name}\` begins, so the code of its section belongs in that chapter. Move the code there, or move the box into a section of its own.`,
+      ),
+    UnwrittenChapter: ({ name }) =>
+      information(
+        `To be settled: no chapter is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
+      ),
+    StaleSummary: ({ name }) =>
+      warning(
+        `Summary out of step: this box holds a copy of the opening of the chapter \`${name}\`, and the two differ. Copy the chapter's opening into the box, or edit the chapter to match.`,
+      ),
     FenceLabelAgainstLanguage: ({ label, language }) =>
       error(
         `Fence label against the language: this fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
@@ -345,6 +370,12 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
       { title: 'Remove `{Tangle}`', text: '', at: specifier },
     ]),
     Match.tag('ColonRun', (): ReadonlyArray<Fix> => [{ title: 'Write `:::`', text: ':::' }]),
+    Match.tag('UnwrittenChapter', ({ name, opening }): ReadonlyArray<Fix> => [
+      { title: `Open the chapter \`${name}\``, text: opening.text, file: opening.file },
+    ]),
+    Match.tag('StaleSummary', ({ name, summary, at }): ReadonlyArray<Fix> => [
+      { title: `Copy the opening of \`${name}\``, text: summary, at },
+    ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )
 

@@ -848,7 +848,7 @@ const referenceHealth = (
 
 An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved, and `unresolvedHealth` raises the fault, for a composing edge and a reference alike. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
-The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
+The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
 
 `declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
@@ -904,7 +904,10 @@ const trailHealth = (
   Option.match(
     Option.flatMap(sectionOf(trail), (reached) => codeOf(modules, reached)),
     {
-      onNone: () => unresolved(ref.name, ref.anchor),
+      onNone: () =>
+        Array.lastNonEmpty(trail).place._tag === 'Box'
+          ? faulty(UnsettledSection({ name: ref.name, declared: true }), ref.anchor)
+          : unresolved(ref.name, ref.anchor),
       onSome: (code) =>
         reachedHealth(
           ref.name,
@@ -1007,7 +1010,7 @@ export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Optio
 
 A reference names a module, so its name must find something that emits a file. `referredFileOf` finds that file, or the reason there is none, as a `Referred`. A `Named` holds the file, a `Landed` that pairs the file with the loom that emits it. An `Unsettled` says nobody has written the module yet. A `Faulted` holds the health of the fault that stops the reference.
 
-`referredFileOf` works in two steps. The first finds what the name names, and `referredNodeOf` takes it. A reference whose own loom holds a section of its name names that section. Any other reference finds its name through the book, nearest first, as a composing anchor does, and `nodeOfPlace` reads the place where the one trail ends, a chapter or a section. A name no trail reaches is unresolved, unless the anchor promises the module, with `{To be settled}` or a `provides` parameter, and then the module is to be settled. A name two trails reach is ambiguous, and a part names no module.
+`referredFileOf` works in two steps. The first finds what the name names, and `referredNodeOf` takes it. A reference whose own loom holds a section of its name names that section. Any other reference finds its name through the book, nearest first, as a composing anchor does, and `nodeOfPlace` reads the place where the one trail ends, a chapter or a section. A box whose chapter is not written yet names a module to be settled. A name no trail reaches is unresolved, unless the anchor promises the module, with `{To be settled}` or a `provides` parameter, and then the module is to be settled. A name two trails reach is ambiguous, and a part names no module.
 
 =>
 
@@ -1094,6 +1097,7 @@ const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, 
         }),
       ),
     ),
+    Match.tag('Box', () => Result.fail(Referred.Unsettled({ declared: true }))),
     Match.tag('Part', () =>
       Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
     ),

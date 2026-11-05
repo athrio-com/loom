@@ -240,7 +240,9 @@ export type BoxToken = typeof BoxTokenSchema.Type
 
 export const noteKind = 'Note'
 
-export const boxKinds: ReadonlyArray<string> = [noteKind]
+export const chapterKind = 'Chapter'
+
+export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind]
 
 export const boxKeys: ReadonlyArray<string> = ['kind']
 
