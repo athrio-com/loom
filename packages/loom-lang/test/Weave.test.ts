@@ -125,7 +125,8 @@ describe('the weave projection', () => {
     expect(nameCode.code).toBe("const name = 'world'")
   })
 
-  it('keeps the arrow that opened each code block and whether a tilde closed it', () => {
+  it('keeps the syntax that framed each code block, and only the code inside it', () => {
+    const fence = '```'
     const framed = `---
 Part I: Using Loom
 Chapter 1: A greeting
@@ -140,11 +141,14 @@ const name = 'world'
 
 ~
 
-Then the explicit arrow.
+Then fenced code.
 
-~>
-
+=>
+${fence}ts
 # not a heading
+${fence}
+
+And prose again, with no tilde.
 `
     const page = weave(
       buildCorpus({ '/corpus/book.loom': book, '/corpus/using/greeting.loom': framed }),
@@ -152,8 +156,11 @@ Then the explicit arrow.
     const codes = page.blocks.filter((b): b is CodeBlock => b.type === 'code')
     expect(codes.map(({ arrow, closed }) => ({ arrow, closed }))).toEqual([
       { arrow: '=>', closed: true },
-      { arrow: '~>', closed: false },
+      { arrow: '=>', closed: false },
     ])
+    expect(codes[1]?.code).toBe('# not a heading')
+    const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : []))
+    expect(prose).toContain('And prose again, with no tilde.')
   })
 
   it('anchors every block to the chapter and section it came from', () => {

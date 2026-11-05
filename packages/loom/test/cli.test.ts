@@ -695,7 +695,7 @@ describe('loom cli — doctor', () => {
   )
 })
 
-const explicitWorkspace = (chapter: string): string => {
+const fencedWorkspace = (chapter: string): string => {
   const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
   mkdirSync(join(dir, 'corpus'), { recursive: true })
   writeFileSync(
@@ -706,11 +706,11 @@ const explicitWorkspace = (chapter: string): string => {
   return dir
 }
 
-describe('loom cli — explicit blocks', () => {
+describe('loom cli — fenced code', () => {
   it(
-    'tangles a Markdown file whose headings and fences stay inside the block',
+    'tangles a Markdown file whose headings and fences stay inside the fenced code',
     () => {
-      const dir = explicitWorkspace(
+      const dir = fencedWorkspace(
         lines(
           '---',
           'Part I, Chapter 1: A skill',
@@ -726,10 +726,10 @@ describe('loom cli — explicit blocks', () => {
           '',
           'Write for the reader.',
           '',
-          '## The skill {Tangle}[SKILL.md]',
+          '## The skill [SKILL.md]',
           '',
-          '~>',
-          '',
+          '=>',
+          '````md',
           '---',
           'name: probe',
           '---',
@@ -744,12 +744,9 @@ describe('loom cli — explicit blocks', () => {
           '# a shell comment',
           'ls ~/bin',
           '```',
+          '````',
           '',
-          '~',
-          '',
-          '## After the block',
-          '',
-          'Prose that follows the closed block is prose again.',
+          'Prose that follows the closing fence is prose again.',
         ),
       )
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
@@ -762,6 +759,8 @@ describe('loom cli — explicit blocks', () => {
       expect(written).toContain('Write for the reader.')
       expect(written).toContain('# a shell comment')
       expect(written).toContain('ls ~/bin')
+      expect(written).toContain('```bash')
+      expect(written).not.toContain('````')
       expect(written).not.toContain('Prose that follows')
       rmSync(dir, { recursive: true, force: true })
     },
@@ -769,9 +768,9 @@ describe('loom cli — explicit blocks', () => {
   )
 
   it(
-    'refuses an explicit block no tilde closes, and writes nothing',
+    'refuses fenced code nothing closes, and writes nothing',
     () => {
-      const dir = explicitWorkspace(
+      const dir = fencedWorkspace(
         lines(
           '---',
           'Part I, Chapter 1: Open',
@@ -781,16 +780,16 @@ describe('loom cli — explicit blocks', () => {
           '',
           '# Open',
           '',
-          '## The file {Tangle}[OPEN.md]',
+          '## The file [OPEN.md]',
           '',
-          '~>',
-          '',
+          '=>',
+          '```md',
           '# swallowed heading',
         ),
       )
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
       expect(status).not.toBe(0)
-      expect(stderr).toContain('Unclosed explicit block')
+      expect(stderr).toContain('Unclosed fence')
       expect(existsSync(join(dir, 'OPEN.md'))).toBe(false)
       rmSync(dir, { recursive: true, force: true })
     },
@@ -800,7 +799,7 @@ describe('loom cli — explicit blocks', () => {
   it(
     'keeps a line that starts with a tilde as code in a plain block',
     () => {
-      const dir = explicitWorkspace(
+      const dir = fencedWorkspace(
         lines(
           '---',
           'Part I, Chapter 1: Paths',
@@ -810,7 +809,7 @@ describe('loom cli — explicit blocks', () => {
           '',
           '# Paths',
           '',
-          '## The paths {Tangle}[paths.ts]',
+          '## The paths [paths.ts]',
           '',
           '=>',
           '',

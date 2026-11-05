@@ -129,14 +129,14 @@ type Piece =
   | { readonly type: 'text'; readonly markdown: string }
   | { readonly type: 'fence'; readonly kind: string; readonly body: string }
 
-const FENCE = /^```([\w-]*)[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m
+const FENCE = /^([ \t]*)(`{3,})([\w-]*)[ \t]*\r?\n([\s\S]*?)^\1\2`*[ \t]*$/m
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
   return Array.filter(
     [
       { type: 'text', markdown: first ?? '' } as Piece,
-      ...Array.flatMap(Array.chunksOf(rest, 3), ([kind, body, after]): ReadonlyArray<Piece> => [
+      ...Array.flatMap(Array.chunksOf(rest, 5), ([, , kind, body, after]): ReadonlyArray<Piece> => [
         { type: 'fence', kind: kind ?? '', body: body ?? '' },
         { type: 'text', markdown: after ?? '' },
       ]),

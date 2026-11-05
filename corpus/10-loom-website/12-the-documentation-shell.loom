@@ -181,20 +181,22 @@ A run of prose is Markdown, and Markdown becomes HTML here rather than at weave 
 
 Not every fence in that Markdown is drawn as Markdown would draw it. A fenced command becomes a button that copies it, and a quoted loom becomes the landing's highlighted card. So `piecesOf` first cuts a run of prose into pieces: stretches of text, and the fences between them, each fence carrying the word after its opening backticks and the lines it holds. A stretch of text that is only blank space is dropped, so two fences in a row leave nothing between them.
 
+A fence closes only on a line that matches it, by the rule Loom keeps: the same indent, then at least as many backticks. So a quote of four backticks can show a loom whose fenced code has three. `FENCE` captures the opening indent and backticks to hold the close against them, so the split hands back five pieces for each fence: the indent, the backticks, the word, the lines, and the text after.
+
 =>
 
 type Piece =
   | { readonly type: 'text'; readonly markdown: string }
   | { readonly type: 'fence'; readonly kind: string; readonly body: string }
 
-const FENCE = /^```([\w-]*)[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m
+const FENCE = /^([ \t]*)(`{3,})([\w-]*)[ \t]*\r?\n([\s\S]*?)^\1\2`*[ \t]*$/m
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
   return Array.filter(
     [
       { type: 'text', markdown: first ?? '' } as Piece,
-      ...Array.flatMap(Array.chunksOf(rest, 3), ([kind, body, after]): ReadonlyArray<Piece> => [
+      ...Array.flatMap(Array.chunksOf(rest, 5), ([, , kind, body, after]): ReadonlyArray<Piece> => [
         { type: 'fence', kind: kind ?? '', body: body ?? '' },
         { type: 'text', markdown: after ?? '' },
       ]),
@@ -507,7 +509,7 @@ A chapter in colour holds thousands of marks. The view runs again every time the
 
 The `runHtml` function writes a run as HTML. The `escaped` function makes the code's own text safe to write there, so a `<` in the code stays a character rather than opening a tag.
 
-The block also shows the syntax that framed its code in the loom, since a reader learning Loom needs to see where a block begins and ends. That syntax is the loom's and not the program's, so it stays out of the code. The arrow that opened the block leads the head line, before the language. The tilde that closed it makes the foot line, under the code. A block that ran on to the next heading has no tilde and no foot, and a block from a book that kept no frame shows neither mark. The copy button copies the code alone.
+The block also shows the syntax that framed its code in the loom, since a reader learning Loom needs to see where a block begins and ends. That syntax is the loom's and not the program's, so it stays out of the code. The arrow that opened the block leads the head line, before the language. The tilde that closed it makes the foot line, under the code. Fenced code draws exactly as a plain block does. Its fences only tell Loom where the code ends, and the head line already names the language a fence's label would, so the fences add nothing a reader needs here. A block that ran on to the next heading, or one whose closing fence ended it, has no tilde and no foot, and a block from a book that kept no frame shows neither mark. The copy button copies the code alone.
 
 =>
 

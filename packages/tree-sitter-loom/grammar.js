@@ -21,6 +21,7 @@ module.exports = grammar({
     $._tilde_line,
     $._prose_line,
     $._code_line,
+    $._code_fence_line,
     $._toc_line,
     $._verbatim_line,
     $._note_line,
@@ -153,9 +154,33 @@ module.exports = grammar({
     note_marker: (_) => ':' + anchorOpen + 'Note]',
 
     code: ($) =>
-      seq($._arrow_line, optional($._space), $.arrow, repeat(choice($.code_text, $.anchor))),
+      seq(
+        $._arrow_line,
+        optional($._space),
+        $.arrow,
+        repeat(choice($.code_text, $.anchor, $.code_fence)),
+        optional(alias($._after_fence, $.prose)),
+      ),
 
-    arrow: (_) => choice('=>', '~>'),
+    arrow: (_) => '=>',
+
+    code_fence: ($) =>
+      seq(
+        $._code_fence_line,
+        optional($._space),
+        $.fence_marker,
+        optional($._space),
+        optional($.fence_label),
+        $._newline,
+      ),
+
+    fence_marker: (_) => /```+/,
+    fence_label: (_) => /[^\s`][^\r\n]*/,
+
+    _after_fence: ($) =>
+      repeat1(
+        choice(seq($._prose_line, repeat($._prose_inline), $._newline), $._verbatim, $.note),
+      ),
 
     code_text: ($) => prec.right(repeat1(choice($._code_run, $._newline, $._code_line))),
 

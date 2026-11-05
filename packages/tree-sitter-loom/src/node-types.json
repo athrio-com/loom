@@ -36,11 +36,6 @@
     }
   },
   {
-    "type": "arrow",
-    "named": true,
-    "fields": {}
-  },
-  {
     "type": "code",
     "named": true,
     "fields": {},
@@ -57,7 +52,34 @@
           "named": true
         },
         {
+          "type": "code_fence",
+          "named": true
+        },
+        {
           "type": "code_text",
+          "named": true
+        },
+        {
+          "type": "prose",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "code_fence",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "fence_label",
+          "named": true
+        },
+        {
+          "type": "fence_marker",
           "named": true
         }
       ]
@@ -248,7 +270,7 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "anchor",
@@ -435,10 +457,6 @@
     "named": false
   },
   {
-    "type": "=>",
-    "named": false
-  },
-  {
     "type": "[",
     "named": false
   },
@@ -455,11 +473,23 @@
     "named": true
   },
   {
+    "type": "arrow",
+    "named": true
+  },
+  {
     "type": "default",
     "named": true
   },
   {
     "type": "extension",
+    "named": true
+  },
+  {
+    "type": "fence_label",
+    "named": true
+  },
+  {
+    "type": "fence_marker",
     "named": true
   },
   {
@@ -516,10 +546,6 @@
   },
   {
     "type": "}}",
-    "named": false
-  },
-  {
-    "type": "~>",
     "named": false
   }
 ]

@@ -21,6 +21,7 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   settleKind,
+  type FenceLabelToken,
   type ParameterToken,
   type ParametersToken,
   type SinkToken,
@@ -51,6 +52,7 @@ import {
   type Declaration,
   DuplicateName,
   faulty,
+  FenceLabelAgainstLanguage,
   SettledLabel,
   UnsettledSection,
   UnknownVariable,
@@ -279,7 +281,7 @@ const buildSection =
       index,
       origin,
       languageId,
-      duplicateHealth(first, section),
+      withHealth(duplicateHealth(first, section), labelHealth(section, languageId)),
     )
     const file = tangleFile(section, pkg, code)
     return { code, file }
@@ -816,3 +818,26 @@ const duplicateHealth = (first: ReadonlyMap<string, LoomSection>, section: LoomS
     ),
     Option.getOrElse(() => okHealth),
   )
+
+const labelsOf = (section: LoomSection): ReadonlyArray<FenceLabelToken> =>
+  Array.flatMap(section.code, (weft) =>
+    weft.type === 'FenceWeft' && weft.label !== undefined ? [weft.label] : [],
+  )
+
+const labelHealth = (section: LoomSection, languageId: string): Health =>
+  Option.match(
+    Array.findFirst(labelsOf(section), (label) => extensionLanguage(label.source) !== languageId),
+    {
+      onNone: () => okHealth,
+      onSome: (label) =>
+        faulty(
+          FenceLabelAgainstLanguage({ label: label.source, language: languageId }),
+          label.position,
+        ),
+    },
+  )
+
+const withHealth = (first: Health, second: Health): Health => ({
+  status: first.status === 'ok' ? second.status : first.status,
+  diagnostics: [...first.diagnostics, ...second.diagnostics],
+})

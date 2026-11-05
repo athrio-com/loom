@@ -186,6 +186,10 @@ A specifier's label is a type, except for the two labels that instruct Loom, `{T
 
 (tilde) @operator
 
+(fence_marker) @operator
+
+(fence_label) @type
+
 (anchor
   (anchor_open) @punctuation.special
   "]" @punctuation.special)

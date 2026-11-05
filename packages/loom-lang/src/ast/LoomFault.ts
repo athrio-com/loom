@@ -39,7 +39,8 @@ export type LoomFault = Data.TaggedEnum<{
     readonly found: string
   }
   UnresolvedTocEntry: { readonly title: string }
-  UnclosedExplicitBlock: {}
+  UnclosedFence: { readonly fence: string }
+  FenceLabelAgainstLanguage: { readonly label: string; readonly language: string }
   StrayFragment: { readonly value: string }
   RepeatedKey: { readonly key: string }
   LabelBesideParameter: { readonly label: string }
@@ -63,7 +64,8 @@ export const {
   DuplicateName,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
-  UnclosedExplicitBlock,
+  UnclosedFence,
+  FenceLabelAgainstLanguage,
   StrayFragment,
   RepeatedKey,
   LabelBesideParameter,
@@ -183,11 +185,15 @@ export const describe = (fault: LoomFault): Note =>
       ),
     HeadingAgainstCode: () =>
       warning(
-        'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
+        'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, fence the block: write three backticks on the line after its arrow, and three more where the code ends. If it is a heading, leave a blank line above it.',
       ),
-    UnclosedExplicitBlock: () =>
+    UnclosedFence: ({ fence }) =>
       error(
-        'Unclosed explicit block: `~>` holds its code until a tilde, and none follows. Close it with `~` on a line of its own.',
+        `Unclosed fence: this fenced code runs to the end of the loom, because nothing closes it. Close it with \`${fence}\` at the same column, on a line of its own.`,
+      ),
+    FenceLabelAgainstLanguage: ({ label, language }) =>
+      error(
+        `Fence label against the language: this fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
       ),
   })
 

@@ -25,13 +25,14 @@ A loom is text, but Loom does not work on text — it reads that text into a tre
 
 ### Part III — Reading the text
 
-A loom arrives as plain text, and Loom must read it into the tree the previous part described. This part is that reading — four passes that turn text into a document, and a fifth that follows the document's imports out to its corpus.
+A loom arrives as plain text, and Loom must read it into the tree the previous part described. This part is that reading — four passes that turn text into a document, and a fifth that follows the document's imports out to its corpus. A last chapter gathers how every one of those passes reads fenced code, the code that holds lines that look like Loom's own marks.
 
 1. Line ranges
 2. The classifier stage
 3. The tokeniser stage
 4. The document builder
 5. Building one module
+6. Fenced code
 
 ### Part IV — The product
 

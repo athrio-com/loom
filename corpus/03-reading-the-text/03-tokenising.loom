@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The tokeniser service
 
-Prose carries anchors too, so the tokeniser respects Markdown: an anchor inside an inline code span or a fenced block stays inert, the literal text it appears to be. An inline span is a per-line affair the prose handlers mask, but a fence spans many lines, so `tokeniseWefts` threads its state through the weft stream with `Stream.mapAccum`. `fenceStep` advances that state: a prose line of three backticks opens or closes a fence, a code chunk or a heading resets it, and it reports `skipAnchors` on every line a fence covers. `tokeniseWeft` then dispatches each weft by kind to the per-weft handlers, telling each whether to skip its anchors.
+Prose carries anchors too, so the tokeniser respects Markdown: an anchor inside an inline code span or a fenced block stays inert, the literal text it appears to be. An inline span is a per-line affair the prose handlers mask, but a fence spans many lines, so `tokeniseWefts` threads its state through the weft stream with `Stream.mapAccum`. `quoteStep` advances that state, by the same rule the classifier keeps. A prose line that opens a fence opens a quote, and only a line that `closesFence` accepts closes it again. Any line outside prose, a line of code or a heading, ends the quote. `quoteStep` reports `skipAnchors` on every line the quote covers, its two fences included. `tokeniseWeft` then dispatches each weft by kind to the per-weft handlers, telling each whether to skip its anchors.
 
 =>
 
@@ -21,10 +21,10 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
       (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
         Stream.mapAccum(
           source,
-          () => false,
-          (inFence, weft) => {
-            const [nextFence, skipAnchors] = fenceStep(inFence, weft)
-            return [nextFence, [tokeniseWeft(text, weft, delims, skipAnchors)]]
+          () => Option.none<Fence>(),
+          (quote, weft) => {
+            const [nextQuote, skipAnchors] = quoteStep(quote, weft)
+            return [nextQuote, [tokeniseWeft(text, weft, delims, skipAnchors)]]
           },
         ),
   }),
@@ -35,11 +35,19 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
 
-const fenceStep = (inFence: boolean, weft: LoomWeft): readonly [boolean, boolean] => {
-  if (!isProseWeft(weft)) return [false, false]
-  const delimiter = /^\s*```/.test(weft.source)
-  return [delimiter ? !inFence : inFence, inFence || delimiter]
-}
+const quoteStep = (
+  quote: Option.Option<Fence>,
+  weft: LoomWeft,
+): readonly [Option.Option<Fence>, boolean] =>
+  isProseWeft(weft)
+    ? Option.match(quote, {
+        onSome: (fence) => [closesFence(fence)(weft.source) ? Option.none() : quote, true],
+        onNone: () => {
+          const opened = openingFence(weft.source)
+          return [opened, Option.isSome(opened)]
+        },
+      })
+    : [Option.none(), false]
 
 const tokeniseWeft = (
   text: string,
@@ -55,6 +63,7 @@ const tokeniseWeft = (
     Match.when({ type: 'PreambleWeft' }, (w) => tokenisePreamble(text, w, delims, skipAnchors)),
     Match.when({ type: 'ProseWeft' }, (w) => tokeniseProse(text, w, delims, skipAnchors)),
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
+    Match.when({ type: 'FenceWeft' }, (w) => tokeniseFence(w)),
     Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
     Match.when({ type: 'TocWeft' }, (w) => tokeniseToc(w)),
     Match.exhaustive,
@@ -407,6 +416,29 @@ const tokeniseCode = (text: string, weft: CodeWeft, delims: AnchorDelims): LoomW
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
   })
+}
+
+~
+
+A fence line around fenced code has little left to settle. The classifier has already found its backticks and its side. `tokeniseFence` reads an opening fence's label, the text after the backticks, trimmed, when there is any. A closing fence carries nothing after its backticks, so it is whole as it stands.
+
+=>
+
+const tokeniseFence = (weft: FenceWeft): LoomWeft => {
+  const lineStart = weft.position.start.offset
+  const after = weft.fence.position.end.offset
+  const rest = weft.source.replace(/\r?\n$/, '').slice(after - lineStart)
+  const name = rest.trim()
+  const start = after + rest.length - rest.trimStart().length
+  const label =
+    weft.side === 'open' && name !== ''
+      ? FenceLabelTokenSchema.make({
+          position: span(weft.position.start.line, start, start + name.length),
+          source: name,
+          health: okHealth,
+        })
+      : undefined
+  return FenceWeftSchema.make({ ...weft, health: okHealth, label })
 }
 
 ## Health and positions
@@ -1784,7 +1816,11 @@ import {
   WarpNameTokenSchema,
   WarpOpenTokenSchema,
   WarpTokenSchema,
+  closesFence,
+  type Fence,
+  FenceLabelTokenSchema,
   getProbe,
+  openingFence,
   type SinkCloseToken,
   type SinkFileLabelToken,
   type SinkOpenToken,
@@ -1828,6 +1864,8 @@ import {
   ArrowWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type FenceWeft,
+  FenceWeftSchema,
   type FrontmatterWeft,
   FrontmatterWeftSchema,
   type HeadingWeft,

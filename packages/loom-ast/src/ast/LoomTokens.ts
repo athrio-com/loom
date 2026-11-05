@@ -167,7 +167,7 @@ export const TocTitleTokenSchema = loomNode('TocTitle', {
 export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
-  [Probe]: /^\s*[=~]>/,
+  [Probe]: /^\s*=>/,
 })
 export type ArrowToken = typeof ArrowTokenSchema.Type
 
@@ -180,7 +180,7 @@ export const HeadingTitleTokenSchema = loomNode('HeadingTitle', {})
 export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
 
 export const CodeTokenSchema = loomNode('Code', {}).annotate({
-  [Probe]: /(?<=^\s*[=~]>\s*)\S.*$/,
+  [Probe]: /(?<=^\s*=>\s*)\S.*$/,
 })
 export type CodeToken = typeof CodeTokenSchema.Type
 
@@ -188,6 +188,35 @@ export const ProseTokenSchema = loomNode('Prose', {}).annotate({
   [Probe]: /(?<=^~\s+)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
+
+export const CodeFenceTokenSchema = loomNode('CodeFence', {}).annotate({
+  [Probe]: /^[ \t]*`{3,}/,
+})
+export type CodeFenceToken = typeof CodeFenceTokenSchema.Type
+
+export const FenceLabelTokenSchema = loomNode('FenceLabel', {})
+export type FenceLabelToken = typeof FenceLabelTokenSchema.Type
+
+export type Fence = { readonly length: number; readonly column: number }
+
+const fencePattern = /^([ \t]*)(`{3,})/
+
+export const openingFence = (line: string): Option.Option<Fence> =>
+  Option.map(Option.fromNullishOr(fencePattern.exec(line)), (m) => ({
+    length: m[2]!.length,
+    column: m[1]!.length,
+  }))
+
+export const closesFence =
+  (fence: Fence) =>
+  (line: string): boolean =>
+    Option.exists(
+      openingFence(line),
+      (found) =>
+        found.column === fence.column &&
+        found.length >= fence.length &&
+        line.slice(found.column + found.length).trim() === '',
+    )
 
 export const WarpOpenTokenSchema = loomNode('WarpOpen', {
   value: Schema.Literal('{{'),
@@ -363,6 +392,8 @@ export const LoomTokenSchema = Schema.Union([
   HeadingTitleTokenSchema,
   CodeTokenSchema,
   ProseTokenSchema,
+  CodeFenceTokenSchema,
+  FenceLabelTokenSchema,
   WarpTokenSchema,
   WarpAnchorTokenSchema,
 ])

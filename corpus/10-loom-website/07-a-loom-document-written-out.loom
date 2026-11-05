@@ -573,9 +573,9 @@ const outputPanel = (which: PlayerOutput, h: HtmlBuilder<Message>): Html =>
 
 ## Any loom, highlighted
 
-The documentation quotes looms of its own, and a reader should see them in the same colours the example uses. `loomCanvas` draws any loom's text on a card like the example's, without the player around it. Each mark wears the colour the vocabulary gives it. A heading is blue, and a sink in square brackets on it is a blue chip too. A specifier in braces is a deep amber chip. An arrow is a green chip and a tilde an orange one, and an anchor is a violet chip wherever it stands. The frontmatter fences are violet, and each field inside them names its key in violet.
+The documentation quotes looms of its own, and a reader should see them in the same colours the example uses. `loomCanvas` draws any loom's text on a card like the example's, without the player around it. Each mark wears the colour the vocabulary gives it. A heading is blue, and a sink in square brackets on it is a blue chip too. A specifier in braces is a deep amber chip. An arrow is a green chip and a tilde an orange one, and the fences around fenced code are green chips like the arrow. An anchor is a violet chip wherever it stands. The frontmatter fences are violet, and each field inside them names its key in violet.
 
-The classifier reads the text one line at a time and carries three facts from line to line: whether it is inside the frontmatter, whether it is inside code, and whether that code was opened by the explicit arrow. Code runs from an arrow to the next tilde or heading, as it does in Loom, and code an explicit arrow opened runs to the tilde alone. Each line takes the first rule that fits it, in that order: a frontmatter fence, a frontmatter field, a tilde, a heading, an arrow, and then whatever text is left. A code line keeps its spaces and never wraps; a prose line wraps to the card.
+The classifier reads the text one line at a time and carries four facts from line to line: whether it is inside the frontmatter, whether it is inside code, whether an arrow is still waiting for a fence, and the fence of any fenced code it is inside. Code runs from an arrow to the next tilde or heading, as it does in Loom. A fence on the first line after an arrow that is not blank opens fenced code, and only a fence at the same column, at least as long, closes it again. Each line takes the first rule that fits it, in that order: a frontmatter fence, a frontmatter field, a line inside fenced code, a fence after a waiting arrow, a tilde, a heading, an arrow, and then whatever text is left. A code line keeps its spaces and never wraps; a prose line wraps to the card.
 
 A reader who wants the loom should not have to select it by hand, so the card carries a small copy button in its top corner. It copies the loom exactly as the chapter wrote it, and while the copy flashes its clipboard turns into a check.
 
@@ -586,12 +586,30 @@ const AMBER_WASH = 'rgba(255, 197, 61, 0.2)'
 
 type CanvasLine = { readonly tokens: ReadonlyArray<Token>; readonly kept: boolean }
 
+type Fence = { readonly length: number; readonly column: number }
+
 type Reading = {
   readonly lines: ReadonlyArray<CanvasLine>
   readonly inFrontmatter: boolean
   readonly inCode: boolean
-  readonly explicit: boolean
+  readonly awaiting: boolean
+  readonly fence: Option.Option<Fence>
 }
+
+const fenceIn = (text: string): Option.Option<Fence> =>
+  Option.map(Option.fromNullishOr(/^([ \t]*)(`{3,})/.exec(text)), (found) => ({
+    length: found[2]?.length ?? 0,
+    column: found[1]?.length ?? 0,
+  }))
+
+const closesFence = (fence: Fence, text: string): boolean =>
+  Option.exists(
+    fenceIn(text),
+    (found) =>
+      found.column === fence.column &&
+      found.length >= fence.length &&
+      text.slice(found.column + found.length).trim() === '',
+  )
 
 const withAnchors = (text: string): ReadonlyArray<Token> =>
   pipe(
@@ -637,6 +655,7 @@ const readLine = (reading: Reading, text: string, at: number): Reading => {
     next: Partial<Reading> = {},
   ): Reading => ({
     ...reading,
+    awaiting: false,
     ...next,
     lines: [...reading.lines, { tokens, kept }],
   })
@@ -648,32 +667,58 @@ const readLine = (reading: Reading, text: string, at: number): Reading => {
     ),
     Option.orElse(() => when(reading.inFrontmatter, () => add(fieldTokens(text), false))),
     Option.orElse(() =>
+      Option.map(reading.fence, (fence) =>
+        closesFence(fence, text)
+          ? add([chip(text.trim(), GREEN, WASH.green)], false, {
+              inCode: false,
+              fence: Option.none(),
+            })
+          : add(withAnchors(text), true),
+      ),
+    ),
+    Option.orElse(() =>
+      Option.map(
+        Option.filter(fenceIn(text), () => reading.awaiting),
+        (fence) =>
+          add([chip(text.trim(), GREEN, WASH.green)], false, { fence: Option.some(fence) }),
+      ),
+    ),
+    Option.orElse(() =>
       when(/^~(\s|$)/.test(text), () =>
-        add([chip('~', ORANGE, WASH.orange)], false, { inCode: false, explicit: false }),
+        add([chip('~', ORANGE, WASH.orange)], false, { inCode: false }),
       ),
     ),
     Option.orElse(() =>
-      (reading.explicit ? Option.none() : headingOf(text)).pipe(
-        Option.map(([marks, title]) => add(headingTokens(marks, title), false, { inCode: false })),
+      Option.map(headingOf(text), ([marks, title]) =>
+        add(headingTokens(marks, title), false, { inCode: false }),
       ),
     ),
     Option.orElse(() =>
-      when(!reading.inCode && /^\s*[=~]>/.test(text), () => {
-        const arrow = text.trim().slice(0, 2)
-        return add([chip(arrow, GREEN, WASH.green)], false, {
+      when(!reading.inCode && /^\s*=>/.test(text), () =>
+        add([chip('=>', GREEN, WASH.green)], false, {
           inCode: true,
-          explicit: arrow === '~>',
-        })
+          awaiting: text.trim() === '=>',
+        }),
+      ),
+    ),
+    Option.getOrElse(() =>
+      add(withAnchors(text), reading.inCode, {
+        awaiting: reading.awaiting && text.trim() === '',
       }),
     ),
-    Option.getOrElse(() => add(withAnchors(text), reading.inCode)),
   )
 }
 
 const canvasLines = (source: string): ReadonlyArray<CanvasLine> =>
   Array.reduce(
     source.replace(/\n$/, '').split('\n'),
-    { lines: [], inFrontmatter: false, inCode: false, explicit: false } as Reading,
+    {
+      lines: [],
+      inFrontmatter: false,
+      inCode: false,
+      awaiting: false,
+      fence: Option.none(),
+    } as Reading,
     readLine,
   ).lines
 

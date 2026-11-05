@@ -1,0 +1,70 @@
+---
+Part III, Chapter 6: Fenced code
+Language: Prose
+---
+
+# Fenced code
+
+A plain block of code ends at the next heading. A heading is a run of one to six hashes followed by a space, so any line of code that starts that way ends the block, whatever its author meant by it. Most code never writes such a line. A shebang like `#!/bin/sh`, a C `#include`, and a Rust attribute like `#[derive(Debug)]` carry no space after the hash, so they stay code.
+
+The lines that do end a block by mistake form a short list, but a real one:
+
+- a comment in a shell script, a Python module, or a YAML file;
+- a directive written as a comment, such as `# shellcheck disable=SC2086`, a Dockerfile's `# syntax=docker/dockerfile:1`, or Python's `# type: ignore`;
+- a heading in a Markdown file that a section writes.
+
+A literate loom rarely needs the comments, since its prose explains the code. The other two are not optional. A directive changes what a tool does, and a Markdown heading is the content of the file.
+
+Code that must hold such lines is fenced, the way Markdown fences any code. The fence is a mark every reader of Markdown already knows, so Loom asks no one to learn a mark of its own for a rare case.
+
+## An arrow, then a fence
+
+Fenced code opens like every block of code, with an arrow on its own line. On the first line after the arrow that is not blank comes a fence: three backticks, optionally followed by the section's language. Every line after the fence is code, until a fence that matches it closes the block.
+
+Inside fenced code, a line that starts with `#`, `=>`, or `~` is code like any other, and so is a line of dashes. Anchors and warps still compose, so fenced code draws in other sections just as a plain block does. A quote composes nothing, so composition is what tells fenced code from a quote.
+
+The closing fence ends the block, and prose follows on the next line, with no tilde to close the code.
+
+Part XI's install script shows the case this serves. The script opens with a comment that says what it does and how to run it, and the comment belongs in the file, since a person who opens `install.sh` reads it there. Its shebang stays code, because no space follows the hash, but nearly every line of the comment starts with a hash and a space. A plain block would end at the first of those lines and read the rest as headings. Fenced, the block holds them all:
+
+````loom
+=>
+```sh
+#!/bin/sh
+# Installs Loom's standalone executable and puts it on PATH.
+#
+#   curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh
+
+set -eu
+```
+````
+
+## A fence alone is a quote
+
+A fence in prose that does not follow an arrow is a quote. Its lines are shown and never composed, and none of them is a mark. Part XI, Releasing Loom, quotes this way the one line a person types to install Loom. Part VII, Languages as packages, quotes a diagram of how editor requests reach each language. Neither belongs in any file the book writes, and the fence keeps them out.
+
+A fence inside a plain block of code belongs to the code. A section that writes a Markdown file may hold fences of its own, and they are part of the file it writes.
+
+So a reader tells the two kinds of fence apart by the line above them. An arrow above a fence opens fenced code. Prose above a fence opens a quote.
+
+## Long fences hold short ones
+
+A closing fence starts at the column its opening fence started at, and it is at least as long. Nothing follows its backticks but spaces. A block of code that holds three backticks of its own, such as a Markdown file or a test that builds a loom, therefore opens with a fence of four, and only another four closes it. The rule holds for quotes as well, so a loom can quote a loom that holds fenced code, as this chapter does above.
+
+The column matters as much as the length. A TypeScript template string may hold an indented line of backticks, and that line must not close the block around it. Every reader of a loom keeps the rule the same way: the classifier and the tokeniser through `openingFence` and `closesFence`, the weave, the editor's line scanner, and the website that draws a loom.
+
+## The fence's label
+
+A fence may carry a label, the language name Markdown writes after the backticks, and it may leave it off. The label is optional because Loom already knows each section's language: from the heading's specifier first, then the extension of the file its sink names, then the chapter's `Language:`. A fence without a label is read exactly as a fence with one.
+
+A label tells Loom nothing new, so it must never contradict what Loom knows, and above all never the specifier. A label agrees when it names the section's language, or a file extension that maps to it, so `ts` and `typescript` both label a TypeScript section. A label that names another language is a fault, so one block never has two languages. A `{Bash}` section in a chapter of TypeScript takes `bash` on its fence, never `ts`.
+
+The label serves the readers outside Loom. GitHub, and any other Markdown viewer, colours a fenced block by its label.
+
+## What can go wrong
+
+Three faults keep fenced code honest:
+
+- **A fence that never closes.** Fenced code with no closing fence would swallow the rest of the loom, so its opening fence carries an `UnclosedFence` error, and the editor underlines it where the code began.
+- **A label against the language.** A fence whose label names a language other than the section's, the specifier's when the heading has one, carries a `FenceLabelAgainstLanguage` error, on the label. A fence with no label has nothing to check.
+- **A heading against code.** A heading written directly under a line of code most likely ended the code by mistake, where a `#` comment was meant. The `HeadingAgainstCode` warning marks it, and its message names the fix: fence the block.

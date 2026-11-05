@@ -2,7 +2,9 @@ import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
+  CodeFenceTokenSchema,
   CodeTokenSchema,
+  FenceLabelTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterFenceTokenSchema,
   FrontmatterKeyTokenSchema,
@@ -61,6 +63,14 @@ export const CodeWeftSchema = loomNode('CodeWeft', {
 })
 export type CodeWeft = typeof CodeWeftSchema.Type
 
+export const FenceWeftSchema = loomNode('FenceWeft', {
+  side: Schema.Literals(['open', 'close']),
+  fence: CodeFenceTokenSchema,
+  label: Schema.optional(FenceLabelTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type FenceWeft = typeof FenceWeftSchema.Type
+
 export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
   fence: Schema.optional(FrontmatterFenceTokenSchema),
   part: Schema.optional(FrontmatterPartTokenSchema),
@@ -86,6 +96,7 @@ export const LoomWeftSchema = Schema.Union([
   PreambleWeftSchema,
   ProseWeftSchema,
   CodeWeftSchema,
+  FenceWeftSchema,
   FrontmatterWeftSchema,
   TocWeftSchema,
 ])
@@ -94,6 +105,7 @@ export type LoomWeft = typeof LoomWeftSchema.Type
 export const SectionBodyWeftSchema = Schema.Union([
   ArrowWeftSchema,
   CodeWeftSchema,
+  FenceWeftSchema,
   TildeWeftSchema,
   ProseWeftSchema,
 ])

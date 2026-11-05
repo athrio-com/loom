@@ -24,7 +24,7 @@ export type HeadingWeft = typeof HeadingWeftSchema.Type
 
 ## The body wefts
 
-The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the anchors on it. A `CodeWeft` is a later line in code mode — opaque to Loom, but its anchors are recognised. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose` and its anchors. A `ProseWeft` is a later line in prose mode — opaque too, but its anchors are recognised. A `PreambleWeft` is a default-mode line before any transition, carrying the warp declarations and any anchors on it.
+The body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the anchors on it. A `CodeWeft` is a later line in code mode — opaque to Loom, but its anchors are recognised. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose` and its anchors. A `ProseWeft` is a later line in prose mode — opaque too, but its anchors are recognised. A `PreambleWeft` is a default-mode line before any transition, carrying the warp declarations and any anchors on it.
 
 Every body weft carries its `anchors`, because an anchor is read in code and in prose alike. A code anchor composes the named section; a prose anchor places a chapter or merely links to it. A later pass reads which plane an anchor takes from the weft it sits on.
 
@@ -60,6 +60,20 @@ export const CodeWeftSchema = loomNode('CodeWeft', {
 })
 export type CodeWeft = typeof CodeWeftSchema.Type
 
+~
+
+Fenced code adds one more. A `FenceWeft` is a fence line that bounds fenced code, either the one that opens it straight after its arrow or the one that closes it. Its `side` says which, so no later pass has to pair the fences up again. Its `fence` is the run of backticks, and an opening fence may carry a `label`, the language name written after them. A fence weft is neither code nor prose: the code between the two fences is code wefts, and the fence lines themselves compose into nothing. A fence line holds no anchor, so its `anchors` stay empty, and a pass that gathers a section's anchors can still ask every body weft for them. A fence in prose is not a fence weft. It opens a quote, and its lines stay prose wefts.
+
+=>
+
+export const FenceWeftSchema = loomNode('FenceWeft', {
+  side: Schema.Literals(['open', 'close']),
+  fence: CodeFenceTokenSchema,
+  label: Schema.optional(FenceLabelTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type FenceWeft = typeof FenceWeftSchema.Type
+
 ## The frontmatter weft
 
 A `FrontmatterWeft` is one line of the frontmatter block — a fence, a `Part` or `Chapter` line, or a `key: value` field. One weft kind covers them all, each filling the slots its line owns: a fence line fills `fence`; a `Part` line fills `part` and `partName`; a `Chapter` line fills `chapter` and `title`; the joined `Part …, Chapter …` line fills `part`, `chapter`, and `title`; a `Package` or `Language` line fills `key` and `value`. This mirrors the heading weft, which carries its title, specifier, and sink in the same optional way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
@@ -92,7 +106,7 @@ export type TocWeft = typeof TocWeftSchema.Type
 
 ## The weft unions
 
-`LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, tilde, and prose, in the forward-only order the classifier enforces.
+`LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, fence, tilde, and prose, in the forward-only order the classifier enforces.
 
 =>
 
@@ -103,6 +117,7 @@ export const LoomWeftSchema = Schema.Union([
   PreambleWeftSchema,
   ProseWeftSchema,
   CodeWeftSchema,
+  FenceWeftSchema,
   FrontmatterWeftSchema,
   TocWeftSchema,
 ])
@@ -111,6 +126,7 @@ export type LoomWeft = typeof LoomWeftSchema.Type
 export const SectionBodyWeftSchema = Schema.Union([
   ArrowWeftSchema,
   CodeWeftSchema,
+  FenceWeftSchema,
   TildeWeftSchema,
   ProseWeftSchema,
 ])
@@ -118,7 +134,7 @@ export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
 
 ## What this module draws on
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, sink, warp, and anchor schemas from `LoomTokens`.
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, specifier, sink, warp, and anchor schemas from `LoomTokens`.
 
 =>
 
@@ -126,7 +142,9 @@ import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
+  CodeFenceTokenSchema,
   CodeTokenSchema,
+  FenceLabelTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterFenceTokenSchema,
   FrontmatterKeyTokenSchema,

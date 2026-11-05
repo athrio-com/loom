@@ -48,17 +48,18 @@ const name = 'world'
 Then it says hello.
 ```
 
-The arrow has a stronger form, `~>`. Code after it ignores headings and runs until a tilde, so a block can hold lines that would otherwise open a section: the titles of a Markdown file, or a comment in a shell script.
+Some code writes lines that would otherwise open a section: the titles of a Markdown file, or a comment in a shell script. Such code is fenced, the way Markdown fences code. Three backticks on the line after the arrow open the fence, and three more close it. Every line between them is code, and the prose after the closing fence needs no tilde.
 
-```loom
-~>
-
+````loom
+=>
+```md
 # Loom
 
 Programs written to be read.
-
-~
 ```
+
+Prose again.
+````
 
 A heading can say where its code goes and what Loom should make of it. A file name in brackets is a sink, the file that section's code is written to. A word in braces is a specifier. `{Tangle}` writes a section to the file its chapter's `Package` line names, so a chapter that makes one file needs no sink. `{TOC}` marks the table of contents, and a language name such as `{Bash}` switches the section's language.
 
@@ -92,6 +93,6 @@ A warp binds a value to a name, written in the prose before a section's first ar
 const salutation = '::[salutation]'
 ```
 
-Two more marks set text apart from Loom altogether. Three backticks open a fence, and every line up to the next three is quoted verbatim, so its arrows and headings stay text. That is how this chapter shows its examples without composing them. A note runs from a `:::[Note]` line to a lone `:::`, and holds a remark for whoever opens the loom next. Tangling drops it, so a note never reaches the code.
+Two more marks set text apart from Loom altogether. A fence in prose opens a quote, and every line up to the fence that closes it is shown verbatim, so its arrows and headings stay text. That is how this chapter shows its examples without composing them. Only a fence at the same indent and at least as long closes another, so the quote of fenced code above opens with four backticks and holds the three inside it. A note runs from a `:::[Note]` line to a lone `:::`, and holds a remark for whoever opens the loom next. Tangling drops it, so a note never reaches the code.
 
 The chapters that follow give each its shape — first the node every one of them is built from, then the tokens inside a line, the lines themselves, the sections they form, and the corpus above them.

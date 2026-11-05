@@ -13,7 +13,16 @@ import { WeftClassifier } from '@athrio/loom-lang/ast/WeftClassifier'
 
 const it = effectify(it_)
 
-type LineKind = 'frontmatter' | 'heading' | 'toc' | 'arrow' | 'code' | 'tilde' | 'text' | 'none'
+type LineKind =
+  | 'frontmatter'
+  | 'heading'
+  | 'toc'
+  | 'arrow'
+  | 'code'
+  | 'fence'
+  | 'tilde'
+  | 'text'
+  | 'none'
 
 const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   FrontmatterWeft: 'frontmatter',
@@ -21,6 +30,7 @@ const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   TocWeft: 'toc',
   ArrowWeft: 'arrow',
   CodeWeft: 'code',
+  FenceWeft: 'fence',
   TildeWeft: 'tilde',
   PreambleWeft: 'text',
   ProseWeft: 'text',
@@ -73,13 +83,13 @@ const parseTree = (file: string): Effect.Effect<string> =>
 
 type Block = 'frontmatter' | 'heading' | 'toc' | 'preamble' | 'code' | 'prose'
 
-const blockKind: Record<Block, (offset: number) => LineKind> = {
-  frontmatter: () => 'frontmatter',
-  heading: () => 'heading',
-  toc: () => 'toc',
-  preamble: () => 'text',
-  code: (offset) => (offset === 0 ? 'arrow' : 'code'),
-  prose: (offset) => (offset === 0 ? 'tilde' : 'text'),
+const blockKind: Record<Block, LineKind> = {
+  frontmatter: 'frontmatter',
+  heading: 'heading',
+  toc: 'toc',
+  preamble: 'text',
+  code: 'code',
+  prose: 'text',
 }
 
 const blockPattern =
@@ -89,14 +99,26 @@ const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKi
   const [, block, startRow, endRow, endColumn] = match
   const start = Number(startRow)
   const end = Number(endColumn) === 0 ? Number(endRow) - 1 : Number(endRow)
-  return Array.map(
-    Array.range(start, end),
-    (row) => [row, blockKind[block as Block](row - start)] as const,
-  )
+  return Array.map(Array.range(start, end), (row) => [row, blockKind[block as Block]] as const)
 }
 
+type Mark = 'arrow' | 'tilde' | 'code_fence'
+
+const markKind: Record<Mark, LineKind> = { arrow: 'arrow', tilde: 'tilde', code_fence: 'fence' }
+
+const markPattern = /\((arrow|tilde|code_fence) \[(\d+), \d+\]/g
+
+const markRows = (tree: string): ReadonlyArray<readonly [number, LineKind]> =>
+  Array.map(
+    Array.fromIterable(tree.matchAll(markPattern)),
+    ([, mark, row]) => [Number(row), markKind[mark as Mark]] as const,
+  )
+
 const grammarKinds = (tree: string, count: number): ReadonlyArray<LineKind> => {
-  const rows = new Map(Array.flatMap(Array.fromIterable(tree.matchAll(blockPattern)), rowsOf))
+  const rows = new Map([
+    ...Array.flatMap(Array.fromIterable(tree.matchAll(blockPattern)), rowsOf),
+    ...markRows(tree),
+  ])
   return count === 0 ? [] : Array.map(Array.range(0, count - 1), (row) => rows.get(row) ?? 'none')
 }
 
@@ -171,19 +193,22 @@ const fixture = (name: string, rows: ReadonlyArray<string>, ending: string = '\n
   return file
 }
 
-const explicitBlock = [
+const fencedBlock = [
   '---',
   'Language: Markdown',
   '---',
   '',
   '# A README [README.md]',
   '',
-  '~>',
+  '=>',
+  '````md',
   '# Title',
   '',
   '=> not an arrow here',
+  '~ nor a tilde',
+  '```sh',
   '## Usage',
-  '~',
+  '````',
   '',
   'Back in prose.',
   '',
@@ -212,11 +237,11 @@ const fenceAndNote = [
 ]
 
 describe('the corners', () => {
-  it.effect('an explicit block holds headings and arrows as code', () =>
-    checkLoom(fixture('explicit', explicitBlock)),
+  it.effect('fenced code holds headings, arrows and shorter fences as code', () =>
+    checkLoom(fixture('fenced', fencedBlock)),
   )
   it.effect('Windows line endings read as Unix ones do', () =>
-    checkLoom(fixture('crlf', explicitBlock, '\r\n')),
+    checkLoom(fixture('crlf', fencedBlock, '\r\n')),
   )
   it.effect('a fence and a note keep their marks inert', () =>
     checkLoom(fixture('fence-and-note', fenceAndNote)),

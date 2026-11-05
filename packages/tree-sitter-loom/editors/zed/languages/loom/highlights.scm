@@ -63,6 +63,10 @@
 
 (tilde) @operator
 
+(fence_marker) @operator
+
+(fence_label) @type
+
 (anchor
   (anchor_open) @punctuation.special
   "]" @punctuation.special)

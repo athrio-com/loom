@@ -22,8 +22,8 @@ The script covers macOS and Linux. Windows has no `sh` to run it with, so a Wind
 
 The script is written for `sh`, the shell every Unix system carries. It uses nothing that Bash adds to `sh`, since `sh` on Debian and Ubuntu is Dash, a smaller shell without those additions. It stops at the first command that fails, and at the first variable it reads that was never set, so a broken step never leaves a half-installed Loom behind. `fail` prints why it stopped and exits non-zero.
 
-~>
-
+=>
+```sh
 #!/bin/sh
 # Installs Loom's standalone executable and puts it on PATH.
 #
@@ -44,14 +44,14 @@ fail() {
   exit 1
 }
 
-~
+```
 
 ## What the person asks for
 
 The script takes two kinds of argument. A version picks the release to install, with or without its leading `v`. The `--no-modify-path` option leaves every profile alone, for a person who manages `PATH` themselves. `LOOM_NO_MODIFY_PATH` does the same from the environment, when it holds any value, for a setup script that cannot pass an argument through a pipe. Anything else that starts with a dash is a mistake, and the script stops on it rather than guess.
 
-~>
-
+=>
+```sh
 version=
 modify_path=yes
 if [ -n "${LOOM_NO_MODIFY_PATH:-}" ]; then
@@ -66,7 +66,7 @@ for argument in "$@"; do
   esac
 done
 
-~
+```
 
 ## The executable this machine needs
 
@@ -74,8 +74,8 @@ The script names the file it needs the way the release names them, `loom-<system
 
 A terminal that runs under Rosetta, Apple's translator for Intel programs, reports `x86_64` even on Apple silicon. The Intel executable would run there, but more slowly, so the script asks macOS whether it is being translated, and takes the native executable when it is.
 
-~>
-
+=>
+```sh
 case "$(uname -s)" in
   Darwin) system=darwin ;;
   Linux) system=linux ;;
@@ -95,14 +95,14 @@ fi
 
 asset="loom-$system-$architecture.gz"
 
-~
+```
 
 ## Where the release lives
 
 A release's files sit at one address on GitHub, and the latest release has an address of its own that always points at the newest. A version given to the script picks that release's address instead. `LOOM_DOWNLOAD` overrides the address outright, which is how the smoke test serves a release of its own.
 
-~>
-
+=>
+```sh
 if [ -n "$version" ]; then
   release="https://github.com/athrio-com/loom/releases/download/v$version"
 else
@@ -110,7 +110,7 @@ else
 fi
 release="${LOOM_DOWNLOAD:-$release}"
 
-~
+```
 
 ## A folder of Loom's own
 
@@ -118,8 +118,8 @@ The executable goes into `~/.loom/bin`, a folder Loom owns, as Bun keeps its own
 
 The folder may already hold a `loom`. One that an earlier run of this script put there is Loom's executable, and the install replaces it. Anything else there is not the script's to replace, such as a script a person wrote to switch between versions of Loom. So the script looks before it downloads anything. A link is not Loom's executable. Neither is a script, a file whose first line opens with `#!` to name the program that runs it, which a compiled executable never does. Neither is a program that does not answer `--version` the way Loom does. In each case the script names the file, leaves it as it was, and stops.
 
-~>
-
+=>
+```sh
 dir="${LOOM_INSTALL_DIR:-$HOME/.loom/bin}"
 
 if [ -e "$dir/loom" ] || [ -L "$dir/loom" ]; then
@@ -129,14 +129,14 @@ if [ -e "$dir/loom" ] || [ -L "$dir/loom" ]; then
   fi
 fi
 
-~
+```
 
 ## A download that checks out
 
 The script downloads the gzipped executable and the list of checksums into a temporary folder, which it removes however it exits. It then computes the download's SHA-256 checksum, with `sha256sum` on Linux and `shasum` on macOS, and compares it with the one the list gives. A file that does not match stops the install before anything reaches the person's `PATH`. The check catches a download that was cut short or corrupted. It cannot prove who built the file, since the list comes from the same place. Once the checksum matches, `gunzip` unpacks the executable beside the download.
 
-~>
-
+=>
+```sh
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -156,14 +156,14 @@ fi
 
 gunzip -c "$work/$asset" > "$work/loom" || fail "could not unpack $asset"
 
-~
+```
 
 ## Into place
 
 The executable arrives in two moves. The first carries it into the folder under a temporary name, which may copy it across file systems. The second renames it to `loom` within the folder, in one step, so a `loom` that is already running keeps its file and a new run finds the new one.
 
-~>
-
+=>
+```sh
 mkdir -p "$dir"
 chmod 755 "$work/loom"
 mv "$work/loom" "$dir/loom.partial.$$"
@@ -171,7 +171,7 @@ mv "$dir/loom.partial.$$" "$dir/loom"
 
 printf 'Installed %s at %s\n' "$("$dir/loom" --version)" "$dir/loom"
 
-~
+```
 
 ## Putting the folder on PATH
 
@@ -181,8 +181,8 @@ Zsh, the shell macOS starts by default, reads `.zshrc` in the folder `ZDOTDIR` n
 
 The line a profile receives names the folder through `$HOME` when the folder is inside the home folder, so the profile still works if the home folder moves.
 
-~>
-
+=>
+```sh
 case $dir in
   "$HOME"/*) spelled="\$HOME/${dir#"$HOME"/}" ;;
   *) spelled=$dir ;;
@@ -210,14 +210,14 @@ case $(basename "${SHELL:-sh}") in
     ;;
 esac
 
-~
+```
 
 A folder already on `PATH` needs nothing. Otherwise the script appends the line, under a comment that names Loom, and says which profile it changed. A shell reads its profile only as it starts, so the change reaches the next terminal, and the script says to open one.
 
 The script adds the line only once. A profile that already names the folder, by its full path or through `$HOME`, is left as it is, so running the script again never repeats the line. That covers a person who added the folder by hand, and a terminal opened before the first install that still runs on the old `PATH`. With `--no-modify-path`, or for a shell with no profile the script knows, the script prints the line for the person to add.
 
-~>
-
+=>
+```sh
 case ":$PATH:" in
   *":$dir:"*) ;;
   *)
@@ -233,7 +233,7 @@ case ":$PATH:" in
     ;;
 esac
 
-~
+```
 
 ## Another loom on PATH
 
@@ -241,8 +241,8 @@ A person may have installed Loom before, with npm or Bun, or with an older scrip
 
 Each installer leaves a mark in the path of the files it writes. A `loom` on `PATH` is usually a link to the installed package, so `resolved` follows the link, and each link after it, to the file it leads to.
 
-~>
-
+=>
+```sh
 resolved() {
   target=$1
   hops=0
@@ -257,14 +257,14 @@ resolved() {
   printf '%s\n' "$target"
 }
 
-~
+```
 
 `recognise` reads the marks in the path that `resolved` gives, as `loom doctor` does. It sets `described`, which says who installed the `loom`, and `removal`, the command that removes it. Homebrew keeps its packages under a `Cellar` folder. Bun keeps the packages it installs for the whole machine in a `.bun` folder, and pnpm in a `pnpm` folder.
 
 npm keeps both a project's packages and its own in a `node_modules` folder. A project's sits beside the project's `package.json`, and npm's own sits in a folder with none. So a path through `node_modules` belongs to a project when the folder above the first `node_modules` holds a `package.json`. The project's lockfile then names its package manager, and the removal runs in the project's folder. A path with none of these marks belongs to no installer the script knows. It may be an older standalone executable, and its removal deletes the file.
 
-~>
-
+=>
+```sh
 project_manager() {
   if [ -f "$1/bun.lock" ] || [ -f "$1/bun.lockb" ]; then
     echo bun
@@ -314,12 +314,12 @@ recognise() {
   esac
 }
 
-~
+```
 
 The script then walks `PATH` folder by folder and reports every `loom` it finds there that is not the one it just installed. A folder may appear on `PATH` twice, and two folders may link to one file, so the walk reports each file once. It skips any `loom` that leads to the new one.
 
-~>
-
+=>
+```sh
 seen=
 printf '%s\n' "$PATH" | tr ':' '\n' | while IFS= read -r folder; do
   if [ -z "$folder" ] || [ ! -f "$folder/loom" ] || [ ! -x "$folder/loom" ]; then
@@ -338,7 +338,7 @@ printf '%s\n' "$PATH" | tr ':' '\n' | while IFS= read -r folder; do
     "$folder/loom" "$described" "$removal"
 done
 
-~
+```
 
 ## The script assembled [scripts/install.sh]
 

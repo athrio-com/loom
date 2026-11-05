@@ -546,52 +546,106 @@ describe('Mealy chain — output IS next state', () => {
 })
 
 // =============================================================================
-// Explicit blocks — `~>` opens code that only a tilde closes.
+// Fenced code — a fence straight after an arrow holds until a matching fence.
 // =============================================================================
 
-describe('Explicit block — `~>` holds until a tilde', () => {
+describe('Fenced code — a fence after an arrow holds until it closes', () => {
   const types = (lines: ReadonlyArray<string>) => classify(lines).map((w) => w.type)
 
-  it('keeps `#` lines as code inside the block', () => {
-    expect(types(['## Skill', '~>', '# Title', '## Rule', 'body', '~'])).toEqual([
+  it('keeps `#` lines as code between the fences', () => {
+    expect(types(['## Skill', '=>', '```md', '# Title', '## Rule', 'body', '```'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'FenceWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'FenceWeft',
+    ])
+  })
+
+  it('lets blank lines stand between the arrow and its fence', () => {
+    expect(types(['## S', '=>', '', '```sh', '# comment', '```'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'CodeWeft',
+      'FenceWeft',
+      'CodeWeft',
+      'FenceWeft',
+    ])
+  })
+
+  it('returns to prose after the closing fence, with no tilde', () => {
+    expect(types(['## S', '=>', '```', 'x', '```', 'prose', '## T'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'FenceWeft',
+      'CodeWeft',
+      'FenceWeft',
+      'ProseWeft',
+      'HeadingWeft',
+    ])
+  })
+
+  it('keeps arrows, tildes, dashes and shorter fences as code', () => {
+    expect(types(['## S', '=>', '````', '=>', '~', '---', '```', '````'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'FenceWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'FenceWeft',
+    ])
+  })
+
+  it('closes only at the column the opening fence started', () => {
+    expect(types(['## S', '=>', '```ts', 'const s = `', '  ```', '`', '```'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'FenceWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'FenceWeft',
+    ])
+  })
+
+  it('reads a fence that does not follow its arrow as plain code', () => {
+    expect(types(['## S', '=>', 'x', '```', '# heading'])).toEqual([
       'HeadingWeft',
       'ArrowWeft',
       'CodeWeft',
       'CodeWeft',
-      'CodeWeft',
-      'TildeWeft',
-    ])
-  })
-
-  it('reads a heading again once the tilde has closed the block', () => {
-    expect(types(['## Skill', '~>', '# kept', '~', '## Next'])).toEqual([
-      'HeadingWeft',
-      'ArrowWeft',
-      'CodeWeft',
-      'TildeWeft',
       'HeadingWeft',
     ])
   })
 
-  it('keeps arrows, dashes and tilde-led content as code', () => {
-    expect(types(['## S', '~>', '=>', '---', '~/bin', '~~~', '~>', '~'])).toEqual([
-      'HeadingWeft',
-      'ArrowWeft',
-      'CodeWeft',
-      'CodeWeft',
-      'CodeWeft',
-      'CodeWeft',
-      'CodeWeft',
-      'TildeWeft',
-    ])
+  it('records which side of the code each fence stands on', () => {
+    const sides = classify(['## S', '=>', '```sh', 'x', '```']).flatMap((w) =>
+      w.type === 'FenceWeft' ? [w.side] : [],
+    )
+    expect(sides).toEqual(['open', 'close'])
   })
 
-  it('records the marker it was written with', () => {
-    const [, explicit] = classify(['## S', '~>', 'x', '~'])
-    const [, plain] = classify(['## S', '=>', 'x'])
-    if (explicit.type !== 'ArrowWeft' || plain.type !== 'ArrowWeft') throw new Error('expected ArrowWeft')
-    expect(explicit.arrow.source).toBe('~>')
-    expect(plain.arrow.source).toBe('=>')
+  it('reads `~>` as an ordinary line, now that fences hold such code', () => {
+    expect(types(['## S', '~>', '# T'])).toEqual(['HeadingWeft', 'PreambleWeft', 'HeadingWeft'])
+  })
+
+  it('closes a quote only on a fence that matches it', () => {
+    expect(
+      types(['## S', 'prose', '````', '```', '# not a heading', '```', '````', '## T']),
+    ).toEqual([
+      'HeadingWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'ProseWeft',
+      'ProseWeft',
+      'ProseWeft',
+      'ProseWeft',
+      'HeadingWeft',
+    ])
   })
 
   it('leaves a plain arrow closed by the next heading, as before', () => {
@@ -603,11 +657,14 @@ describe('Explicit block — `~>` holds until a tilde', () => {
     ])
   })
 
-  it('leaves a `~>` quoted inside a prose fence as prose', () => {
-    expect(types(['## S', 'prose', '```', '~>', '```', '## T'])).toEqual([
+  it('leaves fenced code quoted inside a prose fence as prose', () => {
+    expect(types(['## S', 'prose', '````', '=>', '```', '# x', '```', '````', '## T'])).toEqual([
       'HeadingWeft',
       'PreambleWeft',
       'PreambleWeft',
+      'ProseWeft',
+      'ProseWeft',
+      'ProseWeft',
       'ProseWeft',
       'ProseWeft',
       'HeadingWeft',

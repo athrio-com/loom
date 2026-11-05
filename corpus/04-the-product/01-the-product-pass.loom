@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, `settleKind`, the kind that marks a section to be settled, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `UnsettledSection` note a section to be settled carries, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, `settleKind`, the kind that marks a section to be settled, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `UnsettledSection` note a section to be settled carries, and the `DuplicateName` fault a repeated section name raises and the `FenceLabelAgainstLanguage` fault a fence's label raises, with the `FenceLabelToken` it is raised on, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -44,6 +44,7 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   settleKind,
+  type FenceLabelToken,
   type ParameterToken,
   type ParametersToken,
   type SinkToken,
@@ -74,6 +75,7 @@ import {
   type Declaration,
   DuplicateName,
   faulty,
+  FenceLabelAgainstLanguage,
   SettledLabel,
   UnsettledSection,
   UnknownVariable,
@@ -313,7 +315,7 @@ const valueWarps = (
 
 A section's heading decides what it contributes. Every section composes to one `Code`: its identity, its language, and its fragments in composition order. A section that names a file — through a `[file]` sink, or a `{Tangle}` specifier — contributes a `File` on top, the same `Code` paired with the path it tangles to.
 
-A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. When an earlier section of the document already holds the section's name, the code carries the fault that says so.
+A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. When an earlier section of the document already holds the section's name, or a fence's label names another language, the code carries the fault that says so.
 
 =>
 
@@ -344,7 +346,7 @@ const buildSection =
       index,
       origin,
       languageId,
-      duplicateHealth(first, section),
+      withHealth(duplicateHealth(first, section), labelHealth(section, languageId)),
     )
     const file = tangleFile(section, pkg, code)
     return { code, file }
@@ -968,6 +970,39 @@ const duplicateHealth = (first: ReadonlyMap<string, LoomSection>, section: LoomS
     Option.getOrElse(() => okHealth),
   )
 
+## A fence's label
+
+Fenced code may wear a label after its opening backticks, the language name Markdown writes there for any viewer that colours it, or leave it off, since Loom already knows the section's language. `sectionLanguage` gives it: the heading's specifier first, then the sink's extension, then the chapter. So a label tells Loom nothing new. It must agree with that language, the specifier's above all, or one block would have two languages. A fence with no label has nothing to check.
+
+A label agrees when it names the section's language, or a file extension that maps to it. `extensionLanguage` already maps an extension to a language for sinks, and a bare name passes through it unchanged, so `ts` and `typescript` both agree with a TypeScript section. `labelsOf` gathers a section's fence labels, and `labelHealth` gives the first label that disagrees a `FenceLabelAgainstLanguage` fault, on the label itself.
+
+A section's code carries one health. `withHealth` folds a second check into it, keeping the worse status and both diagnostics, so `buildSection` can hold a section to a single name and its fences to its language at once.
+
+=>
+
+const labelsOf = (section: LoomSection): ReadonlyArray<FenceLabelToken> =>
+  Array.flatMap(section.code, (weft) =>
+    weft.type === 'FenceWeft' && weft.label !== undefined ? [weft.label] : [],
+  )
+
+const labelHealth = (section: LoomSection, languageId: string): Health =>
+  Option.match(
+    Array.findFirst(labelsOf(section), (label) => extensionLanguage(label.source) !== languageId),
+    {
+      onNone: () => okHealth,
+      onSome: (label) =>
+        faulty(
+          FenceLabelAgainstLanguage({ label: label.source, language: languageId }),
+          label.position,
+        ),
+    },
+  )
+
+const withHealth = (first: Health, second: Health): Health => ({
+  status: first.status === 'ok' ? second.status : first.status,
+  diagnostics: [...first.diagnostics, ...second.diagnostics],
+})
+
 ## The module {Tangle}
 
 The tangle composes the sections in the source's own order — the spine first, then the helpers it reaches for, each section named by its title, the local anchor form Loom prefers.
@@ -993,3 +1028,5 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[A section's name and its spans]
 
 ::[One name, one section]
+
+::[A fence's label]

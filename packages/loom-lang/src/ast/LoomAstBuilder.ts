@@ -12,9 +12,9 @@ import {
 import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
-import { faulty, HeadingAgainstCode, UnclosedExplicitBlock } from './LoomFault'
+import { faulty, HeadingAgainstCode, UnclosedFence } from './LoomFault'
 import type {
-  ArrowWeft,
+  FenceWeft,
   FrontmatterWeft,
   HeadingWeft,
   LoomWeft,
@@ -30,7 +30,7 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBu
         Effect.map((wefts) =>
           makeDocument(
             Array.reduce(
-              groupNodes(warnHeadingAgainstCode(faultUnclosedExplicit(wefts))),
+              groupNodes(warnHeadingAgainstCode(faultUnclosedFence(wefts))),
               initialDocument,
               appendToDocument,
             ),
@@ -42,32 +42,29 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBu
   static readonly layer = Layer.effect(this, this.make)
 }
 
-const isExplicitArrow = (weft: LoomWeft): weft is ArrowWeft =>
-  weft.type === 'ArrowWeft' && weft.arrow.source === '~>'
+const isFence = (weft: LoomWeft): weft is FenceWeft => weft.type === 'FenceWeft'
 
-const unclosedExplicit = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
+const opensFence = (weft: LoomWeft): boolean => isFence(weft) && weft.side === 'open'
+
+const unclosedFence = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
   pipe(
-    Array.findLastIndex(wefts, isExplicitArrow),
-    Option.filter(
-      (at) => !Array.some(Array.drop(wefts, at + 1), (weft) => weft.type === 'TildeWeft'),
-    ),
+    Array.findLastIndex(wefts, isFence),
+    Option.filter((at) => Option.exists(Array.get(wefts, at), opensFence)),
   )
 
-const faultedArrow = (weft: ArrowWeft): ArrowWeft => ({
+const faultedFence = (weft: FenceWeft): FenceWeft => ({
   ...weft,
-  arrow: {
-    ...weft.arrow,
-    health: faulty(UnclosedExplicitBlock(), weft.arrow.position),
+  fence: {
+    ...weft.fence,
+    health: faulty(UnclosedFence({ fence: weft.fence.source }), weft.fence.position),
   },
 })
 
-const faultUnclosedExplicit = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
-  Option.match(unclosedExplicit(wefts), {
+const faultUnclosedFence = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+  Option.match(unclosedFence(wefts), {
     onNone: () => wefts,
     onSome: (open) =>
-      Array.map(wefts, (weft, at) =>
-        at === open && isExplicitArrow(weft) ? faultedArrow(weft) : weft,
-      ),
+      Array.map(wefts, (weft, at) => (at === open && isFence(weft) ? faultedFence(weft) : weft)),
   })
 
 const isFlushCode = (weft: LoomWeft): boolean =>
@@ -93,6 +90,7 @@ const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
 const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
   w.type === 'ArrowWeft' ||
   w.type === 'CodeWeft' ||
+  w.type === 'FenceWeft' ||
   w.type === 'TildeWeft' ||
   w.type === 'ProseWeft'
 

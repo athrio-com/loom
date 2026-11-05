@@ -85,6 +85,74 @@ export const add = (x: number, y: number): number => x + y
   })
 })
 
+describe('ProductBuilder — fenced code', () => {
+  const script = (label: string) =>
+    [
+      '# Install [install.sh]',
+      '',
+      '=>',
+      '```' + label,
+      '#!/bin/sh',
+      '# Installs the thing.',
+      'echo done',
+      '```',
+      '',
+      'The script ends here.',
+      '',
+    ].join('\n')
+
+  it('composes the lines between the fences, its `#` lines included, and no fence', () => {
+    const code = Option.getOrThrow(codeNamed(productOf(script('sh')), 'Install'))
+    const text = fragments(code.fragments)
+      .map((f) => f.text)
+      .join('')
+    expect(text).toBe('#!/bin/sh\n# Installs the thing.\necho done\n')
+    expect(code.health.status).toBe('ok')
+  })
+
+  it('accepts a label that names the language by an extension or by its name', () => {
+    const ts = (label: string) =>
+      Option.getOrThrow(
+        codeNamed(productOf(`# M [m.ts]\n\n=>\n\`\`\`${label}\nconst m = 1\n\`\`\`\n`), 'M'),
+      )
+    expect(ts('ts').health.status).toBe('ok')
+    expect(ts('typescript').health.status).toBe('ok')
+  })
+
+  it('needs no label at all', () => {
+    const code = Option.getOrThrow(codeNamed(productOf(script('')), 'Install'))
+    expect(code.health.status).toBe('ok')
+    const text = fragments(code.fragments)
+      .map((f) => f.text)
+      .join('')
+    expect(text).toBe('#!/bin/sh\n# Installs the thing.\necho done\n')
+  })
+
+  it('holds a label to the heading specifier, over the chapter language', () => {
+    const run = (label: string) =>
+      Option.getOrThrow(
+        codeNamed(
+          productOf(
+            `---\nLanguage: TypeScript\n---\n\n# Run {Bash}\n\n=>\n\`\`\`${label}\necho hi\n\`\`\`\n`,
+          ),
+          'Run',
+        ),
+      )
+    expect(run('bash').health.status).toBe('ok')
+    console.log('[expected — not a test failure] a ts label on a {Bash} section in a TypeScript chapter')
+    expect(run('ts').health.status).toBe('error')
+  })
+
+  it('faults a label that names another language, on the label', () => {
+    console.log('[expected — not a test failure] a fence labelled python on a shell section')
+    const code = Option.getOrThrow(codeNamed(productOf(script('python')), 'Install'))
+    expect(code.health.status).toBe('error')
+    const [fault] = code.health.diagnostics
+    expect(fault?.message).toStartWith('Fence label against the language')
+    expect(fault?.position.start.line).toBe(4)
+  })
+})
+
 describe('ProductBuilder — a within-file anchor becomes a NameRef', () => {
   it('targets the named section in the same file', () => {
     const product = productOf(`---

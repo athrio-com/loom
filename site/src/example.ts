@@ -470,12 +470,30 @@ const AMBER_WASH = 'rgba(255, 197, 61, 0.2)'
 
 type CanvasLine = { readonly tokens: ReadonlyArray<Token>; readonly kept: boolean }
 
+type Fence = { readonly length: number; readonly column: number }
+
 type Reading = {
   readonly lines: ReadonlyArray<CanvasLine>
   readonly inFrontmatter: boolean
   readonly inCode: boolean
-  readonly explicit: boolean
+  readonly awaiting: boolean
+  readonly fence: Option.Option<Fence>
 }
+
+const fenceIn = (text: string): Option.Option<Fence> =>
+  Option.map(Option.fromNullishOr(/^([ \t]*)(`{3,})/.exec(text)), (found) => ({
+    length: found[2]?.length ?? 0,
+    column: found[1]?.length ?? 0,
+  }))
+
+const closesFence = (fence: Fence, text: string): boolean =>
+  Option.exists(
+    fenceIn(text),
+    (found) =>
+      found.column === fence.column &&
+      found.length >= fence.length &&
+      text.slice(found.column + found.length).trim() === '',
+  )
 
 const withAnchors = (text: string): ReadonlyArray<Token> =>
   pipe(
@@ -521,6 +539,7 @@ const readLine = (reading: Reading, text: string, at: number): Reading => {
     next: Partial<Reading> = {},
   ): Reading => ({
     ...reading,
+    awaiting: false,
     ...next,
     lines: [...reading.lines, { tokens, kept }],
   })
@@ -532,32 +551,58 @@ const readLine = (reading: Reading, text: string, at: number): Reading => {
     ),
     Option.orElse(() => when(reading.inFrontmatter, () => add(fieldTokens(text), false))),
     Option.orElse(() =>
+      Option.map(reading.fence, (fence) =>
+        closesFence(fence, text)
+          ? add([chip(text.trim(), GREEN, WASH.green)], false, {
+              inCode: false,
+              fence: Option.none(),
+            })
+          : add(withAnchors(text), true),
+      ),
+    ),
+    Option.orElse(() =>
+      Option.map(
+        Option.filter(fenceIn(text), () => reading.awaiting),
+        (fence) =>
+          add([chip(text.trim(), GREEN, WASH.green)], false, { fence: Option.some(fence) }),
+      ),
+    ),
+    Option.orElse(() =>
       when(/^~(\s|$)/.test(text), () =>
-        add([chip('~', ORANGE, WASH.orange)], false, { inCode: false, explicit: false }),
+        add([chip('~', ORANGE, WASH.orange)], false, { inCode: false }),
       ),
     ),
     Option.orElse(() =>
-      (reading.explicit ? Option.none() : headingOf(text)).pipe(
-        Option.map(([marks, title]) => add(headingTokens(marks, title), false, { inCode: false })),
+      Option.map(headingOf(text), ([marks, title]) =>
+        add(headingTokens(marks, title), false, { inCode: false }),
       ),
     ),
     Option.orElse(() =>
-      when(!reading.inCode && /^\s*[=~]>/.test(text), () => {
-        const arrow = text.trim().slice(0, 2)
-        return add([chip(arrow, GREEN, WASH.green)], false, {
+      when(!reading.inCode && /^\s*=>/.test(text), () =>
+        add([chip('=>', GREEN, WASH.green)], false, {
           inCode: true,
-          explicit: arrow === '~>',
-        })
+          awaiting: text.trim() === '=>',
+        }),
+      ),
+    ),
+    Option.getOrElse(() =>
+      add(withAnchors(text), reading.inCode, {
+        awaiting: reading.awaiting && text.trim() === '',
       }),
     ),
-    Option.getOrElse(() => add(withAnchors(text), reading.inCode)),
   )
 }
 
 const canvasLines = (source: string): ReadonlyArray<CanvasLine> =>
   Array.reduce(
     source.replace(/\n$/, '').split('\n'),
-    { lines: [], inFrontmatter: false, inCode: false, explicit: false } as Reading,
+    {
+      lines: [],
+      inFrontmatter: false,
+      inCode: false,
+      awaiting: false,
+      fence: Option.none(),
+    } as Reading,
     readLine,
   ).lines
 

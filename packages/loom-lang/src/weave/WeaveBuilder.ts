@@ -239,12 +239,23 @@ const sectionBody = (section: LoomSection): ReadonlyArray<BodyWeft> => [
   ...section.code,
 ]
 
-const splitRuns = (body: ReadonlyArray<BodyWeft>): ReadonlyArray<ReadonlyArray<BodyWeft>> =>
-  Array.isReadonlyArrayNonEmpty(body)
-    ? Array.groupWith(body, (a, _b) => a.type !== 'ArrowWeft' && a.type !== 'TildeWeft')
-    : []
-
 const isMarker = (weft: BodyWeft): boolean => weft.type === 'ArrowWeft' || weft.type === 'TildeWeft'
+
+const closesFenced = (weft: BodyWeft): boolean => weft.type === 'FenceWeft' && weft.side === 'close'
+
+const startsRun = (wefts: ReadonlyArray<BodyWeft>, at: number): boolean =>
+  Option.exists(Array.get(wefts, at), isMarker) ||
+  Option.exists(Array.get(wefts, at - 1), closesFenced)
+
+const splitRuns = (body: ReadonlyArray<BodyWeft>): ReadonlyArray<ReadonlyArray<BodyWeft>> =>
+  Array.chop(body, (wefts) => {
+    const end = pipe(
+      Array.findFirstIndex(Array.drop(wefts, 1), (_, at) => startsRun(wefts, at + 1)),
+      Option.map((at) => at + 1),
+      Option.getOrElse(() => wefts.length),
+    )
+    return [Array.take(wefts, end), Array.drop(wefts, end)]
+  })
 
 const tildeOpens = (run: Option.Option<ReadonlyArray<BodyWeft>>): boolean =>
   pipe(
@@ -275,7 +286,7 @@ const markerInline = (marker: BodyWeft): Option.Option<Piece> =>
 const pieceOfWeft = (weft: BodyWeft): Piece => ({
   start: weft.position.start.offset,
   end: weft.position.end.offset,
-  blank: isBlankSource(weft.source),
+  blank: weft.type === 'FenceWeft' || isBlankSource(weft.source),
 })
 
 const runSpan = (run: ReadonlyArray<BodyWeft>): Option.Option<Span> => {
@@ -310,10 +321,10 @@ const codeLanguage = (module: LoomModule, section: LoomSection): string => {
 }
 
 const noteOrFence =
-  /^[ \t]*```[^\n]*\n(?:[\s\S]*?\n)?[ \t]*```[^\n]*$|^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+  /^([ \t]*)(`{3,})[^\n]*\n(?:[\s\S]*?\n)?\1\2`*[ \t]*$|^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
 
 const notesOf = (markdown: string): ReadonlyArray<RegExpMatchArray> =>
-  Array.filter(Array.fromIterable(markdown.matchAll(noteOrFence)), (match) => match[1] !== undefined)
+  Array.filter(Array.fromIterable(markdown.matchAll(noteOrFence)), (match) => match[3] !== undefined)
 
 const proseBlockOf = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> =>
   markdown.trim().length === 0 ? [] : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
@@ -328,7 +339,7 @@ const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<Wove
         blocks: [
           ...acc.blocks,
           ...proseBlockOf(markdown.slice(acc.cursor, at), source),
-          NoteBlockSchema.make({ source, markdown: (match[1] ?? '').trim() }),
+          NoteBlockSchema.make({ source, markdown: (match[3] ?? '').trim() }),
         ],
         cursor: at + match[0].length,
       }

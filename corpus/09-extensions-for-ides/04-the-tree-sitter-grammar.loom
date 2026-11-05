@@ -14,11 +14,11 @@ The grammar does not replace Loom's own parser. The language server still reads 
 
 ## A line's kind comes from the scanner
 
-Loom reads a loom one line at a time, and what a line means depends on the lines before it. The classifier of Part III is a state machine for exactly that reason. A `#` line opens a section in prose but stays code inside an explicit block. A `---` line opens the frontmatter only on the first line. Every line inside a fenced block is verbatim, whatever it looks like.
+Loom reads a loom one line at a time, and what a line means depends on the lines before it. The classifier of Part III is a state machine for exactly that reason. A `#` line opens a section in prose but stays code inside fenced code. A `---` line opens the frontmatter only on the first line. Every line inside a quote is verbatim, whatever it looks like.
 
 A tree-sitter grammar cannot express that state, because it describes its tokens with regular expressions, and a regular expression cannot see the lines before it. Tree-sitter lets a grammar hand some tokens to an external scanner, a C function the parser calls before its own lexer. Loom's external scanner is the next chapter. It runs the classifier's state machine, and at the start of every line it emits a token that names the line's kind and consumes nothing. The grammar takes that token as the line's first symbol and then reads the line's marks.
 
-The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first eleven name a line's kind, from a frontmatter fence to a line inside a note. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
+The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first twelve name a line's kind, from a frontmatter fence to a line inside a note. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
 
 =>
 
@@ -29,6 +29,7 @@ $._arrow_line,
 $._tilde_line,
 $._prose_line,
 $._code_line,
+$._code_fence_line,
 $._toc_line,
 $._verbatim_line,
 $._note_line,
@@ -158,7 +159,7 @@ _toc_text: (_) => /[^\r\n]+/,
 
 Prose takes two forms. A preamble is a run of prose lines that no tilde opened: the document preamble, or a section's lines before its first arrow. A prose block opens with a tilde and runs to the next arrow or heading. Both carry anchors, but only a preamble line carries warps, since the tokeniser looks for warps only there.
 
-Both forms also hold the two inert regions of Part III, where a loom's marks read as text. A fenced block is a verbatim run between two lines of three backticks. A note runs from its `:::[Note]` line to a lone `:::`.
+Both forms also hold the two inert regions of Part III, where a loom's marks read as text. A quote is a verbatim run between two fences. A note runs from its `:::[Note]` line to a lone `:::`.
 
 =>
 
@@ -196,7 +197,7 @@ _prose_inline: ($) => choice($._text, $._code_span, $.anchor),
 
 ~
 
-A verbatim line holds its whole text in one hidden token, so nothing inside a fence parses as an anchor. The fence's own lines are verbatim too, because the tokeniser skips the anchors on the line that opens a fence as well as on the lines inside it. A note gets a node of its own, so an editor can colour a reader's annotation apart from the prose around it.
+A verbatim line holds its whole text in one hidden token, so nothing inside a quote parses as an anchor. The quote's own fences are verbatim too, because the tokeniser skips the anchors on the line that opens a quote as well as on the lines inside it. A note gets a node of its own, so an editor can colour a reader's annotation apart from the prose around it.
 
 =>
 
@@ -216,7 +217,9 @@ note_marker: (_) => ':' + anchorOpen + 'Note]',
 
 ## Code
 
-A code block opens with an arrow and runs to the next tilde or heading. The plain arrow is `=>`, and the explicit arrow is `~>`, which only a tilde closes. The scanner tells the two apart, so the grammar reads either one the same way. Code may follow the arrow on the arrow's own line, and every later line of the block is code. Inside the code, only anchors are Loom's.
+A code block opens with an arrow and runs to the next tilde or heading. Code may follow the arrow on the arrow's own line, and every later line of the block is code. Inside the code, only anchors are Loom's.
+
+Fenced code is a code block too. Its fence is a `code_fence` node among the block's children, a `fence_marker` of three or more backticks and an optional `fence_label`, and so is the fence that closes it. The marker is written as three backticks and then any number more, since tree-sitter's patterns read a bounded repeat like `{3,}` as exactly three. The scanner decides which lines are fences, so the grammar takes a fence wherever the scanner names one. The lines between the fences are `code_text` like any other code, so the injection queries reach them unchanged. A closing fence hands the following lines to prose with no tilde, and the grammar reads those lines as a `prose` node inside the block, since no tilde opens them a block of their own.
 
 Between the anchors, the block's text gathers into `code_text` nodes. A `code_text` node runs from the end of the arrow or of an anchor to the start of the next anchor or the end of the block. It is the part of the block written in the section's language, and the injection queries hand exactly these nodes to that language's parser. Zed and Gram need the node. They inject the whole range of every node a query captures and subtract nothing from it, so a query that captured the block itself would hand them the arrow and the anchors as well.
 
@@ -225,9 +228,33 @@ A `code_text` node keeps its line breaks. The parser of the section's language r
 =>
 
 code: ($) =>
-  seq($._arrow_line, optional($._space), $.arrow, repeat(choice($.code_text, $.anchor))),
+  seq(
+    $._arrow_line,
+    optional($._space),
+    $.arrow,
+    repeat(choice($.code_text, $.anchor, $.code_fence)),
+    optional(alias($._after_fence, $.prose)),
+  ),
 
-arrow: (_) => choice('=>', '~>'),
+arrow: (_) => '=>',
+
+code_fence: ($) =>
+  seq(
+    $._code_fence_line,
+    optional($._space),
+    $.fence_marker,
+    optional($._space),
+    optional($.fence_label),
+    $._newline,
+  ),
+
+fence_marker: (_) => /```+/,
+fence_label: (_) => /[^\s`][^\r\n]*/,
+
+_after_fence: ($) =>
+  repeat1(
+    choice(seq($._prose_line, repeat($._prose_inline), $._newline), $._verbatim, $.note),
+  ),
 
 code_text: ($) => prec.right(repeat1(choice($._code_run, $._newline, $._code_line))),
 

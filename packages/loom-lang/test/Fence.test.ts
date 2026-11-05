@@ -6,8 +6,8 @@ import { parseDocument, ParseLayer } from './parse'
 
 // A fenced code block lets a loom quote a loom. In prose, a ``` line opens a
 // verbatim region: the classifier reads every line inside it as prose, so a
-// `#`, `=>`, or `~` there is text, not a mark. In a code region a ``` is just a
-// line of that section's code — the classifier never treats it as a fence.
+// `#`, `=>`, or `~` there is text, not a mark. In code, a ``` straight after the
+// arrow opens fenced code; anywhere else in code it is a line of that code.
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 

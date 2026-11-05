@@ -45,7 +45,11 @@ import {
   WarpNameTokenSchema,
   WarpOpenTokenSchema,
   WarpTokenSchema,
+  closesFence,
+  type Fence,
+  FenceLabelTokenSchema,
   getProbe,
+  openingFence,
   type SinkCloseToken,
   type SinkFileLabelToken,
   type SinkOpenToken,
@@ -89,6 +93,8 @@ import {
   ArrowWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type FenceWeft,
+  FenceWeftSchema,
   type FrontmatterWeft,
   FrontmatterWeftSchema,
   type HeadingWeft,
@@ -111,10 +117,10 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
       (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
         Stream.mapAccum(
           source,
-          () => false,
-          (inFence, weft) => {
-            const [nextFence, skipAnchors] = fenceStep(inFence, weft)
-            return [nextFence, [tokeniseWeft(text, weft, delims, skipAnchors)]]
+          () => Option.none<Fence>(),
+          (quote, weft) => {
+            const [nextQuote, skipAnchors] = quoteStep(quote, weft)
+            return [nextQuote, [tokeniseWeft(text, weft, delims, skipAnchors)]]
           },
         ),
   }),
@@ -125,11 +131,19 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
 
-const fenceStep = (inFence: boolean, weft: LoomWeft): readonly [boolean, boolean] => {
-  if (!isProseWeft(weft)) return [false, false]
-  const delimiter = /^\s*```/.test(weft.source)
-  return [delimiter ? !inFence : inFence, inFence || delimiter]
-}
+const quoteStep = (
+  quote: Option.Option<Fence>,
+  weft: LoomWeft,
+): readonly [Option.Option<Fence>, boolean] =>
+  isProseWeft(weft)
+    ? Option.match(quote, {
+        onSome: (fence) => [closesFence(fence)(weft.source) ? Option.none() : quote, true],
+        onNone: () => {
+          const opened = openingFence(weft.source)
+          return [opened, Option.isSome(opened)]
+        },
+      })
+    : [Option.none(), false]
 
 const tokeniseWeft = (
   text: string,
@@ -145,6 +159,7 @@ const tokeniseWeft = (
     Match.when({ type: 'PreambleWeft' }, (w) => tokenisePreamble(text, w, delims, skipAnchors)),
     Match.when({ type: 'ProseWeft' }, (w) => tokeniseProse(text, w, delims, skipAnchors)),
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
+    Match.when({ type: 'FenceWeft' }, (w) => tokeniseFence(w)),
     Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
     Match.when({ type: 'TocWeft' }, (w) => tokeniseToc(w)),
     Match.exhaustive,
@@ -473,6 +488,23 @@ const tokeniseCode = (text: string, weft: CodeWeft, delims: AnchorDelims): LoomW
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
   })
+}
+
+const tokeniseFence = (weft: FenceWeft): LoomWeft => {
+  const lineStart = weft.position.start.offset
+  const after = weft.fence.position.end.offset
+  const rest = weft.source.replace(/\r?\n$/, '').slice(after - lineStart)
+  const name = rest.trim()
+  const start = after + rest.length - rest.trimStart().length
+  const label =
+    weft.side === 'open' && name !== ''
+      ? FenceLabelTokenSchema.make({
+          position: span(weft.position.start.line, start, start + name.length),
+          source: name,
+          health: okHealth,
+        })
+      : undefined
+  return FenceWeftSchema.make({ ...weft, health: okHealth, label })
 }
 
 const statusRank: Record<Health['status'], number> = {

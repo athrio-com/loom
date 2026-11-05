@@ -27,18 +27,18 @@ describe('silent loss — every dropped piece leaves a diagnostic', () => {
     }),
   )
 
-  it.effect('names an explicit block no tilde closes as an error, at its arrow', () =>
+  it.effect('names fenced code nothing closes as an error, at its opening fence', () =>
     Effect.gen(function* () {
-      const found = yield* diagnosticsOf('# Book\n\n## Skill [SKILL.md]\n\n~>\n\n# swallowed\n')
-      const open = found.find((d) => d.message.startsWith('Unclosed explicit block'))
+      const found = yield* diagnosticsOf('# Book\n\n## Skill [SKILL.md]\n\n=>\n```md\n# swallowed\n')
+      const open = found.find((d) => d.message.startsWith('Unclosed fence'))
       expect(open?.severity).toBe('error')
-      expect(open?.position.start.line).toBe(5)
+      expect(open?.position.start.line).toBe(6)
     }),
   )
 
-  it.effect('raises nothing for an explicit block a tilde closes', () =>
+  it.effect('raises nothing for fenced code a matching fence closes', () =>
     Effect.gen(function* () {
-      const found = yield* diagnosticsOf('# Book\n\n## Skill [SKILL.md]\n\n~>\n\n# kept\n\n~\n')
+      const found = yield* diagnosticsOf('# Book\n\n## Skill [SKILL.md]\n\n=>\n```md\n# kept\n```\n')
       expect(found).toEqual([])
     }),
   )

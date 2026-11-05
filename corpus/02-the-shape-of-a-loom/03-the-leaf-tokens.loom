@@ -221,18 +221,18 @@ export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
 An `Arrow` opens a code chunk and a `Tilde` opens prose. Both are position-only: the marker is recognised here, and the content after it elsewhere.
 
-An arrow comes in two strengths. The plain arrow, `=>`, opens code that runs until the next heading or tilde. The explicit arrow, `~>`, opens code that only a tilde closes, so a line that would otherwise read as a heading stays code inside it. A Markdown file, a shell script, or a configuration file with `#` comments needs that, because each of them writes lines that look like headings. The explicit arrow names its own closer, which is how a reader can tell the two apart at a glance.
+The arrow, `=>`, opens code that runs until the next heading or tilde. Some code writes lines that look like headings: a Markdown file, a shell script, a configuration file with `#` comments. That code is fenced straight after its arrow, as the section "Code fences" describes, so the arrow itself has a single form.
 
 =>
 
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
-  [Probe]: /^\s*[=~]>/,
+  [Probe]: /^\s*=>/,
 })
 export type ArrowToken = typeof ArrowTokenSchema.Type
 
 ~
 
-A tilde closes code only when it stands at the start of its line, followed by the end of the line or by a space and some prose. Content can begin with a tilde too: a home-relative path such as `~/bin`, a Markdown fence of three tildes, a lock-file pattern in an ignore list. None of these is followed by a space, so each one stays code. The explicit arrow begins with a tilde as well, and the `>` after it keeps it from reading as a closer.
+A tilde closes code only when it stands at the start of its line, followed by the end of the line or by a space and some prose. Content can begin with a tilde too: a home-relative path such as `~/bin`, a Markdown fence of three tildes, a lock-file pattern in an ignore list. None of these is followed by a space, so each one stays code.
 
 =>
 
@@ -257,7 +257,7 @@ export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
 =>
 
 export const CodeTokenSchema = loomNode('Code', {}).annotate({
-  [Probe]: /(?<=^\s*[=~]>\s*)\S.*$/,
+  [Probe]: /(?<=^\s*=>\s*)\S.*$/,
 })
 export type CodeToken = typeof CodeTokenSchema.Type
 
@@ -265,6 +265,45 @@ export const ProseTokenSchema = loomNode('Prose', {}).annotate({
   [Probe]: /(?<=^~\s+)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
+
+## Code fences
+
+A fence is a run of three or more backticks at the start of a line, the way Markdown writes one. Loom reads a fence in two places. In prose, a fence opens a quote, whose lines are shown and never composed. Straight after an arrow, a fence opens fenced code, whose every line is code until the fence closes, a line that starts with `#`, `=>`, or `~` included.
+
+`CodeFence` is the run of backticks, and its `Probe` finds it after any indentation. `FenceLabel` is the text an opening fence may carry after its backticks, the language name Markdown writes there. Both are position-only.
+
+A fence closes only on a line that matches it. `Fence` records what an opening fence set: its `length`, the number of its backticks, and its `column`, where they start. `openingFence` reads that from a line. `closesFence` tells whether a later line closes it: that line starts at the same column with at least as many backticks, and nothing but whitespace follows them. So a block that holds three backticks of its own opens with a fence of four, and an indented line of backticks inside a template string never closes the block around it.
+
+=>
+
+export const CodeFenceTokenSchema = loomNode('CodeFence', {}).annotate({
+  [Probe]: /^[ \t]*`{3,}/,
+})
+export type CodeFenceToken = typeof CodeFenceTokenSchema.Type
+
+export const FenceLabelTokenSchema = loomNode('FenceLabel', {})
+export type FenceLabelToken = typeof FenceLabelTokenSchema.Type
+
+export type Fence = { readonly length: number; readonly column: number }
+
+const fencePattern = /^([ \t]*)(`{3,})/
+
+export const openingFence = (line: string): Option.Option<Fence> =>
+  Option.map(Option.fromNullishOr(fencePattern.exec(line)), (m) => ({
+    length: m[2]!.length,
+    column: m[1]!.length,
+  }))
+
+export const closesFence =
+  (fence: Fence) =>
+  (line: string): boolean =>
+    Option.exists(
+      openingFence(line),
+      (found) =>
+        found.column === fence.column &&
+        found.length >= fence.length &&
+        line.slice(found.column + found.length).trim() === '',
+    )
 
 ## Warps and anchors
 
@@ -460,6 +499,8 @@ export const LoomTokenSchema = Schema.Union([
   HeadingTitleTokenSchema,
   CodeTokenSchema,
   ProseTokenSchema,
+  CodeFenceTokenSchema,
+  FenceLabelTokenSchema,
   WarpTokenSchema,
   WarpAnchorTokenSchema,
 ])
@@ -505,6 +546,8 @@ import { loomNode } from '#ast/LoomNode'
 ::[Heading title]
 
 ::[Code and prose content]
+
+::[Code fences]
 
 ::[Warps and anchors]
 

@@ -133,13 +133,17 @@ A specifier's label is a type, the language a section is written in. Two labels 
 
 ## Arrows and tildes
 
-An arrow turns prose into code and a tilde turns code back into prose. Both are operators on the document, and both take the operator colour.
+An arrow turns prose into code and a tilde turns code back into prose. Both are operators on the document, and both take the operator colour. The backticks of a fence around fenced code bound the code the same way, so they take it too. A fence's label names the section's language, as a chapter's `Language` field does, so it takes the type colour that field takes.
 
 =>
 
 (arrow) @operator
 
 (tilde) @operator
+
+(fence_marker) @operator
+
+(fence_label) @type
 
 ## Anchors
 

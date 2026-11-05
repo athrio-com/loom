@@ -13,6 +13,7 @@ enum TokenType {
   TILDE_LINE,
   PROSE_LINE,
   CODE_LINE,
+  CODE_FENCE_LINE,
   TOC_LINE,
   VERBATIM_LINE,
   NOTE_LINE,
@@ -29,9 +30,12 @@ typedef struct {
   bool seen_heading;
   bool in_frontmatter;
   bool in_toc;
-  bool in_fence;
+  uint8_t quote_length;
+  uint8_t quote_column;
   bool in_note;
-  bool in_explicit;
+  uint8_t fenced_length;
+  uint8_t fenced_column;
+  bool awaiting_fence;
   uint8_t mode;
 } Scanner;
 
@@ -99,12 +103,11 @@ static bool is_frontmatter_fence(const Line *line) {
 }
 
 static bool is_arrow(const Line *line) {
-  uint32_t at = indent_of(line);
-  return head_has(line, at, "=>") || head_has(line, at, "~>");
+  return head_has(line, indent_of(line), "=>");
 }
 
-static bool is_explicit_arrow(const Line *line) {
-  return head_has(line, indent_of(line), "~>");
+static bool is_bare_arrow(const Line *line) {
+  return is_arrow(line) && line->last_mark == (int32_t)indent_of(line) + 1;
 }
 
 static bool is_tilde(const Line *line) {
@@ -112,8 +115,19 @@ static bool is_tilde(const Line *line) {
          (line->length == 1 || is_space(line->head[1]));
 }
 
-static bool is_code_fence(const Line *line) {
-  return head_has(line, indent_of(line), "```");
+static uint32_t fence_of(const Line *line, uint32_t *column) {
+  uint32_t at = indent_of(line);
+  uint32_t end = at;
+  while (end < line->head_length && line->head[end] == '`') end++;
+  *column = at;
+  return end - at >= 3 ? end - at : 0;
+}
+
+static bool closes_fence(const Line *line, uint32_t length, uint32_t column) {
+  uint32_t at;
+  uint32_t found = fence_of(line, &at);
+  return found >= length && at == column &&
+         line->last_mark == (int32_t)(at + found) - 1;
 }
 
 static bool is_note_open(const Line *line) {
@@ -127,10 +141,13 @@ static bool is_note_close(const Line *line) {
 
 static enum TokenType prose_kind(Scanner *s, const Line *line,
                                  enum TokenType kind, enum Mode mode) {
+  uint32_t column;
+  uint32_t length = fence_of(line, &column);
   s->mode = mode;
-  s->in_fence = is_code_fence(line);
-  s->in_note = !s->in_fence && is_note_open(line);
-  if (s->in_fence) return VERBATIM_LINE;
+  s->quote_length = (uint8_t)(length > 255 ? 255 : length);
+  s->quote_column = (uint8_t)(column > 255 ? 255 : column);
+  s->in_note = length == 0 && is_note_open(line);
+  if (length > 0) return VERBATIM_LINE;
   if (s->in_note) return NOTE_LINE;
   return kind;
 }
@@ -154,8 +171,8 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
     return FIELD_LINE;
   }
 
-  if (s->in_fence) {
-    s->in_fence = !is_code_fence(line);
+  if (s->quote_length > 0) {
+    if (closes_fence(line, s->quote_length, s->quote_column)) s->quote_length = 0;
     s->mode = s->seen_heading ? PROSE : PREAMBLE;
     return VERBATIM_LINE;
   }
@@ -166,13 +183,28 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
     return NOTE_BODY_LINE;
   }
 
-  if (s->in_explicit) {
-    if (is_tilde(line)) {
-      s->in_explicit = false;
-      return prose_kind(s, line, TILDE_LINE, PROSE);
+  bool awaiting = s->awaiting_fence;
+  s->awaiting_fence = false;
+
+  if (s->fenced_length > 0) {
+    if (closes_fence(line, s->fenced_length, s->fenced_column)) {
+      s->fenced_length = 0;
+      s->mode = PROSE;
+      return CODE_FENCE_LINE;
     }
     s->mode = CODE;
     return CODE_LINE;
+  }
+
+  if (awaiting) {
+    uint32_t column;
+    uint32_t length = fence_of(line, &column);
+    if (length > 0) {
+      s->fenced_length = (uint8_t)(length > 255 ? 255 : length);
+      s->fenced_column = (uint8_t)(column > 255 ? 255 : column);
+      s->mode = CODE;
+      return CODE_FENCE_LINE;
+    }
   }
 
   if (is_heading(line)) {
@@ -193,7 +225,7 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
   switch (s->mode) {
     case PREAMBLE:
       if (is_arrow(line)) {
-        s->in_explicit = is_explicit_arrow(line);
+        s->awaiting_fence = is_bare_arrow(line);
         s->mode = CODE;
         return ARROW_LINE;
       }
@@ -201,10 +233,11 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
       return prose_kind(s, line, PROSE_LINE, PREAMBLE);
     case CODE:
       if (is_tilde(line)) return prose_kind(s, line, TILDE_LINE, PROSE);
+      s->awaiting_fence = awaiting && line->last_mark < 0;
       return CODE_LINE;
     default:
       if (is_arrow(line)) {
-        s->in_explicit = is_explicit_arrow(line);
+        s->awaiting_fence = is_bare_arrow(line);
         s->mode = CODE;
         return ARROW_LINE;
       }
@@ -262,11 +295,14 @@ unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
   buffer[2] = (char)s->seen_heading;
   buffer[3] = (char)s->in_frontmatter;
   buffer[4] = (char)s->in_toc;
-  buffer[5] = (char)s->in_fence;
-  buffer[6] = (char)s->in_note;
-  buffer[7] = (char)s->in_explicit;
-  buffer[8] = (char)s->mode;
-  return 9;
+  buffer[5] = (char)s->quote_length;
+  buffer[6] = (char)s->quote_column;
+  buffer[7] = (char)s->in_note;
+  buffer[8] = (char)s->fenced_length;
+  buffer[9] = (char)s->fenced_column;
+  buffer[10] = (char)s->awaiting_fence;
+  buffer[11] = (char)s->mode;
+  return 12;
 }
 
 void tree_sitter_loom_external_scanner_deserialize(void *payload,
@@ -275,16 +311,19 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   Scanner *s = payload;
   memset(s, 0, sizeof(Scanner));
   s->at_line_start = true;
-  if (length < 9) return;
+  if (length < 12) return;
   s->at_line_start = buffer[0];
   s->started = buffer[1];
   s->seen_heading = buffer[2];
   s->in_frontmatter = buffer[3];
   s->in_toc = buffer[4];
-  s->in_fence = buffer[5];
-  s->in_note = buffer[6];
-  s->in_explicit = buffer[7];
-  s->mode = (uint8_t)buffer[8];
+  s->quote_length = (uint8_t)buffer[5];
+  s->quote_column = (uint8_t)buffer[6];
+  s->in_note = buffer[7];
+  s->fenced_length = (uint8_t)buffer[8];
+  s->fenced_column = (uint8_t)buffer[9];
+  s->awaiting_fence = buffer[10];
+  s->mode = (uint8_t)buffer[11];
 }
 
 bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,
