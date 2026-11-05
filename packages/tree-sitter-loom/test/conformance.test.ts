@@ -7,7 +7,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { LoomWeft } from '@athrio/loom-ast/Weft'
+import { boxOf, type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomSourceRanges } from '@athrio/loom-lang/ast/LineRanges'
 import { WeftClassifier } from '@athrio/loom-lang/ast/WeftClassifier'
 
@@ -21,6 +21,7 @@ type LineKind =
   | 'code'
   | 'fence'
   | 'tilde'
+  | 'box'
   | 'text'
   | 'none'
 
@@ -36,13 +37,23 @@ const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   ProseWeft: 'text',
 }
 
+const kindOf = (weft: LoomWeft): LineKind =>
+  pipe(
+    boxOf(weft),
+    Option.filter((box) => box.side !== 'stray'),
+    Option.match({
+      onNone: () => kindOfWeft[weft.type],
+      onSome: (): LineKind => 'box',
+    }),
+  )
+
 const classifierKinds = (text: string): Effect.Effect<ReadonlyArray<LineKind>> =>
   Effect.gen(function* () {
     const sources = yield* LoomSourceRanges
     const classifier = yield* WeftClassifier
     const ranges = yield* sources.stream(text)
     const wefts = yield* Stream.runCollect(classifier.classifyWefts(text)(ranges))
-    return Array.map(wefts, (weft) => kindOfWeft[weft.type])
+    return Array.map(wefts, kindOf)
   }).pipe(
     Effect.provide(LoomSourceRanges.layer),
     Effect.provide(WeftClassifier.layer),
@@ -102,11 +113,16 @@ const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKi
   return Array.map(Array.range(start, end), (row) => [row, blockKind[block as Block]] as const)
 }
 
-type Mark = 'arrow' | 'tilde' | 'code_fence'
+type Mark = 'arrow' | 'tilde' | 'code_fence' | 'box_fence'
 
-const markKind: Record<Mark, LineKind> = { arrow: 'arrow', tilde: 'tilde', code_fence: 'fence' }
+const markKind: Record<Mark, LineKind> = {
+  arrow: 'arrow',
+  tilde: 'tilde',
+  code_fence: 'fence',
+  box_fence: 'box',
+}
 
-const markPattern = /\((arrow|tilde|code_fence) \[(\d+), \d+\]/g
+const markPattern = /\((arrow|tilde|code_fence|box_fence) \[(\d+), \d+\]/g
 
 const markRows = (tree: string): ReadonlyArray<readonly [number, LineKind]> =>
   Array.map(
@@ -218,7 +234,7 @@ const fencedBlock = [
   '# The next section',
 ]
 
-const fenceAndNote = [
+const fenceAndBox = [
   '# Quoting a loom',
   '',
   '```loom',
@@ -227,8 +243,11 @@ const fenceAndNote = [
   '```',
   '~ still prose',
   '',
-  `:${anchor('Note')} {}`,
+  '::: A remark {Note}',
   '# Also not a heading',
+  '=> nor an arrow',
+  '```',
+  '::: nor a box inside the box',
   ':::',
   '',
   '=>',
@@ -248,6 +267,29 @@ const anchorBraces = [
   `const origin = ${anchor('Point')} {X: 1}`,
 ]
 
+const boxLines = [
+  '# Boxes',
+  '',
+  '::: Why a grid {Note}',
+  `The room is small, as ${anchor('Room')} says.`,
+  ':::',
+  '',
+  '::: Rooms {kind=Chapter}',
+  ':::',
+  '',
+  '  :::',
+  '  A note with no name.',
+  '  :::',
+  '',
+  '::: Why {x} matters',
+  ':::',
+  '',
+  ':::: Four colons open nothing',
+  '',
+  '::: Never closed',
+  '# Still the body',
+]
+
 describe('the corners', () => {
   it.effect('fenced code holds headings, arrows and shorter fences as code', () =>
     checkLoom(fixture('fenced', fencedBlock)),
@@ -255,8 +297,19 @@ describe('the corners', () => {
   it.effect('Windows line endings read as Unix ones do', () =>
     checkLoom(fixture('crlf', fencedBlock, '\r\n')),
   )
-  it.effect('a fence and a note keep their marks inert', () =>
-    checkLoom(fixture('fence-and-note', fenceAndNote)),
+  it.effect('a fence and a box keep their marks inert', () =>
+    checkLoom(fixture('fence-and-box', fenceAndBox)),
+  )
+  it.effect('a box line holds its name and its braces', () =>
+    Effect.gen(function* () {
+      const file = fixture('box-lines', boxLines)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(box_name /g)).toHaveLength(4)
+      expect(tree.match(/\(box_specifier /g)).toHaveLength(2)
+      expect(tree.match(/\(parameter /g)).toHaveLength(1)
+      expect(tree.match(/\(anchor /g)).toHaveLength(1)
+    }),
   )
   it.effect('braces that touch an anchor hold its label or its parameters', () =>
     Effect.gen(function* () {
@@ -270,7 +323,7 @@ describe('the corners', () => {
   it.effect('a last line needs no line break', () =>
     Effect.gen(function* () {
       const file = join(scratch, 'unterminated.loom')
-      writeFileSync(file, fenceAndNote.join('\n'))
+      writeFileSync(file, fenceAndBox.join('\n'))
       yield* checkLoom(file)
     }),
   )

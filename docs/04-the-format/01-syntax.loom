@@ -24,7 +24,13 @@ There are nine of them, and each does a single thing. Learn these and you can re
 | `::[a section]` | draws that section in, whole |
 | `{{ name = value }}` | binds a value an anchor can draw into the code |
 
-Two more constructs look like marks but are the opposite of one, because each names a stretch of text Loom refuses to read. Three backticks fence a region left entirely alone, which is how this page quotes marks without invoking them. A `:::[Note]` block holds a remark for whoever opens the corpus next, and tangling drops it.
+Two more constructs set a stretch of text apart. Three backticks fence a region Loom leaves entirely alone, which is how this page quotes marks without invoking them. A box sets a block of prose apart from the text around it. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. No mark inside a box opens anything. A box that names no kind is a note, a remark for whoever opens the corpus next, and tangling drops it with the rest of the prose. A box of the `Chapter` kind points to the chapter its name titles.
+
+```loom
+::: Why a grid {Note}
+The room is small enough to model as cells, so the game needs no engine.
+:::
+```
 
 ## Frontmatter
 

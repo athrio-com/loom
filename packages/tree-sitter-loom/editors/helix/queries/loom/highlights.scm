@@ -142,6 +142,15 @@
 (warp
   default: (default) @string)
 
-(note) @comment
+(box_fence) @punctuation.special
 
-(note_marker) @comment.note
+(box_name) @markup.heading
+
+(box_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(box_specifier
+  label: (label) @keyword.directive)

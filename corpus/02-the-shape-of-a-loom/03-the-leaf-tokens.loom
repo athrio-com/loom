@@ -588,12 +588,6 @@ export const LoomTokenSchema = Schema.Union([
 ])
 export type LoomToken = typeof LoomTokenSchema.Type
 
-~
-
-:::
-
-:::
-
 ## What this module draws on
 
 `LoomTokens` draws `Schema` for the token definitions, with `Option` wrapping the `Probe` annotation `getProbe` reads back off a schema. `Effect` and `Data` build the delimiter check and the tagged error it fails with. `Match`, `Array`, and `pipe` read the kind a specifier names. `loomNode` from the foundation gives each token its shared shape.

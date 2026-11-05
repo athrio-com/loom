@@ -4,6 +4,9 @@
 ((prose) @injection.content
   (#set! injection.language "markdown"))
 
+((box_body) @injection.content
+  (#set! injection.language "markdown"))
+
 ((toc) @injection.content
   (#set! injection.language "markdown")
   (#set! injection.include-children))
