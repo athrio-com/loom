@@ -119,6 +119,8 @@ Zed colours a capture by the name its theme gives the colour, and its names diff
 
 A specifier's label is a type, except for the two labels that instruct Loom, `{Tangle}` and `{TOC}`, which are keywords. The two patterns exclude each other, so a label never carries both colours and leaves the editor to choose.
 
+The braces that touch an anchor take the colour of the anchor's own delimiters. The anchor's kind is a keyword too, since it instructs Loom as `{Tangle}` does. A parameter's key is a property, as a frontmatter key is, and its value is a string.
+
 =>
 
 (frontmatter_fence) @punctuation.special
@@ -199,6 +201,29 @@ A specifier's label is a type, except for the two labels that instruct Loom, `{T
 
 (anchor
   target: (target) @link_uri)
+
+(anchor_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(anchor_specifier
+  label: (label) @keyword)
+
+(parameter
+  key: (parameter_key) @property)
+
+(parameter_value) @string
+
+(parameter_list
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(parameter_list
+  "," @punctuation.delimiter)
 
 (warp
   [

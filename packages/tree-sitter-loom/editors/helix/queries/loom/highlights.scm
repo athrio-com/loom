@@ -34,6 +34,9 @@
 (field
   key: (key) @variable.other.member)
 
+(parameter
+  key: (parameter_key) @variable.other.member)
+
 ((heading
   (heading_marker) @_marker) @markup.heading.1
   (#eq? @_marker "# "))
@@ -97,6 +100,26 @@
 
 (anchor
   target: (target) @string.special.path)
+
+(anchor_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(anchor_specifier
+  label: (label) @keyword.directive)
+
+(parameter_value) @string
+
+(parameter_list
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(parameter_list
+  "," @punctuation.delimiter)
 
 (warp
   [

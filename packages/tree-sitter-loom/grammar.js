@@ -83,7 +83,7 @@ module.exports = grammar({
     _heading_rest: (_) => /[^{\[\r\n]+/,
 
     specifier: ($) => seq('{', field('label', $.label), '}'),
-    label: (_) => /[a-zA-Z0-9_-]+/,
+    label: (_) => /[a-zA-Z0-9_-]+( [a-zA-Z0-9_-]+)*/,
 
     sink: ($) => seq('[', field('file', $.file), ']'),
     file: ($) => seq(optional($._file_stem), field('extension', $.extension)),
@@ -194,9 +194,35 @@ module.exports = grammar({
         field('name', $.name),
         ']',
         optional(field('target', $.target)),
+        optional(field('specifier', $.anchor_specifier)),
       ),
     name: (_) => /[^\]\r\n]+/,
     target: (_) => token(prec(1, /\([^)\r\n]*\)/)),
+
+    anchor_specifier: ($) =>
+      seq(
+        alias($._anchor_brace, '{'),
+        choice(field('label', $.label), seq($.parameter, repeat(seq($._space, $.parameter)))),
+        '}',
+      ),
+    _anchor_brace: (_) => token(prec(1, '{')),
+
+    parameter: ($) =>
+      seq(
+        field('key', $.parameter_key),
+        field('value', choice($.parameter_value, $.parameter_list)),
+      ),
+    parameter_key: (_) => /[A-Za-z_][A-Za-z0-9_-]*=/,
+    parameter_value: (_) => choice(/"([^"\\\r\n]|\\.)*"/, /[A-Za-z0-9_.-]+/),
+    parameter_list: ($) =>
+      seq(
+        '[',
+        optional($._space),
+        $.parameter_value,
+        repeat(seq(optional($._space), ',', optional($._space), $.parameter_value)),
+        optional($._space),
+        ']',
+      ),
 
     warp: ($) =>
       seq(

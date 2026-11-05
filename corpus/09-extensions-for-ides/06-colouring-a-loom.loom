@@ -57,21 +57,27 @@ The key takes a colour of its own, in a section of its own, because the name of 
 
 ## A key in Neovim
 
-Neovim names a key of a record a property.
+Neovim names a key of a record a property, and a frontmatter field's key and an anchor parameter's key both take that colour.
 
 =>
 
 (field
   key: (key) @property)
 
+(parameter
+  key: (parameter_key) @property)
+
 ## A key in Helix
 
-Helix has no property colour. Its themes colour a key of a record as a member of a variable.
+Helix has no property colour. Its themes colour a key of a record as a member of a variable, for a frontmatter field's key and an anchor parameter's key alike.
 
 =>
 
 (field
   key: (key) @variable.other.member)
+
+(parameter
+  key: (parameter_key) @variable.other.member)
 
 ## Heading colours
 
@@ -149,6 +155,8 @@ An arrow turns prose into code and a tilde turns code back into prose. Both are 
 
 An anchor's name is a label, the name of the section it draws in. Its delimiters are special punctuation, and a target, the `.loom` file the name lives in, takes the path colour like a sink.
 
+The braces that touch an anchor belong to the same directive, so they take the delimiters' colour. An anchor's kind, such as `{To be settled}`, instructs Loom the way `{Tangle}` does, so its label takes the directive colour. A parameter's value is a string, and a list's brackets and commas are brackets and delimiters. A parameter's key takes the colour of a frontmatter field's key, which the sections on keys name for each editor.
+
 =>
 
 (anchor
@@ -160,6 +168,26 @@ An anchor's name is a label, the name of the section it draws in. Its delimiters
 
 (anchor
   target: (target) @string.special.path)
+
+(anchor_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(anchor_specifier
+  label: (label) @keyword.directive)
+
+(parameter_value) @string
+
+(parameter_list
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(parameter_list
+  "," @punctuation.delimiter)
 
 ## Warps
 

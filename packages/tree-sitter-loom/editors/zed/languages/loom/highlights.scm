@@ -77,6 +77,29 @@
 (anchor
   target: (target) @link_uri)
 
+(anchor_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(anchor_specifier
+  label: (label) @keyword)
+
+(parameter
+  key: (parameter_key) @property)
+
+(parameter_value) @string
+
+(parameter_list
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(parameter_list
+  "," @punctuation.delimiter)
+
 (warp
   [
     "{{"

@@ -13,6 +13,16 @@
           }
         ]
       },
+      "specifier": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "anchor_specifier",
+            "named": true
+          }
+        ]
+      },
       "target": {
         "multiple": false,
         "required": false,
@@ -30,6 +40,32 @@
       "types": [
         {
           "type": "anchor_open",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "anchor_specifier",
+    "named": true,
+    "fields": {
+      "label": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "label",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "parameter",
           "named": true
         }
       ]
@@ -242,6 +278,56 @@
     }
   },
   {
+    "type": "parameter",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter_key",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "parameter_list",
+            "named": true
+          },
+          {
+            "type": "parameter_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "parameter_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "parameter_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_value",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "preamble",
     "named": true,
     "fields": {},
@@ -449,6 +535,15 @@
     }
   },
   {
+    "type": "{",
+    "named": false,
+    "fields": {}
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
     "type": ":",
     "named": false
   },
@@ -518,6 +613,10 @@
   },
   {
     "type": "number",
+    "named": true
+  },
+  {
+    "type": "parameter_key",
     "named": true
   },
   {

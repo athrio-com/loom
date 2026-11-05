@@ -236,6 +236,18 @@ const fenceAndNote = [
   'code()',
 ]
 
+const anchorBraces = [
+  '# Greeting',
+  '',
+  `A greeting waits for ${anchor('Greeting function')}{To be settled}.`,
+  '',
+  '=>',
+  '',
+  `${anchor('Greeting function')}{kind="To be settled" provides=[greet, farewell]}`,
+  `${anchor('Saying hello')}(greeting.loom){provides=greet}`,
+  `const origin = ${anchor('Point')} {X: 1}`,
+]
+
 describe('the corners', () => {
   it.effect('fenced code holds headings, arrows and shorter fences as code', () =>
     checkLoom(fixture('fenced', fencedBlock)),
@@ -245,6 +257,15 @@ describe('the corners', () => {
   )
   it.effect('a fence and a note keep their marks inert', () =>
     checkLoom(fixture('fence-and-note', fenceAndNote)),
+  )
+  it.effect('braces that touch an anchor hold its label or its parameters', () =>
+    Effect.gen(function* () {
+      const file = fixture('anchor-braces', anchorBraces)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(anchor_specifier /g)).toHaveLength(3)
+      expect(tree.match(/\(parameter /g)).toHaveLength(3)
+    }),
   )
   it.effect('a last line needs no line break', () =>
     Effect.gen(function* () {
