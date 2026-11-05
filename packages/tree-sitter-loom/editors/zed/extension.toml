@@ -1,6 +1,6 @@
 id = "loom"
 name = "Loom"
-version = "0.0.15"
+version = "0.0.16"
 schema_version = 1
 authors = ["Quadrivium Academy <info@qda.one>"]
 description = "Loom literate documents: colour, checks, and navigation for .loom files"
@@ -8,7 +8,7 @@ repository = "https://github.com/athrio-com/loom"
 
 [grammars.loom]
 repository = "https://github.com/athrio-com/loom"
-rev = "faf18b966da612a3f6353fc57ca4d046b31006c2"
+rev = "c668b7cbb9dd680cbb4594d4f196ceb0ad3e63ec"
 path = "packages/tree-sitter-loom"
 
 [language_servers.loom]
