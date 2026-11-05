@@ -116,7 +116,7 @@ The words the app shows when it starts.
 :::
 
 =>
-import greet from ::[Greeting module]
+import greet from ::[Greeting module]{Reference}
 ```
 
 The author settles the wildcard by anchoring it to a section or a chapter, in this loom or another. The `anchors` parameter names the target:
@@ -129,7 +129,7 @@ The words the app shows when it starts.
 
 The value of the `anchors` parameter is a name, and it resolves like any reference, nearest first, by the rule this chapter sets. A name with a space is quoted, as in `anchors="Room's 2d system"`, and a path names a target that a bare name cannot reach. Go-to-definition follows the name, and renaming the target rewrites it.
 
-Every anchor to the wildcard stays as it was. An anchor finds the wildcard by the wildcard's name, and a wildcard with a target behaves exactly as its target does. The anchor composes the target section or refers to the target's file, as its place in the code decides. Settling a wildcard therefore rewrites no reference to it.
+Every anchor to the wildcard stays as it was. An anchor finds the wildcard by the wildcard's name, and a wildcard with a target behaves exactly as its target does. The anchor composes the target section or refers to the target's file, as the anchor's own kind decides: an anchor of the `Reference` kind refers, and any other composes. Settling a wildcard therefore rewrites no reference to it.
 
 The wildcard keeps its contract after it is settled. Loom checks its `provides` names against the target, as it checks an anchor's, so a name the target lacks is the `MissingSymbol` fault at the wildcard. The wildcard then reads as the interface its target meets.
 
@@ -193,7 +193,7 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. Wildcards: the `Wildcard` kind, its `anchors` parameter resolved, followed and renamed, and the module the editor serves while a wildcard is unsettled. They wait for boxes, and for the rule of the chapter "Referring to modules" that tells a referring anchor by its `Reference` kind.
+1. Wildcards: the `Wildcard` kind, its `anchors` parameter resolved, followed and renamed, and the module the editor serves while a wildcard is unsettled. They wait for boxes, and for the `Reference` kind of the chapter "Referring to modules", which marks a code anchor that refers.
 2. The contract an unsettled section collects from the code that uses it and from the names anchors and wildcards promise, offered as completions and handed to the trope that writes stubs.
 3. The `provides` names of a referring anchor, checked against the names its file exports.
 4. The graph as a projection of the produced corpus, with its first view.

@@ -12,7 +12,7 @@ The chapter "Referring to modules" lets an import name its module by its place i
 
 ## Wildcards and boxes as references
 
-A wildcard, the box the chapter "Names through the book" defines, refers or composes as the anchor that names it says, and its target fits the kind as a section or chapter does. A wildcard that refers carries two kinds, as `{kind=[Wildcard, Reference]}` does. While the wildcard points nowhere, a referring one gives a module of its own, and a composing one composes nothing.
+A wildcard is the box the chapter "Names through the book" defines, a directive of the `Wildcard` kind whose `anchors` parameter may name the section or chapter it stands for. The wildcard itself neither refers nor composes. The code anchor that names it does, by the anchor's own kind, as any anchor does, so `import greet from ::[Greeting module]{Reference}` refers. Once the wildcard anchors a section or a chapter, the reference fits that target as it fits any other. While the wildcard anchors nothing, the reference gets a module the editor serves in the wildcard's place, and a composing anchor composes nothing.
 
 A box whose chapter is not written, and a wildcard that points nowhere, are not at fault as references. Each is unsettled, as the chapter "Names through the book" describes. The reference resolves, and the editor collects the module's contract from the code that uses it and from the names a `provides` parameter states.
 
