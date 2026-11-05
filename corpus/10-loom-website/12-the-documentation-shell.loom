@@ -675,7 +675,31 @@ const markOf = (flower: Option.Option<Carpet>, section: Section): Option.Option<
 
 Everything a section holds then runs in one column beneath its heading, in the order the chapter wrote it: a paragraph, then the command it introduces, then the next paragraph.
 
+A division opens with a rule rather than a heading, and `headOf` draws whichever the section opens with. `dividerOf` draws the rule across the column, with the division's label at its centre, and draws a bare divider as the rule alone. A division takes no mark, since the rule already says where the turn falls.
+
 =>
+
+const dividerOf = (heading: HeadingBlock, h: HtmlBuilder<Message>): Html =>
+  heading.title === ''
+    ? h.div([h.Class('doc-divider')], [])
+    : h.div(
+        [h.Class('doc-divider'), h.Id(heading.id)],
+        [h.span([h.Class('doc-divider-label')], [heading.title])],
+      )
+
+const headOf = (mark: Option.Option<Html>, heading: HeadingBlock, h: HtmlBuilder<Message>): Html =>
+  heading.divider
+    ? dividerOf(heading, h)
+    : h.div(
+        [h.Class('section-head')],
+        [
+          ...Option.toArray(mark),
+          h.div(
+            [h.Class('lines')],
+            [h.h2([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)])],
+          ),
+        ],
+      )
 
 const sectionOf = (
   mark: Option.Option<Html>,
@@ -688,21 +712,7 @@ const sectionOf = (
   h.div(
     [h.Class('section doc-section')],
     [
-      h.div(
-        [h.Class('section-head')],
-        [
-          ...Option.toArray(mark),
-          h.div(
-            [h.Class('lines')],
-            [
-              h.h2(
-                [h.Id(section.heading.id)],
-                [section.heading.title, ...settleMark(section.heading, h)],
-              ),
-            ],
-          ),
-        ],
-      ),
+      headOf(mark, section.heading, h),
       h.div(
         [h.Class('doc-stack')],
         Array.flatMap(section.blocks, (block) => blockOf(block, base, page, model, h)),
@@ -791,6 +801,7 @@ const chapterHeading = (page: Page, cut: Cut): HeadingBlock =>
     title: page.title,
     id: page.slug,
     unsettled: false,
+    divider: false,
   }))
 
 const docHead = (

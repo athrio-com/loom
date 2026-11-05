@@ -330,3 +330,30 @@ describe('notes in prose', () => {
     expect(prose).toEqual(['Before.\n::: Cells {Mermaid}\nflowchart LR\n:::\nAfter.'])
   })
 })
+
+describe('a division in the weave', () => {
+  it('weaves as a heading of the second level that a divider wrote', () => {
+    const divided = [
+      '---',
+      'Part I, Chapter 1: Rooms',
+      'Language: Prose',
+      '---',
+      '',
+      '# Rooms',
+      '',
+      'The grid is the whole model.',
+      '',
+      'Drawing the room',
+      '---',
+      '',
+      'The room draws itself.',
+      '',
+    ].join('\n')
+    const page = weave(buildCorpus({ '/corpus/rooms.loom': divided })).pages[0]!
+    const headings = page.blocks.flatMap((b) => (b.type === 'heading' ? [b] : []))
+    expect(headings.map((b) => [b.level, b.title, b.divider])).toEqual([
+      [1, 'Rooms', false],
+      [2, 'Drawing the room', true],
+    ])
+  })
+})

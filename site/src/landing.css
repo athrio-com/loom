@@ -2593,6 +2593,27 @@ h2, .subhead {
   color: var(--ink-2);
 }
 
+.doc-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 28px;
+  color: var(--ink-3);
+}
+
+.doc-divider::before,
+.doc-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--rule);
+}
+
+.doc-divider-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 @media (max-width: 1179px) { .doc-hero-grid { gap: 56px; } }
 
 @media (max-width: 999px) {

@@ -4,6 +4,7 @@ const HeadingBlock = S.Struct({
   title: S.String,
   id: S.String,
   unsettled: S.Boolean.pipe(S.withDecodingDefaultKey(Effect.succeed(false))),
+  divider: S.Boolean.pipe(S.withDecodingDefaultKey(Effect.succeed(false))),
 })
 export type HeadingBlock = typeof HeadingBlock.Type
 

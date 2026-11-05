@@ -3062,6 +3062,8 @@ What frames the code stays outside the sheet, in the prose column. Above it runs
 
 A note is a reader's annotation rather than part of the chapter, so it reads quieter than the prose around it. It sits on the pale card ground in muted ink, with a rule in the accent down its left edge. A note's caption heads the card in bold, in the ink of the prose, so a reader sees what the note is about before reading it.
 
+A divider draws as a hairline rule across the column, in the rule's own colour, broken at its centre by the division's label in small spaced capitals. A bare divider is the rule alone.
+
 =>
 
 .code-anchor {
@@ -3139,6 +3141,27 @@ A note is a reader's annotation rather than part of the chapter, so it reads qui
   margin: 0 0 6px;
   font-weight: 600;
   color: var(--ink-2);
+}
+
+.doc-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 28px;
+  color: var(--ink-3);
+}
+
+.doc-divider::before,
+.doc-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--rule);
+}
+
+.doc-divider-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 ~

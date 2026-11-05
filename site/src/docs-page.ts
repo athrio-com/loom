@@ -522,6 +522,28 @@ const markOf = (flower: Option.Option<Carpet>, section: Section): Option.Option<
     Option.map(flower, (carpet) => carpetMark(carpet, '42px', broadSeam)),
   )
 
+const dividerOf = (heading: HeadingBlock, h: HtmlBuilder<Message>): Html =>
+  heading.title === ''
+    ? h.div([h.Class('doc-divider')], [])
+    : h.div(
+        [h.Class('doc-divider'), h.Id(heading.id)],
+        [h.span([h.Class('doc-divider-label')], [heading.title])],
+      )
+
+const headOf = (mark: Option.Option<Html>, heading: HeadingBlock, h: HtmlBuilder<Message>): Html =>
+  heading.divider
+    ? dividerOf(heading, h)
+    : h.div(
+        [h.Class('section-head')],
+        [
+          ...Option.toArray(mark),
+          h.div(
+            [h.Class('lines')],
+            [h.h2([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)])],
+          ),
+        ],
+      )
+
 const sectionOf = (
   mark: Option.Option<Html>,
   section: Section,
@@ -533,21 +555,7 @@ const sectionOf = (
   h.div(
     [h.Class('section doc-section')],
     [
-      h.div(
-        [h.Class('section-head')],
-        [
-          ...Option.toArray(mark),
-          h.div(
-            [h.Class('lines')],
-            [
-              h.h2(
-                [h.Id(section.heading.id)],
-                [section.heading.title, ...settleMark(section.heading, h)],
-              ),
-            ],
-          ),
-        ],
-      ),
+      headOf(mark, section.heading, h),
       h.div(
         [h.Class('doc-stack')],
         Array.flatMap(section.blocks, (block) => blockOf(block, base, page, model, h)),
@@ -614,6 +622,7 @@ const chapterHeading = (page: Page, cut: Cut): HeadingBlock =>
     title: page.title,
     id: page.slug,
     unsettled: false,
+    divider: false,
   }))
 
 const docHead = (

@@ -10,7 +10,7 @@ Language: TypeScript
 
 A long chapter falls into stretches, and a reader likes to see where one stretch ends and the next begins. Headings already structure a chapter, but every heading looks like every other heading of its level. A division marks a larger turn. A line of dashes called a divider opens it, and the editor and the woven page draw the divider as a rule across the page, with the division's label at the rule's centre.
 
-Loom already reads a divider. The chapters "The leaf tokens", "The classifier stage", and "The document builder" read it: a division is a section that a divider opens, titled by its label, so an anchor finds a division by its label as it finds any section, and a label that repeats a section's title is a duplicate. The tree-sitter grammar reads dividers too. This chapter describes how a division draws, and what it means in a discussion.
+Loom already reads a divider. The chapters "The leaf tokens", "The classifier stage", and "The document builder" read it: a division is a section that a divider opens, titled by its label, so an anchor finds a division by its label as it finds any section, and a label that repeats a section's title is a duplicate. The tree-sitter grammar reads dividers too, and the editors colour a divider's dashes as they colour an arrow. The woven page draws a division as a rule across the column with its label at the centre. This chapter describes what a division means in a discussion, and how the editor's outline groups by division.
 
 ## A label and a rule
 
@@ -59,9 +59,8 @@ So in a discussion a division carries meaning as well as drawing a rule. The lim
 
 ## What this chapter grows into
 
-1. Dividers in the woven page, and in the editor's preview, as a rule with its label at the centre.
-2. Divisions in the editor's outline, as labels that group the headings between one divider and the next.
-3. Divisions as the topics of a discussion, each closed by at most one conclusion.
-4. The Neovim and Zed chapters of Part IX fenced by the formatter, once a Loom that reads fenced code is published.
+1. Divisions in the editor's outline, as labels that group the headings between one divider and the next.
+2. Divisions as the topics of a discussion, each closed by at most one conclusion.
+3. The Neovim and Zed chapters of Part IX fenced by the formatter, once a Loom that reads fenced code is published.
 
 When dividers draw in the editor and on the woven page, the rest of this chapter joins the chapters that read a divider.

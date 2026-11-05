@@ -225,6 +225,7 @@ const headingBlock = (
     title: titleSource(section),
     id: slugify(titleSource(section)),
     unsettled: weaving.sections.has(keyOf({ path: module.path, name: sectionNameOf(section) })),
+    divider: section.heading.marker.type === 'Divider',
   })
 
 type BodyWeft = PreambleWeft | SectionBodyWeft

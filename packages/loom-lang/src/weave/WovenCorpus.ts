@@ -40,6 +40,7 @@ export const HeadingBlockSchema = Schema.Struct({
   title: Schema.String,
   id: Schema.String,
   unsettled: Schema.Boolean,
+  divider: Schema.Boolean,
 })
 export type HeadingBlock = typeof HeadingBlockSchema.Type
 

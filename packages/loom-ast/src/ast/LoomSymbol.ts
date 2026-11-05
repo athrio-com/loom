@@ -27,6 +27,7 @@ export const SymbolKindSchema = Schema.Literals([
   'tocPart',
   'tocEntry',
   'boxName',
+  'divider',
 ])
 export type SymbolKind = typeof SymbolKindSchema.Type
 
@@ -101,6 +102,7 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
         verification: true,
       }),
     ),
+    Match.when('divider', () => profile(Option.some('operator'), {})),
     Match.when('boxName', () =>
       profile(Option.some('namespace'), {
         navigation: true,
@@ -145,6 +147,7 @@ const tocSymbols = (weft: TocWeft): ReadonlyArray<Symbol> => [
 ]
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
+  ...(heading.marker.type === 'Divider' ? [at('divider', heading.marker.position)] : []),
   ...Option.toArray(
     Option.map(Option.fromNullishOr(heading.title), (t) => at('headingTitle', t.position)),
   ),

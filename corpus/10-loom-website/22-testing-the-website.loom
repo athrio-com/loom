@@ -704,7 +704,7 @@ it('reads the breadcrumb out of the corpus, not out of the view', () => {
 
 ## Sections and their flowers
 
-The quick start has three sections. Only the first opens on the chapter's flower, a carpet mark beside its heading, and the rest open on their heading alone. Each chapter has a flower of its own. The quick start's is the orange sunflower, and the next chapter's differs from it.
+The quick start has three sections. Only the first opens on the chapter's flower, a carpet mark beside its heading, and the rest open on their heading alone. Each chapter has a flower of its own. The quick start's is the orange sunflower, and the next chapter's differs from it. A division opens on a rule instead, with its label at the centre and no flower, and a bare divider draws the rule alone.
 
 =>
 
@@ -726,6 +726,39 @@ it('gives the quick start the orange sunflower, and its neighbour a different fl
   expect(head).toContain('#FF6A3D')
   expect(head).toContain('#E8318A')
   expect(flowerOf(render(at(INIT)))).not.toBe(head)
+})
+
+it('opens a division on a rule with its label at the centre, and a bare one on the rule alone', () => {
+  const heading = (level: number, title: string, divider: boolean) => ({
+    type: 'heading',
+    level,
+    title,
+    id: title.toLowerCase().replaceAll(' ', '-'),
+    unsettled: false,
+    divider,
+  })
+  const divided = {
+    nav: [{ name: 'Getting started', chapters: [{ number: '1', title: 'Rooms', slug: 'rooms' }] }],
+    pages: [
+      {
+        slug: 'rooms',
+        title: 'Rooms',
+        blocks: [
+          heading(1, 'Rooms', false),
+          heading(2, 'Drawing the room', true),
+          { type: 'prose', markdown: 'The room draws itself.' },
+          heading(2, '', true),
+          { type: 'prose', markdown: 'After the rule.' },
+        ],
+      },
+    ],
+  } as unknown as Corpus
+  const html = renderHtml((h) => wovenPage(divided, 'Docs', '/docs', docsOpening, at('rooms'), h))
+  expect(html).toMatch(
+    /<div class="doc-divider" id="drawing-the-room"><span class="doc-divider-label">Drawing the room<\/span><\/div>/,
+  )
+  expect(html).toContain('<div class="doc-divider"></div>')
+  expect(html).not.toContain('<h2 id="drawing-the-room">')
 })
 
 ## Fences, and what each becomes

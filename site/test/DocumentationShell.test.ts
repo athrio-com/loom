@@ -109,6 +109,39 @@ describe('the documentation shell', () => {
     expect(flowerOf(render(at(INIT)))).not.toBe(head)
   })
 
+  it('opens a division on a rule with its label at the centre, and a bare one on the rule alone', () => {
+    const heading = (level: number, title: string, divider: boolean) => ({
+      type: 'heading',
+      level,
+      title,
+      id: title.toLowerCase().replaceAll(' ', '-'),
+      unsettled: false,
+      divider,
+    })
+    const divided = {
+      nav: [{ name: 'Getting started', chapters: [{ number: '1', title: 'Rooms', slug: 'rooms' }] }],
+      pages: [
+        {
+          slug: 'rooms',
+          title: 'Rooms',
+          blocks: [
+            heading(1, 'Rooms', false),
+            heading(2, 'Drawing the room', true),
+            { type: 'prose', markdown: 'The room draws itself.' },
+            heading(2, '', true),
+            { type: 'prose', markdown: 'After the rule.' },
+          ],
+        },
+      ],
+    } as unknown as Corpus
+    const html = renderHtml((h) => wovenPage(divided, 'Docs', '/docs', docsOpening, at('rooms'), h))
+    expect(html).toMatch(
+      /<div class="doc-divider" id="drawing-the-room"><span class="doc-divider-label">Drawing the room<\/span><\/div>/,
+    )
+    expect(html).toContain('<div class="doc-divider"></div>')
+    expect(html).not.toContain('<h2 id="drawing-the-room">')
+  })
+
   it("renders a chapter's prose as HTML, a one-line bash fence as a copy button", () => {
     const html = render(at(QUICK))
     expect(html).toContain('<h1 id="quick-start">Quick start</h1>')
