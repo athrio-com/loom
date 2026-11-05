@@ -72,6 +72,87 @@
     }
   },
   {
+    "type": "box",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "box_name",
+            "named": true
+          }
+        ]
+      },
+      "specifier": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "box_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "box_body",
+          "named": true
+        },
+        {
+          "type": "box_fence",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "box_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "box_specifier",
+    "named": true,
+    "fields": {
+      "label": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "label",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "code",
     "named": true,
     "fields": {},
@@ -263,21 +344,6 @@
     "fields": {}
   },
   {
-    "type": "note",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "note_marker",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "parameter",
     "named": true,
     "fields": {
@@ -340,7 +406,7 @@
           "named": true
         },
         {
-          "type": "note",
+          "type": "box",
           "named": true
         },
         {
@@ -363,7 +429,7 @@
           "named": true
         },
         {
-          "type": "note",
+          "type": "box",
           "named": true
         },
         {
@@ -572,6 +638,14 @@
     "named": true
   },
   {
+    "type": "box_fence",
+    "named": true
+  },
+  {
+    "type": "box_name",
+    "named": true
+  },
+  {
     "type": "default",
     "named": true
   },
@@ -605,10 +679,6 @@
   },
   {
     "type": "name",
-    "named": true
-  },
-  {
-    "type": "note_marker",
     "named": true
   },
   {

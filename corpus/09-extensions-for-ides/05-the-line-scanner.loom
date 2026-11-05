@@ -8,11 +8,11 @@ Language: C
 
 The line scanner is the classifier of Part III, written again in C for tree-sitter. Tree-sitter calls it at the start of every line, before the grammar's own lexer, and the scanner answers with the line's kind: a heading, an arrow, a tilde, a line of code, a fence around fenced code, a line of prose, and the rest. It reaches that answer the way `WeftClassifier` does. It keeps the same state, tests the same markers, and walks the same decision table in the same order, so a line that Loom reads as code is a line the editor colours as code.
 
-The scanner consumes nothing for a line's kind. Each kind is a zero-width token that marks where the line starts, and the grammar then reads the line's marks and text itself. The one token the scanner does consume is the line ending.
+The scanner consumes nothing for a line's kind. Each kind is a zero-width token that marks where the line starts, and the grammar then reads the line's marks and text itself. Only two of the scanner's tokens consume text: the line ending, and the name of a box, which no pattern of the grammar can find.
 
 ## The tokens it emits
 
-The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first twelve name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A code fence line opens or closes fenced code. A verbatim line is inside a quote or opens one. A note line opens a note, and a note body line is any later line of it, its closing `:::` included. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
+The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first thirteen name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A code fence line opens or closes fenced code. A verbatim line is inside a quote or opens one. A box line opens a box, a box body line sits inside it, and a box close line closes it. The box name is the name on a line that opens a box. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
 
 =>
 
@@ -27,17 +27,19 @@ enum TokenType {
   CODE_FENCE_LINE,
   TOC_LINE,
   VERBATIM_LINE,
-  NOTE_LINE,
-  NOTE_BODY_LINE,
+  BOX_LINE,
+  BOX_BODY_LINE,
+  BOX_CLOSE_LINE,
+  BOX_NAME,
   NEWLINE,
   ERROR_SENTINEL,
 };
 
 ## What the scanner remembers
 
-The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, and whether the line sits in the frontmatter, a table of contents, or a note. A quote and fenced code each keep the length and column of the fence that opened them, as the classifier keeps a `Fence`, and a length of zero means none is open. `awaiting_fence` is the classifier's wait for a fence after an arrow. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
+The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, and whether the line sits in the frontmatter, a table of contents, or a box. A quote and fenced code each keep the length and column of the fence that opened them, as the classifier keeps a `Fence`, and a length of zero means none is open. `awaiting_fence` is the classifier's wait for a fence after an arrow. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
 
-One flag is the scanner's own. `at_line_start` records that the last token ended a line, so the next token names the next line's kind. It keeps the scanner from naming the same line twice, because a zero-width token leaves the parser where it was.
+Two values are the scanner's own. `at_line_start` records that the last token ended a line, so the next token names the next line's kind. It keeps the scanner from naming the same line twice, because a zero-width token leaves the parser where it was. `name_reach` remembers where a box's name ends, from the moment the scanner classifies the line that opens the box until it reads the name. It counts the characters from the end of the colons to the name's last character, and zero means no name waits to be read.
 
 =>
 
@@ -51,18 +53,21 @@ typedef struct {
   bool in_toc;
   uint8_t quote_length;
   uint8_t quote_column;
-  bool in_note;
+  bool in_box;
   uint8_t fenced_length;
   uint8_t fenced_column;
   bool awaiting_fence;
   uint8_t mode;
+  uint32_t name_reach;
 } Scanner;
 
 ## Reading a line ahead
 
-The scanner must see a whole line to classify it. A `---` is a fence only when nothing but spaces follows it, and a heading opens a contents section only when `{TOC}` appears somewhere along it. Tree-sitter lets a scanner read past the end of the token it returns, so the scanner marks the token's end where the line begins and then reads on to the line's end.
+The scanner must see a whole line to classify it. A `---` is a fence only when nothing but spaces follows it, a heading opens a contents section only when `{TOC}` appears somewhere along it, and a box's name stops short of braces only when the braces end the line. Tree-sitter lets a scanner read past the end of the token it returns, so the scanner marks the token's end where the line begins and then reads on to the line's end.
 
 `peek_line` gathers what the markers need into a `Line`. It keeps the line's first characters in `head`, enough for every marker at the start of a line. It records the line's length, the index of its last character that is not a space, and whether `{TOC}` appeared, in any case. A character outside ASCII is stored as a placeholder no marker matches, and `\s` in the classifier's patterns becomes `is_space`.
+
+`peek_line` also follows the line's braces, the way the tokeniser's pattern `\{[^{}]*\}[ \t]*$` finds the braces that end a line. `brace_open` holds the last `{` that no other brace has followed yet. A `}` after it closes the pair, and `braces_close` records where. A `}` with no such `{` before it closes nothing, and `braces_close` drops back to -1. Beside them, `mark_before_open` and `mark_before_braces` keep the last character before each one's `{` that is not a space, so the scanner knows where a box's name ends when the braces end the line.
 
 =>
 
@@ -74,6 +79,10 @@ typedef struct {
   uint32_t length;
   int32_t last_mark;
   bool toc;
+  int32_t brace_open;
+  int32_t mark_before_open;
+  int32_t braces_close;
+  int32_t mark_before_braces;
 } Line;
 
 static bool is_space(int32_t c) {
@@ -89,12 +98,24 @@ static void peek_line(TSLexer *lexer, Line *line) {
   char window[5] = {0, 0, 0, 0, 0};
   memset(line, 0, sizeof(Line));
   line->last_mark = -1;
+  line->brace_open = -1;
+  line->braces_close = -1;
   while (!lexer->eof(lexer) && lexer->lookahead != '\n' &&
          lexer->lookahead != '\r') {
     int32_t c = lexer->lookahead;
+    int32_t at = (int32_t)line->length;
     if (line->head_length < HEAD_SIZE)
       line->head[line->head_length++] = c < 128 ? (char)c : '\x01';
-    if (!is_space(c)) line->last_mark = (int32_t)line->length;
+    if (c == '{') {
+      line->brace_open = at;
+      line->mark_before_open = line->last_mark;
+    }
+    if (c == '}') {
+      line->braces_close = line->brace_open < 0 ? -1 : at;
+      line->mark_before_braces = line->mark_before_open;
+      line->brace_open = -1;
+    }
+    if (!is_space(c)) line->last_mark = at;
     memmove(window, window + 1, 4);
     window[4] = lower(c);
     if (memcmp(window, "{toc}", 5) == 0) line->toc = true;
@@ -152,7 +173,7 @@ static bool is_tilde(const Line *line) {
 
 ~
 
-The fences have markers of their own. `fence_of` reads a fence the way `openingFence` does: a run of three or more backticks after any indent, its length and its column. `closes_fence` tells whether a line closes an open fence, as `closesFence` does: a run at the same column, at least as long, with nothing after it. The scanner reads only the head of a line, so it counts a run of backticks up to the head's end, far past any fence a loom writes. A note opens with `:::[Note]` and closes with a lone `:::`, spaces around it allowed. The opening is written as two adjacent C strings, which the compiler joins, because the single literal would read as an anchor in this loom's code.
+The fences have markers of their own. `fence_of` reads a fence the way `openingFence` does: a run of three or more backticks after any indent, its length and its column. `closes_fence` tells whether a line closes an open fence, as `closesFence` does: a run at the same column, at least as long, with nothing after it. The scanner reads only the head of a line, so it counts a run of backticks up to the head's end, far past any fence a loom writes.
 
 =>
 
@@ -171,26 +192,57 @@ static bool closes_fence(const Line *line, uint32_t length, uint32_t column) {
          line->last_mark == (int32_t)(at + found) - 1;
 }
 
-static bool is_note_open(const Line *line) {
-  return head_has(line, indent_of(line), ":::" "[Note]");
+~
+
+A box line starts with a run of colons after any spaces or tabs, as the `BoxFence` pattern reads it. `box_fence_of` reads the run's length and column, and gives zero for fewer than three colons, which make no box line at all. Three colons open a box outside one, and `closes_box` tells the line that closes one: three colons with nothing after them but spaces.
+
+`name_reach_of` measures the name on a line that opens a box. `name_end_of` finds the name's last character. When braces end the line, it is the last character before them that is not a space. Otherwise it is the line's own last character that is not a space. The reach counts the characters from the end of the colons up to that one. A line with no name, before its braces or at all, reaches nowhere.
+
+=>
+
+static uint32_t box_fence_of(const Line *line, uint32_t *column) {
+  uint32_t at = 0;
+  while (at < line->head_length &&
+         (line->head[at] == ' ' || line->head[at] == '\t'))
+    at++;
+  uint32_t end = at;
+  while (end < line->head_length && line->head[end] == ':') end++;
+  *column = at;
+  return end - at >= 3 ? end - at : 0;
 }
 
-static bool is_note_close(const Line *line) {
-  uint32_t at = indent_of(line);
-  return head_has(line, at, ":::") && line->last_mark == (int32_t)at + 2;
+static bool closes_box(const Line *line) {
+  uint32_t column;
+  return box_fence_of(line, &column) == 3 &&
+         line->last_mark == (int32_t)column + 2;
+}
+
+static int32_t name_end_of(const Line *line) {
+  bool braced =
+      line->braces_close >= 0 && line->braces_close == line->last_mark;
+  return braced ? line->mark_before_braces : line->last_mark;
+}
+
+static uint32_t name_reach_of(const Line *line, uint32_t column) {
+  int32_t after = (int32_t)column + 3;
+  int32_t end = name_end_of(line);
+  return end < after ? 0 : (uint32_t)(end - after + 1);
 }
 
 ## Classifying one line
 
 `classify_line` is the decision table of `probeWeft`, rule for rule. It returns the line's kind and leaves the state as the classifier's next state would be.
 
-The frontmatter comes first: a `---` on the first line opens it, and every line through the closing `---` is a field. A quote and a note come next. Every line inside them is inert until the quote or the note closes, and the mode follows what the classifier would record for such a line, prose after the first heading and preamble before it.
+The frontmatter comes first: a `---` on the first line opens it, and every line through the closing `---` is a field. A quote and a box come next. No line inside them opens anything until the quote or the box closes, and the mode follows what the classifier would record for such a line, prose after the first heading and preamble before it. Only the line `closes_box` accepts closes a box, so three colons with a name, or four colons, stay in its body, as the classifier keeps such a stray inside the box.
+
+Every line starts with no box name to read. Only a line that opens a box gives `name_reach` a value.
 
 =>
 
 static enum TokenType classify_line(Scanner *s, const Line *line) {
   bool first = !s->started;
   s->started = true;
+  s->name_reach = 0;
 
   if (first && is_frontmatter_fence(line)) {
     s->in_frontmatter = true;
@@ -213,10 +265,11 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
     return VERBATIM_LINE;
   }
 
-  if (s->in_note) {
-    s->in_note = !is_note_close(line);
+  if (s->in_box) {
     s->mode = s->seen_heading ? PROSE : PREAMBLE;
-    return NOTE_BODY_LINE;
+    if (!closes_box(line)) return BOX_BODY_LINE;
+    s->in_box = false;
+    return BOX_CLOSE_LINE;
   }
 
   bool awaiting = s->awaiting_fence;
@@ -297,9 +350,9 @@ switch (s->mode) {
     return prose_kind(s, line, PROSE_LINE, PROSE);
 }
 
-## Where a fence or a note opens
+## Where a quote or a box opens
 
-Only a line of prose opens a quote or a note, as in the classifier, so a fence inside code is left to the code's own language. `prose_kind` takes the kind a prose line would have and settles the regions it may open. A line that opens a quote is verbatim, since the tokeniser skips the anchors on a quote's first line as well. A line that opens a note is a note line. Any other prose line keeps its kind.
+Only a line of prose opens a quote or a box, as in the classifier, so a fence or a run of colons inside code is left to the code's own language. `prose_kind` takes the kind a prose line would have and settles the regions it may open. A line that opens a quote is verbatim, since the tokeniser skips the anchors on a quote's first line as well. Three colons open a box. The line is a box line, and `name_reach` keeps its name for the scan to read. Four or more colons open nothing. The tokeniser faults such a stray and reads no anchor on it, so the line is verbatim too. Any other prose line keeps its kind.
 
 =>
 
@@ -310,10 +363,13 @@ static enum TokenType prose_kind(Scanner *s, const Line *line,
   s->mode = mode;
   s->quote_length = (uint8_t)(length > 255 ? 255 : length);
   s->quote_column = (uint8_t)(column > 255 ? 255 : column);
-  s->in_note = length == 0 && is_note_open(line);
   if (length > 0) return VERBATIM_LINE;
-  if (s->in_note) return NOTE_LINE;
-  return kind;
+  uint32_t colons = box_fence_of(line, &column);
+  if (colons == 0) return kind;
+  if (colons > 3) return VERBATIM_LINE;
+  s->in_box = true;
+  s->name_reach = name_reach_of(line, column);
+  return BOX_LINE;
 }
 
 ## Ending a line
@@ -331,9 +387,31 @@ static bool scan_newline(Scanner *s, TSLexer *lexer) {
   return true;
 }
 
+## Reading a box's name
+
+The grammar asks for a box's name right after the colons that open the box, and `scan_box_name` reads it there. It skips the spaces before the name, so they stay out of the name's node, and then reads as far as `name_reach` says. The reach is spent once read, so the scanner never reads one name twice.
+
+=>
+
+static bool scan_box_name(Scanner *s, TSLexer *lexer) {
+  uint32_t reach = s->name_reach;
+  s->name_reach = 0;
+  while (reach > 0 && is_space(lexer->lookahead)) {
+    lexer->advance(lexer, true);
+    reach--;
+  }
+  while (reach > 0) {
+    lexer->advance(lexer, false);
+    reach--;
+  }
+  lexer->mark_end(lexer);
+  lexer->result_symbol = BOX_NAME;
+  return true;
+}
+
 ## The scan
 
-Tree-sitter calls `scan` with the list of tokens the parser can accept at that point. Inside a line, the scanner answers only at the line's end and leaves the text to the grammar. At a line's start, it reads the line, classifies it, and names the line's kind, provided the parser can accept that kind there. While the parser recovers from an error it accepts anything, and the scanner names the kind regardless, so its state keeps pace with the lines even through broken text. A file's end after its last line ending holds no line, so the scanner names none there.
+Tree-sitter calls `scan` with the list of tokens the parser can accept at that point. Inside a line, the scanner answers at the line's end, and at the one place a box's name may stand, and it leaves the rest of the text to the grammar. At a line's start, it reads the line, classifies it, and names the line's kind, provided the parser can accept that kind there. While the parser recovers from an error it accepts anything. The scanner then names a line's kind regardless, so its state keeps pace with the lines even through broken text, but it reads no box name, since it cannot tell where on the line the parser stands. A file's end after its last line ending holds no line, so the scanner names none there.
 
 =>
 
@@ -341,6 +419,8 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
   bool recovering = valid[ERROR_SENTINEL];
 
   if (!s->at_line_start) {
+    if (valid[BOX_NAME] && !recovering && s->name_reach > 0)
+      return scan_box_name(s, lexer);
     if (!valid[NEWLINE] && !recovering) return false;
     if (lexer->eof(lexer) || lexer->lookahead == '\n' ||
         lexer->lookahead == '\r')
@@ -362,7 +442,7 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
 
 ## Saving and restoring the state
 
-Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. The state is twelve small values, so each takes one byte. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
+Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. Twelve of the state's values are small, so each takes one byte, and the reach of a box's name takes the four bytes after them. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
 
 =>
 
@@ -386,12 +466,13 @@ unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
   buffer[4] = (char)s->in_toc;
   buffer[5] = (char)s->quote_length;
   buffer[6] = (char)s->quote_column;
-  buffer[7] = (char)s->in_note;
+  buffer[7] = (char)s->in_box;
   buffer[8] = (char)s->fenced_length;
   buffer[9] = (char)s->fenced_column;
   buffer[10] = (char)s->awaiting_fence;
   buffer[11] = (char)s->mode;
-  return 12;
+  memcpy(buffer + 12, &s->name_reach, sizeof(s->name_reach));
+  return 16;
 }
 
 void tree_sitter_loom_external_scanner_deserialize(void *payload,
@@ -400,7 +481,7 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   Scanner *s = payload;
   memset(s, 0, sizeof(Scanner));
   s->at_line_start = true;
-  if (length < 12) return;
+  if (length < 16) return;
   s->at_line_start = buffer[0];
   s->started = buffer[1];
   s->seen_heading = buffer[2];
@@ -408,11 +489,12 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   s->in_toc = buffer[4];
   s->quote_length = (uint8_t)buffer[5];
   s->quote_column = (uint8_t)buffer[6];
-  s->in_note = buffer[7];
+  s->in_box = buffer[7];
   s->fenced_length = (uint8_t)buffer[8];
   s->fenced_column = (uint8_t)buffer[9];
   s->awaiting_fence = buffer[10];
   s->mode = (uint8_t)buffer[11];
+  memcpy(&s->name_reach, buffer + 12, sizeof(s->name_reach));
 }
 
 bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,
@@ -441,11 +523,13 @@ Tree-sitter compiles `src/scanner.c` beside the parser it generates. The scanner
 
 ::[The markers a line can start with]
 
-::[Where a fence or a note opens]
+::[Where a quote or a box opens]
 
 ::[Classifying one line]
 
 ::[Ending a line]
+
+::[Reading a box's name]
 
 ::[The scan]
 

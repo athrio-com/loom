@@ -24,8 +24,10 @@ module.exports = grammar({
     $._code_fence_line,
     $._toc_line,
     $._verbatim_line,
-    $._note_line,
-    $._note_body_line,
+    $._box_line,
+    $._box_body_line,
+    $._box_close_line,
+    $.box_name,
     $._newline,
     $._error_sentinel,
   ],
@@ -116,7 +118,7 @@ module.exports = grammar({
             $._newline,
           ),
           $._verbatim,
-          $.note,
+          $.box,
         ),
       ),
 
@@ -130,7 +132,7 @@ module.exports = grammar({
           choice(
             seq($._prose_line, repeat($._prose_inline), $._newline),
             $._verbatim,
-            $.note,
+            $.box,
           ),
         ),
       ),
@@ -140,18 +142,6 @@ module.exports = grammar({
     _prose_inline: ($) => choice($._text, $._code_span, $.anchor),
 
     _verbatim: ($) => seq($._verbatim_line, optional(/[^\r\n]+/), $._newline),
-
-    note: ($) =>
-      seq(
-        $._note_line,
-        optional($._space),
-        $.note_marker,
-        optional(/[^\r\n]+/),
-        $._newline,
-        repeat(seq($._note_body_line, optional(/[^\r\n]+/), $._newline)),
-      ),
-
-    note_marker: (_) => ':' + anchorOpen + 'Note]',
 
     code: ($) =>
       seq(
@@ -179,7 +169,7 @@ module.exports = grammar({
 
     _after_fence: ($) =>
       repeat1(
-        choice(seq($._prose_line, repeat($._prose_inline), $._newline), $._verbatim, $.note),
+        choice(seq($._prose_line, repeat($._prose_inline), $._newline), $._verbatim, $.box),
       ),
 
     code_text: ($) => prec.right(repeat1(choice($._code_run, $._newline, $._code_line))),
@@ -199,13 +189,11 @@ module.exports = grammar({
     name: (_) => /[^\]\r\n]+/,
     target: (_) => token(prec(1, /\([^)\r\n]*\)/)),
 
-    anchor_specifier: ($) =>
-      seq(
-        alias($._anchor_brace, '{'),
-        choice(field('label', $.label), seq($.parameter, repeat(seq($._space, $.parameter)))),
-        '}',
-      ),
+    anchor_specifier: ($) => seq(alias($._anchor_brace, '{'), $._braced, '}'),
     _anchor_brace: (_) => token(prec(1, '{')),
+
+    _braced: ($) =>
+      choice(field('label', $.label), seq($.parameter, repeat(seq($._space, $.parameter)))),
 
     parameter: ($) =>
       seq(
@@ -223,6 +211,28 @@ module.exports = grammar({
         optional($._space),
         ']',
       ),
+
+    box: ($) =>
+      seq(
+        $._box_line,
+        optional($._space),
+        $.box_fence,
+        optional(field('name', $.box_name)),
+        optional($._space),
+        optional(seq(field('specifier', $.box_specifier), optional($._space))),
+        $._newline,
+        optional($.box_body),
+        optional($._box_close),
+      ),
+
+    box_fence: (_) => ':::',
+
+    box_specifier: ($) => seq('{', $._braced, '}'),
+
+    box_body: ($) => repeat1(seq($._box_body_line, repeat($._prose_inline), $._newline)),
+
+    _box_close: ($) =>
+      seq($._box_close_line, optional($._space), $.box_fence, optional($._space), $._newline),
 
     warp: ($) =>
       seq(

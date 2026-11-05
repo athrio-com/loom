@@ -8,7 +8,7 @@ Language: scm
 
 A tree is not yet colour. An editor colours a file by running queries over its tree. A query is a set of patterns written in tree-sitter's query language, a small Lisp of node names and captures. A highlights query captures nodes under names such as `@markup.heading` or `@string`, and the editor's theme gives each name a colour. An injections query captures a node whose text belongs to another language, together with the language's name, and the editor parses that text with the other language's grammar and colours it by that grammar's queries.
 
-Loom needs both kinds. The highlights query colours Loom's own marks: the frontmatter, the headings, the arrows and tildes, the anchors and warps. The injections query does the larger part of the work. It hands each code block to the parser of its section's language and each run of prose to Markdown, so a loom reads in the editor as the languages it is written in.
+Loom needs both kinds. The highlights query colours Loom's own marks: the frontmatter, the headings, the arrows and tildes, the anchors and warps, and the lines of colons around a box. The injections query does the larger part of the work. It hands each code block to the parser of its section's language and each run of prose to Markdown, so a loom reads in the editor as the languages it is written in.
 
 The capture names follow the list nvim-treesitter keeps. Helix shares every name used here but one, and its own copy of the highlights closes the chapter.
 
@@ -57,7 +57,7 @@ The key takes a colour of its own, in a section of its own, because the name of 
 
 ## A key in Neovim
 
-Neovim names a key of a record a property, and a frontmatter field's key and an anchor parameter's key both take that colour.
+Neovim names a key of a record a property. A frontmatter field's key takes that colour, and so does a parameter's key, in an anchor's braces or a box's.
 
 =>
 
@@ -69,7 +69,7 @@ Neovim names a key of a record a property, and a frontmatter field's key and an 
 
 ## A key in Helix
 
-Helix has no property colour. Its themes colour a key of a record as a member of a variable, for a frontmatter field's key and an anchor parameter's key alike.
+Helix has no property colour. Its themes colour a key of a record as a member of a variable, for a frontmatter field's key and for a parameter's key, in an anchor's braces or a box's.
 
 =>
 
@@ -216,19 +216,28 @@ A warp declares a variable, so its name takes the variable colour. Its annotatio
 (warp
   default: (default) @string)
 
-## Notes
+## Boxes
 
-A note is a reader's annotation on the text, not part of the program, so the whole note takes the comment colour. Its `:::[Note]` marker takes the colour editors give a note inside a comment.
+A box's colons mark where the box opens and where it closes, as the frontmatter's fences mark the frontmatter, so they take the same special punctuation. A box's name is its caption. It titles the box the way a `Part` or `Chapter` value titles a chapter, so it takes the heading colour that value takes. A box's braces instruct Loom as an anchor's braces do. The braces take the colour of the anchor's delimiters, the kind takes the directive colour, and a parameter's key and value take the colours the patterns above give any parameter. The body is prose, and the injections below hand it to Markdown.
 
 =>
 
-(note) @comment
+(box_fence) @punctuation.special
 
-(note_marker) @comment.note
+(box_name) @markup.heading
+
+(box_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(box_specifier
+  label: (label) @keyword.directive)
 
 ## Prose is Markdown
 
-Every run of prose is Markdown: a preamble, a prose block, and a table of contents. An editor excludes a node's children from the text it injects, and the children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see. A table of contents is the exception. Its part headings and chapter entries are nodes, but they are Markdown headings and list items as well, so the contents keep their children.
+Every run of prose is Markdown: a preamble, a prose block, the body of a box, and a table of contents. An editor leaves a node's children out of the text it injects. The children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see, and its boxes, whose lines of colons belong to Loom. A box's body is prose again, so it takes an injection of its own, and its anchors stay out of that one as well. A table of contents is the exception. Its part headings and chapter entries are nodes, but they are Markdown headings and list items as well, so the contents keep their children.
 
 =>
 
@@ -236,6 +245,9 @@ Every run of prose is Markdown: a preamble, a prose block, and a table of conten
   (#set! injection.language "markdown"))
 
 ((prose) @injection.content
+  (#set! injection.language "markdown"))
+
+((box_body) @injection.content
   (#set! injection.language "markdown"))
 
 ((toc) @injection.content
@@ -732,7 +744,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
 
 ::[Warps]
 
-::[Notes]
+::[Boxes]
 
 ## The injections query [queries/injections.scm]
 
@@ -770,7 +782,7 @@ Helix reads its queries from its own runtime directory, so a Helix setup copies 
 
 ::[Warps]
 
-::[Notes]
+::[Boxes]
 
 ## The injections query for Helix [editors/helix/queries/loom/injections.scm]
 

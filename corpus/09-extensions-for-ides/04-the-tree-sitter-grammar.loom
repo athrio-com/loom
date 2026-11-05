@@ -8,7 +8,7 @@ Language: JavaScript
 
 VS Code colours a loom through the language server. The server sends semantic tokens, and the Loom extension ships no grammar of its own. Neovim, Helix, Zed, and Zed's fork Gram colour a file with tree-sitter instead. Tree-sitter is a parser generator. It compiles a grammar written in JavaScript into a C parser, and the editor runs that parser on every keystroke to keep a syntax tree of the open file. The editor's colours come from queries that name the tree's nodes.
 
-This chapter is the grammar that gives those editors a loom's tree. It parses the marks Part II names — the frontmatter, the headings with their specifiers and sinks, the arrows and tildes, the anchors and warps — and leaves each code section's text and each run of prose as a node of its own. The queries in a later chapter colour the marks and hand each node to the parser of its own language, so a TypeScript section is highlighted as TypeScript and the prose as Markdown.
+This chapter is the grammar that gives those editors a loom's tree. It parses the marks Part II names: the frontmatter, the headings with their specifiers and sinks, the arrows and tildes, the anchors and warps, and the lines of colons around a box. It leaves each code section's text and each run of prose as a node of its own. The queries in a later chapter colour the marks and hand each node to the parser of its own language, so a TypeScript section is highlighted as TypeScript and the prose as Markdown.
 
 The grammar does not replace Loom's own parser. The language server still reads a loom the way Part III describes, and it alone composes, checks, and navigates. Tree-sitter supplies the layer an editor needs before the server answers: colour that follows every keystroke, in any editor that hosts the parser.
 
@@ -18,7 +18,7 @@ Loom reads a loom one line at a time, and what a line means depends on the lines
 
 A tree-sitter grammar cannot express that state, because it describes its tokens with regular expressions, and a regular expression cannot see the lines before it. Tree-sitter lets a grammar hand some tokens to an external scanner, a C function the parser calls before its own lexer. Loom's external scanner is the next chapter. It runs the classifier's state machine, and at the start of every line it emits a token that names the line's kind and consumes nothing. The grammar takes that token as the line's first symbol and then reads the line's marks.
 
-The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first twelve name a line's kind, from a frontmatter fence to a line inside a note. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
+The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first thirteen name a line's kind, from a frontmatter fence to the line that closes a box. `box_name` is the one token the scanner reads in the middle of a line, the name of a box, and the section "Boxes" says why. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
 
 =>
 
@@ -32,8 +32,10 @@ $._code_line,
 $._code_fence_line,
 $._toc_line,
 $._verbatim_line,
-$._note_line,
-$._note_body_line,
+$._box_line,
+$._box_body_line,
+$._box_close_line,
+$.box_name,
 $._newline,
 $._error_sentinel,
 
@@ -159,7 +161,7 @@ _toc_text: (_) => /[^\r\n]+/,
 
 Prose takes two forms. A preamble is a run of prose lines that no tilde opened: the document preamble, or a section's lines before its first arrow. A prose block opens with a tilde and runs to the next arrow or heading. Both carry anchors, but only a preamble line carries warps, since the tokeniser looks for warps only there.
 
-Both forms also hold the two inert regions of Part III, where a loom's marks read as text. A quote is a verbatim run between two fences. A note runs from its `:::[Note]` line to a lone `:::`.
+Both forms also hold the two regions of Part III where a loom's marks open nothing. A quote is a verbatim run between two fences. A box runs from a line of three colons to a line of three colons alone, and the section "Boxes" gives its rules.
 
 =>
 
@@ -172,7 +174,7 @@ preamble: ($) =>
         $._newline,
       ),
       $._verbatim,
-      $.note,
+      $.box,
     ),
   ),
 
@@ -186,7 +188,7 @@ prose: ($) =>
       choice(
         seq($._prose_line, repeat($._prose_inline), $._newline),
         $._verbatim,
-        $.note,
+        $.box,
       ),
     ),
   ),
@@ -197,23 +199,11 @@ _prose_inline: ($) => choice($._text, $._code_span, $.anchor),
 
 ~
 
-A verbatim line holds its whole text in one hidden token, so nothing inside a quote parses as an anchor. The quote's own fences are verbatim too, because the tokeniser skips the anchors on the line that opens a quote as well as on the lines inside it. A note gets a node of its own, so an editor can colour a reader's annotation apart from the prose around it.
+A verbatim line holds its whole text in one hidden token, so nothing inside a quote parses as an anchor. The quote's own fences are verbatim too, because the tokeniser skips the anchors on the line that opens a quote as well as on the lines inside it. A run of four or more colons outside a box is verbatim for the same reason. It opens nothing, and the tokeniser reads no anchor on it.
 
 =>
 
 _verbatim: ($) => seq($._verbatim_line, optional(/[^\r\n]+/), $._newline),
-
-note: ($) =>
-  seq(
-    $._note_line,
-    optional($._space),
-    $.note_marker,
-    optional(/[^\r\n]+/),
-    $._newline,
-    repeat(seq($._note_body_line, optional(/[^\r\n]+/), $._newline)),
-  ),
-
-note_marker: (_) => ':' + anchorOpen + 'Note]',
 
 ## Code
 
@@ -253,7 +243,7 @@ fence_label: (_) => /[^\s`][^\r\n]*/,
 
 _after_fence: ($) =>
   repeat1(
-    choice(seq($._prose_line, repeat($._prose_inline), $._newline), $._verbatim, $.note),
+    choice(seq($._prose_line, repeat($._prose_inline), $._newline), $._verbatim, $.box),
   ),
 
 code_text: ($) => prec.right(repeat1(choice($._code_run, $._newline, $._code_line))),
@@ -293,15 +283,15 @@ Braces that touch an anchor, after its name or after its target, belong to the a
 
 A parameter is a key, an equals sign, and a value, and parameters stand apart by spaces. A value is quoted or bare, or it is a list of values in square brackets, separated by commas. The key is read together with its equals sign, as one token. A label's first word and a key may spell the same letters, as `provides` does in `{provides=greet}`, and the lexer takes the longer match, so the equals sign alone tells the two apart. Braces that hold neither form, or a label beside parameters, parse as an error, as the tokeniser faults them.
 
+A box's braces hold the same two forms, so what braces hold is a rule of its own, `_braced`, which the anchor and the box share. The rule is hidden, so its `label` field shows on the node that holds the braces, and a query reads an anchor's kind as `(anchor_specifier label: (label))`.
+
 =>
 
-anchor_specifier: ($) =>
-  seq(
-    alias($._anchor_brace, '{'),
-    choice(field('label', $.label), seq($.parameter, repeat(seq($._space, $.parameter)))),
-    '}',
-  ),
+anchor_specifier: ($) => seq(alias($._anchor_brace, '{'), $._braced, '}'),
 _anchor_brace: (_) => token(prec(1, '{')),
+
+_braced: ($) =>
+  choice(field('label', $.label), seq($.parameter, repeat(seq($._space, $.parameter)))),
 
 parameter: ($) =>
   seq(
@@ -322,11 +312,47 @@ parameter_list: ($) =>
 
 ## An opening spelled in pieces
 
-The anchor rule and the note marker both need the characters that open an anchor. A loom's code is scanned for anchors like any other line, so this loom never writes them as one literal, or the literal would read as an anchor in its own section. `anchorOpen` joins them from two pieces.
+The anchor rule needs the characters that open an anchor. Loom scans this loom's code for anchors as it scans any other, and would read those characters, written as one literal, as an anchor in the rule's own section. So `anchorOpen` joins them from two pieces.
 
 =>
 
 const anchorOpen = '::' + '['
+
+## Boxes
+
+A box is a block of prose set apart from the text around it, as the chapter "The leaf tokens" describes. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. The scanner decides which lines open and close a box, by the classifier's rules. Three colons open a box only outside one, and inside one only three colons alone close it. The grammar takes a box's lines as the scanner names them and gives each mark a node an editor can colour: `box_fence` for the colons on either line, `box_name` for the name, and `box_specifier` for the braces.
+
+The name runs from the colons to the braces, and braces belong to the box only when they end the line, as the tokeniser reads them. So `::: Why {x} matters` names a box `Why {x} matters`, and `::: Why {x} matters {Note}` names the same box and gives it braces. Tree-sitter's lexer takes the longest text a pattern matches and cannot see where the line ends, so no pattern can stop a name before the braces that end the line. The scanner can see the line's end. It reads the name as a token of its own, trimmed as the tokeniser trims it, and the grammar reads the braces that follow. The braces hold the box's kind, `{Note}` or `{kind=Chapter}`, by the rule an anchor's braces use.
+
+=>
+
+box: ($) =>
+  seq(
+    $._box_line,
+    optional($._space),
+    $.box_fence,
+    optional(field('name', $.box_name)),
+    optional($._space),
+    optional(seq(field('specifier', $.box_specifier), optional($._space))),
+    $._newline,
+    optional($.box_body),
+    optional($._box_close),
+  ),
+
+box_fence: (_) => ':::',
+
+box_specifier: ($) => seq('{', $._braced, '}'),
+
+~
+
+The lines between the two lines of colons are the box's body, and no mark in the body opens anything: not a `#`, an arrow, a tilde, or a fence, and not three colons with a name. A body line holds what a line of a prose block holds, text, code spans, and anchors, because the tokeniser reads a body line's anchors as it reads them in any prose. The body is a node of its own, so the injection queries can hand it to Markdown. A box that never closes runs to the end of the file, as it does in the classifier.
+
+=>
+
+box_body: ($) => repeat1(seq($._box_body_line, repeat($._prose_inline), $._newline)),
+
+_box_close: ($) =>
+  seq($._box_close_line, optional($._space), $.box_fence, optional($._space), $._newline),
 
 ## Warps
 
@@ -389,6 +415,8 @@ module.exports = grammar({
     ::[Text between the marks]
 
     ::[Anchors]
+
+    ::[Boxes]
 
     ::[Warps]
   },

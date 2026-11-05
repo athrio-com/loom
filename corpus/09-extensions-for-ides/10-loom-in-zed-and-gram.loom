@@ -115,11 +115,11 @@ soft_wrap = "bounded"
 
 ## Colours in Zed's names [languages/loom/highlights.scm]
 
-Zed colours a capture by the name its theme gives the colour, and its names differ from the ones Neovim and Helix use. A heading is a title, a file is a link, and a note's marker is the marker of a doc comment. The rest follows the colours of the shared queries: the frontmatter's keys are properties, its values take the colour of what they name, the arrows and tildes are operators, and an anchor's name is a label. A `Part` or `Chapter` value is a title like a heading, a `Package` value a link like a sink's file, and a `Language` value a type like a specifier's label.
+Zed colours a capture by the name its theme gives the colour, and its names differ from the ones Neovim and Helix use. A heading and a box's name are titles, and a file is a link. The rest follows the colours of the shared queries: the frontmatter's keys are properties, its values take the colour of what they name, the arrows and tildes are operators, and an anchor's name is a label. A `Part` or `Chapter` value is a title like a heading, a `Package` value a link like a sink's file, and a `Language` value a type like a specifier's label.
 
 A specifier's label is a type, except for the two labels that instruct Loom, `{Tangle}` and `{TOC}`, which are keywords. The two patterns exclude each other, so a label never carries both colours and leaves the editor to choose.
 
-The braces that touch an anchor take the colour of the anchor's own delimiters. The anchor's kind is a keyword too, since it instructs Loom as `{Tangle}` does. A parameter's key is a property, as a frontmatter key is, and its value is a string.
+The braces that touch an anchor take the colour of the anchor's own delimiters. The anchor's kind is a keyword too, since it instructs Loom as `{Tangle}` does. A parameter's key is a property, as a frontmatter key is, and its value is a string. A box's colons and its braces take the same special punctuation as an anchor's delimiters, and a box's kind is a keyword, as an anchor's is.
 
 =>
 
@@ -246,13 +246,22 @@ The braces that touch an anchor take the colour of the anchor's own delimiters. 
 (warp
   default: (default) @string)
 
-(note) @comment
+(box_fence) @punctuation.special
 
-(note_marker) @comment.doc
+(box_name) @title
+
+(box_specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.special)
+
+(box_specifier
+  label: (label) @keyword)
 
 ## Each section in its language [languages/loom/injections.scm]
 
-Zed finds an injected language by its name or by one of its file extensions, in any case, so `TypeScript`, `typescript`, and `ts` all reach the same grammar. It does not read a whole file name, which is why the grammar gives a sink's extension a node of its own. Nor does it subtract a captured node's children, so the patterns capture a block's `code_text` nodes, never the block with its arrow and anchors. The rules are Part IV's, taken in turn as in the shared queries: prose as Markdown, then the section's specifier, the extension of its sink, and the chapter's `Language`.
+Zed finds an injected language by its name or by one of its file extensions, in any case, so `TypeScript`, `typescript`, and `ts` all reach the same grammar. It does not read a whole file name, which is why the grammar gives a sink's extension a node of its own. Nor does it subtract a captured node's children, so the patterns capture a block's `code_text` nodes, never the block with its arrow and anchors. For the same reason a box needs no pattern of its own, because the injection of the prose around a box already covers its body. The rules are Part IV's, taken in turn as in the shared queries: prose as Markdown, then the section's specifier, the extension of its sink, and the chapter's `Language`.
 
 A `{Tangle}` section without a sink takes a rule of its own here. Such a section writes the chapter's `Package` file, and the shared queries read the section's language off that file's name. Zed cannot read a whole path, and no node of the grammar holds the extension of a `Package` value. So Zed's copy gives the section the chapter's `Language` instead, the field Loom itself falls back to when a chapter names no `Package`. A chapter writes its `Package` file in its own language, so the two readings agree. Every chapter of this book that tangles such a section under a `Package` file names `Language: TypeScript` over a `.ts` file, like `packages/loom-lang/vite.config.ts`. In a chapter written in Prose, the section reads as Markdown, as the chapter's other sections do.
 

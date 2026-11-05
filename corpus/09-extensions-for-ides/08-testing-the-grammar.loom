@@ -12,9 +12,9 @@ Two smaller checks come first. The parser in `src/` must be the one `grammar.js`
 
 ## Two readings of a line
 
-A line's kind, for this comparison, is the block the line belongs to, or the mark it opens with. The frontmatter, a heading, and a table of contents are kinds of their own. A code block starts at its arrow and continues as code, and a prose block starts at its tilde. A fence around fenced code is a kind of its own. Every other line of prose is text. The classifier tells a preamble line from a prose line by the mode it is in, and the grammar folds both into its prose blocks, so the comparison names both text.
+A line's kind, for this comparison, is the block the line belongs to, or the mark it opens with. The frontmatter, a heading, and a table of contents are kinds of their own. A code block starts at its arrow and continues as code, and a prose block starts at its tilde. A fence around fenced code is a kind of its own, and so is a line that opens or closes a box. Every other line of prose is text, a box's body and a stray line of colons included. The classifier tells a preamble line from a prose line by the mode it is in, and the grammar folds both into its prose blocks, so the comparison names both text.
 
-`kindOfWeft` maps each weft the classifier emits to its kind. It is a record over every weft's type, so a new weft kind fails to compile here until the test decides what it is.
+`kindOfWeft` maps each weft the classifier emits to its kind. It is a record over every weft's type, so a new weft kind fails to compile here until the test decides what it is. A box line is a preamble weft or a prose weft by its type, so `kindOf` first asks `boxOf` whether the weft carries a box that opens or closes, and asks the record only when it does not.
 
 =>
 
@@ -26,6 +26,7 @@ type LineKind =
   | 'code'
   | 'fence'
   | 'tilde'
+  | 'box'
   | 'text'
   | 'none'
 
@@ -41,9 +42,19 @@ const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   ProseWeft: 'text',
 }
 
+const kindOf = (weft: LoomWeft): LineKind =>
+  pipe(
+    boxOf(weft),
+    Option.filter((box) => box.side !== 'stray'),
+    Option.match({
+      onNone: () => kindOfWeft[weft.type],
+      onSome: (): LineKind => 'box',
+    }),
+  )
+
 ## The classifier's reading
 
-The classifier reads a loom as Part III describes: `LoomSourceRanges` cuts the text into lines, and `WeftClassifier` emits a weft for each. `classifierKinds` runs the two stages and maps every weft to its kind.
+The classifier reads a loom as Part III describes: `LoomSourceRanges` cuts the text into lines, and `WeftClassifier` emits a weft for each. `classifierKinds` runs the two stages and gives every weft its kind.
 
 =>
 
@@ -53,7 +64,7 @@ const classifierKinds = (text: string): Effect.Effect<ReadonlyArray<LineKind>> =
     const classifier = yield* WeftClassifier
     const ranges = yield* sources.stream(text)
     const wefts = yield* Stream.runCollect(classifier.classifyWefts(text)(ranges))
-    return Array.map(wefts, (weft) => kindOfWeft[weft.type])
+    return Array.map(wefts, kindOf)
   }).pipe(
     Effect.provide(LoomSourceRanges.layer),
     Effect.provide(WeftClassifier.layer),
@@ -116,7 +127,7 @@ const parseTree = (file: string): Effect.Effect<string> =>
 
 The command prints the tree as nested nodes, each with the row and column where it starts and ends. `grammarKinds` reads the six block nodes off that print and gives each row the kind its block assigns: code in a code block, text in the rest of prose. A block ends at the start of the row after its last line, at column zero, so its rows run up to that row. A block can hold another, as fenced code holds the prose its closing fence hands on, and the print lists the inner block after the outer, so its rows win.
 
-The marks then name the rows they open. An arrow, a tilde, and a code fence each start a row, and `markRows` gives that row the mark's own kind over its block's. A row that no block claims has no kind, and the comparison then reports it.
+The marks then name the rows they open. An arrow, a tilde, a code fence, and the colons of a box each mark the row they stand on, and `markRows` gives that row the mark's own kind over its block's. A row that no block claims has no kind, and the comparison then reports it.
 
 =>
 
@@ -141,11 +152,16 @@ const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKi
   return Array.map(Array.range(start, end), (row) => [row, blockKind[block as Block]] as const)
 }
 
-type Mark = 'arrow' | 'tilde' | 'code_fence'
+type Mark = 'arrow' | 'tilde' | 'code_fence' | 'box_fence'
 
-const markKind: Record<Mark, LineKind> = { arrow: 'arrow', tilde: 'tilde', code_fence: 'fence' }
+const markKind: Record<Mark, LineKind> = {
+  arrow: 'arrow',
+  tilde: 'tilde',
+  code_fence: 'fence',
+  box_fence: 'box',
+}
 
-const markPattern = /\((arrow|tilde|code_fence) \[(\d+), \d+\]/g
+const markPattern = /\((arrow|tilde|code_fence|box_fence) \[(\d+), \d+\]/g
 
 const markRows = (tree: string): ReadonlyArray<readonly [number, LineKind]> =>
   Array.map(
@@ -250,7 +266,7 @@ describe('the grammar agrees with the classifier', () => {
 
 ## The corners the book does not reach
 
-A few forms are rare in the repository, or absent from it: fenced code that holds `#` lines and a shorter fence, Windows line endings, a last line with no line break, a tilde that follows a fenced block, braces that touch an anchor outside a code span. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
+A few forms are rare in the repository, or absent from it: fenced code that holds `#` lines and a shorter fence, Windows line endings, a last line with no line break, a tilde that follows a fenced block, braces that touch an anchor outside a code span, and boxes of every shape a box line takes. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
 
 =>
 
@@ -295,11 +311,11 @@ const fencedBlock = [
 
 ~
 
-A fence in a section's preamble switches the classifier into prose mode, so a tilde after the fence is a line of prose rather than a transition. A note's body is inert, its heading-like lines included.
+A fence in a section's preamble switches the classifier into prose mode, so a tilde after the fence is a line of prose rather than a transition. No mark in a box's body opens anything. A heading, an arrow, a fence, and three colons with a name all stay the body's text, and only three colons alone close the box.
 
 =>
 
-const fenceAndNote = [
+const fenceAndBox = [
   '# Quoting a loom',
   '',
   '```loom',
@@ -308,8 +324,11 @@ const fenceAndNote = [
   '```',
   '~ still prose',
   '',
-  `:${anchor('Note')} {}`,
+  '::: A remark {Note}',
   '# Also not a heading',
+  '=> nor an arrow',
+  '```',
+  '::: nor a box inside the box',
   ':::',
   '',
   '=>',
@@ -335,6 +354,35 @@ const anchorBraces = [
   `const origin = ${anchor('Point')} {X: 1}`,
 ]
 
+~
+
+A box line holds a name, braces, or both, and braces belong to the box only where they end the line. The fixture `boxLines` holds a note with an anchor in its body, a chapter box with a parameter, an indented note with no name, a name with braces inside it, a stray of four colons, and a box that never closes, whose body runs to the end of the file. The tree reads four names, two sets of braces, one parameter, and the one anchor, and no error.
+
+=>
+
+const boxLines = [
+  '# Boxes',
+  '',
+  '::: Why a grid {Note}',
+  `The room is small, as ${anchor('Room')} says.`,
+  ':::',
+  '',
+  '::: Rooms {kind=Chapter}',
+  ':::',
+  '',
+  '  :::',
+  '  A note with no name.',
+  '  :::',
+  '',
+  '::: Why {x} matters',
+  ':::',
+  '',
+  ':::: Four colons open nothing',
+  '',
+  '::: Never closed',
+  '# Still the body',
+]
+
 describe('the corners', () => {
   it.effect('fenced code holds headings, arrows and shorter fences as code', () =>
     checkLoom(fixture('fenced', fencedBlock)),
@@ -342,8 +390,19 @@ describe('the corners', () => {
   it.effect('Windows line endings read as Unix ones do', () =>
     checkLoom(fixture('crlf', fencedBlock, '\r\n')),
   )
-  it.effect('a fence and a note keep their marks inert', () =>
-    checkLoom(fixture('fence-and-note', fenceAndNote)),
+  it.effect('a fence and a box keep their marks inert', () =>
+    checkLoom(fixture('fence-and-box', fenceAndBox)),
+  )
+  it.effect('a box line holds its name and its braces', () =>
+    Effect.gen(function* () {
+      const file = fixture('box-lines', boxLines)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(box_name /g)).toHaveLength(4)
+      expect(tree.match(/\(box_specifier /g)).toHaveLength(2)
+      expect(tree.match(/\(parameter /g)).toHaveLength(1)
+      expect(tree.match(/\(anchor /g)).toHaveLength(1)
+    }),
   )
   it.effect('braces that touch an anchor hold its label or its parameters', () =>
     Effect.gen(function* () {
@@ -357,7 +416,7 @@ describe('the corners', () => {
   it.effect('a last line needs no line break', () =>
     Effect.gen(function* () {
       const file = join(scratch, 'unterminated.loom')
-      writeFileSync(file, fenceAndNote.join('\n'))
+      writeFileSync(file, fenceAndBox.join('\n'))
       yield* checkLoom(file)
     }),
   )
@@ -610,7 +669,7 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
 ## What the test draws on
 
-Bun's test runner supplies `describe`, `it`, `expect`, `beforeAll`, and `afterAll`, and `effectify` adds the `it.effect` that runs an Effect as a test. Effect's `Array` and `pipe` shape the lists, `Option` holds a capture a match may lack, and `Stream` collects the classifier's wefts. Node supplies the process the command runs in, the filesystem the fixtures and the scratch folder live in, and the resolver that finds the command's package. `LoomWeft` is the weft type from the AST, and `LoomSourceRanges` and `WeftClassifier` are the first two stages of Loom's parser.
+Bun's test runner supplies `describe`, `it`, `expect`, `beforeAll`, and `afterAll`, and `effectify` adds the `it.effect` that runs an Effect as a test. Effect's `Array` and `pipe` shape the lists, `Option` holds a capture a match may lack, and `Stream` collects the classifier's wefts. Node supplies the process the command runs in, the filesystem the fixtures and the scratch folder live in, and the resolver that finds the command's package. `LoomWeft` is the weft type from the AST, and `boxOf` reads the box a weft carries. `LoomSourceRanges` and `WeftClassifier` are the first two stages of Loom's parser.
 
 =>
 
@@ -623,7 +682,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { LoomWeft } from '@athrio/loom-ast/Weft'
+import { boxOf, type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomSourceRanges } from '@athrio/loom-lang/ast/LineRanges'
 import { WeftClassifier } from '@athrio/loom-lang/ast/WeftClassifier'
 
