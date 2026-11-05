@@ -33,7 +33,7 @@ const files: Record<string, string> = {
     '',
     '# The part',
     '',
-    `${anchor('The chapter')}(chapter.loom)`,
+    anchor('The chapter'),
   ),
 }
 
@@ -166,7 +166,7 @@ const editable: Record<string, string> = {
     '',
     '=>',
     '',
-    `${anchor('The chapter')}(chapter.loom)`,
+    anchor('The chapter'),
   ),
   '/chapter.loom': lines(
     '---',

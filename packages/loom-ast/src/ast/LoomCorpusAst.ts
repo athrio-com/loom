@@ -31,16 +31,6 @@ type Modules = ReadonlyMap<Location, LoomModule>
 
 export type SectionRef = { readonly module: Location; readonly section: LoomSection }
 
-const resolveRelative = (from: Location, rel: string): Location =>
-  pipe(
-    rel.split('/'),
-    Array.filter((seg) => seg !== '' && seg !== '.'),
-    Array.reduce(from.split('/').slice(0, -1), (acc, seg) =>
-      seg === '..' ? acc.slice(0, -1) : [...acc, seg],
-    ),
-    Array.join('/'),
-  )
-
 const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
   pipe(
     module.doc.sections,
@@ -60,9 +50,6 @@ export type TitleIndexes = ReadonlyMap<Location, ReadonlyMap<string, SectionRef>
 
 export const titleIndexes = (modules: Modules): TitleIndexes =>
   new Map(Array.fromIterable(modules.values()).map((m) => [m.path, titlesIn(m)] as const))
-
-export const anchorModule = (from: Location, anchor: WarpAnchorToken): Location =>
-  anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)
 
 type PartRef = {
   readonly number: Option.Option<string>
@@ -299,10 +286,7 @@ export const anchorTrails = (
   book: Book,
   from: Location,
   anchor: WarpAnchorToken,
-): ReadonlyArray<Trail> =>
-  anchor.target === undefined
-    ? trailsOf(book, from, anchor.name.value)
-    : sectionTrail(book, anchorModule(from, anchor), anchor.name.value)
+): ReadonlyArray<Trail> => trailsOf(book, from, anchor.name.value)
 
 export const sectionOf = (trail: Trail): Option.Option<SectionRef> =>
   Match.value(Array.lastNonEmpty(trail).place).pipe(
@@ -633,6 +617,15 @@ const sectionDefinitionAt = (
     ),
   )
 
+const chapterTitledBy = (book: Book, ref: SectionRef): Option.Option<Chapter> =>
+  Array.findFirst(
+    book.chapters,
+    (chapter) =>
+      chapter.module.path === ref.module &&
+      chapter.module.doc.frontmatter?.title === undefined &&
+      Option.exists(openingSectionOf(chapter.module), (opening) => opening === ref.section),
+  )
+
 const sectionNames = (
   book: Book,
   modules: Modules,
@@ -641,6 +634,18 @@ const sectionNames = (
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(titleLocation(ref)),
   ...anchorsNaming(book, modules, (step) => namesSection(ref)(step.place), spanOf),
+  ...Option.match(chapterTitledBy(book, ref), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (chapter) => [
+      ...entriesNaming(book, modules, chapter),
+      ...anchorsNaming(
+        book,
+        modules,
+        (step) => !step.numbered && namesChapter(chapter)(step.place),
+        spanOf,
+      ),
+    ],
+  }),
 ]
 
 const placeNames = (

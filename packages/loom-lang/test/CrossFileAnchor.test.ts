@@ -75,12 +75,12 @@ const refusal = (files: Record<string, string>, entry: string) =>
   )
 
 describe('a code anchor composes a section from another loom', () => {
-  it.effect('tangles the section its path names', () =>
+  it.effect('tangles the section its name finds in another loom', () =>
     Effect.gen(function* () {
       const files = yield* tangled(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+          '/corpus/hello.loom': helloAnchoring(anchor('Saying hello')),
         },
         '/corpus/hello.loom',
       )
@@ -89,36 +89,33 @@ describe('a code anchor composes a section from another loom', () => {
     }),
   )
 
-  it.effect('reads the path relative to the anchor’s own loom', () =>
+  it.effect('refuses an anchor that still writes a loom’s path', () =>
     Effect.gen(function* () {
-      const dotted = yield* tangled(
-        {
-          '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(./greeting.loom)`),
-        },
-        '/corpus/hello.loom',
+      const files = {
+        '/corpus/greeting.loom': greeting,
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+      }
+      expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
+        '/corpus/hello.loom:6: Retired target: an anchor finds its section by its name',
       )
-      expect(dotted[0]!.content).toBe(program)
-
-      const climbing = yield* tangled(
-        {
-          '/corpus/lib/greeting.loom': greeting,
-          '/corpus/app/hello.loom': helloAnchoring(
-            `${anchor('Saying hello')}(../lib/greeting.loom)`,
-          ),
-        },
-        '/corpus/app/hello.loom',
+      const [diagnostic] = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(files)),
       )
-      expect(climbing[0]!.content).toBe(program)
+      const at = diagnostic!.position
+      expect(files['/corpus/hello.loom'].slice(at.start.offset, at.end.offset)).toBe(
+        '(greeting.loom)',
+      )
+      expect(diagnostic!.fixes).toEqual([{ title: 'Remove `(greeting.loom)`', text: '', at }])
     }),
   )
 
-  it.effect('refuses a section the named loom lacks', () =>
+  it.effect('refuses a name the book does not hold', () =>
     Effect.gen(function* () {
       const message = yield* refusal(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
+          '/corpus/hello.loom': helloAnchoring(anchor('Saying goodbye')),
         },
         '/corpus/hello.loom',
       )
@@ -128,27 +125,12 @@ describe('a code anchor composes a section from another loom', () => {
     }),
   )
 
-  it.effect('refuses a path that names no loom', () =>
-    Effect.gen(function* () {
-      const message = yield* refusal(
-        {
-          '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(nowhere.loom)`),
-        },
-        '/corpus/hello.loom',
-      )
-      expect(message).toContain(
-        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying hello`.',
-      )
-    }),
-  )
-
   it.effect('refuses a section in another language', () =>
     Effect.gen(function* () {
       const message = yield* refusal(
         {
           '/corpus/settings.loom': `# Saying hello {json}\n\n=>\n{ "greeting": "Hello" }\n`,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(settings.loom)`),
+          '/corpus/hello.loom': helloAnchoring(anchor('Saying hello')),
         },
         '/corpus/hello.loom',
       )
@@ -156,24 +138,11 @@ describe('a code anchor composes a section from another loom', () => {
     }),
   )
 
-  it.effect('refuses a name two sections of the named loom share', () =>
-    Effect.gen(function* () {
-      const message = yield* refusal(
-        {
-          '/corpus/greeting.loom': `${greeting}\n# Saying hello\n\n=>\nconst again = 1\n`,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
-        },
-        '/corpus/hello.loom',
-      )
-      expect(message).toContain('Ambiguous anchor: 2 sections are named `Saying hello`.')
-    }),
-  )
-
   it.effect('diagnose marks the broken anchor in the editor', () =>
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
-        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
+        '/corpus/hello.loom': helloAnchoring(anchor('Saying goodbye')),
       }
       const diagnostics = yield* LoomCompiler.pipe(
         Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
@@ -193,7 +162,7 @@ describe('a code anchor composes a section from another loom', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
-        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+        '/corpus/hello.loom': helloAnchoring(anchor('Saying hello')),
       }
       const hello = files['/corpus/hello.loom']
       const root = yield* LoomCompiler.pipe(

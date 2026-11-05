@@ -244,7 +244,7 @@ const anchorBraces = [
   '=>',
   '',
   `${anchor('Greeting function')}{kind="To be settled" provides=[greet, farewell]}`,
-  `${anchor('Saying hello')}(greeting.loom){provides=greet}`,
+  `${anchor('Saying hello')}(room.ts){provides=greet}`,
   `const origin = ${anchor('Point')} {X: 1}`,
 ]
 

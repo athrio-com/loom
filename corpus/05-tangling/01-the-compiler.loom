@@ -1060,7 +1060,7 @@ describe('LoomCompiler — what an edit evicts', () => {
     const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-invalidate-')))
     const book = join(folder, 'book.loom')
     const answer = join(folder, 'answer.loom')
-    writeFileSync(book, chapter('Book', `${anchor('Answer')}(answer.loom)`))
+    writeFileSync(book, chapter('Book', anchor('Answer')))
     writeFileSync(answer, chapter('Answer', 'const answer = 42'))
     const invalidate = (path: string) =>
       runtime.runPromise(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.invalidate(path))))
@@ -1151,7 +1151,7 @@ const files: Record<string, string> = {
     '',
     '# The part',
     '',
-    `${anchor('The chapter')}(chapter.loom)`,
+    anchor('The chapter'),
   ),
 }
 
@@ -1338,7 +1338,7 @@ const editable: Record<string, string> = {
     '',
     '=>',
     '',
-    `${anchor('The chapter')}(chapter.loom)`,
+    anchor('The chapter'),
   ),
   '/chapter.loom': lines(
     '---',
@@ -1438,7 +1438,7 @@ The second case changes `c = 1` to `c = 2` in the chapter and invalidates the ch
 
 ## Testing an anchor into another loom
 
-An anchor may carry a path, as `::[Saying hello](greeting.loom)` does. Such an anchor composes a section from another loom. The product pass reads one loom at a time and cannot see the other. It records the edge instead, and the compiler judges the edge against the corpus. The tangle inlines the section when the named loom holds it, and refuses the build when it does not. The editor shows the inlined block too, and maps none of the block into the loom that anchors it.
+An anchor composes a section from another loom by the section's name. The product pass reads one loom at a time and cannot see the other. It records the edge instead, and the compiler judges the edge against the corpus. Outside its own loom, a bare name finds a chapter, and a loom with no frontmatter is a chapter titled by its first heading. The tangle inlines the section when the book holds it, and refuses the build when it does not. The editor shows the inlined block too, and maps none of the block into the loom that anchors it.
 
 Each case builds its corpus in memory from two or three looms. The looms carry no frontmatter and build under TypeScript as the primary language, the shape of Loom's quick start. The cases run on Bun's runner with `effectify`, as the chain's cases do. Effect's `Array` module searches the tree the editor receives.
 
@@ -1457,7 +1457,7 @@ const it = effectify(it_)
 
 ~
 
-The `greeting` loom holds the section `Saying hello`, which defines `greet`. The `helloAnchoring` function writes the loom that calls `greet`, a section named `The program` that tangles to `hello.ts`. The program's code opens with the line a case passes in, an anchor to the greeting, and closes by greeting the world. The `program` constant holds what a sound tangle writes, the definition of `greet` inlined above the call. As in the chain's cases, the `lines` and `anchor` helpers keep each fixture from reading as part of this loom.
+The `greeting` loom holds the section `Saying hello`, which defines `greet`. Its first heading titles the loom as a chapter, so a bare `::[Saying hello]` reaches it from another loom. The `helloAnchoring` function writes the loom that calls `greet`, a section named `The program` that tangles to `hello.ts`. The program's code opens with the line a case passes in, an anchor to the greeting, and closes by greeting the world. The `program` constant holds what a sound tangle writes, the definition of `greet` inlined above the call. As in the chain's cases, the `lines` and `anchor` helpers keep each fixture from reading as part of this loom.
 
 =>
 
@@ -1534,17 +1534,17 @@ const refusal = (files: Record<string, string>, entry: string) =>
 
 ## A section from another loom, inlined or refused
 
-The first case anchors `Saying hello` in `greeting.loom`, the loom beside the program. The tangle writes one file, `hello.ts`, beside the program. The file holds `program` exactly.
+The first case anchors `Saying hello`, the chapter that `greeting.loom` holds beside the program. The tangle writes one file, `hello.ts`, beside the program. The file holds `program` exactly.
 
 =>
 
 describe('a code anchor composes a section from another loom', () => {
-  it.effect('tangles the section its path names', () =>
+  it.effect('tangles the section its name finds in another loom', () =>
     Effect.gen(function* () {
       const files = yield* tangled(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+          '/corpus/hello.loom': helloAnchoring(anchor('Saying hello')),
         },
         '/corpus/hello.loom',
       )
@@ -1555,46 +1555,43 @@ describe('a code anchor composes a section from another loom', () => {
 
 ~
 
-The path reads relative to the loom the anchor stands in. A path that starts with `./` names the same loom as a bare name does. A path that climbs with `../` reaches a loom in a sibling folder, here from `app` to `lib`.
+An anchor that still writes a loom's path after its name composes nothing. The tangle refuses it with the `RetiredTarget` fault, whose span covers the target, and the fault's one fix removes the target.
 
 =>
 
-  it.effect('reads the path relative to the anchor’s own loom', () =>
+  it.effect('refuses an anchor that still writes a loom’s path', () =>
     Effect.gen(function* () {
-      const dotted = yield* tangled(
-        {
-          '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(./greeting.loom)`),
-        },
-        '/corpus/hello.loom',
+      const files = {
+        '/corpus/greeting.loom': greeting,
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+      }
+      expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
+        '/corpus/hello.loom:6: Retired target: an anchor finds its section by its name',
       )
-      expect(dotted[0]!.content).toBe(program)
-
-      const climbing = yield* tangled(
-        {
-          '/corpus/lib/greeting.loom': greeting,
-          '/corpus/app/hello.loom': helloAnchoring(
-            `${anchor('Saying hello')}(../lib/greeting.loom)`,
-          ),
-        },
-        '/corpus/app/hello.loom',
+      const [diagnostic] = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(files)),
       )
-      expect(climbing[0]!.content).toBe(program)
+      const at = diagnostic!.position
+      expect(files['/corpus/hello.loom'].slice(at.start.offset, at.end.offset)).toBe(
+        '(greeting.loom)',
+      )
+      expect(diagnostic!.fixes).toEqual([{ title: 'Remove `(greeting.loom)`', text: '', at }])
     }),
   )
 
 ~
 
-The tangle refuses an anchor it cannot satisfy. Its message names the loom and the line where the anchor stands, here line 6 of `hello.loom`. The rest of the message says what is wrong. The anchor may name a section the named loom lacks, here `Saying goodbye`. It may name a loom that does not exist. The message then reads as it does for a loom without the section.
+The tangle refuses an anchor it cannot satisfy. Its message names the loom and the line where the anchor stands, here line 6 of `hello.loom`. The rest of the message says what is wrong, here that no section is named `Saying goodbye`.
 
 =>
 
-  it.effect('refuses a section the named loom lacks', () =>
+  it.effect('refuses a name the book does not hold', () =>
     Effect.gen(function* () {
       const message = yield* refusal(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
+          '/corpus/hello.loom': helloAnchoring(anchor('Saying goodbye')),
         },
         '/corpus/hello.loom',
       )
@@ -1604,24 +1601,9 @@ The tangle refuses an anchor it cannot satisfy. Its message names the loom and t
     }),
   )
 
-  it.effect('refuses a path that names no loom', () =>
-    Effect.gen(function* () {
-      const message = yield* refusal(
-        {
-          '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(nowhere.loom)`),
-        },
-        '/corpus/hello.loom',
-      )
-      expect(message).toContain(
-        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying hello`.',
-      )
-    }),
-  )
-
 ~
 
-The section may be written in another language, here JSON, and TypeScript code cannot inline it. Two sections of the named loom may also share the name, so the anchor cannot choose between them.
+The section may be written in another language, here JSON, and TypeScript code cannot inline it.
 
 =>
 
@@ -1630,7 +1612,7 @@ The section may be written in another language, here JSON, and TypeScript code c
       const message = yield* refusal(
         {
           '/corpus/settings.loom': `# Saying hello {json}\n\n=>\n{ "greeting": "Hello" }\n`,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(settings.loom)`),
+          '/corpus/hello.loom': helloAnchoring(anchor('Saying hello')),
         },
         '/corpus/hello.loom',
       )
@@ -1638,18 +1620,6 @@ The section may be written in another language, here JSON, and TypeScript code c
     }),
   )
 
-  it.effect('refuses a name two sections of the named loom share', () =>
-    Effect.gen(function* () {
-      const message = yield* refusal(
-        {
-          '/corpus/greeting.loom': `${greeting}\n# Saying hello\n\n=>\nconst again = 1\n`,
-          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
-        },
-        '/corpus/hello.loom',
-      )
-      expect(message).toContain('Ambiguous anchor: 2 sections are named `Saying hello`.')
-    }),
-  )
 
 ~
 
@@ -1661,7 +1631,7 @@ The `diagnose` verb marks a broken anchor for the editor. For the anchor to `Say
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
-        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
+        '/corpus/hello.loom': helloAnchoring(anchor('Saying goodbye')),
       }
       const diagnostics = yield* LoomCompiler.pipe(
         Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
@@ -1689,7 +1659,7 @@ Every mapping into the product reads the same text in `hello.loom` as in the pro
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
-        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+        '/corpus/hello.loom': helloAnchoring(anchor('Saying hello')),
       }
       const hello = files['/corpus/hello.loom']
       const root = yield* LoomCompiler.pipe(
@@ -2503,21 +2473,13 @@ The `rename` verb gathers the same two places, the heading's title and the ancho
 
 ## Navigating to a chapter in another loom
 
-A book places a chapter that lives in another loom through an anchor that carries the chapter's path. The anchor makes the chapter a member of the book. The editor follows that member across files. Here the book's section `Core` places `The widget`, the chapter that `widget.loom` holds. The `memberOffset` offset rests inside the member's name.
+A book places a chapter that lives in another loom through an anchor that names the chapter. The anchor makes the chapter a member of the book. The editor follows that member across files. Here the book's section `Core` places `The widget`, the chapter that `widget.loom` holds. The `memberOffset` offset rests inside the member's name.
 
 =>
 
 describe('LoomCompiler — navigation across files', () => {
   const docs: Record<string, string> = {
-    '/book.loom': lines(
-      '# Book',
-      '',
-      '## Core [packages/core]',
-      '',
-      '~',
-      '',
-      `${anchor('The widget')}(widget.loom)`,
-    ),
+    '/book.loom': lines('# Book', '', '## Core [packages/core]', '', '~', '', anchor('The widget')),
     '/widget.loom':
       '# The widget\n\n## The module [src, Widget.ts]\n\n=>\n\nexport const x = 1\n',
   }

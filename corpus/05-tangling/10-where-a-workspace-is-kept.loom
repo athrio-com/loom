@@ -349,8 +349,6 @@ The `LoomLanguagePlugin`, `LoomServer`, and `LoomLanguage` modules cross between
 
 The compiler, the corpus model, and every service that keys or compares looms name a loom by a `Location`. Code that works only on the file system and takes a path apart keeps the `Path` type of the chapter "The looms in a project": the walk of the `loomsIn` function, the tangler, the formatter's listing of a folder, the weaver's output folder, and this source's own reads and placement of sinks.
 
-One form of anchor reads inside a location. The anchor `::[Name](path.loom)` goes through the `resolveRelative` function, which splits the location on `/`. A URL splits the same way, so the anchor resolves in either environment.
-
 ## The folder rules
 
 Four rules about folders decide which looms belong, where a workspace begins, where a sink lands, and what a build may keep. Each lives in the file-system source or behind a layer that an environment provides, so the compiler depends on no folder.
@@ -673,7 +671,7 @@ const greeting = lines(
   "export const greet = (name: string) => 'Hello, ' + name",
 )
 
-const program = lines('# The program', '', '=>', '', `${anchor('Saying hello')}(greeting.loom)`, '', "greet('world')")
+const program = lines('# The program', '', '=>', '', anchor('Saying hello'), '', "greet('world')")
 
 const stubWithBoth = (): StorageStub =>
   storageStub(key, [

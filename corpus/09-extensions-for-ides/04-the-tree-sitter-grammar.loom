@@ -272,7 +272,7 @@ _code_run: (_) => choice(/[^:\r\n]+/, /:/),
 
 ## Anchors
 
-An anchor names a section, `::[Greeting function]`, and may carry a target, the `.loom` file the name lives in, `::[Greeting function](greeting.loom)`. The name runs to the first closing bracket. A target is one token, parentheses included, so a parenthesis with no close stays text, as it stays product code in the tokeniser. The target outranks the text that would otherwise swallow the rest of the line.
+An anchor names a section, `::[Greeting function]`, and the name runs to the first closing bracket. A target in parentheses may follow the name. Loom faults a target, since a name finds its section through the book, but the grammar still reads one, so a target colours as a path instead of spilling into the text around it. A target is one token, parentheses included, so a parenthesis with no close stays text, as it stays product code in the tokeniser. The target outranks the text that would otherwise swallow the rest of the line.
 
 =>
 

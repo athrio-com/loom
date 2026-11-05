@@ -47,6 +47,7 @@ export type LoomFault = Data.TaggedEnum<{
   UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
   UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
   MissingSymbol: { readonly name: string; readonly section: string }
+  RetiredTarget: { readonly target: string; readonly at: Position }
   HeadingAgainstCode: {}
 }>
 
@@ -72,6 +73,7 @@ export const {
   UnknownKey,
   UnknownKind,
   MissingSymbol,
+  RetiredTarget,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -183,6 +185,10 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
       ),
+    RetiredTarget: ({ target }) =>
+      error(
+        `Retired target: an anchor finds its section by its name, through the book, so Loom no longer reads \`${target}\`. Remove it, and name the section through its chapter if the name alone is ambiguous.`,
+      ),
     HeadingAgainstCode: () =>
       warning(
         'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, fence the block: write three backticks on the line after its arrow, and three more where the code ends. If it is a heading, leave a blank line above it.',
@@ -225,6 +231,9 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     ]),
     Match.tag('LabelBesideParameter', ({ label }): ReadonlyArray<Fix> => [
       { title: `Write \`${label}\` in full`, text: `kind="${label}"` },
+    ]),
+    Match.tag('RetiredTarget', ({ target, at }): ReadonlyArray<Fix> => [
+      { title: `Remove \`${target}\``, text: '', at },
     ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )

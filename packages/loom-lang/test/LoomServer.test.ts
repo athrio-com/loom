@@ -271,7 +271,7 @@ describe('LoomServer — a chapter that changes on disk', () => {
   it('answers an open chapter from the text a closed one holds now', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
     const closed = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
@@ -290,7 +290,7 @@ describe('LoomServer — a chapter that changes on disk', () => {
   it('resolves an anchor into a chapter created on disk', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
     const editor = await editorAt(root)
     try {
       await editor.open(opened)
@@ -308,7 +308,7 @@ describe('LoomServer — a chapter that changes on disk', () => {
   it('fails an anchor into a chapter deleted from disk', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
     const deleted = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
@@ -379,7 +379,7 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
   it('resolves an anchor renamed across two open chapters before either is saved', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
     const answer = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
@@ -387,7 +387,7 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
       await editor.open(answer)
       expect(await editor.diagnostics(opened)).toEqual([])
       await editor.edit(answer, chapter('Question', 'const answer = 42'))
-      await editor.edit(opened, chapter('Main', `${anchor('Question')}(answer.loom)`))
+      await editor.edit(opened, chapter('Main', anchor('Question')))
       expect(await editor.diagnostics(opened)).toEqual([])
     } finally {
       editor.close()

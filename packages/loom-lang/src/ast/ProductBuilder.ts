@@ -8,7 +8,6 @@ import {
   type Position,
 } from '@athrio/loom-ast/LoomNode'
 import {
-  anchorModule,
   type Book,
   type Location,
   type LoomModule,
@@ -25,6 +24,7 @@ import {
   type ParameterToken,
   type ParametersToken,
   type SinkToken,
+  type WarpAnchorTargetToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
@@ -53,6 +53,7 @@ import {
   DuplicateName,
   faulty,
   FenceLabelAgainstLanguage,
+  RetiredTarget,
   SettledLabel,
   UnsettledSection,
   UnknownVariable,
@@ -434,10 +435,9 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
+    if (anchor.target !== undefined) return blankFragment(anchor.position, retired(anchor.target))
     const label = settleKindOf(anchor)
     const provides = providesOf(anchor)
-    const file = anchorModule(modulePath, anchor)
-    if (file !== modulePath) return crossFileRef(file, name, at, label, provides)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
@@ -527,21 +527,6 @@ const settledHealth = (name: string, at: Position, label: Option.Option<Position
     onSome: (span) => faulty(SettledLabel({ name, label: span }), at),
   })
 
-const crossFileRef = (
-  path: string,
-  title: string,
-  at: Position,
-  label: Option.Option<Position>,
-  provides: ReadonlyArray<Provided>,
-): NameRef =>
-  NameRefSchema.make({
-    name: title,
-    target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
-    anchor: at,
-    toBeSettled: label,
-    provides,
-  })
-
 const openRef = (
   title: string,
   at: Position,
@@ -571,6 +556,9 @@ const ambiguous = (
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
 
+const retired = (target: WarpAnchorTargetToken): Health =>
+  faulty(RetiredTarget({ target: target.source, at: target.position }), target.position)
+
 export const crossFileFaults = (
   book: Book,
   modules: ReadonlyMap<string, LoomModule>,
@@ -581,61 +569,16 @@ export const crossFileFaults = (
     Array.flatMap((host) =>
       Array.flatMap(host.fragments, (part) =>
         pipe(
-          edgeBeyond(module, part),
-          Option.map((ref) => edgeHealth(book, modules, module, host, ref).diagnostics),
+          edgeBeyond(part),
+          Option.map((ref) => nameHealth(book, modules, module, host, ref).diagnostics),
           Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
         ),
       ),
     ),
   )
 
-const edgeBeyond = (module: LoomModule, part: Part): Option.Option<NameRef> =>
-  part.type === 'NameRef' && !Option.exists(part.target, (target) => target.path === module.path)
-    ? Option.some(part)
-    : Option.none()
-
-const edgeHealth = (
-  book: Book,
-  modules: ReadonlyMap<string, LoomModule>,
-  module: LoomModule,
-  host: Code,
-  ref: NameRef,
-): Health =>
-  Option.match(ref.target, {
-    onSome: (target) => pathHealth(modules, host, ref, target),
-    onNone: () => nameHealth(book, modules, module, host, ref),
-  })
-
-const codesTitled = (module: LoomModule, title: string): ReadonlyArray<Code> =>
-  pipe(
-    module.doc.sections,
-    Array.filter((section) => section.heading.title?.source === title),
-    Array.flatMap((section) =>
-      Option.toArray(
-        Array.findFirst(module.product.code, (code) => code.origin.name === sectionNameOf(section)),
-      ),
-    ),
-  )
-
-const pathHealth = (
-  modules: ReadonlyMap<string, LoomModule>,
-  host: Code,
-  ref: NameRef,
-  target: SectionId,
-): Health => {
-  const found = pipe(
-    Option.fromNullishOr(modules.get(target.path)),
-    Option.map((there) => codesTitled(there, ref.name)),
-    Option.getOrElse((): ReadonlyArray<Code> => []),
-  )
-  return Array.matchLeft(found, {
-    onEmpty: () => unresolved(ref.name, ref.anchor),
-    onNonEmpty: (code, rest) =>
-      rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, rest.length + 1, [])
-        : reachedHealth(ref.name, ref.anchor, host.languageId, code, false, ref.toBeSettled),
-  })
-}
+const edgeBeyond = (part: Part): Option.Option<NameRef> =>
+  part.type === 'NameRef' && Option.isNone(part.target) ? Option.some(part) : Option.none()
 
 const nameHealth = (
   book: Book,

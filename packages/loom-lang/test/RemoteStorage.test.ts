@@ -30,7 +30,7 @@ const greeting = lines(
   "export const greet = (name: string) => 'Hello, ' + name",
 )
 
-const program = lines('# The program', '', '=>', '', `${anchor('Saying hello')}(greeting.loom)`, '', "greet('world')")
+const program = lines('# The program', '', '=>', '', anchor('Saying hello'), '', "greet('world')")
 
 const stubWithBoth = (): StorageStub =>
   storageStub(key, [

@@ -125,15 +125,7 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
 
 describe('LoomCompiler — navigation across files', () => {
   const docs: Record<string, string> = {
-    '/book.loom': lines(
-      '# Book',
-      '',
-      '## Core [packages/core]',
-      '',
-      '~',
-      '',
-      `${anchor('The widget')}(widget.loom)`,
-    ),
+    '/book.loom': lines('# Book', '', '## Core [packages/core]', '', '~', '', anchor('The widget')),
     '/widget.loom':
       '# The widget\n\n## The module [src, Widget.ts]\n\n=>\n\nexport const x = 1\n',
   }

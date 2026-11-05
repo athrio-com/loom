@@ -10,7 +10,7 @@ Language: TypeScript
 
 Much of what an author does with names already reaches across the book. A table-of-contents entry names a chapter by its title, wherever the chapter lives. Go-to-definition, find-references, and rename work over the whole corpus, so renaming a section rewrites every loom that mentions it.
 
-One thing still stops at the edge of a loom: the anchor's own lookup. A bare `::[Name]` resolves only in the loom it stands in. An anchor reaches a section in another loom by spelling that loom's path, as `::[Name](path.loom)` does, so the author has to know which file a chapter lives in. That path is also what the chapter "Referring to modules" needs to free, so that the parentheses can name a file the book emits.
+The anchor's own lookup reaches across the book too. An anchor finds a section in another loom by the section's name, never by the path of the loom it lives in, so the author never has to know which file a chapter is kept in. That also frees the parentheses after an anchor for the chapter "Referring to modules", which lets them name a file the book emits.
 
 This chapter changes the lookup so that a name resolves by its place in the book: in its own chapter first, then among the chapters, and by a path of names for the rest. The lookup stays where it is today, in the corpus, and no new pass runs before compiling. The book's names and references, seen together, form a graph, and that graph is derived from the corpus whenever something wants to draw it.
 
@@ -52,7 +52,7 @@ The navigation functions, the weave, and the `anchorEdges` function behind `reac
 
 The product pass sees one loom at a time. It binds a bare name that its own loom holds, as it does today. A name its loom does not hold becomes an edge that names the section but not yet its loom, the way `crossFileRef` already makes an edge the pass cannot judge alone. The compiler binds that edge through `resolveAnchor` once it holds the corpus, and `crossFileFaults` judges it as it judges every edge into another loom.
 
-The `(path.loom)` target retires, and with it the `anchorModule` and `resolveRelative` functions that turn the path into a loom.
+Loom reads no loom's path in an anchor. The product pass faults an anchor that still writes a target in parentheses after its name, with the `RetiredTarget` fault, whose one fix removes the target.
 
 ## To be settled
 
@@ -196,7 +196,6 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 1. Wildcards: the `Wildcard` kind, its `anchors` parameter resolved, followed and renamed, and the module the editor serves while a wildcard is unsettled. They wait for boxes, and for the rule of the chapter "Referring to modules" that tells a referring anchor by where it stands.
 2. The contract an unsettled section collects from the code that uses it and from the names anchors and wildcards promise, offered as completions and handed to the trope that writes stubs.
 3. The `provides` names of a referring anchor, checked against the names its file exports.
-4. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
-5. The graph as a projection of the produced corpus, with its first view.
+4. The graph as a projection of the produced corpus, with its first view.
 
 When anchors resolve by their place in the book and the editor follows them, this chapter joins Part II, The shape of a loom, beside "The multi-file AST".

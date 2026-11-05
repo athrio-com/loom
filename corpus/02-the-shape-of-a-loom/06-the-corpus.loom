@@ -45,23 +45,13 @@ A name resolves nearest first, outward from the anchor. A bare `::[Name]` looks 
 
 An author names a section of another chapter with a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of this chapter from anywhere in the book, and `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A comma splits a name into a path only when the whole name matches nothing, so a title that holds a comma, such as `Once, as the site is built`, still resolves whole.
 
-An anchor may instead carry the path of a loom, as `::[Name](path.loom)` does. It then resolves its name among that loom's sections alone.
+A name and a path of names are the only ways an anchor reaches a section. Loom reads no loom's path in an anchor, and the product pass faults an anchor that still writes one in parentheses after its name.
 
-`titlesIn` indexes one loom's titled sections by their raw title. The first of any duplicate within the loom wins. An anchor that names a duplicated title gets no such tie-break, because the product pass reports it as ambiguous. `titleIndexes` builds that index for every loom, once. `anchorModule` picks the loom an anchor resolves its sections in: its own loom for a bare anchor, or the loom its path names. `resolveRelative` resolves that path against the folder of the anchor's own loom, dropping the loom's last segment and folding `.` and `..` as it goes. The product pass picks the loom through `anchorModule` too, so the tangle and the editor agree on where a name lives.
+`titlesIn` indexes one loom's titled sections by their raw title. The first of any duplicate within the loom wins. An anchor that names a duplicated title gets no such tie-break, because the product pass reports it as ambiguous. `titleIndexes` builds that index for every loom, once.
 
 =>
 
 export type SectionRef = { readonly module: Location; readonly section: LoomSection }
-
-const resolveRelative = (from: Location, rel: string): Location =>
-  pipe(
-    rel.split('/'),
-    Array.filter((seg) => seg !== '' && seg !== '.'),
-    Array.reduce(from.split('/').slice(0, -1), (acc, seg) =>
-      seg === '..' ? acc.slice(0, -1) : [...acc, seg],
-    ),
-    Array.join('/'),
-  )
 
 const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
   pipe(
@@ -82,9 +72,6 @@ export type TitleIndexes = ReadonlyMap<Location, ReadonlyMap<string, SectionRef>
 
 export const titleIndexes = (modules: Modules): TitleIndexes =>
   new Map(Array.fromIterable(modules.values()).map((m) => [m.path, titlesIn(m)] as const))
-
-export const anchorModule = (from: Location, anchor: WarpAnchorToken): Location =>
-  anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)
 
 ~
 
@@ -323,7 +310,7 @@ const walk = (
 
 `trailsOf` puts the three steps in their order. It looks in the anchor's own loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
 
-`anchorTrails` resolves an anchor token: a bare one through `trailsOf`, and one with a path among the sections of the loom its path names. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
+`anchorTrails` resolves an anchor token by its name, through `trailsOf`. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
 
 =>
 
@@ -359,10 +346,7 @@ export const anchorTrails = (
   book: Book,
   from: Location,
   anchor: WarpAnchorToken,
-): ReadonlyArray<Trail> =>
-  anchor.target === undefined
-    ? trailsOf(book, from, anchor.name.value)
-    : sectionTrail(book, anchorModule(from, anchor), anchor.name.value)
+): ReadonlyArray<Trail> => trailsOf(book, from, anchor.name.value)
 
 export const sectionOf = (trail: Trail): Option.Option<SectionRef> =>
   Match.value(Array.lastNonEmpty(trail).place).pipe(
@@ -727,7 +711,7 @@ const namesChapter =
 
 ~
 
-`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, or the title a chapter declares. `sectionNames` gathers a section's heading beside every anchor that names it. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
+`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, or the title a chapter declares. `sectionNames` gathers a section's heading beside every anchor that names it. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the contents entries that list the chapter, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
 
 =>
 
@@ -745,6 +729,15 @@ const sectionDefinitionAt = (
     ),
   )
 
+const chapterTitledBy = (book: Book, ref: SectionRef): Option.Option<Chapter> =>
+  Array.findFirst(
+    book.chapters,
+    (chapter) =>
+      chapter.module.path === ref.module &&
+      chapter.module.doc.frontmatter?.title === undefined &&
+      Option.exists(openingSectionOf(chapter.module), (opening) => opening === ref.section),
+  )
+
 const sectionNames = (
   book: Book,
   modules: Modules,
@@ -753,6 +746,18 @@ const sectionNames = (
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(titleLocation(ref)),
   ...anchorsNaming(book, modules, (step) => namesSection(ref)(step.place), spanOf),
+  ...Option.match(chapterTitledBy(book, ref), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (chapter) => [
+      ...entriesNaming(book, modules, chapter),
+      ...anchorsNaming(
+        book,
+        modules,
+        (step) => !step.numbered && namesChapter(chapter)(step.place),
+        spanOf,
+      ),
+    ],
+  }),
 ]
 
 const placeNames = (

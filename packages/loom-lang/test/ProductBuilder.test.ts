@@ -183,46 +183,25 @@ const h = 1
   })
 })
 
-// An anchor with a path names a section in another loom, one this pass never sees.
-// So the edge is recorded unjudged: it targets the file the path names, relative to
-// this document, and the name the section's own Code carries there. The compiler
-// judges it against the corpus (see CrossFileAnchor.test.ts).
-describe('ProductBuilder — an anchor with a path becomes a cross-file NameRef', () => {
-  it('targets the folded name in the file the path names', () => {
-    const product = productOf(
-      `# The program [hello.ts]
+// An anchor finds its section by name, through the book, so the pass reads no loom's
+// path in an anchor. One that still writes a target composes nothing: its empty
+// fragment carries the RetiredTarget fault on the target, with a fix that removes it.
+describe('ProductBuilder — an anchor with a target is retired', () => {
+  it('composes nothing and faults the target, offering to remove it', () => {
+    const text = `# The program [hello.ts]
 
 =>
 ::[Saying hello](../lib/greeting.loom)
 console.log(greet('world'))
-`,
-      '/corpus/app/hello.loom',
-      'typescript',
-    )
+`
+    const product = productOf(text, '/corpus/app/hello.loom', 'typescript')
     const program = Option.getOrThrow(codeNamed(product, 'TheProgram'))
-    const ref = refs(program.fragments)
-    expect(ref).toHaveLength(1)
-    expect(ref[0]!.health.status).toBe('ok')
-    expect(Option.getOrNull(ref[0]!.target)).toEqual({
-      path: '/corpus/lib/greeting.loom',
-      name: 'SayingHello',
-    })
-  })
-
-  it('binds a path back to its own document like a bare anchor', () => {
-    const product = productOf(
-      `# Caller
-
-=>
-::[Ghost](m.loom)
-`,
-      '/m.loom',
-      'typescript',
-    )
-    const caller = Option.getOrThrow(codeNamed(product, 'Caller'))
-    const [open] = refs(caller.fragments)
-    expect(open!.name).toBe('Ghost')
-    expect(Option.isNone(open!.target)).toBe(true)
+    expect(refs(program.fragments)).toHaveLength(0)
+    const [diagnostic] = program.fragments.flatMap((part) => part.health.diagnostics)
+    const at = diagnostic!.position
+    expect(text.slice(at.start.offset, at.end.offset)).toBe('(../lib/greeting.loom)')
+    expect(diagnostic!.severity).toBe('error')
+    expect(diagnostic!.fixes).toEqual([{ title: 'Remove `(../lib/greeting.loom)`', text: '', at }])
   })
 })
 

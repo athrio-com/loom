@@ -31,7 +31,7 @@ describe('LoomCompiler — what an edit evicts', () => {
     const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-invalidate-')))
     const book = join(folder, 'book.loom')
     const answer = join(folder, 'answer.loom')
-    writeFileSync(book, chapter('Book', `${anchor('Answer')}(answer.loom)`))
+    writeFileSync(book, chapter('Book', anchor('Answer')))
     writeFileSync(answer, chapter('Answer', 'const answer = 42'))
     const invalidate = (path: string) =>
       runtime.runPromise(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.invalidate(path))))

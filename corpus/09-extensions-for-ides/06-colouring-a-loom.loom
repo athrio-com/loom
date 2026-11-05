@@ -153,7 +153,7 @@ An arrow turns prose into code and a tilde turns code back into prose. Both are 
 
 ## Anchors
 
-An anchor's name is a label, the name of the section it draws in. Its delimiters are special punctuation, and a target, the `.loom` file the name lives in, takes the path colour like a sink.
+An anchor's name is a label, the name of the section it draws in. Its delimiters are special punctuation, and a target in parentheses takes the path colour, as a sink's file does.
 
 The braces that touch an anchor belong to the same directive, so they take the delimiters' colour. An anchor's kind, such as `{To be settled}`, instructs Loom the way `{Tangle}` does, so its label takes the directive colour. A parameter's value is a string, and a list's brackets and commas are brackets and delimiters. A parameter's key takes the colour of a frontmatter field's key, which the sections on keys name for each editor.
 
