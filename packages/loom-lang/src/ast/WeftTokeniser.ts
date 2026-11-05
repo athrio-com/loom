@@ -118,6 +118,7 @@ import {
   TildeWeftSchema,
   type TocWeft,
   TocWeftSchema,
+  nextBox,
 } from '@athrio/loom-ast/Weft'
 
 export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokeniser', {
@@ -127,10 +128,10 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
       (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
         Stream.mapAccum(
           source,
-          () => Option.none<Fence>(),
-          (quote, weft) => {
-            const [nextQuote, skipAnchors] = quoteStep(quote, weft)
-            return [nextQuote, [tokeniseWeft(text, weft, delims, skipAnchors)]]
+          () => noQuote,
+          (state, weft) => {
+            const [next, skipAnchors] = quoteStep(state, weft)
+            return [next, [tokeniseWeft(text, weft, delims, skipAnchors)]]
           },
         ),
   }),
@@ -138,22 +139,31 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
   static readonly layer = Layer.effect(this, this.make)
 }
 
+type QuoteState = {
+  readonly quote: Option.Option<Fence>
+  readonly inBox: boolean
+}
+
+const noQuote: QuoteState = { quote: Option.none(), inBox: false }
+
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
 
-const quoteStep = (
-  quote: Option.Option<Fence>,
-  weft: LoomWeft,
-): readonly [Option.Option<Fence>, boolean] =>
-  isProseWeft(weft)
-    ? Option.match(quote, {
-        onSome: (fence) => [closesFence(fence)(weft.source) ? Option.none() : quote, true],
+const quoteStep = (state: QuoteState, weft: LoomWeft): readonly [QuoteState, boolean] => {
+  const inBox = nextBox(state.inBox, weft)
+  return isProseWeft(weft)
+    ? Option.match(state.quote, {
+        onSome: (fence) => [
+          { quote: closesFence(fence)(weft.source) ? Option.none() : state.quote, inBox },
+          true,
+        ],
         onNone: () => {
-          const opened = openingFence(weft.source)
-          return [opened, Option.isSome(opened)]
+          const opened = state.inBox ? Option.none<Fence>() : openingFence(weft.source)
+          return [{ quote: opened, inBox }, Option.isSome(opened)]
         },
       })
-    : [Option.none(), false]
+    : [{ quote: Option.none(), inBox }, false]
+}
 
 const tokeniseWeft = (
   text: string,

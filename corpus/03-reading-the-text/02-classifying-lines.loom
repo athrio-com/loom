@@ -245,7 +245,7 @@ const probeOf = (lineText: string): Probe => {
 
 A line in prose that starts with a run of colons is a box line, and `boxed` gives its weft the line's `Box` token. Only a preamble weft or a prose weft can be a box line, so a run of colons in code stays code, and a run of colons inside a quote stays quoted. `boxLineOf` finds the run through the `BoxFence` probe and records it as the box's fence. It leaves the name and the braces after the run to the tokeniser.
 
-`sideOf` decides what the line does, from the length of the run and whether a box is open. A run of four or more colons is a stray wherever it stands. Outside a box, three colons open one, whatever follows them. Inside a box, three colons alone close it. Three colons followed by a name or braces would open a box inside the open one, so that line is a stray too. `nextBox` then keeps the state's flag: an opening line sets it, a closing line clears it, and a stray leaves it as it was.
+`sideOf` decides what the line does, from the length of the run and whether a box is open. A run of four or more colons is a stray wherever it stands. Outside a box, three colons open one, whatever follows them. Inside a box, three colons alone close it. Three colons followed by a name or braces would open a box inside the open one, so that line is a stray too. `nextBox`, which the chapter "Wefts" defines beside `boxOf`, then keeps the state's flag: an opening line sets it, a closing line clears it, and a stray leaves it as it was.
 
 =>
 
@@ -297,18 +297,6 @@ const sideOf = (colons: number, inBox: boolean, bare: boolean): BoxToken['side']
     Match.when({ bare: true }, () => 'close' as const),
     Match.orElse(() => 'stray' as const),
   )
-
-const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
-  Option.match(boxOf(weft), {
-    onNone: () => inBox,
-    onSome: (box) =>
-      Match.value(box.side).pipe(
-        Match.when('open', () => true),
-        Match.when('close', () => false),
-        Match.when('stray', () => inBox),
-        Match.exhaustive,
-      ),
-  })
 
 ## Building the wefts
 
@@ -463,7 +451,7 @@ const makeTocWeft = (lineText: string, line: number, range: LineRange): TocWeft 
 
 ## What this module draws on
 
-Effect supplies `Stream` for the accumulating scan and `Match` for the dispatch. The `LineRange` type comes from the line scanner, the marker probes and schemas from `LoomTokens`, the weft schemas and `boxOf` from `Weft`, and `incompleteHealth`, `okHealth`, and `Position` from the foundation.
+Effect supplies `Stream` for the accumulating scan and `Match` for the dispatch. The `LineRange` type comes from the line scanner, the marker probes and schemas from `LoomTokens`, the weft schemas and `nextBox` from `Weft`, and `incompleteHealth`, `okHealth`, and `Position` from the foundation.
 
 =>
 
@@ -487,7 +475,6 @@ import {
 import {
   type ArrowWeft,
   ArrowWeftSchema,
-  boxOf,
   type CodeWeft,
   CodeWeftSchema,
   type FenceWeft,
@@ -505,6 +492,7 @@ import {
   TildeWeftSchema,
   type TocWeft,
   TocWeftSchema,
+  nextBox,
 } from '@athrio/loom-ast/Weft'
 
 ## The module {Tangle}

@@ -149,9 +149,27 @@ export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
     Match.orElse(() => Option.none<BoxToken>()),
   )
 
+~
+
+A box spans many lines, so a pass that reads wefts one at a time keeps a flag that says whether a box is open, and `nextBox` moves the flag past one weft. A line that opens a box sets it, a line that closes the box clears it, and a stray leaves it as it was, since a stray opens and closes nothing. So does a weft that carries no box. The classifier keeps the flag to mark the lines that close a box, and the tokeniser keeps it because no quote opens inside a box.
+
+=>
+
+export const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
+  Option.match(boxOf(weft), {
+    onNone: () => inBox,
+    onSome: (box) =>
+      Match.value(box.side).pipe(
+        Match.when('open', () => true),
+        Match.when('close', () => false),
+        Match.when('stray', () => inBox),
+        Match.exhaustive,
+      ),
+  })
+
 ## What this module draws on
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, specifier, sink, warp, and anchor schemas from `LoomTokens`. `Match` and `Option` read the box a weft carries.
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, specifier, sink, warp, and anchor schemas from `LoomTokens`. `Match` and `Option` read the box a weft carries and follow whether a box is open.
 
 =>
 

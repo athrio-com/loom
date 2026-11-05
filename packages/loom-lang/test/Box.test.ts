@@ -188,4 +188,14 @@ describe('colons that are no box line', () => {
     expect(boxes(doc).map((box) => box.side)).toEqual(['open', 'close'])
     expect(doc.sections).toHaveLength(2)
   })
+
+  it('leave the anchors after a fence inside a box live', () => {
+    const doc = parse(
+      lines('# Chapter', '', ':::', '```', 'A link to ::[Next].', ':::', '', 'See ::[Next].', '', '# Next'),
+    )
+    const names = Array.flatMap(wefts(doc), (weft) =>
+      'anchors' in weft ? weft.anchors.map((anchor) => anchor.name.value) : [],
+    )
+    expect(names).toEqual(['Next', 'Next'])
+  })
 })

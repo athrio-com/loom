@@ -121,3 +121,15 @@ export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
     Match.when({ type: 'ProseWeft' }, (line) => Option.fromNullishOr(line.box)),
     Match.orElse(() => Option.none<BoxToken>()),
   )
+
+export const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
+  Option.match(boxOf(weft), {
+    onNone: () => inBox,
+    onSome: (box) =>
+      Match.value(box.side).pipe(
+        Match.when('open', () => true),
+        Match.when('close', () => false),
+        Match.when('stray', () => inBox),
+        Match.exhaustive,
+      ),
+  })

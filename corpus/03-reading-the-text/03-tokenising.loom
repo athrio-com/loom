@@ -10,7 +10,9 @@ Language: TypeScript
 
 ## The tokeniser service
 
-Prose carries anchors too, so the tokeniser respects Markdown: an anchor inside an inline code span or a fenced block stays inert, the literal text it appears to be. An inline span is a per-line affair the prose handlers mask, but a fence spans many lines, so `tokeniseWefts` threads its state through the weft stream with `Stream.mapAccum`. `quoteStep` advances that state, by the same rule the classifier keeps. A prose line that opens a fence opens a quote, and only a line that `closesFence` accepts closes it again. Any line outside prose, a line of code or a heading, ends the quote. `quoteStep` reports `skipAnchors` on every line the quote covers, its two fences included. `tokeniseWeft` then dispatches each weft by kind to the per-weft handlers, telling each whether to skip its anchors.
+Prose carries anchors too, so the tokeniser respects Markdown: an anchor inside an inline code span or a fenced block stays inert, the literal text it appears to be. An inline span is a per-line affair the prose handlers mask, but a fence spans many lines, so `tokeniseWefts` threads a `QuoteState` through the weft stream with `Stream.mapAccum`. `quoteStep` advances that state by the rules the classifier keeps. A prose line that opens a fence opens a quote, and only a line that `closesFence` accepts closes it again. Any line outside prose, a line of code or a heading, ends the quote. `quoteStep` reports `skipAnchors` on every line the quote covers, its two fences included. `tokeniseWeft` then dispatches each weft by kind to the per-weft handlers, telling each whether to skip its anchors.
+
+A quote never opens inside a box, because the classifier keeps a box's body free of every mark, a fence included. So the state also records whether a box is open, which `nextBox` follows line by line, and a fence in a box's body opens no quote. The anchors after that fence stay live, in the box's body and after it.
 
 =>
 
@@ -21,10 +23,10 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
       (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
         Stream.mapAccum(
           source,
-          () => Option.none<Fence>(),
-          (quote, weft) => {
-            const [nextQuote, skipAnchors] = quoteStep(quote, weft)
-            return [nextQuote, [tokeniseWeft(text, weft, delims, skipAnchors)]]
+          () => noQuote,
+          (state, weft) => {
+            const [next, skipAnchors] = quoteStep(state, weft)
+            return [next, [tokeniseWeft(text, weft, delims, skipAnchors)]]
           },
         ),
   }),
@@ -32,22 +34,31 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
   static readonly layer = Layer.effect(this, this.make)
 }
 
+type QuoteState = {
+  readonly quote: Option.Option<Fence>
+  readonly inBox: boolean
+}
+
+const noQuote: QuoteState = { quote: Option.none(), inBox: false }
+
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
 
-const quoteStep = (
-  quote: Option.Option<Fence>,
-  weft: LoomWeft,
-): readonly [Option.Option<Fence>, boolean] =>
-  isProseWeft(weft)
-    ? Option.match(quote, {
-        onSome: (fence) => [closesFence(fence)(weft.source) ? Option.none() : quote, true],
+const quoteStep = (state: QuoteState, weft: LoomWeft): readonly [QuoteState, boolean] => {
+  const inBox = nextBox(state.inBox, weft)
+  return isProseWeft(weft)
+    ? Option.match(state.quote, {
+        onSome: (fence) => [
+          { quote: closesFence(fence)(weft.source) ? Option.none() : state.quote, inBox },
+          true,
+        ],
         onNone: () => {
-          const opened = openingFence(weft.source)
-          return [opened, Option.isSome(opened)]
+          const opened = state.inBox ? Option.none<Fence>() : openingFence(weft.source)
+          return [{ quote: opened, inBox }, Option.isSome(opened)]
         },
       })
-    : [Option.none(), false]
+    : [{ quote: Option.none(), inBox }, false]
+}
 
 const tokeniseWeft = (
   text: string,
@@ -1908,7 +1919,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
 
 ## What this module draws on
 
-Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` for decoding, and the rest. The token schemas and `getProbe` come from `LoomTokens`, with the keys and kinds that the braces of an anchor and of a box are checked against, the weft schemas from `Weft`, and the health and `UnexpectedToken` types from the foundation. `LoomFault` gives `faulty` and the fault constructors each diagnostic here is built from.
+Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` for decoding, and the rest. The token schemas and `getProbe` come from `LoomTokens`, with the keys and kinds that the braces of an anchor and of a box are checked against, the weft schemas and `nextBox` from `Weft`, and the health and `UnexpectedToken` types from the foundation. `LoomFault` gives `faulty` and the fault constructors each diagnostic here is built from.
 
 =>
 
@@ -2032,6 +2043,7 @@ import {
   TildeWeftSchema,
   type TocWeft,
   TocWeftSchema,
+  nextBox,
 } from '@athrio/loom-ast/Weft'
 
 ## The module {Tangle}

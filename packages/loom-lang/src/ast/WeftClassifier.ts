@@ -18,7 +18,6 @@ import {
 import {
   type ArrowWeft,
   ArrowWeftSchema,
-  boxOf,
   type CodeWeft,
   CodeWeftSchema,
   type FenceWeft,
@@ -36,6 +35,7 @@ import {
   TildeWeftSchema,
   type TocWeft,
   TocWeftSchema,
+  nextBox,
 } from '@athrio/loom-ast/Weft'
 
 type ClassifierState = {
@@ -291,18 +291,6 @@ const sideOf = (colons: number, inBox: boolean, bare: boolean): BoxToken['side']
     Match.when({ bare: true }, () => 'close' as const),
     Match.orElse(() => 'stray' as const),
   )
-
-const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
-  Option.match(boxOf(weft), {
-    onNone: () => inBox,
-    onSome: (box) =>
-      Match.value(box.side).pipe(
-        Match.when('open', () => true),
-        Match.when('close', () => false),
-        Match.when('stray', () => inBox),
-        Match.exhaustive,
-      ),
-  })
 
 const makeHeadingWeft = (
   lineText: string,
