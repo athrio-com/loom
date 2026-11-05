@@ -266,4 +266,36 @@ describe('notes in prose', () => {
       expect(note.markdown).toContain('> The opening paragraph.')
     }
   })
+
+  it('leaves a note quoted inside a fence in the prose', () => {
+    const quoted = [
+      '---',
+      'Part I, Chapter 1: A greeting',
+      'Language: Prose',
+      '---',
+      '',
+      '# A greeting',
+      '',
+      'A note is written like this:',
+      '',
+      '```loom',
+      ':::[Note] { }',
+      'Quoted, not a note.',
+      ':::',
+      '```',
+      '',
+      ':::[Note] { }',
+      'A real note.',
+      ':::',
+      '',
+      'The paragraph after.',
+      '',
+    ].join('\n')
+    const page = weave(buildCorpus({ '/corpus/quoted.loom': quoted })).pages[0]!
+    const notes = page.blocks.filter((b) => b.type === 'note')
+    expect(notes.map((n) => n.markdown)).toEqual(['A real note.'])
+    const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : [])).join('\n')
+    expect(prose).toContain('```loom\n:::[Note] { }\nQuoted, not a note.\n:::\n```')
+    expect(prose).toContain('The paragraph after.')
+  })
 })

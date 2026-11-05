@@ -295,6 +295,8 @@ A section's body is its preamble and its code together. `sectionBody` joins the 
 
 `runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that an arrow opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the arrow or tilde itself, so the `code` holds nothing that is not code.
 
+A note quoted inside a fence is text, not a note. The line classifier already refuses to open a note while a fence is open, and `proseBlocks` keeps the same rule. Its pattern, `noteOrFence`, matches a whole fence as readily as a note, so a fence is taken in one match and nothing inside it can start a note of its own. Only a match that captured a note's body becomes a note block: `notesOf` keeps those and drops the fences, which stay in the prose around them.
+
 The frame is not lost, though, because a reader learning Loom needs to see it. A code block keeps the arrow that opened it, `=>` or `~>`, as it was written. Whether a tilde closed it is a fact about the next run, not this one: `tildeOpens` looks at the run that follows, and a run that begins with a tilde means this block was closed by it. A block followed by nothing, or by the next heading, ran on to its end. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
 
 =>
@@ -382,14 +384,18 @@ const codeLanguage = (module: LoomModule, section: LoomSection): string => {
   )
 }
 
-const notePattern = /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+const noteOrFence =
+  /^[ \t]*```[^\n]*\n(?:[\s\S]*?\n)?[ \t]*```[^\n]*$|^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+
+const notesOf = (markdown: string): ReadonlyArray<RegExpMatchArray> =>
+  Array.filter(Array.fromIterable(markdown.matchAll(noteOrFence)), (match) => match[1] !== undefined)
 
 const proseBlockOf = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> =>
   markdown.trim().length === 0 ? [] : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
 
 const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> => {
   const walked = Array.reduce(
-    Array.fromIterable(markdown.matchAll(notePattern)),
+    notesOf(markdown),
     { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
     (acc, match) => {
       const at = match.index ?? 0

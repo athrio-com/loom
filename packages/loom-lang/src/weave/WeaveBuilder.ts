@@ -309,14 +309,18 @@ const codeLanguage = (module: LoomModule, section: LoomSection): string => {
   )
 }
 
-const notePattern = /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+const noteOrFence =
+  /^[ \t]*```[^\n]*\n(?:[\s\S]*?\n)?[ \t]*```[^\n]*$|^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+
+const notesOf = (markdown: string): ReadonlyArray<RegExpMatchArray> =>
+  Array.filter(Array.fromIterable(markdown.matchAll(noteOrFence)), (match) => match[1] !== undefined)
 
 const proseBlockOf = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> =>
   markdown.trim().length === 0 ? [] : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
 
 const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> => {
   const walked = Array.reduce(
-    Array.fromIterable(markdown.matchAll(notePattern)),
+    notesOf(markdown),
     { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
     (acc, match) => {
       const at = match.index ?? 0
