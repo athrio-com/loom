@@ -3,6 +3,7 @@ Part: Work in progress
 Chapter: Discussions
 Status: Planned
 Priority: 2
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -12,7 +13,7 @@ Some questions take more than a paragraph to settle. An author argues them out w
 
 A discussion is a kind of loom, as a chapter is. A chapter explains code and composes it. A discussion holds no code. It is where a thought runs freely before any of it becomes a chapter, or where a question goes when a chapter raises more than its own prose can hold.
 
-Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
+Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". The book lists its discussions in its back matter, and the weave gives each one a page, as the chapters "Generating the table of contents", "The woven corpus", and "The weave pass" describe. The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
 
 ## Where a discussion sits
 
@@ -26,7 +27,17 @@ Part I, Discussion 1: Waking
 
 Discussions are numbered within their part, apart from its chapters, so opening a discussion never renumbers a chapter. The tokeniser reads a discussion's number into a token of its own, a `FrontmatterDiscussion`, beside the `FrontmatterChapter` that holds a chapter's number.
 
-A discussion's file lives in a `discussions` folder inside its part's folder, as in `01-the-room/discussions/waking.loom`. A discussion belongs to the back matter of its book, which the chapter "Books" describes, so the table of contents lists it there, under its part.
+A discussion's file lives in a `discussions` folder inside its part's folder, as in `01-the-room/discussions/waking.loom`.
+
+A discussion belongs to the back matter of its book, which the chapter "Books" describes. The table of contents lists the back matter after the parts, under a heading of its own, and names each discussion by its place and its title:
+
+```
+### Back matter
+
+- Part I, Discussion 1: Waking
+```
+
+The place keeps two discussions with one title in two parts apart. The woven menu ends on the back matter, so each discussion opens a page of its own, as each chapter does.
 
 In the tree of the book's names, a discussion sits under its part. A name finds a discussion wherever it would find a chapter.
 
@@ -49,6 +60,8 @@ A monster sleeps until a trap within its hearing goes off, then strikes the play
 A message may hold boxes, as any prose may. A box of kind `Chapter` in a message proposes a chapter, which the author opens once the discussion settles the question. The chapter "Boxes" describes such boxes.
 
 The name after a tilde is a label, not a proof of who wrote the message. An agent never takes a name in a thread as authority.
+
+On the woven page each message opens on a byline: the tilde, in the chip the page draws Loom's syntax in, beside the author's name. The message's words follow the byline as prose.
 
 ## A loom without code
 
@@ -106,13 +119,456 @@ The first command shows the history of the discussions, and the second shows the
 
 A git submodule or a separate branch would also give discussions a history of their own. But neither keeps a discussion on the branch it belongs to, so a feature branch would leave its discussions behind.
 
+## Testing discussions
+
+The cases parse a discussion and read back its identity and its lines, or compile a small book and read what the book makes of a discussion: how a name finds it, the faults it raises, the contents that list it, and the page the weave gives it. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
+
+`parse` reads a loom alone, through the layer the compiler parses with. `layerOf` gives the compiler a book held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `compiled` runs one use of the compiler over such a book, and `diagnosed` is the commonest use: the messages of the diagnostics one loom raises.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Array, Effect, Layer, Match, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+import { parseDocument, ParseLayer } from './parse'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const parse = (src: string): LoomDocument =>
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const compiled = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  compiled(files, (compiler) => compiler.diagnose(entry)).then((found) =>
+    found.map((d) => d.message),
+  )
+
+## Naming a discussion
+
+A discussion's identity line names it as a chapter's does, with `Discussion` in place of `Chapter`. The parse reads the discussion's number into a token of its own and leaves the chapter's number empty. A discussion in a part without numbers has no number, so its token holds an empty value.
+
+=>
+
+describe("a discussion's identity line", () => {
+  it('names a numbered discussion in its part', () => {
+    const fm = parse(
+      lines('---', 'Part I, Discussion 1: Waking', '---', '', '# Waking'),
+    ).frontmatter
+    expect([fm?.part?.value, fm?.discussion?.value, fm?.title?.value, fm?.chapter]).toEqual([
+      'I',
+      '1',
+      'Waking',
+      undefined,
+    ])
+  })
+
+  it('names a discussion without a number', () => {
+    const fm = parse(
+      lines('---', 'Part: Work in progress', 'Discussion: Waking', '---'),
+    ).frontmatter
+    expect([fm?.partName?.value, fm?.discussion?.value, fm?.title?.value]).toEqual([
+      'Work in progress',
+      '',
+      'Waking',
+    ])
+  })
+})
+
+## A discussion among the chapters
+
+A name finds a discussion wherever it would find a chapter: by its title, or by its own number, which counts discussions apart from chapters. These cases compose the name from code, because an anchor in prose is a link that no judgement checks. A discussion opens with no code, so a found discussion warns that the anchor composes nothing, and a name that nothing holds stays unresolved. A chapter box never points to a discussion, so a box named for one still finds no chapter.
+
+=>
+
+describe('a discussion in the book', () => {
+  const files = {
+    '/corpus/rooms.loom': lines(
+      '---',
+      'Part I, Chapter 1: Rooms',
+      '---',
+      '',
+      '# Rooms',
+      '',
+      'A room.',
+    ),
+    '/corpus/waking.loom': lines(
+      '---',
+      'Part I, Discussion 1: Waking',
+      '---',
+      '',
+      '# Waking',
+      '',
+      'What wakes a monster?',
+    ),
+  }
+  const monsters = '/corpus/monsters.loom'
+  const linking = (name: string) =>
+    lines(
+      '---',
+      'Part I, Chapter 2: Monsters',
+      '---',
+      '',
+      '# Monsters [monsters.ts]',
+      '',
+      '=>',
+      anchor(name),
+    )
+  const holdsNoCode = (title: string) =>
+    `Chapter \`${title}\` opens with a section that holds no code, so this anchor composes nothing.`
+
+  it('leaves a name that nothing holds unresolved', async () => {
+    const found = await diagnosed({ ...files, [monsters]: linking('Sleeping') }, monsters)
+    expect(found.some((message) => message.startsWith('Unresolved anchor'))).toBe(true)
+  })
+
+  it('is found by its title, as a chapter is', async () => {
+    const found = await diagnosed({ ...files, [monsters]: linking('Waking') }, monsters)
+    expect(found).toContain(holdsNoCode('Waking'))
+  })
+
+  it('is found by its own number, apart from the chapters', async () => {
+    const found = await diagnosed(
+      { ...files, [monsters]: linking('Part I, Discussion 1') },
+      monsters,
+    )
+    expect(found).toContain(holdsNoCode('Part I, Discussion 1'))
+  })
+
+  it('is never a chapter that a chapter box points to', async () => {
+    const boxed = lines(
+      '---',
+      'Part I, Chapter 2: Monsters',
+      '---',
+      '',
+      '# Monsters',
+      '',
+      '::: Waking {Chapter}',
+      'What wakes a monster.',
+      ':::',
+    )
+    const found = await diagnosed({ ...files, [monsters]: boxed }, monsters)
+    expect(found).toContain(
+      "To be settled: no chapter is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
+    )
+  })
+})
+
+## The lines of a thread
+
+Every tilde in a discussion opens a message, and the word after it signs the message with its author's name. A tilde alone opens a message nobody has signed. An arrow in a discussion is prose, so the thread holds no code. A heading that marks a file is a fault, since a discussion writes none.
+
+=>
+
+describe("a discussion's lines", () => {
+  const thread = lines(
+    '---',
+    'Part I, Discussion 1: Waking',
+    '---',
+    '',
+    '# Waking',
+    '',
+    '~ Yegor',
+    'What should wake a monster?',
+    '',
+    '~ Loom',
+    'A trap going off near it.',
+    '=>',
+    'An arrow here is prose.',
+    '~',
+    'A message nobody has signed yet.',
+  )
+
+  it('opens a message at every tilde, signed with its author', () => {
+    const body = parse(thread).sections[0]!.code
+    const tildes = body.flatMap((weft) => (weft.type === 'TildeWeft' ? [weft] : []))
+    expect(tildes.map((weft) => weft.prose?.source)).toEqual(['Yegor', 'Loom', undefined])
+  })
+
+  it('reads an arrow as prose, so a discussion holds no code', () => {
+    const body = parse(thread).sections[0]!.code
+    expect(body.some((weft) => weft.type === 'ArrowWeft' || weft.type === 'CodeWeft')).toBe(false)
+  })
+
+  it('faults a mark for a file on a heading, and writes nothing', async () => {
+    const path = '/corpus/waking.loom'
+    const found = await diagnosed(
+      {
+        [path]: lines(
+          '---',
+          'Part I, Discussion 1: Waking',
+          '---',
+          '',
+          '# Waking',
+          '',
+          '## Notes [notes.ts]',
+        ),
+      },
+      path,
+    )
+    expect(found).toContain(
+      'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',
+    )
+  })
+})
+
+## A topic and its conclusion
+
+A divider opens each topic of a discussion, and one box of the `Conclusion` kind closes it. A topic that closes once raises nothing. A second conclusion in one topic is a fault, and so is a conclusion that stands outside every topic, whether it opens a discussion before its first divider or sits in a chapter. `faults` keeps only the diagnostics that speak of a conclusion.
+
+=>
+
+describe('a topic and its conclusion', () => {
+  const discussion = (...body: ReadonlyArray<string>) =>
+    lines(
+      '---',
+      'Part I, Discussion 1: Waking',
+      '---',
+      '',
+      '# Waking',
+      '',
+      'What wakes a monster?',
+      '',
+      ...body,
+    )
+  const conclusion = (text: string) => ['::: {Conclusion}', text, ':::']
+  const faults = (text: string) =>
+    diagnosed({ '/corpus/waking.loom': text }, '/corpus/waking.loom').then((found) =>
+      found.filter((message) => message.includes('onclusion')),
+    )
+
+  it('closes a topic with one conclusion', async () => {
+    const text = discussion(
+      'What wakes a monster',
+      '---',
+      '',
+      '~ Yegor',
+      'A trap?',
+      '',
+      ...conclusion('A trap.'),
+    )
+    expect(await faults(text)).toEqual([])
+  })
+
+  it('faults a second conclusion in one topic', async () => {
+    const text = discussion(
+      'What wakes a monster',
+      '---',
+      '',
+      ...conclusion('A trap.'),
+      '',
+      ...conclusion('A sound.'),
+    )
+    expect(await faults(text)).toEqual([
+      'Second conclusion: this topic already closes with a conclusion. Merge the two, or open a new topic with a divider.',
+    ])
+  })
+
+  it('faults a conclusion outside a topic', async () => {
+    const outside =
+      'Conclusion outside a topic: a conclusion closes a topic of a discussion, and a divider opens each topic. Move it under a topic, or make it a note.'
+    expect(await faults(discussion(...conclusion('Too early.')))).toEqual([outside])
+    const chapter = lines('# Rooms', '', 'Rooms', '---', '', ...conclusion('No discussion here.'))
+    expect(await faults(chapter)).toEqual([outside])
+  })
+})
+
+## The book's back matter
+
+The contents list a book's discussions after its parts, under a `Back matter` heading that names no part. Each entry names its discussion's place before the colon, and the parse reads the place and the title apart. The place and the title together find the discussion, so an entry whose place names no such discussion stays unresolved. An ordinary chapter entry never finds a discussion, even one with its title.
+
+`loom toc` writes the back matter after the parts and keeps the paragraph the author wrote under its heading. A book with no discussions has no back matter. The weave ends the menu on the back matter, and on a discussion's page each message opens with a byline that names its author, followed by the message's words.
+
+The book here holds one part with one chapter, and one discussion with a signed message and an unsigned one. `unresolved` keeps only the faults of entries that find nothing.
+
+=>
+
+describe("the book's back matter", () => {
+  const book = lines(
+    '# Contents {TOC}',
+    '',
+    '### Part I — Rooms',
+    '',
+    '1. Walls',
+    '',
+    '### Back matter',
+    '',
+    'What the book leaves open.',
+    '',
+    '- Part I, Discussion 1: Waking',
+  )
+  const walls = lines(
+    '---',
+    'Part I: Rooms',
+    'Chapter 1: Walls',
+    '---',
+    '',
+    '# Walls',
+    '',
+    'A wall.',
+  )
+  const waking = lines(
+    '---',
+    'Part I, Discussion 1: Waking',
+    '---',
+    '',
+    '# Waking',
+    '',
+    'What wakes a monster?',
+    '',
+    '~ Yegor',
+    'A trap going off near it.',
+    '',
+    '~',
+    'Nobody signed this.',
+  )
+  const root = '/corpus/book.loom'
+  const files = { [root]: book, '/corpus/walls.loom': walls, '/corpus/waking.loom': waking }
+  const unresolved = (sources: Record<string, string>) =>
+    diagnosed(sources, root).then((found) =>
+      found.filter((message) => message.startsWith('Unresolved contents entry')),
+    )
+
+  it("reads an entry's place and title apart", () => {
+    const entries = parse(book).sections.flatMap((section) => section.entries ?? [])
+    const entry = entries.find((one) => one.discussion !== undefined)
+    expect([entry?.discussion?.value, entry?.title?.value]).toEqual([
+      'Part I, Discussion 1',
+      'Waking',
+    ])
+  })
+
+  it('resolves an entry to the discussion its place and title name', async () => {
+    expect(await unresolved(files)).toEqual([])
+    const at = book.indexOf('Waking') + 1
+    const found = await compiled(files, (compiler) => compiler.definition(root, at))
+    expect(found?.path).toBe('/corpus/waking.loom')
+  })
+
+  it('leaves an entry unresolved when its place names no such discussion', async () => {
+    const wrong = { ...files, [root]: book.replace('Discussion 1', 'Discussion 2') }
+    expect(await unresolved(wrong)).toEqual([
+      'Unresolved contents entry: no discussion titled `Waking`.',
+    ])
+  })
+
+  it('never resolves a chapter entry to a discussion', async () => {
+    const listed = { ...files, [root]: book.replace('1. Walls', '1. Walls\n2. Waking') }
+    expect(await unresolved(listed)).toEqual([
+      'Unresolved contents entry: no chapter titled `Waking`.',
+    ])
+  })
+
+  it('writes the back matter after the parts, keeping its description', async () => {
+    expect(await compiled(files, (compiler) => compiler.contents(root))).toBe(book)
+    const bare = { ...files, [root]: lines('# Contents {TOC}', '', '1. Walls') }
+    expect(await compiled(bare, (compiler) => compiler.contents(root))).toBe(
+      lines(
+        '# Contents {TOC}',
+        '',
+        '### Part I — Rooms',
+        '',
+        '1. Walls',
+        '',
+        '### Back matter',
+        '',
+        '- Part I, Discussion 1: Waking',
+      ),
+    )
+  })
+
+  it('writes no back matter for a book without discussions', async () => {
+    const quiet = { [root]: book, '/corpus/walls.loom': walls }
+    expect(await compiled(quiet, (compiler) => compiler.contents(root))).toBe(
+      lines('# Contents {TOC}', '', '### Part I — Rooms', '', '1. Walls'),
+    )
+  })
+
+  it('weaves the back matter as the last part of the menu', async () => {
+    const site = await compiled(files, (compiler) => compiler.weave(root))
+    expect(site.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)])).toEqual([
+      ['Rooms', ['Walls']],
+      ['Back matter', ['Waking']],
+    ])
+  })
+
+  it('weaves each message as a byline, then its words', async () => {
+    const site = await compiled(files, (compiler) => compiler.weave(root))
+    const page = site.pages.find((one) => one.title === 'Waking')
+    const blocks = Array.flatMap(page?.blocks ?? [], (block) =>
+      Match.value(block).pipe(
+        Match.when({ type: 'message' }, (message) => [['message', message.author]]),
+        Match.when({ type: 'prose' }, (prose) => [['prose', prose.markdown]]),
+        Match.orElse(() => []),
+      ),
+    )
+    expect(blocks).toEqual([
+      ['prose', 'What wakes a monster?'],
+      ['message', 'Yegor'],
+      ['prose', 'A trap going off near it.'],
+      ['message', undefined],
+      ['prose', 'Nobody signed this.'],
+    ])
+  })
+})
+
+## The discussion test file [test/Discussion.test.ts]
+
+=>
+
+::[Testing discussions]
+
+::[Naming a discussion]
+
+::[A discussion among the chapters]
+
+::[The lines of a thread]
+
+::[A topic and its conclusion]
+
+::[The book's back matter]
+
 ## What to work out
 
 - **Discussions under a chapter.** Whether a discussion may also sit under a chapter, as well as under a part, is open.
 
 ## What this chapter grows into
 
-1. Discussions listed under their part in the back matter of the table of contents, each with a woven page of its own.
-2. The `discussions` folder, where the editor opens a discussion from a discussion box.
+1. The `discussions` folder, where the editor opens a discussion from a discussion box.
 
 When discussions parse and show in the editor, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.

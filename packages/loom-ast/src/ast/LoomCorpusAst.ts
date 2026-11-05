@@ -973,7 +973,34 @@ const chapterTitleToken = (
 const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
   Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
 
-type PlacedEntry = { readonly title: TocTitleToken; readonly part: Option.Option<PartRef> }
+type PlacedEntry = {
+  readonly title: TocTitleToken
+  readonly part: Option.Option<PartRef>
+  readonly discussion: Option.Option<string>
+}
+
+const isBackMatter = (part: TocPartToken): boolean => part.value.trim() === 'Back matter'
+
+const discussionPlace = /^(?:Part\s+(\S+)|(.+?)),\s*Discussion(?:\s+(\S+))?$/
+
+const discussionAt = (book: Book, place: string, title: string): Option.Option<Chapter> =>
+  Option.flatMap(Option.fromNullishOr(discussionPlace.exec(place)), (match) => {
+    const [, numeral, partName, number] = match
+    return Array.findFirst(
+      book.chapters,
+      (chapter) =>
+        chapter.discussion &&
+        chapter.title === title &&
+        Option.match(Option.fromNullishOr(numeral), {
+          onSome: (wanted) => Option.contains(chapter.part.number, wanted),
+          onNone: () => Option.contains(chapter.part.name, partName ?? ''),
+        }) &&
+        Option.match(Option.fromNullishOr(number), {
+          onSome: (wanted) => Option.contains(chapter.number, wanted),
+          onNone: () => true,
+        }),
+    )
+  })
 
 const tocPartRef = (part: TocPartToken): PartRef =>
   Option.match(Option.fromNullishOr(partNumberMarker.exec(part.value)), {
@@ -992,10 +1019,17 @@ const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
         Option.none<PartRef>(),
         (part, entry): readonly [Option.Option<PartRef>, Option.Option<PlacedEntry>] =>
           Option.match(Option.fromNullishOr(entry.part), {
-            onSome: (token) => [Option.some(tocPartRef(token)), Option.none()],
+            onSome: (token) => [
+              isBackMatter(token) ? Option.none() : Option.some(tocPartRef(token)),
+              Option.none(),
+            ],
             onNone: () => [
               part,
-              Option.map(Option.fromNullishOr(entry.title), (title) => ({ title, part })),
+              Option.map(Option.fromNullishOr(entry.title), (title) => ({
+                title,
+                part,
+                discussion: Option.map(Option.fromNullishOr(entry.discussion), (d) => d.value),
+              })),
             ],
           }),
       )[1],
@@ -1003,15 +1037,20 @@ const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
   )
 
 const entryChapter = (book: Book, placed: PlacedEntry): Option.Option<Chapter> =>
-  Array.findFirst(
-    book.chapters,
-    (chapter) =>
-      chapter.title === placed.title.value &&
-      Option.match(placed.part, {
-        onNone: () => true,
-        onSome: (part) => samePart(chapter.part, part),
-      }),
-  )
+  Option.match(placed.discussion, {
+    onSome: (place) => discussionAt(book, place, placed.title.value),
+    onNone: () =>
+      Array.findFirst(
+        book.chapters,
+        (chapter) =>
+          !chapter.discussion &&
+          chapter.title === placed.title.value &&
+          Option.match(placed.part, {
+            onNone: () => true,
+            onSome: (part) => samePart(chapter.part, part),
+          }),
+      ),
+  })
 
 const chapterAt = (
   book: Book,
@@ -1131,15 +1170,17 @@ const chapterNumbersAt = (
   })
 }
 
+export type UnresolvedEntry = { readonly title: TocTitleToken; readonly discussion: boolean }
+
 export const unresolvedTocEntriesIn = (
   corpus: LoomCorpusAst,
   module: LoomModule,
-): ReadonlyArray<TocTitleToken> => {
+): ReadonlyArray<UnresolvedEntry> => {
   const book = bookOf(corpus.modules)
   return pipe(
     placedEntriesOf(module),
     Array.filter((placed) => Option.isNone(entryChapter(book, placed))),
-    Array.map((placed) => placed.title),
+    Array.map((placed) => ({ title: placed.title, discussion: Option.isSome(placed.discussion) })),
   )
 }
 

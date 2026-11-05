@@ -3,6 +3,7 @@ Part: Work in progress
 Chapter: Boxes
 Status: Planned
 Priority: 2
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -59,6 +60,746 @@ Every other kind comes from a trope, the package the chapter "Tropes" defines. A
 
 A kind that neither the core nor an installed trope knows is a fault, so a misspelt kind never passes for content.
 
+## Testing boxes
+
+Two test files prove what Loom reads of a box. The first parses one loom at a time and reads back the box marks the parse made and the faults it raised. The second compiles a small corpus, because a chapter box points across looms, to the chapter its name titles.
+
+A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
+
+`parse` reads a loom alone, through the layer the compiler parses with. `wefts` gathers every line of a parsed loom: the document's preamble, then each section's preamble and code. `boxes` keeps the box marks among those lines. `diagnosticsIn` walks the whole tree and gathers the diagnostics each node's health carries, so a case sees every fault the parse raised, wherever it sits. `woven` builds a single loom into a corpus and weaves it, for the case that reads a box on the woven page.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Array, Effect, Layer, Option } from 'effect'
+import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { boxKind, type BoxToken } from '@athrio/loom-ast/LoomTokens'
+import { boxOf, type LoomWeft } from '@athrio/loom-ast/Weft'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { WeaveBuilder } from '../src/weave/WeaveBuilder'
+import { parseDocument, ParseLayer } from './parse'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const parse = (src: string): LoomDocument =>
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+const wefts = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
+  ...doc.preamble,
+  ...Array.flatMap(doc.sections, (section) => [...section.preamble, ...section.code]),
+]
+
+const boxes = (doc: LoomDocument): ReadonlyArray<BoxToken> =>
+  Array.getSomes(Array.map(wefts(doc), boxOf))
+
+const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (node === null || typeof node !== 'object') return []
+  if (globalThis.Array.isArray(node)) return node.flatMap(diagnosticsIn)
+  const own =
+    'health' in node
+      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health.diagnostics
+      : []
+  return [
+    ...own,
+    ...Object.entries(node).flatMap(([key, value]) =>
+      key === 'health' ? [] : diagnosticsIn(value),
+    ),
+  ]
+}
+
+const woven = (path: string, text: string) =>
+  Effect.runSync(
+    Effect.gen(function* () {
+      const builder = yield* LoomCorpusAstBuilder
+      const module = yield* builder.build(
+        { read: () => Effect.succeed(text), list: Option.none() },
+        path,
+      )
+      const weaver = yield* WeaveBuilder
+      return yield* weaver.build({ modules: new Map([[path, module]]) })
+    }).pipe(Effect.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, WeaveBuilder.layer))),
+  )
+
+## A note between two lines of colons
+
+A line of three colons alone opens a note, and the next such line closes it. The note's body is inert: a heading inside it opens no section, and an arrow inside it opens no code. A box that names no kind is a note, and this one has no name either. It raises no fault, and the parse gives its source back byte for byte. A note may also stand before a loom's first heading, in the document's preamble.
+
+=>
+
+describe('a note', () => {
+  const note = lines(
+    '# Chapter',
+    '',
+    'Before the note.',
+    '',
+    ':::',
+    '# Not a heading',
+    '=>',
+    'Not code either.',
+    ':::',
+    '',
+    'After the note.',
+  )
+
+  it('opens with three colons alone and closes with three more', () => {
+    expect(boxes(parse(note)).map((box) => box.side)).toEqual(['open', 'close'])
+  })
+
+  it('keeps its body inert, so a heading or an arrow inside it opens nothing', () => {
+    const doc = parse(note)
+    expect(doc.sections).toHaveLength(1)
+    expect(doc.sections[0]!.code.some((w) => w.type === 'ArrowWeft')).toBe(false)
+  })
+
+  it('is a note, with no name', () => {
+    const [open] = boxes(parse(note))
+    expect(boxKind(open!)).toBe('Note')
+    expect(open!.name).toBeUndefined()
+  })
+
+  it('raises no fault, and reconstructs the source verbatim', () => {
+    const doc = parse(note)
+    expect(diagnosticsIn(doc)).toEqual([])
+    expect(doc.source).toBe(note)
+  })
+
+  it('opens in the document preamble too', () => {
+    const doc = parse(lines(':::', 'A remark before any heading.', ':::', '', '# Chapter'))
+    expect(boxes(doc).map((box) => box.side)).toEqual(['open', 'close'])
+  })
+})
+
+## What an opening line says
+
+An opening line may carry a name and braces after its colons. A label in the braces names the box's kind, and so does a `kind` parameter, whatever the case of its letters. Braces count only at the end of the line, so braces in the middle of a name stay part of the name. A box may also carry braces and no name. The token of the name covers the name's text exactly, so the editor can underline it.
+
+=>
+
+describe('an opening line', () => {
+  const opener = (line: string): BoxToken =>
+    boxes(parse(lines('# Chapter', '', line, 'Body.', ':::')))[0]!
+
+  it('reads its name and its kind from a label', () => {
+    const box = opener('::: Why a grid {Note}')
+    expect(box.name?.value).toBe('Why a grid')
+    expect(box.specifier?.type).toBe('Specifier')
+    expect(boxKind(box)).toBe('Note')
+  })
+
+  it('reads its kind from a parameter, in any case of letters', () => {
+    const box = opener('::: Why a grid {kind=note}')
+    expect(box.specifier?.type).toBe('Parameters')
+    expect(boxKind(box)).toBe('Note')
+  })
+
+  it('keeps braces that do not end the line in its name', () => {
+    const box = opener('::: Why {x} matters')
+    expect(box.name?.value).toBe('Why {x} matters')
+    expect(box.specifier).toBeUndefined()
+  })
+
+  it('opens a box with braces and no name', () => {
+    const box = opener('::: {Note}')
+    expect(box.name).toBeUndefined()
+    expect(boxKind(box)).toBe('Note')
+  })
+
+  it('places its name on the text it names', () => {
+    const src = lines('# Chapter', '', '::: Why a grid {Note}', 'Body.', ':::')
+    const box = boxes(parse(src))[0]!
+    const name = Option.getOrThrow(Option.fromNullishOr(box.name))
+    expect(src.slice(name.position.start.offset, name.position.end.offset)).toBe('Why a grid')
+  })
+})
+
+## The keys and kinds a box takes
+
+A box writes its braces as an anchor does, but the two take different words in them. The core gives a box three kinds, `Note`, `Chapter`, and `Conclusion`, and one key, `kind`, so any other kind or key on a box is a fault. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Reference`.
+
+=>
+
+describe('the braces on a box', () => {
+  const faults = (line: string): ReadonlyArray<string> =>
+    diagnosticsIn(parse(lines('# Chapter', '', line, 'Body.', ':::'))).map((d) => d.message)
+
+  it('fault a kind the core does not give a box', () => {
+    expect(faults('::: Cells {Mermaid}')).toEqual([
+      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, and `Conclusion`.',
+    ])
+  })
+
+  it('fault a key a box does not take', () => {
+    expect(faults('::: Cells {kind=Note width=480}')).toEqual([
+      'Unknown key: a box takes no `width` key. It takes `kind`.',
+    ])
+  })
+
+  it('leave an anchor its own keys and kinds', () => {
+    const found = diagnosticsIn(
+      parse(
+        lines(
+          '# Chapter',
+          '',
+          '=>',
+          '',
+          `${anchor('Greeting')}{Mermaid}`,
+          '',
+          '## Greeting',
+          '',
+          '=>',
+          '',
+          'x',
+        ),
+      ),
+    ).map((d) => d.message)
+    expect(found).toContain(
+      'Unknown kind: an anchor takes no kind `Mermaid`. It takes `To be settled` and `Reference`.',
+    )
+  })
+})
+
+## Colons out of place
+
+Three colons inside an open box would open a second box inside the first. A box never holds another, so the line is a stray, and a fault. A run of four or more colons opens and closes nothing, and its fault carries a fix that writes three.
+
+A box that nothing closes runs to the end of its loom. The headings after it open no sections, and the box's opening line carries the fault.
+
+=>
+
+describe('a stray line of colons', () => {
+  it('faults three colons that would open a box inside another', () => {
+    const doc = parse(lines('# Chapter', '', '::: Outer', '::: Inner', ':::', '', 'After.'))
+    expect(boxes(doc).map((box) => box.side)).toEqual(['open', 'stray', 'close'])
+    expect(diagnosticsIn(doc).map((d) => d.message)).toEqual([
+      'Box inside a box: a box never holds another, so this line opens nothing. Close the open box with `:::` on a line of its own, then open this one.',
+    ])
+  })
+
+  it('faults a run of four or more colons, with a fix that writes three', () => {
+    const doc = parse(lines('# Chapter', '', '::::', 'Prose.'))
+    expect(boxes(doc).map((box) => box.side)).toEqual(['stray'])
+    const [fault] = diagnosticsIn(doc)
+    expect(fault!.message).toBe(
+      'Too many colons: a box line starts with three colons, so `::::` opens and closes nothing. Write `:::`.',
+    )
+    expect(fault!.fixes).toEqual([{ title: 'Write `:::`', text: ':::' }])
+  })
+})
+
+describe('a box that never closes', () => {
+  it('faults its opening line, and swallows the headings after it', () => {
+    const doc = parse(lines('# Chapter', '', '::: Open', 'Body.', '', '# Swallowed'))
+    expect(doc.sections).toHaveLength(1)
+    expect(diagnosticsIn(doc).map((d) => d.message)).toEqual([
+      'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
+    ])
+  })
+})
+
+## Colons that are no box line
+
+Colons mark a box only in prose. Inside a fence quoted in prose they are quoted text, and after an arrow they are code.
+
+A box's body opens nothing, not even a quote. So a fence inside a box quotes nothing. The next line of three colons still closes the box, and the anchors in the box and after it stay live.
+
+=>
+
+describe('colons that are no box line', () => {
+  it('stay quoted inside a fence in prose', () => {
+    const doc = parse(lines('# Chapter', '', '```', '::: Quoted {Note}', ':::', '```'))
+    expect(boxes(doc)).toEqual([])
+  })
+
+  it('stay code after an arrow', () => {
+    const doc = parse(lines('# Chapter', '', '=>', '', ':::', 'x'))
+    expect(boxes(doc)).toEqual([])
+  })
+
+  it('open no quote inside a box', () => {
+    const doc = parse(lines('# Chapter', '', ':::', '```', ':::', '', '# Next'))
+    expect(boxes(doc).map((box) => box.side)).toEqual(['open', 'close'])
+    expect(doc.sections).toHaveLength(2)
+  })
+
+  it('leave the anchors after a fence inside a box live', () => {
+    const doc = parse(
+      lines(
+        '# Chapter',
+        '',
+        ':::',
+        '```',
+        `A link to ${anchor('Next')}.`,
+        ':::',
+        '',
+        `See ${anchor('Next')}.`,
+        '',
+        '# Next',
+      ),
+    )
+    const names = Array.flatMap(wefts(doc), (weft) =>
+      'anchors' in weft ? weft.anchors.map((found) => found.name.value) : [],
+    )
+    expect(names).toEqual(['Next', 'Next'])
+  })
+})
+
+## A box on the woven page
+
+The weave splits a note out of the prose into a block of its own. A box of any other kind stays in the prose around it, colons and all, as the author wrote it.
+
+=>
+
+describe('a box on the woven page', () => {
+  it('leaves a box of another kind in the prose around it', () => {
+    const boxed = lines(
+      '---',
+      'Part I, Chapter 1: A greeting',
+      'Language: Prose',
+      '---',
+      '',
+      '# A greeting',
+      '',
+      'Before.',
+      '::: Cells {Mermaid}',
+      'flowchart LR',
+      ':::',
+      'After.',
+    )
+    const page = woven('/corpus/boxed.loom', boxed).pages[0]!
+    expect(page.blocks.filter((b) => b.type === 'note')).toEqual([])
+    const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : []))
+    expect(prose).toEqual(['Before.\n::: Cells {Mermaid}\nflowchart LR\n:::\nAfter.'])
+  })
+})
+
+## The box test file [test/Box.test.ts]
+
+=>
+
+::[Testing boxes]
+
+::[A note between two lines of colons]
+
+::[What an opening line says]
+
+::[The keys and kinds a box takes]
+
+::[Colons out of place]
+
+::[Colons that are no box line]
+
+::[A box on the woven page]
+
+## Testing chapter boxes
+
+A chapter box points across looms, so its cases compile a small corpus rather than parse one loom. `layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and lists those paths. Its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `withCompiler` runs one use of the compiler over such a corpus. `diagnosed` is the commonest use, the diagnostics of one loom, and `messages` keeps only their text.
+
+The corpus is a part about a world. The chapter `The world` holds a box that points to a chapter called `Rooms`, and a section after the box composes `Rooms` with an anchor. The chapter `Light` follows it in the part. `worldLoom` writes the first chapter with a given body in its box, and `roomsLoom` writes the chapter the box points to with a given opening. `unwritten` is the corpus before anyone writes `Rooms`.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { DocumentSource, LoomCompiler, type SummaryEdit } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const withCompiler = <A>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>,
+) => LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files)))
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  withCompiler(files, (compiler) => compiler.diagnose(entry))
+
+const messages = (found: ReadonlyArray<Diagnostic>) => found.map((d) => d.message)
+
+const world = '/corpus/02-shape/01-world.loom'
+const light = '/corpus/02-shape/02-light.loom'
+const rooms = '/corpus/02-shape/03-rooms.loom'
+
+const worldLoom = (body: ReadonlyArray<string>) =>
+  lines(
+    '---',
+    'Part II, Chapter 1: The world',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The world',
+    '',
+    'The world holds rooms.',
+    '',
+    '::: Rooms {Chapter}',
+    ...body,
+    ':::',
+    '',
+    '## The program [world.ts]',
+    '',
+    'The program places the rooms.',
+    '',
+    '=>',
+    anchor('Rooms'),
+  )
+
+const lightLoom = lines(
+  '---',
+  'Part II, Chapter 2: Light',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Light',
+  '',
+  'Light falls on every room.',
+)
+
+const roomsLoom = (opening: string) =>
+  lines(
+    '---',
+    'Part II, Chapter 3: Rooms',
+    'Status: Canvas',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# Rooms',
+    '',
+    opening,
+  )
+
+const unwritten = { [world]: worldLoom(['A room is a grid of cells.']), [light]: lightLoom }
+
+## A chapter nobody has written
+
+Until its chapter exists, a chapter box carries a note rather than an error. The note's fix writes the chapter as the next of its part. The new chapter's number follows the part's last chapter, its status is `Canvas`, and the box's body becomes its opening. In a part without numbers the new chapter takes its title alone, and its file sits beside the box's loom. An anchor beside the box resolves to the chapter, as a section to be settled, so the anchor is never unresolved.
+
+=>
+
+describe('a chapter box whose chapter is not written', () => {
+  it.effect('carries a note whose fix writes the chapter as the next of its part', () =>
+    Effect.gen(function* () {
+      const found = yield* diagnosed(unwritten, world)
+      const note = found.find((d) => d.message.startsWith('To be settled: no chapter'))
+      expect(note?.severity).toBe('info')
+      expect(note?.message).toBe(
+        "To be settled: no chapter is titled `Rooms` yet. Open it from this box, and the box's body becomes its opening.",
+      )
+      expect(note?.fixes).toEqual([
+        {
+          title: 'Open the chapter `Rooms`',
+          file: rooms,
+          text: roomsLoom('A room is a grid of cells.'),
+        },
+      ])
+    }),
+  )
+
+  it.effect('lets an anchor beside it resolve, to be settled rather than missing', () =>
+    Effect.gen(function* () {
+      const found = messages(yield* diagnosed(unwritten, world))
+      expect(found).toContain(
+        'To be settled: `Rooms` holds no code yet, so this anchor composes nothing.',
+      )
+      expect(found.some((m) => m.startsWith('Unresolved anchor'))).toBe(false)
+    }),
+  )
+
+  it.effect('opens a chapter of a part without numbers by its title alone', () =>
+    Effect.gen(function* () {
+      const ideas = '/corpus/wip/ideas.loom'
+      const found = yield* diagnosed(
+        {
+          [ideas]: lines(
+            '---',
+            'Part: Work in progress',
+            'Chapter: Ideas',
+            '---',
+            '',
+            '# Ideas',
+            '',
+            '::: Rooms {Chapter}',
+            ':::',
+          ),
+        },
+        ideas,
+      )
+      const note = found.find((d) => d.message.startsWith('To be settled: no chapter'))
+      expect(note?.fixes).toEqual([
+        {
+          title: 'Open the chapter `Rooms`',
+          file: '/corpus/wip/rooms.loom',
+          text: lines(
+            '---',
+            'Part: Work in progress',
+            'Chapter: Rooms',
+            'Status: Canvas',
+            '---',
+            '',
+            '# Rooms',
+          ),
+        },
+      ])
+    }),
+  )
+})
+
+## A copy of the chapter's opening
+
+Once the chapter exists, the box's body is a copy of the chapter's opening prose. A copy that matches is in step and raises nothing, and the anchor beside the box now finds a chapter whose opening holds no code. A copy that differs raises a warning, whose fix copies the opening into the box. The compiler's `summaries` verb refreshes every stale copy at once and returns each loom it rewrote. A box in the chapter's opening stays out of the copy, since a box never holds another.
+
+=>
+
+describe('a chapter box whose chapter is written', () => {
+  it.effect('is in step when its body matches the opening of its chapter', () =>
+    Effect.gen(function* () {
+      const files = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
+      const found = messages(yield* diagnosed(files, world))
+      expect(found.some((m) => m.startsWith('To be settled: no chapter'))).toBe(false)
+      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+      expect(found).toContain(
+        'Chapter `Rooms` opens with a section that holds no code, so this anchor composes nothing.',
+      )
+    }),
+  )
+
+  it.effect('warns when its body differs, with a fix that copies the opening in', () =>
+    Effect.gen(function* () {
+      const files = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
+      const found = yield* diagnosed(files, world)
+      const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+      expect(stale?.severity).toBe('warning')
+      const fix = stale?.fixes?.[0]
+      expect(fix?.title).toBe('Copy the opening of `Rooms`')
+      const at = Option.getOrThrow(Option.fromNullishOr(fix?.at))
+      const text = files[world]!
+      const fixed = text.slice(0, at.start.offset) + fix!.text + text.slice(at.end.offset)
+      expect(fixed).toBe(worldLoom(['Rooms are grids.']))
+    }),
+  )
+
+  it.effect('refreshes every stale copy through summaries', () =>
+    Effect.gen(function* () {
+      const files = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
+      const refreshed = yield* withCompiler(files, (compiler) => compiler.summaries(world))
+      expect(refreshed).toEqual([{ path: world, text: worldLoom(['Rooms are grids.']) }])
+    }),
+  )
+
+  it.effect('leaves the boxes out of the opening it copies', () =>
+    Effect.gen(function* () {
+      const files = {
+        ...unwritten,
+        [rooms]: lines(
+          '---',
+          'Part II, Chapter 3: Rooms',
+          '---',
+          '',
+          '# Rooms',
+          '',
+          'A room is a grid of cells.',
+          '',
+          ':::',
+          'A remark for the next author.',
+          ':::',
+        ),
+      }
+      const found = messages(yield* diagnosed(files, world))
+      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+    }),
+  )
+})
+
+## From a box to its chapter
+
+A box's name is a name for its chapter. Going to the definition of the name reaches the title the chapter declares. The references of the name gather the box and the chapter together.
+
+=>
+
+describe('navigating from a chapter box', () => {
+  const files = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
+  const boxName = files[world]!.indexOf('Rooms {Chapter}') + 1
+
+  it.effect('follows its name to the chapter', () =>
+    Effect.gen(function* () {
+      const found = yield* withCompiler(files, (compiler) => compiler.definition(world, boxName))
+      expect(found?.path).toBe(rooms)
+      expect(found?.range.start.line).toBe(1)
+    }),
+  )
+
+  it.effect('lists the box among the names of its chapter', () =>
+    Effect.gen(function* () {
+      const found = yield* withCompiler(files, (compiler) => compiler.references(world, boxName))
+      expect(found.map((location) => location.path)).toContain(world)
+      expect(found.map((location) => location.path)).toContain(rooms)
+    }),
+  )
+})
+
+## Where a chapter box may stand
+
+A chapter box marks where a thought left the text for a chapter of its own, so the code of the box's section belongs in that chapter. The builder faults a chapter box in a section that holds code. A chapter box with no name points to no chapter, and the builder faults it too.
+
+=>
+
+describe('the place of a chapter box', () => {
+  it.effect('faults a chapter box in a section that holds code', () =>
+    Effect.gen(function* () {
+      const loom = '/corpus/beside.loom'
+      const found = messages(
+        yield* diagnosed(
+          { [loom]: lines('# Beside', '', '::: Rooms {Chapter}', ':::', '', '=>', 'const x = 1') },
+          loom,
+        ),
+      )
+      expect(found).toContain(
+        'Chapter box beside code: this box marks where the chapter `Rooms` begins, so the code of its section belongs in that chapter. Move the code there, or move the box into a section of its own.',
+      )
+    }),
+  )
+
+  it.effect('faults a chapter box with no name', () =>
+    Effect.gen(function* () {
+      const loom = '/corpus/nameless.loom'
+      const found = messages(
+        yield* diagnosed({ [loom]: lines('# Nameless', '', '::: {Chapter}', ':::') }, loom),
+      )
+      expect(found).toContain(
+        'Chapter box without a name: a box of the `Chapter` kind points to the chapter its name titles, so it needs a name, as in `::: Rooms {Chapter}`.',
+      )
+    }),
+  )
+})
+
+## Keeping a box in step as the author types
+
+The language server carries an edit across between a box and its chapter while the author types. The compiler's `summaryEdits` verb takes a loom's text before an edit and after it, and returns the edits that carry the change across. `applied` writes one such edit into a text, reading its range by line and character, as an editor does, and `offsetOf` turns a line and a character into an offset.
+
+An edit to the box reaches the chapter's opening, and an edit to the opening reaches each box that copies it. A change crosses only between a box and a chapter that were in step before it, so an edit to a stale box carries nothing. An edit that leaves the box as it was carries nothing either. Nor does an edit to a box whose chapter opens with a box of its own, and the author keeps that pair in step by hand.
+
+=>
+
+describe('keeping a chapter box in step as the author types', () => {
+  const offsetOf = (text: string, at: { readonly line: number; readonly character: number }) =>
+    text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
+
+  const applied = (text: string, edit: SummaryEdit) =>
+    text.slice(0, offsetOf(text, edit.range.start)) +
+    edit.text +
+    text.slice(offsetOf(text, edit.range.end))
+
+  const inStep = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
+
+  const edits = (files: Record<string, string>, path: string, before: string, after: string) =>
+    withCompiler(files, (compiler) => compiler.summaryEdits(path, before, after))
+
+  it.effect('writes an edit to a box into the opening of its chapter', () =>
+    Effect.gen(function* () {
+      const found = yield* edits(inStep, world, inStep[world]!, worldLoom(['A room is a grid.']))
+      expect(found.map((edit) => edit.path)).toEqual([rooms])
+      expect(applied(inStep[rooms]!, found[0]!)).toBe(roomsLoom('A room is a grid.'))
+    }),
+  )
+
+  it.effect('writes an edit to the opening of a chapter into its boxes', () =>
+    Effect.gen(function* () {
+      const found = yield* edits(inStep, rooms, inStep[rooms]!, roomsLoom('Rooms are grids.'))
+      expect(found.map((edit) => edit.path)).toEqual([world])
+      expect(applied(inStep[world]!, found[0]!)).toBe(worldLoom(['Rooms are grids.']))
+    }),
+  )
+
+  it.effect('carries nothing from a box that was already out of step', () =>
+    Effect.gen(function* () {
+      const stale = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
+      expect(yield* edits(stale, world, stale[world]!, worldLoom(['A room is a grid.']))).toEqual(
+        [],
+      )
+    }),
+  )
+
+  it.effect('carries nothing when the edit leaves the box as it was', () =>
+    Effect.gen(function* () {
+      const after = inStep[world]!.replace('The world holds rooms.', 'The world holds many rooms.')
+      expect(yield* edits(inStep, world, inStep[world]!, after)).toEqual([])
+    }),
+  )
+
+  it.effect('leaves an opening that holds a box of its own to the author', () =>
+    Effect.gen(function* () {
+      const noted = lines(
+        '---',
+        'Part II, Chapter 3: Rooms',
+        '---',
+        '',
+        '# Rooms',
+        '',
+        'A room is a grid of cells.',
+        '',
+        ':::',
+        'A remark for the next author.',
+        ':::',
+      )
+      const files = { ...unwritten, [rooms]: noted }
+      expect(yield* edits(files, world, files[world]!, worldLoom(['A room is a grid.']))).toEqual(
+        [],
+      )
+    }),
+  )
+})
+
+## The chapter box test file [test/ChapterBox.test.ts]
+
+=>
+
+::[Testing chapter boxes]
+
+::[A chapter nobody has written]
+
+::[A copy of the chapter's opening]
+
+::[From a box to its chapter]
+
+::[Where a chapter box may stand]
+
+::[Keeping a box in step as the author types]
+
 ## What to work out
 
 - **The woven page.** What a reader of the woven book sees of a box that points to a loom, the summary, a link, or both, is open.
@@ -69,7 +810,6 @@ A kind that neither the core nor an installed trope knows is a fault, so a missp
 
 1. Discussion boxes, once the chapter "Discussions" gives discussions their loom: found by name, opened as a discussion, and their summaries, conclusions included, kept in step.
 2. The side panel that edits a loom's opening from its box, in the editors that can show one.
-3. The registry of kinds: `Discussion`, `Conclusion`, and `Wildcard` beside `Note` and `Chapter` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
-4. Boxes in the tree-sitter grammar and in each editor's highlighting.
+3. The registry of kinds: `Discussion` and `Wildcard` beside `Note`, `Chapter`, and `Conclusion` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
 
 When every kind of box reads and draws in the editor, the rest of this chapter joins the chapters that hold the box.

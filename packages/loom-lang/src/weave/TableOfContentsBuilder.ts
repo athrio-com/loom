@@ -21,8 +21,23 @@ export const TocPartSchema = Schema.Struct({
 })
 export type TocPart = typeof TocPartSchema.Type
 
+export const TocDiscussionSchema = Schema.Struct({
+  place: Schema.String,
+  number: Schema.String,
+  title: Schema.String,
+  path: Schema.String,
+})
+export type TocDiscussion = typeof TocDiscussionSchema.Type
+
+export const TocBackMatterSchema = Schema.Struct({
+  description: Schema.String,
+  discussions: Schema.Array(TocDiscussionSchema),
+})
+export type TocBackMatter = typeof TocBackMatterSchema.Type
+
 export const TableOfContentsSchema = Schema.Struct({
   parts: Schema.Array(TocPartSchema),
+  backMatter: TocBackMatterSchema,
   loose: Schema.Array(TocChapterSchema),
 })
 export type TableOfContents = typeof TableOfContentsSchema.Type
@@ -62,7 +77,18 @@ export const buildContents = (corpus: LoomCorpusAst): TableOfContents => {
     Array.filter(chapters, (chapter) => chapter.partId === undefined),
     Array.map(toTocChapter),
   )
-  return TableOfContentsSchema.make({ parts, loose })
+  const backMatter = TocBackMatterSchema.make({
+    description: Option.getOrElse(
+      Option.fromNullishOr(descriptions.get(backMatterHeading)),
+      () => '',
+    ),
+    discussions: pipe(
+      Array.getSomes(Array.map(modules, discussionDeclOf)),
+      Array.sort(byDiscussion),
+      Array.map(toTocDiscussion),
+    ),
+  })
+  return TableOfContentsSchema.make({ parts, backMatter, loose })
 }
 
 type PartDecl = { readonly number: string; readonly name: string }
@@ -149,12 +175,14 @@ const byPart: Order.Order<PartDecl> = Order.combineAll([
   Order.mapInput(Order.String, (part: PartDecl) => part.name),
 ])
 
-const byChapter: Order.Order<Chapter> = Order.combineAll([
-  Order.mapInput(Order.Number, (chapter: Chapter) => (chapter.number === '' ? 1 : 0)),
-  Order.mapInput(Order.Number, (chapter: Chapter) =>
-    chapter.number === '' ? 0 : Number(chapter.number),
+type Numbered = { readonly number: string; readonly title: string }
+
+const byNumber: Order.Order<Numbered> = Order.combineAll([
+  Order.mapInput(Order.Number, (entry: Numbered) => (entry.number === '' ? 1 : 0)),
+  Order.mapInput(Order.Number, (entry: Numbered) =>
+    entry.number === '' ? 0 : Number(entry.number),
   ),
-  Order.mapInput(Order.String, (chapter: Chapter) => chapter.title),
+  Order.mapInput(Order.String, (entry: Numbered) => entry.title),
 ])
 
 const chaptersUnder = (
@@ -163,9 +191,51 @@ const chaptersUnder = (
 ): ReadonlyArray<TocChapter> =>
   pipe(
     Array.filter(chapters, (chapter) => chapter.partId === identity),
-    Array.sort(byChapter),
+    Array.sort(byNumber),
     Array.map(toTocChapter),
   )
+
+type Discussion = {
+  readonly part: PartDecl
+  readonly number: string
+  readonly title: string
+  readonly path: string
+}
+
+export const backMatterHeading = 'Back matter'
+
+const discussionDeclOf = (module: LoomModule): Option.Option<Discussion> =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter),
+    Option.flatMap((frontmatter) =>
+      pipe(
+        Option.all({
+          discussion: Option.fromNullishOr(frontmatter.discussion),
+          title: Option.fromNullishOr(frontmatter.title),
+          part: Option.fromNullishOr(frontmatter.part ?? frontmatter.partName),
+        }),
+        Option.map(({ discussion, title }) => ({
+          part: { number: frontmatter.part?.value ?? '', name: frontmatter.partName?.value ?? '' },
+          number: discussion.value,
+          title: title.value,
+          path: module.path,
+        })),
+      ),
+    ),
+  )
+
+const byDiscussion: Order.Order<Discussion> = Order.combineAll([
+  Order.mapInput(byPart, (discussion: Discussion) => discussion.part),
+  byNumber,
+])
+
+const toTocDiscussion = (discussion: Discussion): TocDiscussion =>
+  TocDiscussionSchema.make({
+    place: discussion.part.number === '' ? discussion.part.name : `Part ${discussion.part.number}`,
+    number: discussion.number,
+    title: discussion.title,
+    path: discussion.path,
+  })
 
 const partLabel = /^Part\s+(\S+)\s*[—–-]\s*/
 const bulletMarker = /^\s*[-*]\s+\S/
@@ -249,17 +319,37 @@ const descriptionsFrom = (modules: ReadonlyArray<LoomModule>): ReadonlyMap<strin
 const chapterLine = (chapter: TocChapter): string =>
   chapter.number === '' ? `- ${chapter.title}` : `${chapter.number}. ${chapter.title}`
 
-const partBlock = (part: TocPart): string => {
-  const heading = part.number === '' ? `### ${part.name}` : `### Part ${part.number} — ${part.name}`
-  const list = pipe(part.chapters, Array.map(chapterLine), Array.join('\n'))
-  const description = part.description.trim()
-  return description.length === 0
-    ? `${heading}\n\n${list}`
-    : `${heading}\n\n${description}\n\n${list}`
+const blockOf = (heading: string, description: string, entries: ReadonlyArray<string>): string => {
+  const list = Array.join(entries, '\n')
+  const paragraph = description.trim()
+  return paragraph.length === 0 ? `${heading}\n\n${list}` : `${heading}\n\n${paragraph}\n\n${list}`
 }
 
+const partBlock = (part: TocPart): string =>
+  blockOf(
+    part.number === '' ? `### ${part.name}` : `### Part ${part.number} — ${part.name}`,
+    part.description,
+    Array.map(part.chapters, chapterLine),
+  )
+
+const discussionLine = (discussion: TocDiscussion): string => {
+  const label = discussion.number === '' ? 'Discussion' : `Discussion ${discussion.number}`
+  return `- ${discussion.place}, ${label}: ${discussion.title}`
+}
+
+const backMatterBlock = (backMatter: TocBackMatter): ReadonlyArray<string> =>
+  backMatter.discussions.length === 0
+    ? []
+    : [
+        blockOf(
+          `### ${backMatterHeading}`,
+          backMatter.description,
+          Array.map(backMatter.discussions, discussionLine),
+        ),
+      ]
+
 export const renderContents = (toc: TableOfContents): string =>
-  pipe(toc.parts, Array.map(partBlock), Array.join('\n\n'))
+  Array.join([...Array.map(toc.parts, partBlock), ...backMatterBlock(toc.backMatter)], '\n\n')
 
 const tocSectionOf = (module: LoomModule): Option.Option<LoomSection> =>
   Array.findFirst(module.doc.sections, (section) => section.entries !== undefined)

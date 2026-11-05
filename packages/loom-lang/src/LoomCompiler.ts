@@ -906,9 +906,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   ...corpusDiagnostics(modules)(module),
                   ...Array.flatMap(
                     unresolvedTocEntriesIn({ modules }, module),
-                    (title) =>
-                      faulty(UnresolvedTocEntry({ title: title.value }), title.position)
-                        .diagnostics,
+                    (entry) =>
+                      faulty(
+                        UnresolvedTocEntry({
+                          title: entry.title.value,
+                          discussion: entry.discussion,
+                        }),
+                        entry.title.position,
+                      ).diagnostics,
                   ),
                 ],
               }),

@@ -39,6 +39,7 @@ import {
   type BoxNameToken,
   type BoxToken,
   TocChapterTokenSchema,
+  TocDiscussionTokenSchema,
   TocPartTokenSchema,
   TocTitleTokenSchema,
   AnchorCloseTokenSchema,
@@ -334,6 +335,7 @@ const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
 
 const tocPartMarker = /^(#{1,6}\s+)(\S.*)$/
 const tocChapterMarker = /^(\s*)(\d+)(\.\s+)(\S.*)$/
+const tocDiscussionMarker = /^(\s*[-*]\s+)(.+?,\s*Discussion(?:\s+\S+)?)(:\s*)(\S.*)$/
 
 const tokeniseToc = (weft: TocWeft): LoomWeft => {
   const line = weft.position.start.line
@@ -363,6 +365,20 @@ const tokeniseToc = (weft: TocWeft): LoomWeft => {
       health: okHealth,
       chapter: fieldToken(TocChapterTokenSchema, line, numSpan),
       title: fieldToken(TocTitleTokenSchema, line, titleSpan),
+    })
+  }
+
+  const discussion = tocDiscussionMarker.exec(content)
+  if (discussion) {
+    const placeStart = base + discussion[1].length
+    const placeSpan = trimSpan(discussion[2], placeStart)
+    const titleStart = placeStart + discussion[2].length + discussion[3].length
+    return TocWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      discussion: fieldToken(TocDiscussionTokenSchema, line, placeSpan),
+      title: fieldToken(TocTitleTokenSchema, line, trimSpan(discussion[4], titleStart)),
     })
   }
 

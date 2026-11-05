@@ -34,6 +34,7 @@ import {
   type Corpus,
   type HeadingBlock,
   type Message,
+  type MessageBlock,
   type NoteBlock,
   type Model,
   type Page,
@@ -606,7 +607,9 @@ const codeOf = (
 
 ## A section, under its heading
 
-A block draws as one of four things, so the match closes on four cases. A heading inside a section draws as a third-level heading carrying its slug. A run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides. A run of code draws as `codeOf` draws it. A note is a reader's annotation kept in the loom, so `noteOf` draws it as prose on a quieter card, under its caption when the note has one. `captionLine` draws the caption. A note with neither words nor a caption draws nothing.
+A block draws as one of five things, so the match closes on five cases. A heading inside a section draws as a third-level heading carrying its slug. A run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides. A run of code draws as `codeOf` draws it. A note is a reader's annotation kept in the loom, so `noteOf` draws it as prose on a quieter card, under its caption when the note has one. `captionLine` draws the caption. A note with neither words nor a caption draws nothing.
+
+A message of a discussion draws as its byline, and its words follow as the prose they are. `messageOf` draws the byline: the tilde that opens the message, in the chip the source page draws a tilde in, beside the name of the message's author. A message nobody signed draws the tilde alone.
 
 =>
 
@@ -630,6 +633,7 @@ const blockOf = (
     ),
     Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
     Match.when({ type: 'note' }, (note) => noteOf(note, model.copied, h)),
+    Match.when({ type: 'message' }, (message) => [messageOf(message, h)]),
     Match.exhaustive,
   )
 
@@ -648,6 +652,15 @@ const noteOf = (note: NoteBlock, copied: string, h: HtmlBuilder<Message>): Reado
           [...captionLine(note, h), textOf(note.markdown, 'docs-prose', copied, h)],
         ),
       ]
+
+const messageOf = (message: MessageBlock, h: HtmlBuilder<Message>): Html =>
+  h.p(
+    [h.Class('doc-message')],
+    [
+      h.span([h.Class('loom-syntax tilde')], ['~']),
+      ...Option.toArray(Option.fromNullishOr(message.author)),
+    ],
+  )
 
 ~
 
@@ -1320,7 +1333,7 @@ The shell stacks the head over a body of two columns, the menu on the left and t
 
 A slug naming no chapter falls back to the first, so the documentation always has something to show.
 
-The page decides how its chapters open, so the shell asks it for an opening. An opening is two lists: what stands above the menu and the article, across the page, and what leads the article, beside the menu. Both the docs and the book open on their head above. The docs' head draws only the opening's gist and its fences, so the rest of the opening's text, then any code or notes, lead the article. The book's head draws the frontmatter, so its whole opening leads the article. Either way no block of a chapter goes undrawn.
+The page decides how its chapters open, so the shell asks it for an opening. An opening is two lists: what stands above the menu and the article, across the page, and what leads the article, beside the menu. Both the docs and the book open on their head above. The docs' head draws only the opening's gist and its fences, so the rest of the opening's text, then any code, notes or messages, lead the article. The book's head draws the frontmatter, so its whole opening leads the article. Either way no block of a chapter goes undrawn.
 
 The flowers belong to the docs. A docs chapter's first section and the pager's cards wear the chapter's flower. A chapter of the book marks its sections by language instead, and each card of its pager wears the icon of the chapter it leads to. So an opening also says which mark each section wears, which mark each card of the pager wears, and which mark each chapter wears in the menu.
 
@@ -1350,7 +1363,9 @@ export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) 
     ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
     ...pipe(
       cut.opening,
-      Array.filter((block) => block.type === 'code' || block.type === 'note'),
+      Array.filter(
+        (block) => block.type === 'code' || block.type === 'note' || block.type === 'message',
+      ),
       Array.flatMap((block) => blockOf(block, base, page, model, h)),
     ),
   ]

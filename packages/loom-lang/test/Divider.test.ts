@@ -1,23 +1,20 @@
 import { describe, expect, it } from 'bun:test'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option, Schema } from 'effect'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { LoomHeadingSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { okHealth, type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
-import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { parseDocument, ParseLayer } from './parse'
 
-// A divider is a line of three or more dashes past a loom's first heading. It ends
-// the section above it and opens a division, a section whose heading is the
-// divider. The line of prose directly above the divider labels the division and
-// becomes its title; a divider after a blank line stands bare. A divider flush under
-// a line of code warns, since such dashes most likely belong to the code.
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
 const parse = (src: string): LoomDocument =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
-
-const lines = (...ls: ReadonlyArray<string>): string => ls.join('\n') + '\n'
 
 const titles = (doc: LoomDocument): ReadonlyArray<string | undefined> =>
   doc.sections.map((section) => section.heading.title?.source)
@@ -34,9 +31,41 @@ const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
       : []
   return [
     ...own,
-    ...Object.entries(node).flatMap(([key, value]) => (key === 'health' ? [] : diagnosticsIn(value))),
+    ...Object.entries(node).flatMap(([key, value]) =>
+      key === 'health' ? [] : diagnosticsIn(value),
+    ),
   ]
 }
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const compiled = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
 
 describe('a labelled divider', () => {
   const labelled = lines(
@@ -88,7 +117,11 @@ describe('a bare divider', () => {
   it('ends code, as a heading does', () => {
     const doc = parse(lines('# A [a.ts]', '', '=>', 'const a = 1', '', '---', '', 'Prose.'))
     expect(doc.sections).toHaveLength(2)
-    expect(doc.sections[0]!.code.map((weft) => weft.source.trim())).toEqual(['=>', 'const a = 1', ''])
+    expect(doc.sections[0]!.code.map((weft) => weft.source.trim())).toEqual([
+      '=>',
+      'const a = 1',
+      '',
+    ])
     expect(diagnosticsIn(doc)).toEqual([])
   })
 
@@ -144,38 +177,13 @@ describe('dashes that divide nothing', () => {
 })
 
 describe('a division found by its label', () => {
-  const layerOf = (files: Record<string, string>) =>
-    Layer.provide(
-      LoomCompiler.layer,
-      Layer.mergeAll(
-        FileSystemSource,
-        LoomDiskCache.none,
-        Layer.succeed(DocumentSource, {
-          read: (path: string) => Effect.succeed(files[path] ?? ''),
-          list: Option.some(() => Effect.succeed(Object.keys(files))),
-          hold: () => Effect.void,
-          forget: () => Effect.void,
-        }),
-        Layer.succeed(WorkspaceSettings, {
-          manifest: () => Effect.succeed(Option.none()),
-          resolve: () =>
-            Effect.succeed({
-              delims: defaultAnchorDelims,
-              primaryLanguage: 'typescript',
-              variables: {},
-              width: 100,
-            }),
-        }),
-      ),
-    )
-
   const room = '/corpus/room.loom'
   const files = {
     [room]: lines(
       '# The room [room.ts]',
       '',
       '=>',
-      `::${'['}Drawing the room]`,
+      anchor('Drawing the room'),
       '~',
       '',
       'Drawing the room',
@@ -187,23 +195,54 @@ describe('a division found by its label', () => {
   }
 
   it('composes the code a labelled division holds, as a section', async () => {
-    const tangled = await Effect.runPromise(
-      LoomCompiler.pipe(
-        Effect.flatMap((compiler) => compiler.tangle(room)),
-        Effect.provide(layerOf(files)),
-      ),
-    )
+    const tangled = await compiled(files, (compiler) => compiler.tangle(room))
     expect(tangled.map((file) => file.content)).toEqual(['const draw = () => 1\n'])
   })
 
   it('follows its label from an anchor', async () => {
     const at = files[room]!.indexOf('Drawing the room]') + 1
-    const found = await Effect.runPromise(
-      LoomCompiler.pipe(
-        Effect.flatMap((compiler) => compiler.definition(room, at)),
-        Effect.provide(layerOf(files)),
-      ),
-    )
+    const found = await compiled(files, (compiler) => compiler.definition(room, at))
     expect(found?.range.start.line).toBe(6)
+  })
+})
+
+describe('what a division becomes', () => {
+  it('is a heading whose marker is a divider', () => {
+    const at = { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 4, offset: 3 } }
+    const divider = { type: 'Divider', position: at, source: '---', health: okHealth }
+    expect(
+      Schema.is(LoomHeadingSchema)({
+        type: 'LoomHeading',
+        position: at,
+        source: '---',
+        health: okHealth,
+        marker: divider,
+      }),
+    ).toBe(true)
+  })
+
+  it('weaves as a heading of the second level that a divider wrote', async () => {
+    const divided = lines(
+      '---',
+      'Part I, Chapter 1: Rooms',
+      'Language: Prose',
+      '---',
+      '',
+      '# Rooms',
+      '',
+      'The grid is the whole model.',
+      '',
+      'Drawing the room',
+      '---',
+      '',
+      'The room draws itself.',
+    )
+    const rooms = '/corpus/rooms.loom'
+    const site = await compiled({ [rooms]: divided }, (compiler) => compiler.weave(rooms))
+    const headings = site.pages[0]!.blocks.flatMap((b) => (b.type === 'heading' ? [b] : []))
+    expect(headings.map((b) => [b.level, b.title, b.divider])).toEqual([
+      [1, 'Rooms', false],
+      [2, 'Drawing the room', true],
+    ])
   })
 })

@@ -14,6 +14,7 @@ import {
   type Corpus,
   type HeadingBlock,
   type Message,
+  type MessageBlock,
   type NoteBlock,
   type Model,
   type Page,
@@ -495,6 +496,7 @@ const blockOf = (
     ),
     Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
     Match.when({ type: 'note' }, (note) => noteOf(note, model.copied, h)),
+    Match.when({ type: 'message' }, (message) => [messageOf(message, h)]),
     Match.exhaustive,
   )
 
@@ -513,6 +515,15 @@ const noteOf = (note: NoteBlock, copied: string, h: HtmlBuilder<Message>): Reado
           [...captionLine(note, h), textOf(note.markdown, 'docs-prose', copied, h)],
         ),
       ]
+
+const messageOf = (message: MessageBlock, h: HtmlBuilder<Message>): Html =>
+  h.p(
+    [h.Class('doc-message')],
+    [
+      h.span([h.Class('loom-syntax tilde')], ['~']),
+      ...Option.toArray(Option.fromNullishOr(message.author)),
+    ],
+  )
 
 const settleMark = (heading: HeadingBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
   heading.unsettled ? [h.span([h.Class('pill settle')], ['To be settled'])] : []
@@ -1103,7 +1114,9 @@ export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) 
     ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
     ...pipe(
       cut.opening,
-      Array.filter((block) => block.type === 'code' || block.type === 'note'),
+      Array.filter(
+        (block) => block.type === 'code' || block.type === 'note' || block.type === 'message',
+      ),
       Array.flatMap((block) => blockOf(block, base, page, model, h)),
     ),
   ]

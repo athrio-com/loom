@@ -3,6 +3,7 @@ Part: Work in progress
 Chapter: Divisions
 Status: Planned
 Priority: 3
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -57,10 +58,322 @@ A discussion, which the chapter "Discussions" describes, divides its thread into
 
 So in a discussion a division carries meaning as well as drawing a rule. The limit of one conclusion to a topic counts conclusions between one divider and the next. The summary that a discussion box shows gathers one conclusion from each topic, under the topic's label.
 
+## Testing divisions
+
+The cases parse a small loom and read back the sections a divider opened, or compile a small corpus and follow a division's label through it. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
+
+`parse` reads a loom alone, through the layer the compiler parses with. `titles` lists the title of each section a parse made, and `markers` lists what opened each one: a `HeadingStart` for a heading, a `Divider` for a divider. `diagnosticsIn` walks the whole tree and gathers the diagnostics each node's health carries, so a case sees every fault the parse raised, wherever it sits.
+
+`layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `compiled` runs one use of the compiler over such a corpus.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Layer, Option, Schema } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { LoomHeadingSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { okHealth, type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+import { parseDocument, ParseLayer } from './parse'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const parse = (src: string): LoomDocument =>
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+const titles = (doc: LoomDocument): ReadonlyArray<string | undefined> =>
+  doc.sections.map((section) => section.heading.title?.source)
+
+const markers = (doc: LoomDocument): ReadonlyArray<string> =>
+  doc.sections.map((section) => section.heading.marker.type)
+
+const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (node === null || typeof node !== 'object') return []
+  if (globalThis.Array.isArray(node)) return node.flatMap(diagnosticsIn)
+  const own =
+    'health' in node
+      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health.diagnostics
+      : []
+  return [
+    ...own,
+    ...Object.entries(node).flatMap(([key, value]) =>
+      key === 'health' ? [] : diagnosticsIn(value),
+    ),
+  ]
+}
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const compiled = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+## A divider under its label
+
+A line of dashes directly under a line of prose ends the section above it and opens a division. The line of prose is the division's label, and it becomes the division's title. So the label leaves the section above, and the prose under the divider opens the division. The parse raises no fault and gives the source back byte for byte.
+
+=>
+
+describe('a labelled divider', () => {
+  const labelled = lines(
+    '# Chapter',
+    '',
+    'The grid is the whole model.',
+    '',
+    'Drawing the room',
+    '---',
+    '',
+    'The room draws itself one cell at a time.',
+    '',
+    '## A cell',
+  )
+
+  it('ends the section above it and opens a division titled by its label', () => {
+    const doc = parse(labelled)
+    expect(titles(doc)).toEqual(['Chapter', 'Drawing the room', 'A cell'])
+    expect(markers(doc)).toEqual(['HeadingStart', 'Divider', 'HeadingStart'])
+  })
+
+  it('takes its label out of the section above', () => {
+    const above = parse(labelled).sections[0]!
+    const prose = [...above.preamble, ...above.code].map((weft) => weft.source).join('')
+    expect(prose).toContain('The grid is the whole model.')
+    expect(prose).not.toContain('Drawing the room')
+  })
+
+  it('keeps the division its opening prose', () => {
+    const division = parse(labelled).sections[1]!
+    expect(division.preamble.map((weft) => weft.source).join('')).toContain(
+      'The room draws itself one cell at a time.',
+    )
+  })
+
+  it('reconstructs the source verbatim, and raises no fault', () => {
+    const doc = parse(labelled)
+    expect(doc.source).toBe(labelled)
+    expect(diagnosticsIn(doc)).toEqual([])
+  })
+})
+
+## A divider with no label
+
+A divider after a blank line has no label, so it opens a division with no title. Such a divider ends code as a heading does. A fence that closes just above a divider is no label either, since only a line of prose labels a divider.
+
+=>
+
+describe('a bare divider', () => {
+  it('stands after a blank line and opens a division with no title', () => {
+    const doc = parse(lines('# Chapter', '', 'Before.', '', '---', '', 'After.'))
+    expect(titles(doc)).toEqual(['Chapter', undefined])
+  })
+
+  it('ends code, as a heading does', () => {
+    const doc = parse(lines('# A [a.ts]', '', '=>', 'const a = 1', '', '---', '', 'Prose.'))
+    expect(doc.sections).toHaveLength(2)
+    expect(doc.sections[0]!.code.map((weft) => weft.source.trim())).toEqual([
+      '=>',
+      'const a = 1',
+      '',
+    ])
+    expect(diagnosticsIn(doc)).toEqual([])
+  })
+
+  it('takes no closing fence above it for a label', () => {
+    const doc = parse(lines('# Chapter', '', '```', 'Quoted', '```', '---'))
+    expect(titles(doc)).toEqual(['Chapter', undefined])
+  })
+})
+
+## Dashes flush under code
+
+A divider directly under a line of code still ends the code, but such dashes most likely belong to the code, as a YAML file's separator does. So the divider raises a warning, which tells the author to fence the code or to leave a blank line above the divider. A divider directly under the arrow warns the same way.
+
+=>
+
+describe('a divider flush under code', () => {
+  it('warns that it ends the code there', () => {
+    const doc = parse(lines('# A [a.yaml]', '', '=>', 'a: 1', '---', 'b: 2'))
+    expect(diagnosticsIn(doc).map((d) => [d.severity, d.message])).toEqual([
+      [
+        'warning',
+        'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
+      ],
+    ])
+  })
+
+  it('warns under the arrow itself', () => {
+    const doc = parse(lines('# A [a.md]', '', '=>', '---', 'title: A'))
+    expect(diagnosticsIn(doc)).toHaveLength(1)
+  })
+})
+
+## Dashes that divide nothing
+
+A line of dashes divides nothing where every line is inert: inside fenced code, inside a fence quoted in prose, and inside a box. The dashes on a loom's first line open the frontmatter, and the next line of dashes closes it. Before a loom's first heading, dashes stand in the preamble and open no section.
+
+=>
+
+describe('dashes that divide nothing', () => {
+  it('stay code inside fenced code', () => {
+    const doc = parse(lines('# A [a.yaml]', '', '=>', '```', 'a: 1', '---', 'b: 2', '```'))
+    expect(doc.sections).toHaveLength(1)
+  })
+
+  it('stay quoted inside a fence in prose', () => {
+    const doc = parse(lines('# Chapter', '', '```', 'Drawing', '---', '```'))
+    expect(doc.sections).toHaveLength(1)
+  })
+
+  it('stay inert inside a box', () => {
+    const doc = parse(lines('# Chapter', '', ':::', 'Drawing', '---', ':::'))
+    expect(doc.sections).toHaveLength(1)
+  })
+
+  it('open and close the frontmatter', () => {
+    const doc = parse(lines('---', 'Part I, Chapter 1: Rooms', '---', '', '# Rooms'))
+    expect(doc.frontmatter?.title?.value).toBe('Rooms')
+    expect(doc.sections).toHaveLength(1)
+  })
+
+  it('stand in the preamble before the first heading', () => {
+    const doc = parse(lines('Before any heading.', '---', '', '# Chapter'))
+    expect(titles(doc)).toEqual(['Chapter'])
+  })
+})
+
+## A division found by its label
+
+A division is a section, and its label is its name. So an anchor that names the label composes the code the division holds, as it composes any section's code. Going to the definition of that anchor reaches the label's line.
+
+=>
+
+describe('a division found by its label', () => {
+  const room = '/corpus/room.loom'
+  const files = {
+    [room]: lines(
+      '# The room [room.ts]',
+      '',
+      '=>',
+      anchor('Drawing the room'),
+      '~',
+      '',
+      'Drawing the room',
+      '---',
+      '',
+      '=>',
+      'const draw = () => 1',
+    ),
+  }
+
+  it('composes the code a labelled division holds, as a section', async () => {
+    const tangled = await compiled(files, (compiler) => compiler.tangle(room))
+    expect(tangled.map((file) => file.content)).toEqual(['const draw = () => 1\n'])
+  })
+
+  it('follows its label from an anchor', async () => {
+    const at = files[room]!.indexOf('Drawing the room]') + 1
+    const found = await compiled(files, (compiler) => compiler.definition(room, at))
+    expect(found?.range.start.line).toBe(6)
+  })
+})
+
+## What a division becomes
+
+The model of a heading takes either mark that can open a section, so a heading whose marker is a divider is a heading like any other. The weave reads a division as a heading of the second level, as Markdown reads a line underlined with dashes, and flags it as a divider, so the page draws it as a rule.
+
+=>
+
+describe('what a division becomes', () => {
+  it('is a heading whose marker is a divider', () => {
+    const at = { start: { line: 1, column: 1, offset: 0 }, end: { line: 1, column: 4, offset: 3 } }
+    const divider = { type: 'Divider', position: at, source: '---', health: okHealth }
+    expect(
+      Schema.is(LoomHeadingSchema)({
+        type: 'LoomHeading',
+        position: at,
+        source: '---',
+        health: okHealth,
+        marker: divider,
+      }),
+    ).toBe(true)
+  })
+
+  it('weaves as a heading of the second level that a divider wrote', async () => {
+    const divided = lines(
+      '---',
+      'Part I, Chapter 1: Rooms',
+      'Language: Prose',
+      '---',
+      '',
+      '# Rooms',
+      '',
+      'The grid is the whole model.',
+      '',
+      'Drawing the room',
+      '---',
+      '',
+      'The room draws itself.',
+    )
+    const rooms = '/corpus/rooms.loom'
+    const site = await compiled({ [rooms]: divided }, (compiler) => compiler.weave(rooms))
+    const headings = site.pages[0]!.blocks.flatMap((b) => (b.type === 'heading' ? [b] : []))
+    expect(headings.map((b) => [b.level, b.title, b.divider])).toEqual([
+      [1, 'Rooms', false],
+      [2, 'Drawing the room', true],
+    ])
+  })
+})
+
+## The divider test file [test/Divider.test.ts]
+
+=>
+
+::[Testing divisions]
+
+::[A divider under its label]
+
+::[A divider with no label]
+
+::[Dashes flush under code]
+
+::[Dashes that divide nothing]
+
+::[A division found by its label]
+
+::[What a division becomes]
+
 ## What this chapter grows into
 
 1. Divisions in the editor's outline, as labels that group the headings between one divider and the next.
-2. Divisions as the topics of a discussion, each closed by at most one conclusion.
-3. The Neovim and Zed chapters of Part IX fenced by the formatter, once a Loom that reads fenced code is published.
+2. The Neovim and Zed chapters of Part IX fenced by the formatter, once a Loom that reads fenced code is published.
 
 When dividers draw in the editor and on the woven page, the rest of this chapter joins the chapters that read a divider.

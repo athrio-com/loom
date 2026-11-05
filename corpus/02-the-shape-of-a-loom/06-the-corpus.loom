@@ -1102,9 +1102,11 @@ const warpReferences = (
 
 A table-of-contents entry names a chapter by its title, under the part line above it. A chapter's identity is the title it declares, not its heading, because a heading can differ from the title the book lists, or be missing. `chapterTitleToken` reads that identity: the frontmatter `title`, or the first heading for a loom that carries no frontmatter. `firstHeadingTitleOf` reads that heading from the loom's opening section.
 
-A `PlacedEntry` is an entry together with the part it stands under. `placedEntriesOf` walks a contents section's lines in order and carries the last part line it passed, and `tocPartRef` reads that line's `Part R — name` label into the part's number and name. `entryChapter` resolves an entry to the chapter that carries its title within its part, so two chapters called `Setup` in two parts each answer to their own entry. An entry under no part line matches the title alone.
+A `PlacedEntry` is an entry together with the part it stands under. `placedEntriesOf` walks a contents section's lines in order and carries the last part line it passed, and `tocPartRef` reads that line's `Part R — name` label into the part's number and name. `entryChapter` resolves an entry to the chapter that carries its title within its part, so two chapters called `Setup` in two parts each answer to their own entry. An entry under no part line matches the title alone, and an entry never names a discussion by its title alone.
 
-`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the chapter a chapter box's name points to, or the chapter whose frontmatter title the cursor sits on. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to no chapter, for the diagnostics to fault.
+The back matter lists the book's discussions under a heading of its own, `Back matter`. That heading names no part, so the entries under it stand under none, and `isBackMatter` recognises it. Each entry there names its discussion's place before the colon, as `Part I, Discussion 1: Waking` does. `discussionAt` finds the discussion that the place and the title name. It looks in the part the place gives, by the part's number or its name, and matches the discussion's own number when the place gives one.
+
+`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the chapter a chapter box's name points to, or the chapter whose frontmatter title the cursor sits on. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
 
 `entriesNaming` finds every contents entry that resolves to one chapter, and `boxesNaming` every chapter box that points to it. `chapterNames` gathers the chapter's declared title, those entries and boxes, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
 
@@ -1127,7 +1129,34 @@ const chapterTitleToken = (
 const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
   Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
 
-type PlacedEntry = { readonly title: TocTitleToken; readonly part: Option.Option<PartRef> }
+type PlacedEntry = {
+  readonly title: TocTitleToken
+  readonly part: Option.Option<PartRef>
+  readonly discussion: Option.Option<string>
+}
+
+const isBackMatter = (part: TocPartToken): boolean => part.value.trim() === 'Back matter'
+
+const discussionPlace = /^(?:Part\s+(\S+)|(.+?)),\s*Discussion(?:\s+(\S+))?$/
+
+const discussionAt = (book: Book, place: string, title: string): Option.Option<Chapter> =>
+  Option.flatMap(Option.fromNullishOr(discussionPlace.exec(place)), (match) => {
+    const [, numeral, partName, number] = match
+    return Array.findFirst(
+      book.chapters,
+      (chapter) =>
+        chapter.discussion &&
+        chapter.title === title &&
+        Option.match(Option.fromNullishOr(numeral), {
+          onSome: (wanted) => Option.contains(chapter.part.number, wanted),
+          onNone: () => Option.contains(chapter.part.name, partName ?? ''),
+        }) &&
+        Option.match(Option.fromNullishOr(number), {
+          onSome: (wanted) => Option.contains(chapter.number, wanted),
+          onNone: () => true,
+        }),
+    )
+  })
 
 const tocPartRef = (part: TocPartToken): PartRef =>
   Option.match(Option.fromNullishOr(partNumberMarker.exec(part.value)), {
@@ -1146,10 +1175,17 @@ const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
         Option.none<PartRef>(),
         (part, entry): readonly [Option.Option<PartRef>, Option.Option<PlacedEntry>] =>
           Option.match(Option.fromNullishOr(entry.part), {
-            onSome: (token) => [Option.some(tocPartRef(token)), Option.none()],
+            onSome: (token) => [
+              isBackMatter(token) ? Option.none() : Option.some(tocPartRef(token)),
+              Option.none(),
+            ],
             onNone: () => [
               part,
-              Option.map(Option.fromNullishOr(entry.title), (title) => ({ title, part })),
+              Option.map(Option.fromNullishOr(entry.title), (title) => ({
+                title,
+                part,
+                discussion: Option.map(Option.fromNullishOr(entry.discussion), (d) => d.value),
+              })),
             ],
           }),
       )[1],
@@ -1157,15 +1193,20 @@ const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
   )
 
 const entryChapter = (book: Book, placed: PlacedEntry): Option.Option<Chapter> =>
-  Array.findFirst(
-    book.chapters,
-    (chapter) =>
-      chapter.title === placed.title.value &&
-      Option.match(placed.part, {
-        onNone: () => true,
-        onSome: (part) => samePart(chapter.part, part),
-      }),
-  )
+  Option.match(placed.discussion, {
+    onSome: (place) => discussionAt(book, place, placed.title.value),
+    onNone: () =>
+      Array.findFirst(
+        book.chapters,
+        (chapter) =>
+          !chapter.discussion &&
+          chapter.title === placed.title.value &&
+          Option.match(placed.part, {
+            onNone: () => true,
+            onSome: (part) => samePart(chapter.part, part),
+          }),
+      ),
+  })
 
 const chapterAt = (
   book: Book,
@@ -1285,15 +1326,17 @@ const chapterNumbersAt = (
   })
 }
 
+export type UnresolvedEntry = { readonly title: TocTitleToken; readonly discussion: boolean }
+
 export const unresolvedTocEntriesIn = (
   corpus: LoomCorpusAst,
   module: LoomModule,
-): ReadonlyArray<TocTitleToken> => {
+): ReadonlyArray<UnresolvedEntry> => {
   const book = bookOf(corpus.modules)
   return pipe(
     placedEntriesOf(module),
     Array.filter((placed) => Option.isNone(entryChapter(book, placed))),
-    Array.map((placed) => placed.title),
+    Array.map((placed) => ({ title: placed.title, discussion: Option.isSome(placed.discussion) })),
   )
 }
 

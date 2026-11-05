@@ -2614,6 +2614,15 @@ h2, .subhead {
   text-transform: uppercase;
 }
 
+.doc-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 4px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
 @media (max-width: 1179px) { .doc-hero-grid { gap: 56px; } }
 
 @media (max-width: 999px) {

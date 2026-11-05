@@ -75,6 +75,7 @@ const blockWords = (block: Block): string =>
       ),
     ),
     Match.when({ type: 'code' }, (code) => code.code),
+    Match.when({ type: 'message' }, (message) => message.author ?? ''),
     Match.exhaustive,
   )
 

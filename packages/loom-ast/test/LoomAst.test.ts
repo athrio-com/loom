@@ -126,18 +126,6 @@ describe('LoomHeading.marker', () => {
     ).toBe(false)
   })
 
-  it('accepts a heading whose marker is a divider', () => {
-    expect(
-      Schema.is(LoomHeadingSchema)({
-        type: 'LoomHeading',
-        position: pos,
-        source: src,
-        health: okHealth,
-        marker: { ...headingStart, type: 'Divider', source: '---' },
-      }),
-    ).toBe(true)
-  })
-
   it('accepts a heading carrying a file Sink in the `sink` slot', () => {
     expect(
       Schema.is(LoomHeadingSchema)({

@@ -10,11 +10,13 @@ The book opens with a table of contents: a heading for each part, a numbered lis
 
 Not every chapter has a number. A part declared with a bare `Part: Work in progress` and chapters declared `Chapter: <title>` is numberless — a group the book carries but does not sequence, ordered by whoever reads it rather than by position. A numberless chapter may also carry a `Status` and a `Priority`, the metadata a roadmap reads. So the same pass that writes the numbered book also gathers the numberless work beside it, and a presentation renders one as a contents list and the other as a board.
 
-`loom toc` is the command. It reads every chapter's frontmatter, orders the numbered parts and the chapters within them, and rewrites the contents section of the book — numbered parts first, then the numberless ones at the end. The one thing it does not invent is the prose: a part's introductory paragraph is the author's, so the command carries each description across untouched and regenerates only the structure around it. This chapter is the pass that builds the table and the writer that puts it back on disk.
+`loom toc` is the command. It reads every chapter's frontmatter, orders the numbered parts and the chapters within them, and rewrites the contents section of the book — numbered parts first, then the numberless ones, then the book's discussions at the back. The one thing it does not invent is the prose: a part's introductory paragraph is the author's, so the command carries each description across untouched and regenerates only the structure around it. This chapter is the pass that builds the table and the writer that puts it back on disk.
 
 ## The shape of a table of contents
 
-A `TableOfContents` is the corpus's own structure: an ordered list of parts, and the loose chapters that belong to no part. A `TocPart` carries its `number` — empty when the part is numberless — its `name`, the author's `description`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. The description is prose to preserve, never to derive; everything else is read from frontmatter.
+A `TableOfContents` is the corpus's own structure: an ordered list of parts, the back matter, and the loose chapters that belong to no part. A `TocPart` carries its `number` — empty when the part is numberless — its `name`, the author's `description`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. The description is prose to preserve, never to derive; everything else is read from frontmatter.
+
+The back matter follows the parts and lists the book's discussions. A `TocBackMatter` carries the author's description and the discussions in order. A `TocDiscussion` carries its `place`, its own `number` (empty when it has none), its `title`, and the `path` of its loom. The place names the discussion's part: `Part I` when the part has a number, and the part's name when it has none.
 
 =>
 
@@ -36,8 +38,23 @@ export const TocPartSchema = Schema.Struct({
 })
 export type TocPart = typeof TocPartSchema.Type
 
+export const TocDiscussionSchema = Schema.Struct({
+  place: Schema.String,
+  number: Schema.String,
+  title: Schema.String,
+  path: Schema.String,
+})
+export type TocDiscussion = typeof TocDiscussionSchema.Type
+
+export const TocBackMatterSchema = Schema.Struct({
+  description: Schema.String,
+  discussions: Schema.Array(TocDiscussionSchema),
+})
+export type TocBackMatter = typeof TocBackMatterSchema.Type
+
 export const TableOfContentsSchema = Schema.Struct({
   parts: Schema.Array(TocPartSchema),
+  backMatter: TocBackMatterSchema,
   loose: Schema.Array(TocChapterSchema),
 })
 export type TableOfContents = typeof TableOfContentsSchema.Type
@@ -46,7 +63,7 @@ export type TableOfContents = typeof TableOfContentsSchema.Type
 
 `TableOfContentsBuilder` is the pass, the same shape as `WeaveBuilder`: one `build` method that wraps a pure function in an Effect so the compiler composes it like any other projection. `buildContents` is that function, and the weave calls it directly.
 
-It reads the corpus once for the descriptions the author wrote, gathers every chapter that declares a place, and folds each part into a `TocPart` — its number and name from the part's declaration, its description from the map, and its chapters from the ones that name it, in order. The parts come out numbered-first, so the book reads Part I to Part XI and then its numberless parts, however the corpus happened to load. A chapter that names no part at all is loose, gathered on its own.
+It reads the corpus once for the descriptions the author wrote, gathers every chapter that declares a place, and folds each part into a `TocPart` — its number and name from the part's declaration, its description from the map, and its chapters from the ones that name it, in order. The parts come out numbered-first, so the book reads Part I to Part XI and then its numberless parts, however the corpus happened to load. A chapter that names no part at all is loose, gathered on its own. The discussions gather into the back matter, ordered by their parts, under the description the author wrote for it.
 
 =>
 
@@ -85,7 +102,18 @@ export const buildContents = (corpus: LoomCorpusAst): TableOfContents => {
     Array.filter(chapters, (chapter) => chapter.partId === undefined),
     Array.map(toTocChapter),
   )
-  return TableOfContentsSchema.make({ parts, loose })
+  const backMatter = TocBackMatterSchema.make({
+    description: Option.getOrElse(
+      Option.fromNullishOr(descriptions.get(backMatterHeading)),
+      () => '',
+    ),
+    discussions: pipe(
+      Array.getSomes(Array.map(modules, discussionDeclOf)),
+      Array.sort(byDiscussion),
+      Array.map(toTocDiscussion),
+    ),
+  })
+  return TableOfContentsSchema.make({ parts, backMatter, loose })
 }
 
 ## A chapter's place in the corpus
@@ -148,7 +176,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
 
 A part's identity is its number when it has one and its name when it does not, so `identityOf` reads whichever the part carries and a chapter finds its part by the same key. `dedupeParts` keeps one declaration per identity, since every loom in a numberless part repeats the part's name.
 
-Numbered parts sort by their Roman numeral, numberless parts fall after them by name, and `byPart` orders both at once. `romanValue` reads a Roman numeral as an integer: each letter is worth its unit, less that unit when a larger one follows it, so `IX` is nine and `XII` is twelve. `byChapter` orders a part's chapters the same way — numbered by their Arabic number, numberless after them by title — and `chaptersUnder` gathers the chapters that name one part and sorts them.
+Numbered parts sort by their Roman numeral, numberless parts fall after them by name, and `byPart` orders both at once. `romanValue` reads a Roman numeral as an integer: each letter is worth its unit, less that unit when a larger one follows it, so `IX` is nine and `XII` is twelve. `byNumber` orders a part's chapters the same way: numbered ones by their Arabic number, then numberless ones by title. `chaptersUnder` gathers the chapters that name one part and sorts them.
 
 =>
 
@@ -186,12 +214,14 @@ const byPart: Order.Order<PartDecl> = Order.combineAll([
   Order.mapInput(Order.String, (part: PartDecl) => part.name),
 ])
 
-const byChapter: Order.Order<Chapter> = Order.combineAll([
-  Order.mapInput(Order.Number, (chapter: Chapter) => (chapter.number === '' ? 1 : 0)),
-  Order.mapInput(Order.Number, (chapter: Chapter) =>
-    chapter.number === '' ? 0 : Number(chapter.number),
+type Numbered = { readonly number: string; readonly title: string }
+
+const byNumber: Order.Order<Numbered> = Order.combineAll([
+  Order.mapInput(Order.Number, (entry: Numbered) => (entry.number === '' ? 1 : 0)),
+  Order.mapInput(Order.Number, (entry: Numbered) =>
+    entry.number === '' ? 0 : Number(entry.number),
   ),
-  Order.mapInput(Order.String, (chapter: Chapter) => chapter.title),
+  Order.mapInput(Order.String, (entry: Numbered) => entry.title),
 ])
 
 const chaptersUnder = (
@@ -200,9 +230,59 @@ const chaptersUnder = (
 ): ReadonlyArray<TocChapter> =>
   pipe(
     Array.filter(chapters, (chapter) => chapter.partId === identity),
-    Array.sort(byChapter),
+    Array.sort(byNumber),
     Array.map(toTocChapter),
   )
+
+## The discussions at the back
+
+A discussion stands in its part beside the chapters, but the contents list it apart from them, at the back of the book under a `Back matter` heading. `discussionDeclOf` reads a discussion the way `chapterDeclOf` reads a chapter: its part, its own number, its title, and its path. A discussion that names no part has no place to list it by, so it stays out of the back matter, as a loose chapter stays out of the parts.
+
+`byDiscussion` orders the discussions by their parts first, as `byPart` orders the parts, and then by their own numbers, as `byNumber` orders chapters. `toTocDiscussion` writes the discussion's part as its place.
+
+=>
+
+type Discussion = {
+  readonly part: PartDecl
+  readonly number: string
+  readonly title: string
+  readonly path: string
+}
+
+export const backMatterHeading = 'Back matter'
+
+const discussionDeclOf = (module: LoomModule): Option.Option<Discussion> =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter),
+    Option.flatMap((frontmatter) =>
+      pipe(
+        Option.all({
+          discussion: Option.fromNullishOr(frontmatter.discussion),
+          title: Option.fromNullishOr(frontmatter.title),
+          part: Option.fromNullishOr(frontmatter.part ?? frontmatter.partName),
+        }),
+        Option.map(({ discussion, title }) => ({
+          part: { number: frontmatter.part?.value ?? '', name: frontmatter.partName?.value ?? '' },
+          number: discussion.value,
+          title: title.value,
+          path: module.path,
+        })),
+      ),
+    ),
+  )
+
+const byDiscussion: Order.Order<Discussion> = Order.combineAll([
+  Order.mapInput(byPart, (discussion: Discussion) => discussion.part),
+  byNumber,
+])
+
+const toTocDiscussion = (discussion: Discussion): TocDiscussion =>
+  TocDiscussionSchema.make({
+    place: discussion.part.number === '' ? discussion.part.name : `Part ${discussion.part.number}`,
+    number: discussion.number,
+    title: discussion.title,
+    path: discussion.path,
+  })
 
 ## Keeping the author's descriptions
 
@@ -291,24 +371,50 @@ const descriptionsFrom = (modules: ReadonlyArray<LoomModule>): ReadonlyMap<strin
 
 ## Rendering the table
 
-`renderContents` turns the parts back into the lines of a `{TOC}` section. `partBlock` writes a part: a `### Part R — name` heading for a numbered part or a bare `### name` for a numberless one, the author's description when there is one, and the list. `chapterLine` writes an entry as `N. title` when it is numbered and `- title` when it is not. A part with no description drops the blank line and the paragraph, so the heading meets its list directly. The loose chapters are left out — they belong to no part, so no reading order places them, and a presentation surfaces them however it likes.
+`renderContents` turns the parts and the back matter back into the lines of a `{TOC}` section. Each becomes a block, and `blockOf` writes one: its heading, the author's description when there is one, and its list. A block with no description drops the blank line and the paragraph, so the heading meets its list directly.
+
+`partBlock` heads a part with `### Part R — name` when the part has a number and with a bare `### name` when it has none. `chapterLine` writes an entry as `N. title` when it is numbered and `- title` when it is not.
+
+`backMatterBlock` heads the back matter with `### Back matter`, and `discussionLine` writes each discussion as `- Part I, Discussion 1: Waking`, its place before the comma. A book with no discussions has no back matter, so the block is left out.
+
+The loose chapters are left out too. They belong to no part, so no reading order places them, and a presentation surfaces them however it likes.
 
 =>
 
 const chapterLine = (chapter: TocChapter): string =>
   chapter.number === '' ? `- ${chapter.title}` : `${chapter.number}. ${chapter.title}`
 
-const partBlock = (part: TocPart): string => {
-  const heading = part.number === '' ? `### ${part.name}` : `### Part ${part.number} — ${part.name}`
-  const list = pipe(part.chapters, Array.map(chapterLine), Array.join('\n'))
-  const description = part.description.trim()
-  return description.length === 0
-    ? `${heading}\n\n${list}`
-    : `${heading}\n\n${description}\n\n${list}`
+const blockOf = (heading: string, description: string, entries: ReadonlyArray<string>): string => {
+  const list = Array.join(entries, '\n')
+  const paragraph = description.trim()
+  return paragraph.length === 0 ? `${heading}\n\n${list}` : `${heading}\n\n${paragraph}\n\n${list}`
 }
 
+const partBlock = (part: TocPart): string =>
+  blockOf(
+    part.number === '' ? `### ${part.name}` : `### Part ${part.number} — ${part.name}`,
+    part.description,
+    Array.map(part.chapters, chapterLine),
+  )
+
+const discussionLine = (discussion: TocDiscussion): string => {
+  const label = discussion.number === '' ? 'Discussion' : `Discussion ${discussion.number}`
+  return `- ${discussion.place}, ${label}: ${discussion.title}`
+}
+
+const backMatterBlock = (backMatter: TocBackMatter): ReadonlyArray<string> =>
+  backMatter.discussions.length === 0
+    ? []
+    : [
+        blockOf(
+          `### ${backMatterHeading}`,
+          backMatter.description,
+          Array.map(backMatter.discussions, discussionLine),
+        ),
+      ]
+
 export const renderContents = (toc: TableOfContents): string =>
-  pipe(toc.parts, Array.map(partBlock), Array.join('\n\n'))
+  Array.join([...Array.map(toc.parts, partBlock), ...backMatterBlock(toc.backMatter)], '\n\n')
 
 ## Splicing it into the book
 
@@ -399,6 +505,8 @@ import { LoomCompiler } from '../LoomCompiler'
 ::[A chapter's place in the corpus]
 
 ::[Ordering parts and chapters]
+
+::[The discussions at the back]
 
 ::[Keeping the author's descriptions]
 

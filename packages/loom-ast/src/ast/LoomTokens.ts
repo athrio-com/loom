@@ -168,6 +168,11 @@ export const TocChapterTokenSchema = loomNode('TocChapter', {
 })
 export type TocChapterToken = typeof TocChapterTokenSchema.Type
 
+export const TocDiscussionTokenSchema = loomNode('TocDiscussion', {
+  value: Schema.String,
+})
+export type TocDiscussionToken = typeof TocDiscussionTokenSchema.Type
+
 export const TocTitleTokenSchema = loomNode('TocTitle', {
   value: Schema.String,
 })

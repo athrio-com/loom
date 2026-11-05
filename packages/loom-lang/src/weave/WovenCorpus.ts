@@ -64,11 +64,19 @@ export const NoteBlockSchema = Schema.Struct({
 })
 export type NoteBlock = typeof NoteBlockSchema.Type
 
+export const MessageBlockSchema = Schema.Struct({
+  type: Schema.tag('message'),
+  source: SourceAnchorSchema,
+  author: Schema.optional(Schema.String),
+})
+export type MessageBlock = typeof MessageBlockSchema.Type
+
 export const WovenBlockSchema = Schema.Union([
   ProseBlockSchema,
   HeadingBlockSchema,
   CodeBlockSchema,
   NoteBlockSchema,
+  MessageBlockSchema,
 ])
 export type WovenBlock = typeof WovenBlockSchema.Type
 

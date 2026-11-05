@@ -2,22 +2,17 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { DocumentSource, LoomCompiler, type SummaryEdit } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
 
-// A box of the `Chapter` kind points to the chapter its name titles. Before the
-// chapter is written, the box carries a note whose fix writes the chapter, and an
-// anchor beside the box resolves to it as a section to be settled. Once the chapter
-// exists, the box's body is a copy of the chapter's opening prose: a copy that
-// differs is a warning, whose fix copies the opening in, and `summaries` refreshes
-// every copy at once. Navigation reads the box's name as a name for the chapter.
-
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
 
 const layerOf = (files: Record<string, string>) =>
   Layer.provide(
@@ -52,6 +47,8 @@ const withCompiler = <A>(
 const diagnosed = (files: Record<string, string>, entry: string) =>
   withCompiler(files, (compiler) => compiler.diagnose(entry))
 
+const messages = (found: ReadonlyArray<Diagnostic>) => found.map((d) => d.message)
+
 const world = '/corpus/02-shape/01-world.loom'
 const light = '/corpus/02-shape/02-light.loom'
 const rooms = '/corpus/02-shape/03-rooms.loom'
@@ -76,7 +73,7 @@ const worldLoom = (body: ReadonlyArray<string>) =>
     'The program places the rooms.',
     '',
     '=>',
-    '::[Rooms]',
+    anchor('Rooms'),
   )
 
 const lightLoom = lines(
@@ -104,8 +101,6 @@ const roomsLoom = (opening: string) =>
   )
 
 const unwritten = { [world]: worldLoom(['A room is a grid of cells.']), [light]: lightLoom }
-
-const messages = (found: ReadonlyArray<Diagnostic>) => found.map((d) => d.message)
 
 describe('a chapter box whose chapter is not written', () => {
   it.effect('carries a note whose fix writes the chapter as the next of its part', () =>
@@ -160,7 +155,15 @@ describe('a chapter box whose chapter is not written', () => {
         {
           title: 'Open the chapter `Rooms`',
           file: '/corpus/wip/rooms.loom',
-          text: lines('---', 'Part: Work in progress', 'Chapter: Rooms', 'Status: Canvas', '---', '', '# Rooms'),
+          text: lines(
+            '---',
+            'Part: Work in progress',
+            'Chapter: Rooms',
+            'Status: Canvas',
+            '---',
+            '',
+            '# Rooms',
+          ),
         },
       ])
     }),
@@ -282,7 +285,9 @@ describe('keeping a chapter box in step as the author types', () => {
     text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
 
   const applied = (text: string, edit: SummaryEdit) =>
-    text.slice(0, offsetOf(text, edit.range.start)) + edit.text + text.slice(offsetOf(text, edit.range.end))
+    text.slice(0, offsetOf(text, edit.range.start)) +
+    edit.text +
+    text.slice(offsetOf(text, edit.range.end))
 
   const inStep = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
 
@@ -308,9 +313,9 @@ describe('keeping a chapter box in step as the author types', () => {
   it.effect('carries nothing from a box that was already out of step', () =>
     Effect.gen(function* () {
       const stale = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
-      expect(
-        yield* edits(stale, world, stale[world]!, worldLoom(['A room is a grid.'])),
-      ).toEqual([])
+      expect(yield* edits(stale, world, stale[world]!, worldLoom(['A room is a grid.']))).toEqual(
+        [],
+      )
     }),
   )
 
@@ -337,7 +342,9 @@ describe('keeping a chapter box in step as the author types', () => {
         ':::',
       )
       const files = { ...unwritten, [rooms]: noted }
-      expect(yield* edits(files, world, files[world]!, worldLoom(['A room is a grid.']))).toEqual([])
+      expect(yield* edits(files, world, files[world]!, worldLoom(['A room is a grid.']))).toEqual(
+        [],
+      )
     }),
   )
 })

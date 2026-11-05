@@ -41,7 +41,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly host: string
     readonly found: string
   }
-  UnresolvedTocEntry: { readonly title: string }
+  UnresolvedTocEntry: { readonly title: string; readonly discussion: boolean }
   UnclosedFence: { readonly fence: string }
   FenceLabelAgainstLanguage: { readonly label: string; readonly language: string }
   StrayFragment: { readonly value: string }
@@ -226,8 +226,10 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       ),
-    UnresolvedTocEntry: ({ title }) =>
-      error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
+    UnresolvedTocEntry: ({ title, discussion }) =>
+      error(
+        `Unresolved contents entry: no ${discussion ? 'discussion' : 'chapter'} titled \`${title}\`.`,
+      ),
     StrayFragment: ({ value }) =>
       error(
         `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,

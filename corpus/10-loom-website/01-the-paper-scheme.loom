@@ -3064,6 +3064,8 @@ A note is a reader's annotation rather than part of the chapter, so it reads qui
 
 A divider draws as a hairline rule across the column, in the rule's own colour, broken at its centre by the division's label in small spaced capitals. A bare divider is the rule alone.
 
+A message of a discussion opens on a byline: the tilde that opens it in the loom, in its orange chip, beside the author's name in bold, in the ink of the prose. The byline stands a little apart from the message before it and close to the words beneath it, so each message reads as one turn of the conversation.
+
 =>
 
 .code-anchor {
@@ -3162,6 +3164,15 @@ A divider draws as a hairline rule across the column, in the rule's own colour, 
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.doc-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 4px;
+  font-weight: 600;
+  color: var(--ink-2);
 }
 
 ~

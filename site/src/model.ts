@@ -54,7 +54,13 @@ const NoteBlock = S.Struct({
 })
 export type NoteBlock = typeof NoteBlock.Type
 
-export const Block = S.Union([HeadingBlock, ProseBlock, CodeBlock, NoteBlock])
+const MessageBlock = S.Struct({
+  type: S.Literal('message'),
+  author: S.optional(S.String),
+})
+export type MessageBlock = typeof MessageBlock.Type
+
+export const Block = S.Union([HeadingBlock, ProseBlock, CodeBlock, NoteBlock, MessageBlock])
 export type Block = typeof Block.Type
 
 const Chapter = S.Struct({

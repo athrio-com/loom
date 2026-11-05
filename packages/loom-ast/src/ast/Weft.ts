@@ -23,6 +23,7 @@ import {
   SpecifierTokenSchema,
   TildeTokenSchema,
   TocChapterTokenSchema,
+  TocDiscussionTokenSchema,
   TocPartTokenSchema,
   TocTitleTokenSchema,
   WarpAnchorTokenSchema,
@@ -92,6 +93,7 @@ export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
 export const TocWeftSchema = loomNode('TocWeft', {
   part: Schema.optional(TocPartTokenSchema),
   chapter: Schema.optional(TocChapterTokenSchema),
+  discussion: Schema.optional(TocDiscussionTokenSchema),
   title: Schema.optional(TocTitleTokenSchema),
 })
 export type TocWeft = typeof TocWeftSchema.Type

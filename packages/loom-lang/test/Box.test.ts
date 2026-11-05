@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'bun:test'
-import { Array, Effect, Option } from 'effect'
+import { Array, Effect, Layer, Option } from 'effect'
 import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { boxKind, type BoxToken } from '@athrio/loom-ast/LoomTokens'
 import { boxOf, type LoomWeft } from '@athrio/loom-ast/Weft'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { WeaveBuilder } from '../src/weave/WeaveBuilder'
 import { parseDocument, ParseLayer } from './parse'
 
-// A box is a block of prose set apart from the text around it: three colons open
-// it, with an optional name and braces, and three colons alone close it. The
-// classifier marks each line of colons, the tokeniser reads an opening line's
-// name and braces, and the builder faults a box that never closes.
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
 const parse = (src: string): LoomDocument =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
-
-const lines = (...ls: ReadonlyArray<string>): string => ls.join('\n') + '\n'
 
 const wefts = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
   ...doc.preamble,
@@ -32,9 +32,24 @@ const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
       : []
   return [
     ...own,
-    ...Object.entries(node).flatMap(([key, value]) => (key === 'health' ? [] : diagnosticsIn(value))),
+    ...Object.entries(node).flatMap(([key, value]) =>
+      key === 'health' ? [] : diagnosticsIn(value),
+    ),
   ]
 }
+
+const woven = (path: string, text: string) =>
+  Effect.runSync(
+    Effect.gen(function* () {
+      const builder = yield* LoomCorpusAstBuilder
+      const module = yield* builder.build(
+        { read: () => Effect.succeed(text), list: Option.none() },
+        path,
+      )
+      const weaver = yield* WeaveBuilder
+      return yield* weaver.build({ modules: new Map([[path, module]]) })
+    }).pipe(Effect.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, WeaveBuilder.layer))),
+  )
 
 describe('a note', () => {
   const note = lines(
@@ -58,13 +73,13 @@ describe('a note', () => {
   it('keeps its body inert, so a heading or an arrow inside it opens nothing', () => {
     const doc = parse(note)
     expect(doc.sections).toHaveLength(1)
-    expect(doc.sections[0].code.some((w) => w.type === 'ArrowWeft')).toBe(false)
+    expect(doc.sections[0]!.code.some((w) => w.type === 'ArrowWeft')).toBe(false)
   })
 
   it('is a note, with no name', () => {
     const [open] = boxes(parse(note))
-    expect(boxKind(open)).toBe('Note')
-    expect(open.name).toBeUndefined()
+    expect(boxKind(open!)).toBe('Note')
+    expect(open!.name).toBeUndefined()
   })
 
   it('raises no fault, and reconstructs the source verbatim', () => {
@@ -81,7 +96,7 @@ describe('a note', () => {
 
 describe('an opening line', () => {
   const opener = (line: string): BoxToken =>
-    boxes(parse(lines('# Chapter', '', line, 'Body.', ':::')))[0]
+    boxes(parse(lines('# Chapter', '', line, 'Body.', ':::')))[0]!
 
   it('reads its name and its kind from a label', () => {
     const box = opener('::: Why a grid {Note}')
@@ -110,7 +125,7 @@ describe('an opening line', () => {
 
   it('places its name on the text it names', () => {
     const src = lines('# Chapter', '', '::: Why a grid {Note}', 'Body.', ':::')
-    const box = boxes(parse(src))[0]
+    const box = boxes(parse(src))[0]!
     const name = Option.getOrThrow(Option.fromNullishOr(box.name))
     expect(src.slice(name.position.start.offset, name.position.end.offset)).toBe('Why a grid')
   })
@@ -134,7 +149,21 @@ describe('the braces on a box', () => {
 
   it('leave an anchor its own keys and kinds', () => {
     const found = diagnosticsIn(
-      parse(lines('# Chapter', '', '=>', '', '::[Greeting]{Mermaid}', '', '## Greeting', '', '=>', '', 'x')),
+      parse(
+        lines(
+          '# Chapter',
+          '',
+          '=>',
+          '',
+          `${anchor('Greeting')}{Mermaid}`,
+          '',
+          '## Greeting',
+          '',
+          '=>',
+          '',
+          'x',
+        ),
+      ),
     ).map((d) => d.message)
     expect(found).toContain(
       'Unknown kind: an anchor takes no kind `Mermaid`. It takes `To be settled` and `Reference`.',
@@ -155,10 +184,10 @@ describe('a stray line of colons', () => {
     const doc = parse(lines('# Chapter', '', '::::', 'Prose.'))
     expect(boxes(doc).map((box) => box.side)).toEqual(['stray'])
     const [fault] = diagnosticsIn(doc)
-    expect(fault.message).toBe(
+    expect(fault!.message).toBe(
       'Too many colons: a box line starts with three colons, so `::::` opens and closes nothing. Write `:::`.',
     )
-    expect(fault.fixes).toEqual([{ title: 'Write `:::`', text: ':::' }])
+    expect(fault!.fixes).toEqual([{ title: 'Write `:::`', text: ':::' }])
   })
 })
 
@@ -191,11 +220,45 @@ describe('colons that are no box line', () => {
 
   it('leave the anchors after a fence inside a box live', () => {
     const doc = parse(
-      lines('# Chapter', '', ':::', '```', 'A link to ::[Next].', ':::', '', 'See ::[Next].', '', '# Next'),
+      lines(
+        '# Chapter',
+        '',
+        ':::',
+        '```',
+        `A link to ${anchor('Next')}.`,
+        ':::',
+        '',
+        `See ${anchor('Next')}.`,
+        '',
+        '# Next',
+      ),
     )
     const names = Array.flatMap(wefts(doc), (weft) =>
-      'anchors' in weft ? weft.anchors.map((anchor) => anchor.name.value) : [],
+      'anchors' in weft ? weft.anchors.map((found) => found.name.value) : [],
     )
     expect(names).toEqual(['Next', 'Next'])
+  })
+})
+
+describe('a box on the woven page', () => {
+  it('leaves a box of another kind in the prose around it', () => {
+    const boxed = lines(
+      '---',
+      'Part I, Chapter 1: A greeting',
+      'Language: Prose',
+      '---',
+      '',
+      '# A greeting',
+      '',
+      'Before.',
+      '::: Cells {Mermaid}',
+      'flowchart LR',
+      ':::',
+      'After.',
+    )
+    const page = woven('/corpus/boxed.loom', boxed).pages[0]!
+    expect(page.blocks.filter((b) => b.type === 'note')).toEqual([])
+    const prose = page.blocks.flatMap((b) => (b.type === 'prose' ? [b.markdown] : []))
+    expect(prose).toEqual(['Before.\n::: Cells {Mermaid}\nflowchart LR\n:::\nAfter.'])
   })
 })

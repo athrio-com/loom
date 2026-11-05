@@ -13,13 +13,18 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `bookOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The table-of-contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `bookOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The table-of-contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters and the back matter that lists the discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
 
 =>
 
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
-import { boxOf, type PreambleWeft, type SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import {
+  boxOf,
+  type PreambleWeft,
+  type SectionBodyWeft,
+  type TildeWeft,
+} from '@athrio/loom-ast/Weft'
 import { boxKind, noteKind, type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
   type LoomCorpusAst,
@@ -38,6 +43,7 @@ import {
   AnchorLinkSchema,
   CodeBlockSchema,
   HeadingBlockSchema,
+  MessageBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
   type SourceAnchor,
@@ -53,14 +59,21 @@ import {
   type WovenPart,
   WovenPartSchema,
 } from './WovenCorpus'
-import { buildContents, type TocChapter, type TocPart } from './TableOfContentsBuilder'
+import {
+  backMatterHeading,
+  buildContents,
+  type TocBackMatter,
+  type TocChapter,
+  type TocDiscussion,
+  type TocPart,
+} from './TableOfContentsBuilder'
 import { sectionLanguage } from '../ast/ProductBuilder'
 
 ## The builder and its spine
 
 `WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildCorpus` in an Effect so callers compose it like any other pass.
 
-`buildCorpus` is the spine. It reads the corpus once for the `Weaving` its pages draw on, projects the table of contents into the navigation tree and its loose chapters, maps each chapter to its page, and pairs them into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
+`buildCorpus` is the spine. It reads the corpus once for the `Weaving` its pages draw on, projects the table of contents into the navigation tree, its back matter last, and its loose chapters, maps each chapter to its page, and pairs them into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
 
 Then it sorts. A corpus is a map, and a map hands back its values in the order they were put in — which is the order the loader finished reading them, not an order anyone chose. Left alone, the pages come out in whatever sequence the filesystem answered that morning, and a loader running alongside other work answers differently from one running by itself. The navigation is already in reading order, so the pages take theirs from it. A woven corpus is committed to a repository and read by a site that opens on its first page; it has to come out the same way twice.
 
@@ -79,7 +92,7 @@ export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const weaving = weavingOf(corpus.modules)
   const toc = buildContents(corpus)
-  const nav = Array.map(toc.parts, wovenPart)
+  const nav = [...Array.map(toc.parts, wovenPart), ...backMatterPart(toc.backMatter)]
   const loose = Array.map(toc.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
@@ -154,7 +167,7 @@ const sliceContent = (text: string, span: Span): string =>
 
 ## The navigation tree
 
-The navigation is the table of contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, the status and priority a board reads, and its language. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows, and `navOrder` inverts it again into the position each slug holds. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
+The navigation is the table of contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, the status and priority a board reads, and its language. `backMatterPart` turns the back matter into one more part, named `Back matter`, and `wovenDiscussion` gives each discussion an entry with its title and the slug its path opens. A book with no discussions has no back matter, so the tree ends on its last part. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows, and `navOrder` inverts it again into the position each slug holds. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
 
 =>
 
@@ -174,6 +187,24 @@ const wovenPart = (part: TocPart): WovenPart =>
     name: part.name,
     chapters: Array.map(part.chapters, wovenEntry),
   })
+
+const wovenDiscussion = (discussion: TocDiscussion): WovenNavEntry =>
+  WovenNavEntrySchema.make({
+    number: '',
+    title: discussion.title,
+    slug: slugFor(discussion.path),
+  })
+
+const backMatterPart = (backMatter: TocBackMatter): ReadonlyArray<WovenPart> =>
+  backMatter.discussions.length === 0
+    ? []
+    : [
+        WovenPartSchema.make({
+          number: '',
+          name: backMatterHeading,
+          chapters: Array.map(backMatter.discussions, wovenDiscussion),
+        }),
+      ]
 
 const partIndex = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, string> =>
   new Map(
@@ -298,6 +329,8 @@ A section's body is its preamble and its code together. `sectionBody` joins the 
 `runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that an arrow opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with each note split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the arrow or tilde itself, so the `code` holds nothing that is not code. A fence line around fenced code bounds no content either, so `pieceOfWeft` counts it as blank, and the span runs from the first line of code to the last.
 
 A note is a box of the `Note` kind, and the classifier has already marked the lines of colons that open and close it. `stretchesOf` cuts a prose run at those marks into stretches, each either a note or the prose between notes. A stretch that a note opens runs to the line that closes it, and `bodyOf` drops the two lines of colons, so a note block holds its body alone. The note's name, when it has one, becomes the block's `caption`, which `captionOfNote` reads from the line that opens the note. A note quoted inside a fence is text, not a note: the classifier marks no line inside a quote, so nothing there can start a stretch of its own. A box of any other kind stays in the prose around it, as the author wrote it.
+
+A tilde means something else in a discussion. In a chapter a tilde only returns to prose, and the text written after it is prose too. In a discussion a tilde opens a message, and the text after it is the name of the message's author. So in a discussion `runBlocks` turns a run that a tilde opens into a message block, then the blocks of the message's words. `messageBlock` reads the author's name from the tilde.
 
 The frame is not lost, though, because a reader learning Loom needs to see it. A code block keeps the arrow that opened it, as it was written. Whether a tilde closed it is a fact about the next run, not this one: `tildeOpens` looks at the run that follows, and a run that begins with a tilde means this block was closed by it. A block followed by nothing, or by the next heading, ran on to its end. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
 
@@ -503,32 +536,45 @@ const anchorsWithin = (run: ReadonlyArray<BodyWeft>, span: Span): ReadonlyArray<
       anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
   )
 
+const isDiscussion = (module: LoomModule): boolean =>
+  module.doc.frontmatter?.discussion !== undefined
+
+const messageBlock = (tilde: TildeWeft, source: SourceAnchor): WovenBlock =>
+  MessageBlockSchema.make({
+    source,
+    author: Option.getOrUndefined(
+      Option.map(Option.fromNullishOr(tilde.prose), (name) => name.source.trim()),
+    ),
+  })
+
 const runBlocks =
   (module: LoomModule, weaving: Weaving, section: LoomSection, source: SourceAnchor) =>
   (run: ReadonlyArray<BodyWeft>, closed: boolean): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
-      onNonEmpty: (first) =>
-        Option.match(runSpan(run), {
-          onNone: (): ReadonlyArray<WovenBlock> => [],
-          onSome: (span) =>
-            Match.value(first).pipe(
-              Match.withReturnType<ReadonlyArray<WovenBlock>>(),
-              Match.when({ type: 'ArrowWeft' }, (opened) => [
-                codeBlock(
-                  module,
-                  weaving,
-                  section,
-                  source,
-                  run,
-                  span,
-                  opened.arrow.source.trim(),
-                  closed,
+      onNonEmpty: (first, rest) =>
+        first.type === 'TildeWeft' && isDiscussion(module)
+          ? [messageBlock(first, source), ...proseBlocks(module, rest, source)]
+          : Option.match(runSpan(run), {
+              onNone: (): ReadonlyArray<WovenBlock> => [],
+              onSome: (span) =>
+                Match.value(first).pipe(
+                  Match.withReturnType<ReadonlyArray<WovenBlock>>(),
+                  Match.when({ type: 'ArrowWeft' }, (opened) => [
+                    codeBlock(
+                      module,
+                      weaving,
+                      section,
+                      source,
+                      run,
+                      span,
+                      opened.arrow.source.trim(),
+                      closed,
+                    ),
+                  ]),
+                  Match.orElse(() => proseBlocks(module, run, source)),
                 ),
-              ]),
-              Match.orElse(() => proseBlocks(module, run, source)),
-            ),
-        }),
+            }),
     })
 
 ## Resolving a code anchor

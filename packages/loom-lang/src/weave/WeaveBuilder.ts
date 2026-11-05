@@ -1,6 +1,11 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
-import { boxOf, type PreambleWeft, type SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import {
+  boxOf,
+  type PreambleWeft,
+  type SectionBodyWeft,
+  type TildeWeft,
+} from '@athrio/loom-ast/Weft'
 import { boxKind, noteKind, type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
   type LoomCorpusAst,
@@ -19,6 +24,7 @@ import {
   AnchorLinkSchema,
   CodeBlockSchema,
   HeadingBlockSchema,
+  MessageBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
   type SourceAnchor,
@@ -34,7 +40,14 @@ import {
   type WovenPart,
   WovenPartSchema,
 } from './WovenCorpus'
-import { buildContents, type TocChapter, type TocPart } from './TableOfContentsBuilder'
+import {
+  backMatterHeading,
+  buildContents,
+  type TocBackMatter,
+  type TocChapter,
+  type TocDiscussion,
+  type TocPart,
+} from './TableOfContentsBuilder'
 import { sectionLanguage } from '../ast/ProductBuilder'
 
 export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder', {
@@ -50,7 +63,7 @@ export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const weaving = weavingOf(corpus.modules)
   const toc = buildContents(corpus)
-  const nav = Array.map(toc.parts, wovenPart)
+  const nav = [...Array.map(toc.parts, wovenPart), ...backMatterPart(toc.backMatter)]
   const loose = Array.map(toc.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
@@ -125,6 +138,24 @@ const wovenPart = (part: TocPart): WovenPart =>
     name: part.name,
     chapters: Array.map(part.chapters, wovenEntry),
   })
+
+const wovenDiscussion = (discussion: TocDiscussion): WovenNavEntry =>
+  WovenNavEntrySchema.make({
+    number: '',
+    title: discussion.title,
+    slug: slugFor(discussion.path),
+  })
+
+const backMatterPart = (backMatter: TocBackMatter): ReadonlyArray<WovenPart> =>
+  backMatter.discussions.length === 0
+    ? []
+    : [
+        WovenPartSchema.make({
+          number: '',
+          name: backMatterHeading,
+          chapters: Array.map(backMatter.discussions, wovenDiscussion),
+        }),
+      ]
 
 const partIndex = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, string> =>
   new Map(
@@ -428,32 +459,45 @@ const anchorsWithin = (run: ReadonlyArray<BodyWeft>, span: Span): ReadonlyArray<
       anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
   )
 
+const isDiscussion = (module: LoomModule): boolean =>
+  module.doc.frontmatter?.discussion !== undefined
+
+const messageBlock = (tilde: TildeWeft, source: SourceAnchor): WovenBlock =>
+  MessageBlockSchema.make({
+    source,
+    author: Option.getOrUndefined(
+      Option.map(Option.fromNullishOr(tilde.prose), (name) => name.source.trim()),
+    ),
+  })
+
 const runBlocks =
   (module: LoomModule, weaving: Weaving, section: LoomSection, source: SourceAnchor) =>
   (run: ReadonlyArray<BodyWeft>, closed: boolean): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
-      onNonEmpty: (first) =>
-        Option.match(runSpan(run), {
-          onNone: (): ReadonlyArray<WovenBlock> => [],
-          onSome: (span) =>
-            Match.value(first).pipe(
-              Match.withReturnType<ReadonlyArray<WovenBlock>>(),
-              Match.when({ type: 'ArrowWeft' }, (opened) => [
-                codeBlock(
-                  module,
-                  weaving,
-                  section,
-                  source,
-                  run,
-                  span,
-                  opened.arrow.source.trim(),
-                  closed,
+      onNonEmpty: (first, rest) =>
+        first.type === 'TildeWeft' && isDiscussion(module)
+          ? [messageBlock(first, source), ...proseBlocks(module, rest, source)]
+          : Option.match(runSpan(run), {
+              onNone: (): ReadonlyArray<WovenBlock> => [],
+              onSome: (span) =>
+                Match.value(first).pipe(
+                  Match.withReturnType<ReadonlyArray<WovenBlock>>(),
+                  Match.when({ type: 'ArrowWeft' }, (opened) => [
+                    codeBlock(
+                      module,
+                      weaving,
+                      section,
+                      source,
+                      run,
+                      span,
+                      opened.arrow.source.trim(),
+                      closed,
+                    ),
+                  ]),
+                  Match.orElse(() => proseBlocks(module, run, source)),
                 ),
-              ]),
-              Match.orElse(() => proseBlocks(module, run, source)),
-            ),
-        }),
+            }),
     })
 
 const resolveLink = (

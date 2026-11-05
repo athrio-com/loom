@@ -65,7 +65,9 @@ export type UnsettledSpan = typeof UnsettledSpanSchema.Type
 
 ## The blocks of a page
 
-A page is a sequence of blocks, in the order the author wrote them. A block is one of four. Prose is a run of Markdown, held as its Markdown source. A heading carries its level, its title, the `id` a link targets, and whether its section is `unsettled`: declared and named by a composing anchor, but holding no code yet. A heading that a divider wrote, rather than a run of `#` marks, is a `divider`, which the presentation draws as a rule with the title at its centre. Code carries its language, its verbatim `code`, the anchor links found within it, and the `unsettled` spans of the anchors in it that reach no code. It also keeps the syntax that framed it: the `arrow` that opened it, as written, and whether a tilde `closed` it or it ran on to the next heading. Neither belongs to the code, but a reader learning Loom needs to see where a block began and ended, so the presentation can draw them around it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it. A note the author named carries that name as its `caption`, which the page shows above the note.
+A page is a sequence of blocks, in the order the author wrote them. A block is one of five, and only a discussion holds the fifth. Prose is a run of Markdown, held as its Markdown source. A heading carries its level, its title, the `id` a link targets, and whether its section is `unsettled`: declared and named by a composing anchor, but holding no code yet. A heading that a divider wrote, rather than a run of `#` marks, is a `divider`, which the presentation draws as a rule with the title at its centre. Code carries its language, its verbatim `code`, the anchor links found within it, and the `unsettled` spans of the anchors in it that reach no code. It also keeps the syntax that framed it: the `arrow` that opened it, as written, and whether a tilde `closed` it or it ran on to the next heading. Neither belongs to the code, but a reader learning Loom needs to see where a block began and ended, so the presentation can draw them around it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it. A note the author named carries that name as its `caption`, which the page shows above the note.
+
+The fifth block marks where a message of a discussion begins. In a discussion a tilde opens each message, and the name written after the tilde signs it, so a `message` block carries that name as its `author`. The message's words follow as blocks of their own. A message nobody signed carries no author.
 
 Every block also carries the `source` anchor of the section it came from, so the reference back to the loom rides with the block wherever the presentation puts it.
 
@@ -109,11 +111,19 @@ export const NoteBlockSchema = Schema.Struct({
 })
 export type NoteBlock = typeof NoteBlockSchema.Type
 
+export const MessageBlockSchema = Schema.Struct({
+  type: Schema.tag('message'),
+  source: SourceAnchorSchema,
+  author: Schema.optional(Schema.String),
+})
+export type MessageBlock = typeof MessageBlockSchema.Type
+
 export const WovenBlockSchema = Schema.Union([
   ProseBlockSchema,
   HeadingBlockSchema,
   CodeBlockSchema,
   NoteBlockSchema,
+  MessageBlockSchema,
 ])
 export type WovenBlock = typeof WovenBlockSchema.Type
 
@@ -135,6 +145,8 @@ export type WovenPage = typeof WovenPageSchema.Type
 ## The navigation tree
 
 The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the table of contents sets. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number` — empty when the chapter is numberless — its `title`, the `slug` that opens it, the optional `status` and `priority` a roadmap reads, and the optional `language` its frontmatter names, which a menu can mark the chapter by. A `WovenPart` groups the entries that share a part, under the part's `number` — empty for a numberless part — and its `name`. A chapter that belongs to no part is a loose entry, the same `WovenNavEntry`, which the corpus keeps apart from the parts, unordered, for a consumer to place as it sees fit.
+
+The book's discussions come last, as its back matter. They form one more `WovenPart`, numberless and named `Back matter`, and each of its entries opens a discussion, in the order the table of contents sets.
 
 =>
 
