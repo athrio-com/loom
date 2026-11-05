@@ -37,7 +37,13 @@ import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
+import {
+  LoomCompiler,
+  DocumentSource,
+  stringSnapshot,
+  type SummaryEdit,
+  within,
+} from './LoomCompiler'
 import { LanguagePackages } from './LanguagePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
@@ -634,9 +640,20 @@ const watchLooms = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
   void server.fileWatcher.watchFiles(['**/*.loom'])
-  server.documents.onDidChangeContent(({ document }) =>
-    runtime.runSync(recordEdit(edited, URI.parse(document.uri))),
-  )
+  const seen = runtime.runSync(Ref.make<ReadonlyMap<string, string>>(new Map()))
+  server.documents.onDidChangeContent(({ document }) => {
+    runtime.runSync(recordEdit(edited, URI.parse(document.uri)))
+    keepInStep(
+      server,
+      home,
+      projects,
+      reprojecting,
+      edited,
+      seen,
+      URI.parse(document.uri),
+      document.getText(),
+    )
+  })
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     rereadOnDisk(
       server,
@@ -649,6 +666,7 @@ const watchLooms = (
   )
   server.documents.onDidClose(({ document }) => {
     const uri = URI.parse(document.uri)
+    runtime.runSync(forgetSeen(seen, uri))
     rereadOnDisk(
       server,
       home,
@@ -725,6 +743,84 @@ const settleEdits = (
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
   )
+
+const applySummaryEdits = (
+  server: LanguageServer,
+  edits: ReadonlyArray<SummaryEdit>,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  Array.isReadonlyArrayNonEmpty(edits)
+    ? WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          Effect.promise(() =>
+            server.connection.workspace.applyEdit({
+              label: 'Keep a chapter box in step',
+              edit: {
+                documentChanges: Array.map(
+                  Object.entries(Array.groupBy(edits, (edit) => edit.path)),
+                  ([path, inLoom]) => ({
+                    textDocument: {
+                      uri: source.uriOf(path).toString(),
+                      version: server.documents.get(source.uriOf(path))?.version ?? null,
+                    },
+                    edits: Array.map(inLoom, (edit) => ({ range: edit.range, newText: edit.text })),
+                  }),
+                ),
+              },
+            }),
+          ),
+        ),
+        Effect.asVoid,
+      )
+    : Effect.void
+
+const keepInStep = (
+  server: LanguageServer,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  reprojecting: Semaphore.Semaphore,
+  edited: Ref.Ref<ReadonlySet<string>>,
+  seen: Ref.Ref<ReadonlyMap<string, string>>,
+  uri: URI,
+  after: string,
+): void => {
+  if (!isLoom(uri)) return
+  void runtime.runFork(
+    Ref.modify(
+      seen,
+      (texts) =>
+        [
+          Option.fromNullishOr(texts.get(uri.toString())),
+          new Map(texts).set(uri.toString(), after),
+        ] as const,
+    ).pipe(
+      Effect.flatMap((before) =>
+        Option.match(
+          Option.filter(before, (was) => was !== after),
+          {
+            onNone: () => Effect.void,
+            onSome: (was) =>
+              reprojecting
+                .withPermits(1)(
+                  settleEdits(server, home, projects, edited).pipe(
+                    Effect.andThen(Effect.all([LoomCompiler, WorkspaceSource])),
+                    Effect.flatMap(([compiler, source]) =>
+                      compiler.summaryEdits(source.locationOf(uri), was, after),
+                    ),
+                  ),
+                )
+                .pipe(Effect.flatMap((edits) => applySummaryEdits(server, edits))),
+          },
+        ),
+      ),
+      Effect.catchCause((cause) =>
+        Effect.logError(`loom: keeping ${uri.toString()} in step failed`, cause),
+      ),
+    ),
+  )
+}
+
+const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effect.Effect<void> =>
+  Ref.update(seen, (texts) => new Map(Array.filter([...texts], ([key]) => key !== uri.toString())))
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(

@@ -26,6 +26,7 @@ import {
   renameRangeAt,
   navigationRangeAt,
   refreshedSummaries,
+  syncedSummaries,
   transitiveDependents,
   unresolvedTocEntriesIn,
   type CorpusLocation,
@@ -305,6 +306,12 @@ const byLoom = (
     Record.toEntries,
     Array.map(([path, each]) => ({ path, diagnostics: Array.map(each, (one) => one.diagnostic) })),
   )
+
+export type SummaryEdit = {
+  readonly path: Location
+  readonly range: FrameLocation['range']
+  readonly text: string
+}
 
 const lastLineOf = (opened: OpenedBox): LoomWeft =>
   Option.getOrElse(
@@ -850,6 +857,43 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         path: Location,
       ): Effect.Effect<ReadonlyArray<{ readonly path: Location; readonly text: string }>> =>
         buildCorpus(documents, path).pipe(Effect.map((modules) => refreshedSummaries({ modules }))),
+
+      summaryEdits: (
+        path: Location,
+        before: string,
+        after: string,
+      ): Effect.Effect<ReadonlyArray<SummaryEdit>> =>
+        Effect.all([config.resolve(path), buildCorpus(documents, path)]).pipe(
+          Effect.flatMap(([settings, modules]) => {
+            const parsedAs = (text: string): Effect.Effect<LoomModule> =>
+              builder.build(
+                { read: () => Effect.succeed(text), list: Option.none() },
+                path,
+                settings.delims,
+                settings.primaryLanguage,
+                settings.variables,
+              )
+            return Effect.all([parsedAs(before), parsedAs(after)]).pipe(
+              Effect.map(([was, now]) =>
+                Array.getSomes(
+                  Array.map(syncedSummaries({ modules }, was, now), (edit) =>
+                    Option.map(
+                      Option.fromNullishOr(modules.get(edit.path)),
+                      (target): SummaryEdit => ({
+                        path: edit.path,
+                        range: {
+                          start: lineCharAt(target.text, edit.at.start.offset),
+                          end: lineCharAt(target.text, edit.at.end.offset),
+                        },
+                        text: edit.text,
+                      }),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          }),
+        ),
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
         buildCorpus(documents, path).pipe(

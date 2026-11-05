@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  type ApplyWorkspaceEditParams,
   type CodeAction,
   type CompletionList,
   createMessageConnection,
@@ -106,7 +107,15 @@ const editorAt = async (folder: string) => {
     new StreamMessageReader(child.stdout),
     new StreamMessageWriter(child.stdin),
   )
-  connection.onRequest(() => null)
+  const asked: Array<ApplyWorkspaceEditParams> = []
+  connection.onRequest((method, params) => {
+    if (method === 'workspace/applyEdit') asked.push(params as ApplyWorkspaceEditParams)
+    return null
+  })
+  const applied = (wait = 10_000): Promise<ReadonlyArray<ApplyWorkspaceEditParams>> =>
+    asked.length > 0 || wait <= 0
+      ? Promise.resolve([...asked])
+      : new Promise((resolve) => setTimeout(() => resolve(applied(wait - 50)), 50))
   connection.listen()
   await connection.sendRequest('initialize', {
     processId: process.pid,
@@ -191,7 +200,20 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, hints, folds, completions, changed, close }
+  return {
+    open,
+    edit,
+    shut,
+    format,
+    diagnostics,
+    fixes,
+    hints,
+    folds,
+    completions,
+    changed,
+    applied,
+    close,
+  }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -374,6 +396,37 @@ describe('LoomServer — a chapter that changes on disk', () => {
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'unsaved'"])
       await editor.shut(note)
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved'"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+describe('LoomServer — a chapter box kept in step', () => {
+  it('writes an edit to the box into the opening of its chapter', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const box = (body: string) =>
+      lines('# The world', '', 'The world holds rooms.', '', '::: Rooms {Chapter}', body, ':::')
+    const world = chapterAt(root, 'world.loom', box('A room is a grid of cells.'))
+    const rooms = chapterAt(root, 'rooms.loom', lines('# Rooms', '', 'A room is a grid of cells.'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(world)
+      await editor.open(rooms)
+      await editor.edit(world, box('A room is a grid.'))
+      const [asked] = await editor.applied()
+      expect(asked?.edit.documentChanges).toEqual([
+        {
+          textDocument: { uri: pathToFileURL(rooms).href, version: 1 },
+          edits: [
+            {
+              range: { start: { line: 2, character: 0 }, end: { line: 2, character: 26 } },
+              newText: 'A room is a grid.',
+            },
+          ],
+        },
+      ])
     } finally {
       editor.close()
     }

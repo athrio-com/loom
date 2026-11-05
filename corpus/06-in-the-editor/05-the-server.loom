@@ -12,9 +12,9 @@ Any editor that speaks the Language Server Protocol can start the server. VS Cod
 
 ## Imports
 
-The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `WorkspaceSettings`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. `LanguagePackages` holds the language packages each workspace activates, so the compiler can ask them to write the path a reference names, as the chapter "Referring to modules" describes. From the workspace source come the `WorkspaceSource` service, which fetches a workspace's looms, its `FileSystemSource` layer, and the `Workspace` its `open` method hands over. From the language store comes `workspaceOf`, which finds the nested workspace a file belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends, the `FetchedTypeScript` within it, and the `ClassicTypeScriptMissing` its search for TypeScript 6 fails with.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, with the `SummaryEdit` that keeps a chapter box in step, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `WorkspaceSettings`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. `LanguagePackages` holds the language packages each workspace activates, so the compiler can ask them to write the path a reference names, as the chapter "Referring to modules" describes. From the workspace source come the `WorkspaceSource` service, which fetches a workspace's looms, its `FileSystemSource` layer, and the `Workspace` its `open` method hands over. From the language store comes `workspaceOf`, which finds the nested workspace a file belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends, the `FetchedTypeScript` within it, and the `ClassicTypeScriptMissing` its search for TypeScript 6 fails with.
 
-Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, `Result` carries a compiler or the reason there is none, and `Data` types the failure of a fetch. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. `Semaphore` holds back a request while the server reprojects the open looms, and `Ref` holds the looms the editor has changed since the last request. `Scheduler` keeps the fiber that rebuilds them from yielding. A `Source` is what the compiler reads a loom's text through. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and loads it. `existsSync` checks that a folder holds a compiler, and `statSync` reads when a loom was last saved. `stringSnapshot` turns a loom's text into the snapshot a script holds. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` is the address Volar names a document by, and it parses the addresses the editor reports.
+Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, `Result` carries a compiler or the reason there is none, and `Data` types the failure of a fetch. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. `Semaphore` holds back a request while the server reprojects the open looms, and `Ref` holds the looms the editor has changed since the last request, and the text the editor last held for each open loom. `Scheduler` keeps the fiber that rebuilds them from yielding. A `Source` is what the compiler reads a loom's text through. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and loads it. `existsSync` checks that a folder holds a compiler, and `statSync` reads when a loom was last saved. `stringSnapshot` turns a loom's text into the snapshot a script holds. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` is the address Volar names a document by, and it parses the addresses the editor reports.
 
 =>
 
@@ -57,7 +57,13 @@ import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
+import {
+  LoomCompiler,
+  DocumentSource,
+  stringSnapshot,
+  type SummaryEdit,
+  within,
+} from './LoomCompiler'
 import { LanguagePackages } from './LanguagePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
@@ -773,7 +779,7 @@ export const closeOf = (
 
 `rereadOnDisk` runs the whole pass in one fiber, forked on the warm runtime. The pass fetches each changed loom, evicts it, and reprojects the open looms. A fetch from remote storage waits on the network, and the reprojection asks a project for its language services, which answers with a promise, so no part of the pass can run synchronously inside the handler. The fiber holds the `reprojecting` semaphore while it runs. A forked fiber starts at once, so the pass takes the semaphore before the handler returns, and so before the server reads another request. The project the server hands to Volar waits on that semaphore before it answers any request. So no request is answered from a loom's old text between the change and the reprojection. A pass that fails logs its cause, so a failure never passes silently.
 
-`rereadOnDisk` takes the fetch as an Effect that yields the changes to reread, and a function that names the scripts the changes leave behind. `watchLooms` runs it on every batch the editor reports, with `fetchReported` as the fetch, and on every loom the editor closes, with `closeOf`. A close that amounts to a change also forgets the script Volar built from the unsaved text. `watchLooms` also notes every loom the editor opens or changes, for the next request to settle.
+`rereadOnDisk` takes the fetch as an Effect that yields the changes to reread, and a function that names the scripts the changes leave behind. `watchLooms` runs it on every batch the editor reports, with `fetchReported` as the fetch, and on every loom the editor closes, with `closeOf`. A close that amounts to a change also forgets the script Volar built from the unsaved text. `watchLooms` also notes every loom the editor opens or changes, for the next request to settle, and hands each change to `keepInStep`, which the section "A box kept in step as the author types" describes, and `forgetSeen` drops the text it remembered for a loom the editor closes.
 
 =>
 
@@ -808,9 +814,20 @@ const watchLooms = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
   void server.fileWatcher.watchFiles(['**/*.loom'])
-  server.documents.onDidChangeContent(({ document }) =>
-    runtime.runSync(recordEdit(edited, URI.parse(document.uri))),
-  )
+  const seen = runtime.runSync(Ref.make<ReadonlyMap<string, string>>(new Map()))
+  server.documents.onDidChangeContent(({ document }) => {
+    runtime.runSync(recordEdit(edited, URI.parse(document.uri)))
+    keepInStep(
+      server,
+      home,
+      projects,
+      reprojecting,
+      edited,
+      seen,
+      URI.parse(document.uri),
+      document.getText(),
+    )
+  })
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     rereadOnDisk(
       server,
@@ -823,6 +840,7 @@ const watchLooms = (
   )
   server.documents.onDidClose(({ document }) => {
     const uri = URI.parse(document.uri)
+    runtime.runSync(forgetSeen(seen, uri))
     rereadOnDisk(
       server,
       home,
@@ -919,6 +937,94 @@ const settleEdits = (
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
   )
+
+## A box kept in step as the author types
+
+A chapter box holds a copy of its chapter's opening prose, as the chapter "The multi-file AST" describes. The server keeps the two in step while the author types, in any editor, so an edit to the copy reaches the chapter and an edit to the chapter's opening reaches every copy. The compiler's `summaryEdits` decides what to carry across. It carries a change only between a box and a chapter that were in step before it, so a copy that was already out of date stays a warning.
+
+`keepInStep` follows each change of a loom. It remembers in `seen` the text the editor held for each open loom, so every change comes with the text before it. The first text it sees for a loom, when the editor opens it, is only remembered. A later change rebuilds the edited chapters first, so the corpus holds what the editor shows, and then asks `summaryEdits` for the edits. It holds the `reprojecting` semaphore while it reads the corpus, and lets it go before it asks the editor to apply anything.
+
+`applySummaryEdits` sends the edits to the editor as one workspace edit, with one `TextDocumentEdit` for each loom they change. Each names the version at which the editor holds that loom, so an editor that has changed the loom since refuses an edit placed in its older text. The editor applies the edit as a change to the other loom, which reaches `keepInStep` in turn. By then the box and its chapter match, so nothing travels back.
+
+=>
+
+const applySummaryEdits = (
+  server: LanguageServer,
+  edits: ReadonlyArray<SummaryEdit>,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  Array.isReadonlyArrayNonEmpty(edits)
+    ? WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          Effect.promise(() =>
+            server.connection.workspace.applyEdit({
+              label: 'Keep a chapter box in step',
+              edit: {
+                documentChanges: Array.map(
+                  Object.entries(Array.groupBy(edits, (edit) => edit.path)),
+                  ([path, inLoom]) => ({
+                    textDocument: {
+                      uri: source.uriOf(path).toString(),
+                      version: server.documents.get(source.uriOf(path))?.version ?? null,
+                    },
+                    edits: Array.map(inLoom, (edit) => ({ range: edit.range, newText: edit.text })),
+                  }),
+                ),
+              },
+            }),
+          ),
+        ),
+        Effect.asVoid,
+      )
+    : Effect.void
+
+const keepInStep = (
+  server: LanguageServer,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  reprojecting: Semaphore.Semaphore,
+  edited: Ref.Ref<ReadonlySet<string>>,
+  seen: Ref.Ref<ReadonlyMap<string, string>>,
+  uri: URI,
+  after: string,
+): void => {
+  if (!isLoom(uri)) return
+  void runtime.runFork(
+    Ref.modify(
+      seen,
+      (texts) =>
+        [
+          Option.fromNullishOr(texts.get(uri.toString())),
+          new Map(texts).set(uri.toString(), after),
+        ] as const,
+    ).pipe(
+      Effect.flatMap((before) =>
+        Option.match(
+          Option.filter(before, (was) => was !== after),
+          {
+            onNone: () => Effect.void,
+            onSome: (was) =>
+              reprojecting
+                .withPermits(1)(
+                  settleEdits(server, home, projects, edited).pipe(
+                    Effect.andThen(Effect.all([LoomCompiler, WorkspaceSource])),
+                    Effect.flatMap(([compiler, source]) =>
+                      compiler.summaryEdits(source.locationOf(uri), was, after),
+                    ),
+                  ),
+                )
+                .pipe(Effect.flatMap((edits) => applySummaryEdits(server, edits))),
+          },
+        ),
+      ),
+      Effect.catchCause((cause) =>
+        Effect.logError(`loom: keeping ${uri.toString()} in step failed`, cause),
+      ),
+    ),
+  )
+}
+
+const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effect.Effect<void> =>
+  Ref.update(seen, (texts) => new Map(Array.filter([...texts], ([key]) => key !== uri.toString())))
 
 ## The program
 
@@ -1037,7 +1143,7 @@ export const startLanguageServer = (): void => {
 
 ## The server module [src/LoomServer.ts]
 
-The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the chapter boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
@@ -1050,6 +1156,8 @@ The server module assembles the imports, the compilers a project may ask for, th
 ::[A chapter changes behind the editor's back]
 
 ::[An edit reaches the other open chapters]
+
+::[A box kept in step as the author types]
 
 ::[The program]
 
@@ -1131,7 +1239,7 @@ const workspaceAt = (root: string, service: string): string => {
 
 The cases start the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The client hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit.
 
 =>
 
@@ -1149,7 +1257,15 @@ const editorAt = async (folder: string) => {
     new StreamMessageReader(child.stdout),
     new StreamMessageWriter(child.stdin),
   )
-  connection.onRequest(() => null)
+  const asked: Array<ApplyWorkspaceEditParams> = []
+  connection.onRequest((method, params) => {
+    if (method === 'workspace/applyEdit') asked.push(params as ApplyWorkspaceEditParams)
+    return null
+  })
+  const applied = (wait = 10_000): Promise<ReadonlyArray<ApplyWorkspaceEditParams>> =>
+    asked.length > 0 || wait <= 0
+      ? Promise.resolve([...asked])
+      : new Promise((resolve) => setTimeout(() => resolve(applied(wait - 50)), 50))
   connection.listen()
   await connection.sendRequest('initialize', {
     processId: process.pid,
@@ -1234,7 +1350,20 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, hints, folds, completions, changed, close }
+  return {
+    open,
+    edit,
+    shut,
+    format,
+    diagnostics,
+    fixes,
+    hints,
+    folds,
+    completions,
+    changed,
+    applied,
+    close,
+  }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -1445,6 +1574,43 @@ describe('LoomServer — a chapter that changes on disk', () => {
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'unsaved'"])
       await editor.shut(note)
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved'"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+## Testing a box kept in step
+
+The server keeps a chapter box and its chapter in step while the author types. `World` holds a box that points to the chapter `Rooms`, and the box's body matches the chapter's opening. The author edits the box, and the server asks the editor to write the box's new body into the chapter's opening, on line 2 of `Rooms`.
+
+=>
+
+describe('LoomServer — a chapter box kept in step', () => {
+  it('writes an edit to the box into the opening of its chapter', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const box = (body: string) =>
+      lines('# The world', '', 'The world holds rooms.', '', '::: Rooms {Chapter}', body, ':::')
+    const world = chapterAt(root, 'world.loom', box('A room is a grid of cells.'))
+    const rooms = chapterAt(root, 'rooms.loom', lines('# Rooms', '', 'A room is a grid of cells.'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(world)
+      await editor.open(rooms)
+      await editor.edit(world, box('A room is a grid.'))
+      const [asked] = await editor.applied()
+      expect(asked?.edit.documentChanges).toEqual([
+        {
+          textDocument: { uri: pathToFileURL(rooms).href, version: 1 },
+          edits: [
+            {
+              range: { start: { line: 2, character: 0 }, end: { line: 2, character: 26 } },
+              newText: 'A room is a grid.',
+            },
+          ],
+        },
+      ])
     } finally {
       editor.close()
     }
@@ -2205,12 +2371,13 @@ describe('LoomServer — the pass piece by piece', () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `CompletionList` a label typed in braces arrives in, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
 import {
+  type ApplyWorkspaceEditParams,
   type CodeAction,
   type CompletionList,
   createMessageConnection,
@@ -2256,6 +2423,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a nested workspace]
 
 ::[Testing a chapter that changes on disk]
+
+::[Testing a box kept in step]
 
 ::[Testing an edit that reaches other open chapters]
 

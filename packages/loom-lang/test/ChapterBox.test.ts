@@ -2,7 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
 import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
-import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { DocumentSource, LoomCompiler, type SummaryEdit } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
@@ -273,6 +273,71 @@ describe('the place of a chapter box', () => {
       expect(found).toContain(
         'Chapter box without a name: a box of the `Chapter` kind points to the chapter its name titles, so it needs a name, as in `::: Rooms {Chapter}`.',
       )
+    }),
+  )
+})
+
+describe('keeping a chapter box in step as the author types', () => {
+  const offsetOf = (text: string, at: { readonly line: number; readonly character: number }) =>
+    text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
+
+  const applied = (text: string, edit: SummaryEdit) =>
+    text.slice(0, offsetOf(text, edit.range.start)) + edit.text + text.slice(offsetOf(text, edit.range.end))
+
+  const inStep = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
+
+  const edits = (files: Record<string, string>, path: string, before: string, after: string) =>
+    withCompiler(files, (compiler) => compiler.summaryEdits(path, before, after))
+
+  it.effect('writes an edit to a box into the opening of its chapter', () =>
+    Effect.gen(function* () {
+      const found = yield* edits(inStep, world, inStep[world]!, worldLoom(['A room is a grid.']))
+      expect(found.map((edit) => edit.path)).toEqual([rooms])
+      expect(applied(inStep[rooms]!, found[0]!)).toBe(roomsLoom('A room is a grid.'))
+    }),
+  )
+
+  it.effect('writes an edit to the opening of a chapter into its boxes', () =>
+    Effect.gen(function* () {
+      const found = yield* edits(inStep, rooms, inStep[rooms]!, roomsLoom('Rooms are grids.'))
+      expect(found.map((edit) => edit.path)).toEqual([world])
+      expect(applied(inStep[world]!, found[0]!)).toBe(worldLoom(['Rooms are grids.']))
+    }),
+  )
+
+  it.effect('carries nothing from a box that was already out of step', () =>
+    Effect.gen(function* () {
+      const stale = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
+      expect(
+        yield* edits(stale, world, stale[world]!, worldLoom(['A room is a grid.'])),
+      ).toEqual([])
+    }),
+  )
+
+  it.effect('carries nothing when the edit leaves the box as it was', () =>
+    Effect.gen(function* () {
+      const after = inStep[world]!.replace('The world holds rooms.', 'The world holds many rooms.')
+      expect(yield* edits(inStep, world, inStep[world]!, after)).toEqual([])
+    }),
+  )
+
+  it.effect('leaves an opening that holds a box of its own to the author', () =>
+    Effect.gen(function* () {
+      const noted = lines(
+        '---',
+        'Part II, Chapter 3: Rooms',
+        '---',
+        '',
+        '# Rooms',
+        '',
+        'A room is a grid of cells.',
+        '',
+        ':::',
+        'A remark for the next author.',
+        ':::',
+      )
+      const files = { ...unwritten, [rooms]: noted }
+      expect(yield* edits(files, world, files[world]!, worldLoom(['A room is a grid.']))).toEqual([])
     }),
   )
 })

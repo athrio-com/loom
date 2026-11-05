@@ -36,7 +36,7 @@ Once the loom exists, the box's body is the loom's summary. For a chapter, the s
 
 A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost. The warning's fix copies the source into the box, and `loom refresh` refreshes every copy at once, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. A chapter box works this way already.
 
-The editor goes further and keeps the two in step as the author types. An edit to either one reaches the other, and the author can open the box in a side panel to edit the loom's opening without leaving the section.
+The editor goes further and keeps the two in step as the author types, so an edit to either one reaches the other. A chapter box works this way already, through the language server, as the chapter "The language server" describes. The author can also open the box in a side panel, to edit the loom's opening without leaving the section, in an editor that can show one.
 
 A settled discussion therefore reads in its chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
 
@@ -68,7 +68,7 @@ A kind that neither the core nor an installed trope knows is a fault, so a missp
 ## What this chapter grows into
 
 1. Discussion boxes, once the chapter "Discussions" gives discussions their loom: found by name, opened as a discussion, and their summaries, conclusions included, kept in step.
-2. A copy and its source edited as one in the editor, with the side panel that edits a loom's opening from its box.
+2. The side panel that edits a loom's opening from its box, in the editors that can show one.
 3. The registry of kinds: `Discussion`, `Conclusion`, and `Wildcard` beside `Note` and `Chapter` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
 4. Boxes in the tree-sitter grammar and in each editor's highlighting.
 

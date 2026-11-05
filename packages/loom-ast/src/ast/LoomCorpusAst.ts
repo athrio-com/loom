@@ -518,14 +518,13 @@ const namesBox =
     place.ref.module === target.module &&
     place.ref.name.position.start.offset === target.name.position.start.offset
 
-const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.flatten(Array.fromIterable(book.boxes.values())),
-    Array.filter((ref) =>
-      Option.exists(boxChapter(book, ref), (found) => found.module.path === chapter.module.path),
-    ),
-    Array.map(boxLocation),
+const boxesPointingTo = (book: Book, chapter: Chapter): ReadonlyArray<BoxRef> =>
+  Array.filter(Array.flatten(Array.fromIterable(book.boxes.values())), (ref) =>
+    Option.exists(boxChapter(book, ref), (found) => found.module.path === chapter.module.path),
   )
+
+const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> =>
+  Array.map(boxesPointingTo(book, chapter), boxLocation)
 
 const reach = (
   seeds: ReadonlyArray<Location>,
@@ -1449,18 +1448,13 @@ const outsideBoxes = (lines: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =
     )[1],
   )
 
+const openingLinesOf = (section: LoomSection): ReadonlyArray<LoomWeft> =>
+  Array.takeWhile([...section.preamble, ...section.code], (line) => line.type !== 'ArrowWeft')
+
 const openingProseOf = (module: LoomModule): string =>
   Option.match(openingSectionOf(module), {
     onNone: () => '',
-    onSome: (section) =>
-      textOf(
-        outsideBoxes(
-          Array.takeWhile(
-            [...section.preamble, ...section.code],
-            (line) => line.type !== 'ArrowWeft',
-          ),
-        ),
-      ),
+    onSome: (section) => textOf(outsideBoxes(openingLinesOf(section))),
   })
 
 export type Opening = { readonly file: string; readonly text: string }
@@ -1614,6 +1608,101 @@ export const refreshedSummaries = (
       text: withSummaries(module.text, stale),
     })),
   )
+}
+
+export type CorpusEdit = { readonly path: Location; readonly at: Position; readonly text: string }
+
+const contentEnd = (line: LoomWeft): Point => ({
+  line: line.position.start.line,
+  offset: line.position.start.offset + line.source.replace(/\r?\n$/, '').length,
+})
+
+const openingEditOf = (
+  module: LoomModule,
+  body: string,
+): Option.Option<{ readonly at: Position; readonly text: string }> =>
+  Option.flatMap(openingSectionOf(module), (section) => {
+    const lines = openingLinesOf(section)
+    const written = Array.filter(lines, (line) => line.source.trim() !== '')
+    return Array.some(lines, (line) => Option.isSome(boxOf(line)))
+      ? Option.none()
+      : Option.some(
+          Array.match(written, {
+            onEmpty: () => ({
+              at: { start: section.heading.position.end, end: section.heading.position.end },
+              text: body === '' ? '' : `\n${body}\n`,
+            }),
+            onNonEmpty: (all) => ({
+              at: {
+                start: Array.headNonEmpty(all).position.start,
+                end: contentEnd(Array.lastNonEmpty(all)),
+              },
+              text: body,
+            }),
+          }),
+        )
+  })
+
+const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<CorpusEdit> =>
+  pipe(
+    Option.all({
+      chapter: Option.filter(
+        boxChapter(book, ref),
+        (chapter) => chapter.module.path !== ref.module,
+      ),
+      before: Array.findFirst(chapterBoxesOf(was), (old) => old.name.value === ref.name.value),
+    }),
+    Option.filter(({ chapter, before }) => {
+      const summary = openingProseOf(chapter.module)
+      return (
+        Option.isSome(before.closer) &&
+        Option.isSome(ref.closer) &&
+        textOf(before.body) === summary &&
+        textOf(ref.body) !== summary
+      )
+    }),
+    Option.flatMap(({ chapter }) =>
+      Option.map(openingEditOf(chapter.module, textOf(ref.body)), (edit) => ({
+        path: chapter.module.path,
+        ...edit,
+      })),
+    ),
+  )
+
+const chapterToBoxes = (
+  book: Book,
+  was: LoomModule,
+  now: LoomModule,
+): ReadonlyArray<CorpusEdit> => {
+  const before = openingProseOf(was)
+  const after = openingProseOf(now)
+  return before === after
+    ? []
+    : pipe(
+        Option.toArray(chapterOf(book, now.path)),
+        Array.flatMap((chapter) => boxesPointingTo(book, chapter)),
+        Array.filter((ref) => ref.module !== now.path && textOf(ref.body) === before),
+        Array.map((ref) =>
+          Option.map(ref.closer, (closer) => ({
+            path: ref.module,
+            at: bodySpan(ref, closer),
+            text: after === '' ? '' : `${after}\n`,
+          })),
+        ),
+        Array.getSomes,
+      )
+}
+
+export const syncedSummaries = (
+  corpus: LoomCorpusAst,
+  was: LoomModule,
+  now: LoomModule,
+): ReadonlyArray<CorpusEdit> => {
+  const book = bookOf(new Map(corpus.modules).set(now.path, now))
+  return [
+    ...Array.getSomes(Array.map(boxesIn(book, now.path), (ref) => boxToChapter(book, was, ref))),
+    ...chapterToBoxes(book, was, now),
+  ]
 }
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
