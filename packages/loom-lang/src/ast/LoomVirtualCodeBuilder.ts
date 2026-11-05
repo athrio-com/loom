@@ -1,16 +1,24 @@
-import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
 import {
   isMeant,
   keyOf,
   type Code,
   type Fragment,
+  type ModuleRef,
+  type Part,
   type Provided,
   type Ref,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { bookOf, type Book, type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
-import { targetOf } from '#ast/ProductBuilder'
+import {
+  type Landing,
+  landingOf,
+  Referred,
+  referredFileOf,
+  targetOf,
+} from '#ast/ProductBuilder'
 import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import {
@@ -67,6 +75,18 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
     : { ...vc, code, mappings: clipMappings(vc.mappings, code.length) }
 }
 
+export type Specifiers = (owner: Location, ref: ModuleRef) => Option.Option<string>
+
+export const noSpecifiers: Specifiers = () => Option.none()
+
+const mappedIn = (text: string, source: Position, owner: Location, home: Location) =>
+  leaf(
+    '',
+    '',
+    text,
+    owner === home ? [{ genStart: 0, genLength: text.length, source, kind: 'product' }] : [],
+  )
+
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
@@ -74,30 +94,35 @@ const inlinePart =
     seen: ReadonlySet<string>,
     home: Location,
     owner: Location,
+    specifiers: Specifiers,
   ) =>
-  (part: Fragment | Ref): LoomVirtualCode => {
-    if (part.type === 'Fragment') {
-      const origin: Mapping = {
-        genStart: 0,
-        genLength: part.text.length,
-        source: part.origin,
-        kind: 'product',
-      }
-      return leaf('', '', part.text, owner === home ? [origin] : [])
-    }
-    return pipe(
-      targetOf(book, owner, part),
-      Option.filter((t) => !seen.has(keyOf(t))),
-      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
-      Option.match({
-        onNone: () => emptyLeaf,
-        onSome: ([t, node]) =>
-          absorbTrailingNewline(
-            inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home)(node),
-          ),
-      }),
+  (part: Part): LoomVirtualCode =>
+    Match.value(part).pipe(
+      Match.when({ type: 'Fragment' }, (fragment) =>
+        mappedIn(fragment.text, fragment.origin, owner, home),
+      ),
+      Match.when({ type: 'ModuleRef' }, (ref) =>
+        Option.match(specifiers(owner, ref), {
+          onNone: () => emptyLeaf,
+          onSome: (specifier) => mappedIn(specifier, ref.anchor, owner, home),
+        }),
+      ),
+      Match.when({ type: 'NameRef' }, (ref) =>
+        pipe(
+          targetOf(book, owner, ref),
+          Option.filter((t) => !seen.has(keyOf(t))),
+          Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
+          Option.match({
+            onNone: () => emptyLeaf,
+            onSome: ([t, node]) =>
+              absorbTrailingNewline(
+                inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home, specifiers)(node),
+              ),
+          }),
+        ),
+      ),
+      Match.exhaustive,
     )
-  }
 
 const inlineComposed =
   (
@@ -105,31 +130,36 @@ const inlineComposed =
     book: Book,
     seen: ReadonlySet<string>,
     home: Location,
+    specifiers: Specifiers,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, book, seen, home, node.origin.path)
+    const build = inlinePart(modules, book, seen, home, node.origin.path, specifiers)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
     }
     return pipe(
       node.fragments,
-      Array.reduce(seed, (acc, part, i) => {
-        if (part.type === 'Fragment') {
-          return {
-            vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(part) : part)),
+      Array.reduce(seed, (acc, part, i) =>
+        Match.value(part).pipe(
+          Match.when({ type: 'Fragment' }, (fragment) => ({
+            vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(fragment) : fragment)),
             trim: false,
-          }
-        }
-        const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
-        return {
-          vc: concat(
-            acc.vc,
-            owns ? indentBlock(build(part), lineIndentOf(acc.vc.code)) : build(part),
-          ),
-          trim: owns,
-        }
-      }),
+          })),
+          Match.when({ type: 'ModuleRef' }, (ref) => ({ vc: concat(acc.vc, build(ref)), trim: false })),
+          Match.when({ type: 'NameRef' }, (ref) => {
+            const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
+            return {
+              vc: concat(
+                acc.vc,
+                owns ? indentBlock(build(ref), lineIndentOf(acc.vc.code)) : build(ref),
+              ),
+              trim: owns,
+            }
+          }),
+          Match.exhaustive,
+        ),
+      ),
       (acc) => acc.vc,
     )
   }
@@ -140,6 +170,8 @@ export type Unsettled = {
   readonly name: string
   readonly section: Option.Option<SectionId>
   readonly provides: ReadonlyArray<Provided>
+  readonly reference: boolean
+  readonly declared: boolean
 }
 
 const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId>): Unsettled => ({
@@ -148,7 +180,32 @@ const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId
   name: ref.name,
   section,
   provides: ref.provides,
+  reference: false,
+  declared: Option.isSome(section),
 })
+
+const unsettledReference = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  host: Code,
+  ref: ModuleRef,
+): Option.Option<Unsettled> =>
+  Option.flatMap(Option.fromNullishOr(modules.get(host.origin.path)), (module) =>
+    Referred.$match(referredFileOf(book, modules, {}, module, host, ref), {
+      Unsettled: ({ declared }) =>
+        Option.some<Unsettled>({
+          path: host.origin.path,
+          anchor: ref.anchor,
+          name: ref.name,
+          section: Option.none(),
+          provides: ref.provides,
+          reference: true,
+          declared,
+        }),
+      Named: () => Option.none(),
+      Faulted: () => Option.none(),
+    }),
+  )
 
 export const unsettledRef = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -171,13 +228,17 @@ const unsettledFrom =
   (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Unsettled> =>
     Array.flatMap(node.fragments, (part) =>
-      part.type === 'Fragment'
-        ? []
-        : Option.match(unsettledRef(modules, book, node.origin.path, part), {
-            onSome: (unsettled) => [unsettled],
+      Match.value(part).pipe(
+        Match.when({ type: 'Fragment' }, (): ReadonlyArray<Unsettled> => []),
+        Match.when({ type: 'ModuleRef' }, (ref) =>
+          Option.toArray(unsettledReference(modules, book, node, ref)),
+        ),
+        Match.when({ type: 'NameRef' }, (ref) =>
+          Option.match(unsettledRef(modules, book, node.origin.path, ref), {
+            onSome: (unsettled): ReadonlyArray<Unsettled> => [unsettled],
             onNone: () =>
               pipe(
-                targetOf(book, node.origin.path, part),
+                targetOf(book, node.origin.path, ref),
                 Option.filter((reached) => !seen.has(keyOf(reached))),
                 Option.flatMap((reached) =>
                   Option.map(lookup(modules, reached), (code) =>
@@ -187,6 +248,9 @@ const unsettledFrom =
                 Option.getOrElse((): ReadonlyArray<Unsettled> => []),
               ),
           }),
+        ),
+        Match.exhaustive,
+      ),
     )
 
 export const unsettledIn = (
@@ -194,6 +258,44 @@ export const unsettledIn = (
   root: Code,
   book: Book = bookOf(modules),
 ): ReadonlyArray<Unsettled> => unsettledFrom(modules, book, new Set([keyOf(root.origin)]))(root)
+
+export interface Reference {
+  readonly owner: Location
+  readonly host: Code
+  readonly ref: ModuleRef
+}
+
+const referencesFrom =
+  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (node: Code): ReadonlyArray<Reference> =>
+    Array.flatMap(node.fragments, (part) =>
+      Match.value(part).pipe(
+        Match.when({ type: 'Fragment' }, (): ReadonlyArray<Reference> => []),
+        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<Reference> => [
+          { owner: node.origin.path, host: node, ref },
+        ]),
+        Match.when({ type: 'NameRef' }, (ref) =>
+          pipe(
+            targetOf(book, node.origin.path, ref),
+            Option.filter((reached) => !seen.has(keyOf(reached))),
+            Option.flatMap((reached) =>
+              Option.map(lookup(modules, reached), (code) =>
+                referencesFrom(modules, book, new Set([...seen, keyOf(reached)]))(code),
+              ),
+            ),
+            Option.getOrElse((): ReadonlyArray<Reference> => []),
+          ),
+        ),
+        Match.exhaustive,
+      ),
+    )
+
+export const referencesIn = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Code,
+  book: Book = bookOf(modules),
+): ReadonlyArray<Reference> =>
+  referencesFrom(modules, book, new Set([keyOf(root.origin)]))(root)
 
 export type Contract = {
   readonly section: string
@@ -232,6 +334,73 @@ const contractOf = (
     return { section: ref.name, target: target.path, span, language: code.languageId, provides }
   })
 
+const composedOf =
+  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (node: Code): ReadonlyArray<Code> => [
+    node,
+    ...Array.flatMap(node.fragments, (part) =>
+      part.type === 'NameRef'
+        ? pipe(
+            targetOf(book, node.origin.path, part),
+            Option.filter((reached) => !seen.has(keyOf(reached))),
+            Option.flatMap((reached) =>
+              Option.map(lookup(modules, reached), (code) =>
+                composedOf(modules, book, new Set([...seen, keyOf(reached)]))(code),
+              ),
+            ),
+            Option.getOrElse((): ReadonlyArray<Code> => []),
+          )
+        : [],
+    ),
+  ]
+
+const composedSpan = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  root: Code,
+): Option.Option<Position> =>
+  pipe(
+    composedOf(modules, book, new Set([keyOf(root.origin)]))(root),
+    Array.filter((code) => code.origin.path === root.origin.path),
+    Array.map(writtenSpan),
+    Array.getSomes,
+    Array.match({
+      onEmpty: () => Option.none(),
+      onNonEmpty: (spans) =>
+        Option.some(
+          Array.reduce(Array.tailNonEmpty(spans), Array.headNonEmpty(spans), (whole, span) => ({
+            start: span.start.offset < whole.start.offset ? span.start : whole.start,
+            end: span.end.offset > whole.end.offset ? span.end : whole.end,
+          })),
+        ),
+    }),
+  )
+
+const moduleContractOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  landing: Landing,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Option.Option<Contract> =>
+  Option.gen(function* () {
+    const provides = yield* Option.liftPredicate(ref.provides, Array.isReadonlyArrayNonEmpty)
+    const landed = yield* Referred.$match(referredFileOf(book, modules, landing, module, host, ref), {
+      Named: ({ landed }) => Option.some(landed),
+      Unsettled: () => Option.none(),
+      Faulted: () => Option.none(),
+    })
+    const span = yield* composedSpan(modules, book, landed.file.code)
+    return {
+      section: ref.name,
+      target: landed.loom,
+      span,
+      language: landed.file.code.languageId,
+      provides,
+    }
+  })
+
 export const contractsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   path: Location,
@@ -239,21 +408,31 @@ export const contractsIn = (
 ): ReadonlyArray<Contract> =>
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: (): ReadonlyArray<Contract> => [],
-    onSome: (module) =>
-      pipe(
+    onSome: (module) => {
+      const landing = landingOf(book, modules)
+      return pipe(
         module.product.code,
-        Array.flatMap((code) => code.fragments),
-        Array.map((part) =>
-          part.type === 'Fragment' ? Option.none() : contractOf(modules, book, path, part),
+        Array.flatMap((host) =>
+          Array.map(host.fragments, (part) =>
+            Match.value(part).pipe(
+              Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, book, path, ref)),
+              Match.when({ type: 'ModuleRef' }, (ref) =>
+                moduleContractOf(modules, book, landing, module, host, ref),
+              ),
+              Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
+              Match.exhaustive,
+            ),
+          ),
         ),
         Array.getSomes,
-      ),
+      )
+    },
   })
 
 const aloneBefore = (code: string): boolean =>
   /^[\t ]*$/.test(code.slice(code.lastIndexOf('\n') + 1))
 
-const aloneAfter = (next: Fragment | Ref | undefined): boolean =>
+const aloneAfter = (next: Part | undefined): boolean =>
   next === undefined || (next.type === 'Fragment' && /^[\t ]*(?:\n|$)/.test(next.text))
 
 const lineIndentOf = (code: string): string => code.slice(code.lastIndexOf('\n') + 1)
@@ -359,8 +538,15 @@ export const fromCode = (
   modules: ReadonlyMap<Location, LoomModule>,
   node: Code,
   book: Book = bookOf(modules),
+  specifiers: Specifiers = noSpecifiers,
 ): LoomVirtualCode => ({
-  ...inlineComposed(modules, book, new Set([keyOf(node.origin)]), node.origin.path)(node),
+  ...inlineComposed(
+    modules,
+    book,
+    new Set([keyOf(node.origin)]),
+    node.origin.path,
+    specifiers,
+  )(node),
   id: node.origin.name.toLowerCase(),
   languageId: node.languageId,
 })
@@ -369,12 +555,13 @@ export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
   book: Book = bookOf(modules),
+  specifiers: Specifiers = noSpecifiers,
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => fromCode(modules, node, book),
+      onSome: (node) => fromCode(modules, node, book, specifiers),
     }),
   )
 
@@ -451,12 +638,12 @@ export const rootNamesAt = (
       here,
       Array.flatMap((code) => code.fragments),
       Array.map((part) =>
-        part.type === 'Fragment'
-          ? Option.none()
-          : part.target.pipe(
+        part.type === 'NameRef'
+          ? part.target.pipe(
               Option.filter((t) => t.path === path),
               Option.map((t) => t.name.toLowerCase()),
-            ),
+            )
+          : Option.none(),
       ),
       Array.getSomes,
     ),

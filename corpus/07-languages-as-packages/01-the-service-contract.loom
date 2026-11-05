@@ -43,7 +43,8 @@ Editor features take a different route. The host runs each service's `plugins` E
 
   @athrio/loom-lang-services
     LanguageService { id, displayName, extensions, plugins(ctx) → Effect<Plugin[]>,
-                      format?(request) → Effect<string> }
+                      format?(request) → Effect<string>,
+                      moduleSpecifier?(request) → Effect<Option<string>> }
     isLanguageService · defineLanguageService
     LanguageLoader.loadActive(ids, root)
 
@@ -67,7 +68,7 @@ import type { URI } from 'vscode-uri'
 
 ## A service
 
-A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom service takes the frame query, the TypeScript service takes the TypeScript compilers and the composition, and a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service.
+A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom service takes the frame query, the TypeScript service takes the TypeScript compilers and the composition, and a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service. Two more fields are optional: `format`, which lays a language's code out, and `moduleSpecifier`, which writes the path an import names a module by. The next two sections describe them.
 
 =>
 
@@ -84,6 +85,9 @@ export interface LanguageService {
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
+  readonly moduleSpecifier?: (
+    request: SpecifierRequest,
+  ) => Effect.Effect<Option.Option<string>, ServiceError>
 }
 
 ## Formatting a language
@@ -98,6 +102,21 @@ export interface FormatRequest {
   readonly code: string
   readonly path: string
   readonly width: number
+}
+
+## Writing a module's path
+
+An anchor of the `Reference` kind names a module, the file another section tangles to, as `import { roomBuilder } from ::[Room's 2d system]{Reference}` does, and composes nothing. Loom finds the file the reference names and where it lands, but the path the import writes belongs to the language. A TypeScript import writes a quoted path, and a Python import writes a dotted name.
+
+So the language package writes it. `moduleSpecifier` takes a `SpecifierRequest`: the `language` of the code the import stands in, the `loom` the reference stands in, the file the import stands in as `from`, and the file the reference names as `to`, each the path that file tangles to. It answers with the specifier's whole text, its quotes included, such as `'./room.js'`. A package that does not serve the language answers nothing, so the next package can answer.
+
+=>
+
+export interface SpecifierRequest {
+  readonly language: string
+  readonly loom: string
+  readonly from: string
+  readonly to: string
 }
 
 ## Host capabilities
@@ -274,6 +293,8 @@ export const defineLanguageService = (service: LanguageService): LanguageService
 ::[A service]
 
 ::[Formatting a language]
+
+::[Writing a module's path]
 
 ::[Host capabilities]
 

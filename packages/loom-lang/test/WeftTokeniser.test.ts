@@ -734,14 +734,14 @@ describe('Tokeniser — braces after an anchor', () => {
       'Specifier label may contain only words of letters, digits, hyphens, and underscores, one space apart; got `X: 1`.',
     ])
     expect(labelMessages('p := ::[Point]{x}')).toEqual([
-      'Unknown kind: an anchor takes no kind `x`. It takes `To be settled`.',
+      'Unknown kind: an anchor takes no kind `x`. It takes `To be settled` and `Reference`.',
     ])
     expect(labelMessages('p := ::[Point]{}')).toEqual(['Specifier label cannot be empty.'])
     expect(messages('::[Point]{colour=red}')).toEqual([
       'Unknown key: an anchor takes no `colour` key. It takes `kind` and `provides`.',
     ])
     expect(messages('::[Point]{kind=Term}')).toEqual([
-      'Unknown kind: an anchor takes no kind `Term`. It takes `To be settled`.',
+      'Unknown kind: an anchor takes no kind `Term`. It takes `To be settled` and `Reference`.',
     ])
     expect(anchorIn('p := ::[Point]{X: 1}').health.status).toBe('error')
   })

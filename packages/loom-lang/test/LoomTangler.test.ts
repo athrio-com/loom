@@ -26,16 +26,16 @@ Package: out/
 
 const hi = "hello"
 
-# Bundle {Tangle} [bundle.ts]
+# Bundle [bundle.ts]
 
 =>
 
 ::[Greeting]
 `
 
-// loomWith — a minimal doc: a section inlined by a `{Tangle}` file through a name
+// loomWith — a minimal doc: a section inlined by a sink section through a name
 // anchor. `out` is a `dir/file` path: the directory becomes the frontmatter package
-// and the file the `{Tangle}` section's `[file]` tag.
+// and the file the sink section's `[file]` tag.
 const loomWith = (value: string, out: string): string => {
   const slash = out.lastIndexOf('/')
   const dir = slash === -1 ? '' : out.slice(0, slash + 1)
@@ -51,7 +51,7 @@ Package: ${dir}
 
 const x = "${value}"
 
-# Sink {Tangle} [${file}]
+# Sink [${file}]
 
 =>
 
@@ -137,7 +137,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       const entry = `${dir}/broken.loom`
       yield* fs.writeFileString(
         entry,
-        `---\nLanguage: TypeScript\nPackage: out/\n---\n\n# Sink {Tangle} [x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
+        `---\nLanguage: TypeScript\nPackage: out/\n---\n\n# Sink [x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -164,7 +164,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,
-        `---\nLanguage: TypeScript\nPackage: out/\n---\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle {Tangle} [g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
+        `---\nLanguage: TypeScript\nPackage: out/\n---\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle [g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
       )
 
       const tangler = yield* LoomTangler

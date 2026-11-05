@@ -1,0 +1,705 @@
+---
+Part IV, Chapter 3: Referring to modules
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# Referring to modules
+
+A loom connects code in two ways. A Loom anchor draws one section into another by the section's name. A language's import brings one file's names into another by the file's path. Both connect code an author wrote, yet only the anchor speaks the book's language, so an author who imports a module thinks in the book's names and the output's paths at once.
+
+An import's path belongs to the tangled output. The author has to know where each section tangles, relative to the file they are writing in. Moving a section to another sink, or renaming a file, breaks every import of it, and nothing in the loom says so until the language checks the tangled code.
+
+The path also hides a dependency from Loom. It sits inside a string the language owns, so Loom cannot tell that one loom relies on another.
+
+A reference lets an import name its module the way an anchor names a section: by the module's place in the book. The import stays in the code, because only the language's own service can check it, for example whether the module exports the name the code asks for. Loom writes the path, and the tangled code carries an ordinary import with no trace of Loom.
+
+## A module is a file the book emits
+
+A module is a file the book writes, and two kinds of node write one.
+
+A section writes a file when its heading carries a bracket sink that names the file, as `## The module [room.ts]` does. The section is the module's root, and every section the root composes by an anchor is part of the module.
+
+A chapter writes a file when its `Package` names a single file. The chapter's root is the section marked `{Tangle}`.
+
+A heading carries one of the two marks, never both. The `{Tangle}` specifier and the bracket sink each say that a section writes a file, so a heading with both says it twice, and `{Tangle}[room.ts]` is written `[room.ts]`. Two Loom faults keep the rule, as the chapter "The product pass" describes. The `TangleBesideSink` fault marks a heading that carries both, and the `TangleWithoutFile` fault marks a `{Tangle}` in a loom whose `Package` names no single file, since the specifier then has no file to mean. Directory sinks, the bracket forms that place a file under a folder, keep their shape.
+
+## Naming a module in code
+
+An import names its module with an anchor that stands where the import's path would stand, and the anchor's `Reference` kind says that it refers:
+
+```
+## Interior
+
+The room is built empty, and everything else is added to it.
+
+=>
+import { roomBuilder } from ::[Room's 2d system]{Reference}
+
+const spookyRoom = roomBuilder.createNewRoom()
+```
+
+A referring anchor is written like a composing one, yet the two do different work. A composing anchor draws code in place, and the code becomes part of the file being written. A referring anchor names a file, and the code stays in that other file.
+
+The kind tells the two apart, and the author writes it. Loom treats code as opaque text, in every language, so it cannot tell for itself where an import's path goes. The kind is written `{Reference}` alone in the anchor's braces, or `kind=Reference` beside other parameters, as `{kind=Reference provides=roomBuilder}` does. An anchor with no such kind composes, wherever it stands.
+
+The name finds a chapter or a section nearest first, by the rule every name follows. What the name finds must fit the kind of anchor:
+
+- **An anchor that composes** takes a section's code, or a chapter's opening section.
+- **A reference** takes the file a chapter emits, or the file a section's sink writes. A section with no sink gives the one file it lands in, the file of the root that composes it.
+
+A reference usually names the chapter, not the section that holds the sink. Code moves between sections as the prose is revised, while the chapter that emits the file stays put.
+
+A chapter that emits several files leaves the reference to pick one. The reference names the file in parentheses, with the extension written exactly as the sink declares it, as in `::[Room's 2d system](room.ts)`. An author may name the file even when the chapter emits only one, so the reader sees which file the code depends on without leaving the page. The file must then be one that the node the name finds emits: a file written by a sink on the node's own heading, or on a section inside it. A composing anchor names no file, so parentheses after a composing anchor raise the `StrayTarget` fault.
+
+## Writing the import
+
+The reference stands where the language expects a module specifier, and the language package writes the specifier in its language's form. Loom knows the file the reference names and where it lands, but only the package knows how its language writes a path.
+
+```
+import { roomBuilder } from './room.js'
+```
+
+The TypeScript package writes a quoted path from the importing file to the emitted file, since Loom knows where both land. The extension follows the project's TypeScript settings: `./room.ts` where the compiler options allow importing a `.ts` file, and `./room.js` where they expect the emitted JavaScript.
+
+The editor projects the same import into the code it hands the language service. The service then checks the import as it checks any other: whether the module exists, whether it exports `roomBuilder`, and what type `roomBuilder` has. An error the service reports on the specifier maps back onto the reference in the loom.
+
+## When a reference cannot be written
+
+A reference fails in four ways, and each failure is a Loom fault at the reference:
+
+- **The name matches nothing.** The `UnresolvedAnchor` fault reports it. The reference waits for its name as a forward reference, so the fault clears the moment the module is written.
+- **The node emits no such file, or several.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses, or the reference names no file and the node emits more than one. The `NoSuchFile` and `SeveralFiles` faults list the files the node does emit, and offer to name each one. A chapter that emits no file at all yet is not at fault. Its module is to be settled, and the reference carries the `UnsettledModule` note, as does a name nobody has written yet when the reference promises the module by stating what it provides, as `{kind=Reference provides=roomBuilder}` does.
+- **The section has no file to name.** A reference names a section with no sink, and the section lands in no file, in several, or in the very file the reference stands in. No path can be written, and the author most likely meant to compose the section, so the `SectionWithoutFile` fault says to take the `Reference` kind off and let the anchor compose.
+- **The module lacks a name it should provide.** The reference lists names in its `provides` parameter, and the file it names does not declare every one of them. The `MissingSymbol` fault names each one the file lacks.
+
+The language package can fail too. When it cannot write a path, or the language has no package to write one, the `SpecifierUnknown` fault stops the tangle, since the file would import nothing.
+
+## Libraries outside the book
+
+An import of a library outside the book stays an ordinary import, such as `import { Effect } from 'effect'`. Loom adds nothing to it, because the library's path belongs to the language and not to the book. A plain import of a tangled file keeps working too, so a loom can move to references one import at a time.
+
+## Asking the language packages
+
+`LanguagePackages` is how the compiler asks a loom's language packages to write the path a reference names. Each package answers through the `moduleSpecifier` of the contract, as the chapter "The Loom language-service contract" describes. The service asks every package the loom's workspace activates and takes the first answer, since a package declines a language it does not serve. A question no package answers has no answer, and the compiler leaves the path unwritten.
+
+The packages of a workspace are the ones its configuration activates, loaded from the workspace's store by `loadActive`. `packagesOf` finds the workspace a loom belongs to, through the `LoomConfig` service, and the packages the service holds for it. `hold` keeps a workspace's packages, so the service asks them without loading them again.
+
+Loading a package takes an import, which waits, and the editor projects a loom, with the paths its references write, inside a synchronous hook that cannot wait. So the service comes in two layers. The `layer` the CLI runs loads a workspace's packages the first time a loom of that workspace asks, through `loaded`, which installs the host runtime the packages share first. It imports the loader only then, so a command that asks no package never loads one. The `held` layer the language server runs loads nothing. The server loads each workspace's packages for its plugins as it meets the workspace, and hands them to `hold` before any loom of the workspace is projected.
+
+`firstAnswer` asks each package that takes the question, in the order the workspace activates them, and keeps the first answer.
+
+=>
+
+export interface LanguagePackagesApi {
+  readonly hold: (
+    workspace: Location,
+    services: ReadonlyArray<LanguageService>,
+  ) => Effect.Effect<void>
+  readonly moduleSpecifier: (
+    request: SpecifierRequest,
+  ) => Effect.Effect<Option.Option<string>, ServiceError>
+}
+
+type Question<A> = Effect.Effect<Option.Option<A>, ServiceError>
+
+const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never, LoomConfig> =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const held = yield* Ref.make<ReadonlyMap<Location, ReadonlyArray<LanguageService>>>(new Map())
+
+    const hold = (workspace: Location, services: ReadonlyArray<LanguageService>) =>
+      Ref.update(held, (kept) => new Map(kept).set(workspace, services))
+
+    const loaded = (
+      workspace: Location,
+      languages: ReadonlyArray<string>,
+    ): Effect.Effect<ReadonlyArray<LanguageService>> =>
+      Effect.promise(() =>
+        Promise.all([
+          import('@athrio/loom-lang-services/Runtime'),
+          import('@athrio/loom-lang-services/LanguageLoader'),
+        ]),
+      ).pipe(
+        Effect.flatMap(([{ installHostRuntime }, { loadActive }]) =>
+          Effect.sync(() => {
+            ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
+            installHostRuntime()
+          }).pipe(Effect.andThen(loadActive(languages, workspace))),
+        ),
+        Effect.tap((services) => hold(workspace, services)),
+      )
+
+    const packagesOf = (loom: Location): Effect.Effect<ReadonlyArray<LanguageService>> =>
+      config.resolve(loom).pipe(
+        Effect.flatMap(({ workspaceRoot, languages }) =>
+          Option.match(Option.fromNullishOr(workspaceRoot), {
+            onNone: () => Effect.succeed<ReadonlyArray<LanguageService>>([]),
+            onSome: (workspace) =>
+              Ref.get(held).pipe(
+                Effect.flatMap((kept) =>
+                  Option.match(Option.fromNullishOr(kept.get(workspace)), {
+                    onSome: (services) => Effect.succeed(services),
+                    onNone: () =>
+                      loads && Array.isReadonlyArrayNonEmpty(languages)
+                        ? loaded(workspace, languages)
+                        : Effect.succeed<ReadonlyArray<LanguageService>>([]),
+                  }),
+                ),
+              ),
+          }),
+        ),
+      )
+
+    const firstAnswer = <A>(
+      loom: Location,
+      ask: (service: LanguageService) => Option.Option<Question<A>>,
+    ): Effect.Effect<Option.Option<A>, ServiceError> =>
+      packagesOf(loom).pipe(
+        Effect.flatMap((services) => Effect.all(Array.getSomes(Array.map(services, ask)))),
+        Effect.map((answers) => Array.head(Array.getSomes(answers))),
+      )
+
+    return {
+      hold,
+      moduleSpecifier: (request) =>
+        firstAnswer(request.loom, (service) =>
+          Option.map(Option.fromNullishOr(service.moduleSpecifier), (ask) => ask(request)),
+        ),
+    }
+  })
+
+export class LanguagePackages extends Context.Service<LanguagePackages>()('LanguagePackages', {
+  make: packagesWith(true),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+  static readonly held = Layer.effect(this, packagesWith(false))
+}
+
+## What the service draws on
+
+Effect gives the service and its layers, `Ref` for the packages it holds, and `Array` and `Option` for the answers. Node's `createRequire` gives a loaded package the `require` it expects to find. `LoomConfig` resolves the workspace a loom belongs to and the languages it activates. `loadActive` loads them, after `installHostRuntime` lends them the host's runtime, and the service imports both only when it first loads a package. The contract gives the `LanguageService` each package is, the `SpecifierRequest` the question takes, and the `ServiceError` a package fails with. A `Location` names a loom and its workspace.
+
+=>
+
+import { Array, Context, Effect, Layer, Option, Ref } from 'effect'
+import { createRequire } from 'node:module'
+import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import {
+  type LanguageService,
+  type ServiceError,
+  type SpecifierRequest,
+} from '@athrio/loom-lang-services/LanguageService'
+
+## The service module [src/LanguagePackages.ts]
+
+=>
+
+::[What the service draws on]
+
+::[Asking the language packages]
+
+## Testing a reference
+
+These cases build small corpora in memory and ask the compiler about them. `compilerOver` serves the looms of a record through a stand-in source and the settings a TypeScript workspace gives. It hands the compiler a `LanguagePackages` service, by default `plainPaths`, a stand-in package whose specifier is the plain relative path between the two files. The stand-in keeps the cases about Loom's half of the work, and the last case loads the real TypeScript service instead.
+
+`room` is a loom that tangles `room.ts` from its one `{Tangle}` section, `Room's 2d system`. `interiorWith` is a loom that tangles `interior.ts` and imports `roomBuilder` from whatever anchor it is handed. `anchor` builds an anchor from its pieces, so the code of this chapter holds none, and `reference` builds one of the `Reference` kind, with a file in parentheses when the case names one. `tangled`, `diagnosed`, and `messagesOf` ask the compiler for a tangle and a loom's diagnostics.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Array, Effect, Layer, Option } from 'effect'
+import { dirname, relative } from 'node:path'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { LanguagePackages, type LanguagePackagesApi } from '../src/LanguagePackages'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const it = effectify(it_)
+
+const lines = (...all: ReadonlyArray<string>): string => `${all.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const reference = (name: string, file = ''): string =>
+  `${anchor(name)}${file === '' ? '' : `(${file})`}{Reference}`
+
+const plainPaths: LanguagePackagesApi = {
+  hold: () => Effect.void,
+  moduleSpecifier: (request) =>
+    Effect.succeed(Option.some(`'./${relative(dirname(request.from), request.to)}'`)),
+}
+
+const sourceOf = (files: Record<string, string>) => ({
+  read: (path: string) => Effect.succeed(files[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(files))),
+})
+
+const compilerOver = (files: Record<string, string>, packages: LanguagePackagesApi = plainPaths) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        ...sourceOf(files),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+      Layer.succeed(LanguagePackages, packages),
+    ),
+  )
+
+const room = lines(
+  '---',
+  'Language: TypeScript',
+  'Package: room.ts',
+  '---',
+  '',
+  "# Room's 2d system {Tangle}",
+  '',
+  '=>',
+  '',
+  'export const roomBuilder = { createNewRoom: () => ({ ghosts: 0 }) }',
+)
+
+const interiorWith = (reference: string): string =>
+  lines(
+    '---',
+    'Language: TypeScript',
+    'Package: interior.ts',
+    '---',
+    '',
+    '# Interior {Tangle}',
+    '',
+    '=>',
+    '',
+    `import { roomBuilder } from ${reference}`,
+    '',
+    'export const spookyRoom = roomBuilder.createNewRoom()',
+  )
+
+const tangled = (
+  files: Record<string, string>,
+  entry: string,
+  packages: LanguagePackagesApi = plainPaths,
+) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.tangle(entry)),
+    Effect.provide(compilerOver(files, packages)),
+  )
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.diagnose(entry)),
+    Effect.provide(compilerOver(files)),
+  )
+
+const messagesOf = (files: Record<string, string>, entry: string) =>
+  Effect.map(diagnosed(files, entry), (found) => Array.map(found, (one) => one.message))
+
+~
+
+A reference tangles to the path of the file it names, and the code of that file stays out of the importing file. An anchor with no kind composes the section, as an anchor always did, even where an import's path would go.
+
+=>
+
+describe('an anchor of the Reference kind refers to the module', () => {
+  it.effect('writes the path to the file the name finds', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        {
+          '/corpus/room.loom': room,
+          '/corpus/interior.loom': interiorWith(reference("Room's 2d system")),
+        },
+        '/corpus/interior.loom',
+      )
+      expect(files.map((file) => file.path)).toEqual(['/corpus/interior.ts'])
+      expect(files[0]!.content).toContain("import { roomBuilder } from './room.ts'")
+      expect(files[0]!.content).not.toContain('createNewRoom: () =>')
+    }),
+  )
+
+  it.effect('composes the section when the anchor carries no kind', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        {
+          '/corpus/room.loom': room,
+          '/corpus/interior.loom': interiorWith(anchor("Room's 2d system")),
+        },
+        '/corpus/interior.loom',
+      )
+      expect(files[0]!.content).toContain(
+        'import { roomBuilder } from export const roomBuilder',
+      )
+    }),
+  )
+})
+
+~
+
+A chapter that emits two files leaves the reference to pick one. `rooms` is such a chapter: its `Package` is a folder, and its sections `The room` and `The door` each write a file into it. A reference that names neither raises `SeveralFiles`, with a fix that names each file. A reference that names `door.ts` in parentheses tangles to the door's file. A reference that names a file the chapter does not emit raises `NoSuchFile`, which lists the files it does emit.
+
+=>
+
+const rooms = lines(
+  '---',
+  'Part I: Houses',
+  'Chapter 1: Rooms',
+  'Language: TypeScript',
+  'Package: rooms/',
+  '---',
+  '',
+  '# Building rooms',
+  '',
+  'A house is built a room at a time.',
+  '',
+  '## The room [room.ts]',
+  '',
+  '=>',
+  '',
+  'export const roomBuilder = { createNewRoom: () => ({}) }',
+  '',
+  '## The door [door.ts]',
+  '',
+  '=>',
+  '',
+  'export const roomBuilder = { createNewRoom: () => ({ open: true }) }',
+)
+
+describe('a reference picks one of the files a chapter emits', () => {
+  it.effect('asks for a file when the chapter emits several', () =>
+    Effect.gen(function* () {
+      const found = yield* diagnosed(
+        { '/corpus/rooms.loom': rooms, '/corpus/interior.loom': interiorWith(reference('Rooms')) },
+        '/corpus/interior.loom',
+      )
+      expect(found.map((one) => one.message)).toEqual([
+        'Several files: `Rooms` emits `room.ts` and `door.ts`. Name the one this reference means in parentheses after its name, as `(room.ts)`.',
+      ])
+      expect(found[0]!.fixes?.map((fix) => fix.text)).toEqual(['(room.ts)', '(door.ts)'])
+    }),
+  )
+
+  it.effect('tangles the file it names in parentheses', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        {
+          '/corpus/rooms.loom': rooms,
+          '/corpus/interior.loom': interiorWith(reference('Rooms', 'door.ts')),
+        },
+        '/corpus/interior.loom',
+      )
+      expect(files[0]!.content).toContain("import { roomBuilder } from './rooms/door.ts'")
+    }),
+  )
+
+  it.effect('refuses a file the chapter does not emit', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* messagesOf(
+          {
+            '/corpus/rooms.loom': rooms,
+            '/corpus/interior.loom': interiorWith(reference('Rooms', 'window.ts')),
+          },
+          '/corpus/interior.loom',
+        ),
+      ).toEqual(['No such file: `Rooms` emits no `window.ts`. It emits `room.ts` and `door.ts`.'])
+    }),
+  )
+})
+
+~
+
+A section with no sink gives the path to the one file it lands in. `Helpers` is such a section, in the chapter `Utilities`, which emits no file. Another loom reaches the section through its chapter, as `Utilities, Helpers`. The bundle composes it into `bundle.ts`, so a reference to it names the bundle. Without the bundle, `Helpers` lands in no file. When the importing loom composes `Helpers` itself, it lands in the very file the reference stands in. Neither path can be written, so both raise `SectionWithoutFile`.
+
+=>
+
+const helpers = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Utilities',
+  '',
+  '## Helpers',
+  '',
+  '=>',
+  '',
+  'export const helper = 1',
+)
+
+const bundle = lines(
+  '---',
+  'Language: TypeScript',
+  'Package: bundle.ts',
+  '---',
+  '',
+  '# Bundle {Tangle}',
+  '',
+  '=>',
+  '',
+  anchor('Utilities, Helpers'),
+)
+
+const importingHelpers = (composed: boolean): string =>
+  lines(
+    '---',
+    'Language: TypeScript',
+    'Package: interior.ts',
+    '---',
+    '',
+    '# Interior {Tangle}',
+    '',
+    '=>',
+    '',
+    ...(composed ? [anchor('Utilities, Helpers'), ''] : []),
+    `import { helper } from ${reference('Utilities, Helpers')}`,
+  )
+
+describe('a section with no sink names the file it lands in', () => {
+  it.effect('writes the path to the one file that composes it', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        {
+          '/corpus/helpers.loom': helpers,
+          '/corpus/bundle.loom': bundle,
+          '/corpus/interior.loom': importingHelpers(false),
+        },
+        '/corpus/interior.loom',
+      )
+      expect(files[0]!.content).toContain("import { helper } from './bundle.ts'")
+    }),
+  )
+
+  it.effect('refuses a section that lands in no file, or in the file being written', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* messagesOf(
+          { '/corpus/helpers.loom': helpers, '/corpus/interior.loom': importingHelpers(false) },
+          '/corpus/interior.loom',
+        ),
+      ).toEqual([
+        'No file to name: `Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+      ])
+      expect(
+        yield* messagesOf(
+          { '/corpus/helpers.loom': helpers, '/corpus/interior.loom': importingHelpers(true) },
+          '/corpus/interior.loom',
+        ),
+      ).toEqual([
+        'No file to name: `Utilities, Helpers` lands in the file this reference stands in, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+      ])
+    }),
+  )
+})
+
+~
+
+A reference whose name finds nothing is unresolved, like any anchor. A reference that promises its module by stating what it provides, as `{kind=Reference provides=roomBuilder}` does, waits for it instead: it carries the `UnsettledModule` note, and the tangle refuses the file, since the file would import nothing.
+
+=>
+
+describe('a reference waits for a module nobody has written', () => {
+  it.effect('reports a name that finds nothing', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* messagesOf(
+          { '/corpus/interior.loom': interiorWith(reference('Nowhere')) },
+          '/corpus/interior.loom',
+        ),
+      ).toEqual(['Unresolved anchor: no section named `Nowhere`.'])
+    }),
+  )
+
+  it.effect('notes a promised module, and refuses to tangle it', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/interior.loom': interiorWith(
+          `${anchor('Nowhere')}{kind=Reference provides=roomBuilder}`,
+        ),
+      }
+      const found = yield* diagnosed(files, '/corpus/interior.loom')
+      expect(found.map((one) => [one.severity, one.message])).toEqual([
+        ['info', 'To be settled: nothing is named `Nowhere` yet, so this reference names no module.'],
+      ])
+      const refusal = yield* Effect.flip(tangled(files, '/corpus/interior.loom'))
+      expect(refusal.message).toContain('nothing is named `Nowhere` yet')
+    }),
+  )
+})
+
+~
+
+A heading marks its file once. `{Tangle}` beside a sink says twice that the section writes a file, and the fault's fix removes the specifier, so the heading keeps the sink alone. `{Tangle}` under a `Package` that names a folder has no file to mean.
+
+=>
+
+describe('a heading marks the file it writes once', () => {
+  it.effect('faults a {Tangle} beside a sink, with a fix that removes it', () =>
+    Effect.gen(function* () {
+      const text = lines('---', 'Language: TypeScript', '---', '', '# Room {Tangle}[room.ts]', '', '=>', '', 'export const r = 1')
+      const [fault] = yield* diagnosed({ '/corpus/room.loom': text }, '/corpus/room.loom')
+      expect(fault!.message).toBe(
+        'Two marks for one file: the sink `[room.ts]` already says this section writes a file, so `{Tangle}` says it twice. Remove `{Tangle}`.',
+      )
+      const at = fault!.fixes![0]!.at!
+      expect(text.slice(at.start.offset, at.end.offset)).toBe('{Tangle}')
+    }),
+  )
+
+  it.effect('faults a {Tangle} whose Package names a folder', () =>
+    Effect.gen(function* () {
+      const text = lines('---', 'Language: TypeScript', 'Package: out/', '---', '', '# Room {Tangle}', '', '=>', '', 'export const r = 1')
+      expect(yield* messagesOf({ '/corpus/room.loom': text }, '/corpus/room.loom')).toEqual([
+        "No file for `{Tangle}`: it writes the one file the chapter's `Package` names, but `out/` names a folder. Name the file in brackets instead, as `[module.ts]`.",
+      ])
+    }),
+  )
+})
+
+~
+
+The editor sees what the tangle writes. The projection of `interior.loom` holds the path to `room.ts` where the anchor stood, and maps the path back onto the anchor's name, so an error the language reports on the path lands on the reference. A reference that states what its module provides holds a contract over the file it names, so the editor can raise `MissingSymbol` for a name the module lacks.
+
+=>
+
+describe('the editor sees the path the tangle writes', () => {
+  const files = {
+    '/corpus/room.loom': room,
+    '/corpus/interior.loom': interiorWith(
+      `${anchor("Room's 2d system")}{kind=Reference provides=roomBuilder}`,
+    ),
+  }
+
+  it.effect('projects the path and maps it onto the anchor', () =>
+    Effect.gen(function* () {
+      const compiler = yield* LoomCompiler
+      const tree = yield* compiler.compile(sourceOf(files), '/corpus/interior.loom')
+      const interior = tree.embeddedCodes?.find((code) => code.id === 'interior')
+      const text = interior!.snapshot.getText(0, interior!.snapshot.getLength())
+      const at = text.indexOf("'./room.ts'")
+      expect(at).toBeGreaterThan(0)
+      const mapped = interior!.mappings.find((mapping) => mapping.generatedOffsets[0] === at)
+      expect(mapped?.sourceOffsets[0]).toBe(files['/corpus/interior.loom'].indexOf("Room's 2d system"))
+    }).pipe(Effect.provide(compilerOver(files))),
+  )
+
+  it.effect('holds a contract over the file a reference names', () =>
+    Effect.gen(function* () {
+      const compiler = yield* LoomCompiler
+      const [contract] = yield* compiler.contracts('/corpus/interior.loom')
+      expect(contract?.target.path).toBe('/corpus/room.loom')
+      expect(contract?.expected.map((one) => one.name)).toEqual(['roomBuilder'])
+    }).pipe(Effect.provide(compilerOver(files))),
+  )
+})
+
+~
+
+The last case runs the whole path on disk, with the TypeScript service as a workspace loads it. `serviceStore` builds the service and stands up a store for it, and the case writes a workspace that activates `typescript`. The compiler runs over the file system's environment with the `LanguagePackages` layer the CLI runs, which loads the service from the store the first time the compiler asks it to write a path. The service writes the path the way a project with no `tsconfig.json` imports a file, to the emitted `room.js`. `workspaceWith` writes such a workspace, with the looms it is handed in its corpus.
+
+=>
+
+import { afterAll, beforeAll } from 'bun:test'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { FileSystemEnvironment } from '../src/WorkspaceSource'
+import { serviceStore } from './store'
+import { type LanguageService } from '@athrio/loom-lang-services/LanguageService'
+
+const onDisk = LoomCompiler.layer.pipe(
+  Layer.provideMerge(LanguagePackages.layer),
+  Layer.provideMerge(DocumentSource.layer),
+  Layer.provideMerge(FileSystemEnvironment),
+  Layer.provideMerge(LoomConfig.layer),
+)
+
+const workspaceWith = (looms: Record<string, string>): string => {
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'loom-refer-')))
+  mkdirSync(join(workspace, '.loom'), { recursive: true })
+  mkdirSync(join(workspace, 'corpus'), { recursive: true })
+  writeFileSync(
+    join(workspace, '.loom', 'config.yaml'),
+    lines('corpus: corpus', 'primary: typescript', 'languages:', '  typescript: {}'),
+  )
+  Object.entries(looms).forEach(([name, text]) => writeFileSync(join(workspace, 'corpus', name), text))
+  return workspace
+}
+
+describe('the TypeScript service writes a reference end to end', () => {
+  let teardown: () => void = () => undefined
+  beforeAll(() => {
+    teardown = serviceStore()
+  }, 60_000)
+  afterAll(() => teardown())
+
+  it.effect(
+    'tangles the import with the path TypeScript expects',
+    () =>
+      Effect.gen(function* () {
+        const workspace = workspaceWith({
+          'room.loom': room,
+          'interior.loom': interiorWith(reference("Room's 2d system")),
+        })
+        const compiler = yield* LoomCompiler
+        const files = yield* compiler.tangle(join(workspace, 'corpus', 'interior.loom'))
+        expect(files[0]!.content).toContain("import { roomBuilder } from './room.js'")
+      }).pipe(Effect.provide(onDisk)),
+    60_000,
+  )
+})
+
+~
+
+The language server runs the `held` layer, which never loads a package. Until the server holds a workspace's packages, a question about a loom of that workspace gets no answer, and the reference's path stays unwritten. Once the server holds them, the service asks them. The case holds a stand-in package that writes one path for every reference.
+
+=>
+
+describe('the held layer answers from the packages the server holds', () => {
+  const answering: LanguageService = {
+    id: 'typescript',
+    displayName: 'Stand-in',
+    extensions: ['.ts'],
+    plugins: () => Effect.succeed([]),
+    moduleSpecifier: () => Effect.succeed(Option.some("'./a.js'")),
+  }
+
+  it.effect('loads nothing, and asks what it holds', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith({})
+      const packages = yield* LanguagePackages
+      const request = {
+        language: 'typescript',
+        loom: join(workspace, 'corpus', 'b.loom'),
+        from: join(workspace, 'b.ts'),
+        to: join(workspace, 'a.ts'),
+      }
+      expect(yield* packages.moduleSpecifier(request)).toEqual(Option.none())
+      yield* packages.hold(workspace, [answering])
+      expect(yield* packages.moduleSpecifier(request)).toEqual(Option.some("'./a.js'"))
+    }).pipe(Effect.provide(LanguagePackages.held.pipe(Layer.provide(LoomConfig.layer)))),
+  )
+})
+
+## The test file [test/ReferringToModules.test.ts]
+
+=>
+
+::[Testing a reference]

@@ -329,21 +329,21 @@ describe('LoomServer — a chapter that changes on disk', () => {
     const main = join(root, 'corpus', 'main.loom')
     install(root, checking(main))
     configure(root, activated)
-    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
-    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
-    const closed = chapterAt(root, 'answer.loom', chapter('Answer {Tangle}[answer.ts]', 'const answer = 42'))
+    chapterAt(root, 'main.loom', chapter('Main [main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note [note.ts]', "const note = 'saved'"))
+    const closed = chapterAt(root, 'answer.loom', chapter('Answer [answer.ts]', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
       await editor.open(note)
-      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      await editor.edit(note, chapter('Note [note.ts]', "const note = 'unsaved'"))
       expect(await editor.diagnostics(note)).toEqual([
         "const answer = 42 | const main = 1 | const note = 'unsaved'",
       ])
       expect(await editor.diagnostics(main)).toEqual([
         "const answer = 42 | const main = 1 | const note = 'unsaved'",
       ])
-      chapterAt(root, 'answer.loom', chapter('Answer {Tangle}[answer.ts]', 'const answer = 43'))
+      chapterAt(root, 'answer.loom', chapter('Answer [answer.ts]', 'const answer = 43'))
       await editor.changed(closed)
       expect(await editor.diagnostics(main)).toEqual([
         "const answer = 43 | const main = 1 | const note = 'unsaved'",
@@ -358,13 +358,13 @@ describe('LoomServer — a chapter that changes on disk', () => {
     const main = join(root, 'corpus', 'main.loom')
     install(root, checking(main))
     configure(root, activated)
-    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
-    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    chapterAt(root, 'main.loom', chapter('Main [main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note [note.ts]', "const note = 'saved'"))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
       await editor.open(note)
-      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      await editor.edit(note, chapter('Note [note.ts]', "const note = 'unsaved'"))
       expect(await editor.diagnostics(note)).toEqual(["const main = 1 | const note = 'unsaved'"])
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'unsaved'"])
       await editor.shut(note)
@@ -399,14 +399,14 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
     const main = join(root, 'corpus', 'main.loom')
     install(root, checking(main))
     configure(root, activated)
-    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
-    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    chapterAt(root, 'main.loom', chapter('Main [main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note [note.ts]', "const note = 'saved'"))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
       await editor.open(note)
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved'"])
-      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      await editor.edit(note, chapter('Note [note.ts]', "const note = 'unsaved'"))
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'unsaved'"])
     } finally {
       editor.close()
@@ -418,8 +418,8 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
     const main = join(root, 'corpus', 'main.loom')
     install(root, checking(main, true))
     configure(root, activated)
-    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
-    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    chapterAt(root, 'main.loom', chapter('Main [main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note [note.ts]', "const note = 'saved'"))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
@@ -427,13 +427,13 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved' #1"])
       await editor.edit(
         note,
-        chapter('Note {Tangle}[note.ts]', "const note = 'saved'").replace(
+        chapter('Note [note.ts]', "const note = 'saved'").replace(
           '[note.ts]\n',
           '[note.ts]\n\nA word of prose.\n',
         ),
       )
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved' #1"])
-      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'edited'"))
+      await editor.edit(note, chapter('Note [note.ts]', "const note = 'edited'"))
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'edited' #2"])
     } finally {
       editor.close()
@@ -449,7 +449,7 @@ const readingAnswer = lines(
   'Language: TypeScript',
   '---',
   '',
-  '# Main {Tangle}[main.ts]',
+  '# Main [main.ts]',
   '',
   '{{ answer = ${answer} }}',
   '',
@@ -465,12 +465,12 @@ describe('LoomServer — a configuration that changes', () => {
     install(root, checking(main))
     configure(root, configuredWith(42))
     chapterAt(root, 'main.loom', readingAnswer)
-    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const note = chapterAt(root, 'note.loom', chapter('Note [note.ts]', "const note = 'saved'"))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
       await editor.open(note)
-      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      await editor.edit(note, chapter('Note [note.ts]', "const note = 'unsaved'"))
       expect(await editor.diagnostics(main)).toEqual(["const main = 42 | const note = 'unsaved'"])
       configure(root, configuredWith(43))
       await editor.changed(join(root, '.loom', 'config.yaml'))
@@ -509,7 +509,7 @@ describe('LoomServer — a compiler setting that changes', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     install(root, creating)
     configure(root, activated)
-    const main = chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
+    const main = chapterAt(root, 'main.loom', chapter('Main [main.ts]', 'const main = 1'))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
@@ -660,6 +660,13 @@ describe('LoomServer — a label as it is typed', () => {
           textEdit: {
             range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
             newText: 'To be settled',
+          },
+        },
+        {
+          label: 'Reference',
+          textEdit: {
+            range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
+            newText: 'Reference',
           },
         },
       ])

@@ -17,12 +17,22 @@ export interface LanguageService {
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
+  readonly moduleSpecifier?: (
+    request: SpecifierRequest,
+  ) => Effect.Effect<Option.Option<string>, ServiceError>
 }
 
 export interface FormatRequest {
   readonly code: string
   readonly path: string
   readonly width: number
+}
+
+export interface SpecifierRequest {
+  readonly language: string
+  readonly loom: string
+  readonly from: string
+  readonly to: string
 }
 
 export interface FetchedTypeScript {

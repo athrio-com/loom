@@ -1,0 +1,44 @@
+---
+Part: Work in progress
+Chapter: References in the editor and in other languages
+Status: Planned
+Priority: 3
+Language: TypeScript
+---
+
+# References in the editor and in other languages
+
+The chapter "Referring to modules" lets an import name its module by its place in the book, with an anchor of the `Reference` kind. The TypeScript package writes the path into the tangled file and into the code the editor checks. This draft carries the reference further: into the editor's own features, onto the woven page, to the boxes and wildcards of the chapter "Names through the book", and into languages other than TypeScript.
+
+## Wildcards and boxes as references
+
+A wildcard, the box the chapter "Names through the book" defines, refers or composes as the anchor that names it says, and its target fits the kind as a section or chapter does. A wildcard that refers carries two kinds, as `{kind=[Wildcard, Reference]}` does. While the wildcard points nowhere, a referring one gives a module of its own, and a composing one composes nothing.
+
+A box whose chapter is not written, and a wildcard that points nowhere, are not at fault as references. Each is unsettled, as the chapter "Names through the book" describes. The reference resolves, and the editor collects the module's contract from the code that uses it and from the names a `provides` parameter states.
+
+## Other languages
+
+The Python package writes a dotted module name rather than a quoted path, for `import` and for `from … import`. Each language package reads its own preferences, as the TypeScript package reads its compiler options.
+
+Some languages tie modules to the folders they live in, and their packages need to know the layout. Go imports a package by its directory and needs no import at all within one package. Rust follows the tree of `mod` declarations. Java requires a package declaration that matches the directory. Loom owns the layout, so each package can be told it. Each such language is a package of its own to write, after TypeScript and Python.
+
+## The editor
+
+Typing `::[` in code opens a list of the names in reach. For a reference, the list offers the chapters and sections that emit files, each with the files it emits.
+
+A reference behaves like an anchor. Go-to-definition on the name opens the module's root section, and on the file, the sink that writes it. Renaming a chapter or a file rewrites every reference that names it.
+
+A reference gives the editor a dependency it lacked. A loom that refers to a module depends on it by name, whether or not the module exists yet. When a module appears, changes, or disappears, the editor knows which open looms to check again, the forward references included.
+
+## The woven page
+
+The woven page renders a reference as a link that reads as the module's name and leads to its root section, as it renders a composing anchor in code today.
+
+## What this chapter grows into
+
+The design lands in steps, each one useful on its own.
+
+1. The editor: the list of names in reach, navigation, rename, and checking again the looms that refer to a changed module.
+2. The woven link.
+3. Wildcards and boxes as references.
+4. Packages for Python, then for the languages that tie modules to the layout.

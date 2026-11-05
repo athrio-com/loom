@@ -47,7 +47,23 @@ export type LoomFault = Data.TaggedEnum<{
   UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
   UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
   MissingSymbol: { readonly name: string; readonly section: string }
-  RetiredTarget: { readonly target: string; readonly at: Position }
+  StrayTarget: { readonly target: string; readonly at: Position }
+  NoSuchFile: {
+    readonly name: string
+    readonly file: string
+    readonly files: ReadonlyArray<string>
+    readonly at: Position
+  }
+  SeveralFiles: { readonly name: string; readonly files: ReadonlyArray<string>; readonly at: Position }
+  SectionWithoutFile: {
+    readonly name: string
+    readonly files: ReadonlyArray<string>
+    readonly here: boolean
+  }
+  UnsettledModule: { readonly name: string; readonly declared: boolean }
+  SpecifierUnknown: { readonly name: string; readonly language: string; readonly reason: string }
+  TangleBesideSink: { readonly sink: string; readonly specifier: Position }
+  TangleWithoutFile: { readonly folder?: string }
   HeadingAgainstCode: {}
 }>
 
@@ -73,7 +89,14 @@ export const {
   UnknownKey,
   UnknownKind,
   MissingSymbol,
-  RetiredTarget,
+  StrayTarget,
+  NoSuchFile,
+  SeveralFiles,
+  SectionWithoutFile,
+  UnsettledModule,
+  SpecifierUnknown,
+  TangleBesideSink,
+  TangleWithoutFile,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -110,6 +133,18 @@ const disambiguation = (paths: ReadonlyArray<string>): string =>
         ' or ',
       )}.`,
   })
+
+const fileList = (files: ReadonlyArray<string>): string =>
+  Array.join(
+    Array.map(files, (file) => `\`${file}\``),
+    ' and ',
+  )
+
+const emitted = (files: ReadonlyArray<string>): string =>
+  Array.isReadonlyArrayNonEmpty(files) ? `It emits ${fileList(files)}.` : 'It emits no file of its own.'
+
+const composeInstead =
+  'Take `Reference` off the anchor and move it out of the import, so it composes the section.'
 
 const rule: Record<MalformedConstruct, string> = {
   specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
@@ -185,9 +220,52 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
       ),
-    RetiredTarget: ({ target }) =>
+    StrayTarget: ({ target }) =>
       error(
-        `Retired target: an anchor finds its section by its name, through the book, so Loom no longer reads \`${target}\`. Remove it, and name the section through its chapter if the name alone is ambiguous.`,
+        `Stray target: \`${target}\` names a file, and only a reference, an anchor of the \`Reference\` kind, names one. This anchor composes code, so remove the target.`,
+      ),
+    NoSuchFile: ({ name, file, files }) =>
+      error(`No such file: \`${name}\` emits no \`${file}\`. ${emitted(files)}`),
+    SeveralFiles: ({ name, files }) =>
+      error(
+        `Several files: \`${name}\` emits ${fileList(files)}. Name the one this reference means in parentheses after its name, as \`(${files[0] ?? ''})\`.`,
+      ),
+    SectionWithoutFile: ({ name, files, here }) =>
+      error(
+        Match.value({ here, count: files.length }).pipe(
+          Match.when(
+            { here: true },
+            () =>
+              `No file to name: \`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
+          ),
+          Match.when(
+            { count: 0 },
+            () =>
+              `No file to name: \`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
+          ),
+          Match.orElse(
+            () =>
+              `No file to name: \`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
+          ),
+        ),
+      ),
+    UnsettledModule: ({ name, declared }) =>
+      information(
+        declared
+          ? `To be settled: \`${name}\` emits no file yet, so this reference names no module.`
+          : `To be settled: nothing is named \`${name}\` yet, so this reference names no module.`,
+      ),
+    SpecifierUnknown: ({ name, language, reason }) =>
+      error(`Path unwritten: the ${language} package cannot write the path to \`${name}\`. ${reason}`),
+    TangleBesideSink: ({ sink }) =>
+      error(
+        `Two marks for one file: the sink \`${sink}\` already says this section writes a file, so \`{Tangle}\` says it twice. Remove \`{Tangle}\`.`,
+      ),
+    TangleWithoutFile: ({ folder }) =>
+      error(
+        `No file for \`{Tangle}\`: it writes the one file the chapter's \`Package\` names, but ${
+          folder === undefined ? 'this chapter names no `Package`' : `\`${folder}\` names a folder`
+        }. Name the file in brackets instead, as \`[module.ts]\`.`,
       ),
     HeadingAgainstCode: () =>
       warning(
@@ -232,8 +310,17 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('LabelBesideParameter', ({ label }): ReadonlyArray<Fix> => [
       { title: `Write \`${label}\` in full`, text: `kind="${label}"` },
     ]),
-    Match.tag('RetiredTarget', ({ target, at }): ReadonlyArray<Fix> => [
+    Match.tag('StrayTarget', ({ target, at }): ReadonlyArray<Fix> => [
       { title: `Remove \`${target}\``, text: '', at },
+    ]),
+    Match.tag('NoSuchFile', ({ files, at }) =>
+      Array.map(files, (file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+    ),
+    Match.tag('SeveralFiles', ({ files, at }) =>
+      Array.map(files, (file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+    ),
+    Match.tag('TangleBesideSink', ({ specifier }): ReadonlyArray<Fix> => [
+      { title: 'Remove `{Tangle}`', text: '', at: specifier },
     ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )

@@ -505,3 +505,46 @@ describe('productPlugin warns of a name promised before it is written', () => {
     expect(reported).toContainEqual([1, "Cannot find name 'farewell'."])
   })
 })
+
+import { Effect } from 'effect'
+import { specifierBetween, TypescriptService } from '../src/TypescriptService'
+
+describe('the service writes the path to a module', () => {
+  it('writes a relative path with the extension the project imports', () => {
+    expect(specifierBetween('/p/src/a.ts', '/p/src/room.ts', false)).toBe("'./room.js'")
+    expect(specifierBetween('/p/src/a.ts', '/p/lib/view.tsx', false)).toBe("'../lib/view.js'")
+    expect(specifierBetween('/p/src/a.ts', '/p/src/data.json', false)).toBe("'./data.json'")
+    expect(specifierBetween('/p/src/a.ts', '/p/src/room.ts', true)).toBe("'./room.ts'")
+  })
+
+  it('reads whether the project imports .ts from its tsconfig.json', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-specifier-')))
+    const pkg = (name: string, tsconfig: string) => {
+      mkdirSync(join(folder, name, 'src'), { recursive: true })
+      writeFileSync(join(folder, name, 'tsconfig.json'), tsconfig)
+    }
+    pkg(
+      'direct',
+      '{\n  // imports name .ts files\n  "compilerOptions": { "allowImportingTsExtensions": true, "noEmit": true, },\n}\n',
+    )
+    pkg('emitted', JSON.stringify({ compilerOptions: { allowImportingTsExtensions: false } }))
+    writeFileSync(
+      join(folder, 'tsconfig.base.json'),
+      JSON.stringify({ compilerOptions: { rewriteRelativeImportExtensions: true } }),
+    )
+    pkg('extended', JSON.stringify({ extends: '../tsconfig.base' }))
+    const written = (name: string, language = 'typescript') =>
+      Effect.runSync(
+        TypescriptService.moduleSpecifier!({
+          language,
+          loom: join(folder, 'corpus', 'doc.loom'),
+          from: join(folder, name, 'src', 'interior.ts'),
+          to: join(folder, name, 'src', 'room.ts'),
+        }),
+      )
+    expect(written('direct')).toEqual(Option.some("'./room.ts'"))
+    expect(written('emitted')).toEqual(Option.some("'./room.js'"))
+    expect(written('extended')).toEqual(Option.some("'./room.ts'"))
+    expect(written('direct', 'json')).toEqual(Option.none())
+  })
+})

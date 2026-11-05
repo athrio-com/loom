@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, Order, pipe, Record, Result } from 'effect'
 import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
   okHealth,
@@ -12,6 +12,7 @@ import {
   type Location,
   type LoomModule,
   pathsTo,
+  type Place,
   resolveName,
   sectionOf,
   type SectionRef,
@@ -19,11 +20,13 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  referenceKind,
   settleKind,
   type FenceLabelToken,
   type ParameterToken,
   type ParametersToken,
   type SinkToken,
+  type SpecifierToken,
   type WarpAnchorTargetToken,
   type WarpAnchorToken,
   type WarpToken,
@@ -37,6 +40,9 @@ import {
   type Fragment,
   FragmentSchema,
   isMeant,
+  keyOf,
+  type ModuleRef,
+  ModuleRefSchema,
   type NameRef,
   NameRefSchema,
   type Part,
@@ -53,8 +59,14 @@ import {
   DuplicateName,
   faulty,
   FenceLabelAgainstLanguage,
-  RetiredTarget,
+  NoSuchFile,
+  SectionWithoutFile,
   SettledLabel,
+  SeveralFiles,
+  StrayTarget,
+  TangleBesideSink,
+  TangleWithoutFile,
+  UnsettledModule,
   UnsettledSection,
   UnknownVariable,
   UnresolvedAnchor,
@@ -81,17 +93,8 @@ export const buildProduct = (
   packageLanguage?: string,
   variables: Record<string, string> = {},
 ): Product => {
-  const fm = Option.fromNullishOr(doc.frontmatter)
-  const pkg = pipe(
-    fm,
-    Option.flatMapNullishOr((f) => f.package),
-    Option.map((p) => p.value),
-  )
-  const lang = pipe(
-    frontmatterLanguage(fm),
-    Option.orElse(() => Option.fromNullishOr(packageLanguage)),
-    Option.getOrElse(() => 'plaintext'),
-  )
+  const pkg = documentPackage(doc)
+  const lang = documentLanguage(doc, packageLanguage)
   const index = nameIndex(doc.sections, lang, pkg)
   const first = firstHolders(doc.sections)
   return pipe(
@@ -100,6 +103,20 @@ export const buildProduct = (
     Array.reduce(emptyProduct, appendSection),
   )
 }
+
+const documentPackage = (doc: LoomDocument): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(doc.frontmatter),
+    Option.flatMapNullishOr((f) => f.package),
+    Option.map((p) => p.value),
+  )
+
+const documentLanguage = (doc: LoomDocument, packageLanguage?: string): string =>
+  pipe(
+    frontmatterLanguage(Option.fromNullishOr(doc.frontmatter)),
+    Option.orElse(() => Option.fromNullishOr(packageLanguage)),
+    Option.getOrElse(() => 'plaintext'),
+  )
 
 const emptyProduct: Product = ProductSchema.make({ code: [], files: [] })
 
@@ -276,14 +293,16 @@ const buildSection =
     )
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
-    const code = buildCode(
-      section,
-      values,
-      index,
-      origin,
-      languageId,
-      withHealth(duplicateHealth(first, section), labelHealth(section, languageId)),
+    const health = Array.reduce(
+      [
+        duplicateHealth(first, section),
+        labelHealth(section, languageId),
+        tangleHealth(section, pkg),
+      ],
+      okHealth,
+      withHealth,
     )
+    const code = buildCode(section, values, index, origin, languageId, health)
     const file = tangleFile(section, pkg, code)
     return { code, file }
   }
@@ -306,6 +325,12 @@ const filePath = (
     onNone: () => Option.map(sink, (s) => s.file.value),
   })
 
+const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
+  Option.filter(pkg, (p) => !p.endsWith('/'))
+
+const isTangle = (specifier: SpecifierToken): boolean =>
+  specifier.label.value.toLowerCase() === 'tangle'
+
 const tangleFile = (
   section: LoomSection,
   pkg: Option.Option<string>,
@@ -315,13 +340,43 @@ const tangleFile = (
   const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
     onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
     onSome: (spec) =>
-      Match.value(spec.label.value.toLowerCase()).pipe(
-        Match.when('tangle', () => filePath(pkg, sink)),
+      Match.value({ tangle: isTangle(spec), sunk: Option.isSome(sink) }).pipe(
+        Match.when({ tangle: true, sunk: true }, () => filePath(pkg, sink)),
+        Match.when({ tangle: true }, () => singleFile(pkg)),
         Match.orElse(() => Option.none<string>()),
       ),
   })
   return Option.map(target, (path) => FileSchema.make({ path, code }))
 }
+
+const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health =>
+  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle), {
+    onNone: () => okHealth,
+    onSome: (specifier) =>
+      Option.match(Option.fromNullishOr(section.heading.sink), {
+        onSome: (sink) =>
+          faulty(
+            TangleBesideSink({ sink: sink.source, specifier: removalOf(specifier, sink) }),
+            specifier.position,
+          ),
+        onNone: () =>
+          Option.match(singleFile(pkg), {
+            onSome: () => okHealth,
+            onNone: () =>
+              faulty(
+                TangleWithoutFile(
+                  Option.match(pkg, { onNone: () => ({}), onSome: (folder) => ({ folder }) }),
+                ),
+                specifier.position,
+              ),
+          }),
+      }),
+  })
+
+const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
+  specifier.position.start.offset < sink.position.start.offset
+    ? between(specifier.position.start, sink.position.start)
+    : between(sink.position.end, specifier.position.end)
 
 const buildCode = (
   section: LoomSection,
@@ -430,18 +485,27 @@ const byStart: Order.Order<WarpAnchorToken> = Order.mapInput(
 )
 
 const bindAnchor =
-  (index: NameIndex, values: ReadonlyMap<string, ValueWarp>, host: string, modulePath: string) =>
+  (
+    index: NameIndex,
+    values: ReadonlyMap<string, ValueWarp>,
+    host: string,
+    modulePath: string,
+  ) =>
   (anchor: WarpAnchorToken): Part => {
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
-    if (anchor.target !== undefined) return blankFragment(anchor.position, retired(anchor.target))
+    const value = values.get(name)
+    const refersHere = value === undefined && isReference(anchor)
+    if (anchor.target !== undefined && !refersHere) {
+      return blankFragment(anchor.position, stray(anchor.target))
+    }
     const label = settleKindOf(anchor)
     const provides = providesOf(anchor)
-    const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
+    if (refersHere) return referenceOf(index, modulePath, anchor, label, provides)
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => openRef(name, at, label, provides),
       onNonEmpty: (entry, rest) =>
@@ -461,7 +525,59 @@ const bindAnchor =
     })
   }
 
-const isSettleKind = (value: string): boolean => value.toLowerCase() === settleKind.toLowerCase()
+const referenceOf = (
+  index: NameIndex,
+  modulePath: string,
+  anchor: WarpAnchorToken,
+  label: Option.Option<Position>,
+  provides: ReadonlyArray<Provided>,
+): Part => {
+  const name = anchor.name.value
+  const reference = (target: Option.Option<SectionId>): ModuleRef =>
+    ModuleRefSchema.make({
+      name,
+      target,
+      file: Option.map(Option.fromNullishOr(anchor.target), (written) => ({
+        name: written.value,
+        at: written.position,
+      })),
+      anchor: anchor.name.position,
+      slot: between(anchor.close.position.end, anchor.close.position.end),
+      toBeSettled: label,
+      provides,
+    })
+  return Array.matchLeft(index.get(name) ?? [], {
+    onEmpty: () => reference(Option.none()),
+    onNonEmpty: (entry, rest) =>
+      rest.length === 0
+        ? reference(Option.some({ path: modulePath, name: entry.name }))
+        : blankFragment(
+            anchor.position,
+            ambiguous(name, anchor.name.position, rest.length + 1, []),
+          ),
+  })
+}
+
+const isKind =
+  (kind: string) =>
+  (value: string): boolean =>
+    value.toLowerCase() === kind.toLowerCase()
+
+const isSettleKind = isKind(settleKind)
+
+const isReference = (anchor: WarpAnchorToken): boolean =>
+  Match.value(anchor.specifier).pipe(
+    Match.when({ type: 'Specifier' }, (specifier) => isKind(referenceKind)(specifier.label.value)),
+    Match.when({ type: 'Parameters' }, (specifier) =>
+      Array.some(
+        specifier.parameters,
+        (parameter) =>
+          parameter.key.value === 'kind' &&
+          Array.some(parameter.values, (kind) => isKind(referenceKind)(kind.value)),
+      ),
+    ),
+    Match.orElse(() => false),
+  )
 
 const settleKindOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
   Match.value(anchor.specifier).pipe(
@@ -556,29 +672,46 @@ const ambiguous = (
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
 
-const retired = (target: WarpAnchorTargetToken): Health =>
-  faulty(RetiredTarget({ target: target.source, at: target.position }), target.position)
+const stray = (target: WarpAnchorTargetToken): Health =>
+  faulty(StrayTarget({ target: target.source, at: target.position }), target.position)
 
 export const crossFileFaults = (
   book: Book,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
+  landing: Landing,
 ): ReadonlyArray<Diagnostic> =>
   pipe(
     module.product.code,
     Array.flatMap((host) =>
       Array.flatMap(host.fragments, (part) =>
-        pipe(
-          edgeBeyond(part),
-          Option.map((ref) => nameHealth(book, modules, module, host, ref).diagnostics),
-          Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
+        Match.value(part).pipe(
+          Match.when({ type: 'NameRef' }, (ref) =>
+            Option.isNone(ref.target) ? nameHealth(book, modules, module, host, ref).diagnostics : [],
+          ),
+          Match.when(
+            { type: 'ModuleRef' },
+            (ref) => referenceHealth(book, modules, landing, module, host, ref).diagnostics,
+          ),
+          Match.orElse((): ReadonlyArray<Diagnostic> => []),
         ),
       ),
     ),
   )
 
-const edgeBeyond = (part: Part): Option.Option<NameRef> =>
-  part.type === 'NameRef' && Option.isNone(part.target) ? Option.some(part) : Option.none()
+const referenceHealth = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  landing: Landing,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Health =>
+  Referred.$match(referredFileOf(book, modules, landing, module, host, ref), {
+    Named: () => okHealth,
+    Unsettled: ({ declared }) => faulty(UnsettledModule({ name: ref.name, declared }), ref.anchor),
+    Faulted: ({ health }) => health,
+  })
 
 const nameHealth = (
   book: Book,
@@ -592,26 +725,34 @@ const nameHealth = (
     onEmpty: () =>
       isMeant(ref)
         ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
-        : faulty(
-            UnresolvedAnchor({
-              name: ref.name,
-              ...Option.match(declarationBelow(module, host, ref.name), {
-                onNone: () => ({}),
-                onSome: (declaration) => ({ declaration }),
-              }),
-              ...Option.match(settleAt(module, ref.anchor), {
-                onNone: () => ({}),
-                onSome: (point) => ({ settleAt: point }),
-              }),
-            }),
-            ref.anchor,
-          ),
+        : unresolvedHealth(module, host, ref.name, ref.anchor),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
         : trailHealth(modules, host, ref, trail),
   })
 }
+
+const unresolvedHealth = (
+  module: LoomModule,
+  host: Code,
+  name: string,
+  at: Position,
+): Health =>
+  faulty(
+    UnresolvedAnchor({
+      name,
+      ...Option.match(declarationBelow(module, host, name), {
+        onNone: () => ({}),
+        onSome: (declaration) => ({ declaration }),
+      }),
+      ...Option.match(settleAt(module, at), {
+        onNone: () => ({}),
+        onSome: (point) => ({ settleAt: point }),
+      }),
+    }),
+    at,
+  )
 
 const trailHealth = (
   modules: ReadonlyMap<string, LoomModule>,
@@ -714,6 +855,257 @@ export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Optio
       name: sectionNameOf(reached.section),
     })),
   )
+
+export interface Landed {
+  readonly loom: Location
+  readonly file: File
+}
+
+export type Referred = Data.TaggedEnum<{
+  Named: { readonly landed: Landed }
+  Unsettled: { readonly declared: boolean }
+  Faulted: { readonly health: Health }
+}>
+
+export const Referred = Data.taggedEnum<Referred>()
+
+type ReferredNode = Data.TaggedEnum<{
+  Chapter: { readonly module: LoomModule }
+  Section: { readonly id: SectionId }
+}>
+
+const ReferredNode = Data.taggedEnum<ReferredNode>()
+
+export const referredFileOf = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  landing: Landing,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Referred =>
+  Result.match(referredNodeOf(book, module, host, ref), {
+    onFailure: (stopped) => stopped,
+    onSuccess: (node) =>
+      ReferredNode.$match(node, {
+        Chapter: ({ module: chapter }) => chapterFile(ref, filesOf(chapter)),
+        Section: ({ id }) => sectionFile(modules, landing, host, ref, id),
+      }),
+  })
+
+const referredNodeOf = (
+  book: Book,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Result.Result<ReferredNode, Referred> =>
+  Option.match(ref.target, {
+    onSome: (id) => Result.succeed(ReferredNode.Section({ id })),
+    onNone: () => {
+      const trails = trailsOf(book, module.path, ref.name)
+      return Array.matchLeft(trails, {
+        onEmpty: () =>
+          Result.fail(
+            isMeant(ref)
+              ? Referred.Unsettled({ declared: false })
+              : Referred.Faulted({ health: unresolvedHealth(module, host, ref.name, ref.anchor) }),
+          ),
+        onNonEmpty: (trail, rest) =>
+          rest.length > 0
+            ? Result.fail(
+                Referred.Faulted({
+                  health: ambiguous(
+                    ref.name,
+                    ref.anchor,
+                    trails.length,
+                    pathsTo(book, module.path, trails),
+                  ),
+                }),
+              )
+            : nodeOfPlace(Array.lastNonEmpty(trail).place, ref),
+      })
+    },
+  })
+
+const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, Referred> =>
+  Match.value(place).pipe(
+    Match.tag('Chapter', ({ chapter }) =>
+      Result.succeed(ReferredNode.Chapter({ module: chapter.module })),
+    ),
+    Match.tag('Section', ({ ref: reached }) =>
+      Result.succeed(
+        ReferredNode.Section({
+          id: { path: reached.module, name: sectionNameOf(reached.section) },
+        }),
+      ),
+    ),
+    Match.tag('Part', () =>
+      Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+    ),
+    Match.exhaustive,
+  )
+
+const filesOf = (module: LoomModule): ReadonlyArray<Landed> =>
+  Array.map(module.product.files, (file): Landed => ({ loom: module.path, file }))
+
+const isNamed = (path: string, written: string): boolean =>
+  path === written || path.endsWith(`/${written}`)
+
+const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1)
+
+const fileNames = (files: ReadonlyArray<Landed>): ReadonlyArray<string> => {
+  const bases = Array.map(files, (landed) => baseName(landed.file.path))
+  return Array.map(files, (landed, i) =>
+    Array.filter(bases, (base) => base === bases[i]).length > 1
+      ? landed.file.path
+      : baseName(landed.file.path),
+  )
+}
+
+const chapterFile = (ref: ModuleRef, files: ReadonlyArray<Landed>): Referred =>
+  Array.isReadonlyArrayNonEmpty(files)
+    ? fileAmong(ref, files)
+    : Referred.Unsettled({ declared: true })
+
+const fileAmong = (ref: ModuleRef, files: Array.NonEmptyReadonlyArray<Landed>): Referred =>
+  Option.match(ref.file, {
+    onSome: (written) =>
+      Option.match(
+        Array.findFirst(files, (landed) => isNamed(landed.file.path, written.name)),
+        {
+          onSome: (landed) => Referred.Named({ landed }),
+          onNone: () =>
+            Referred.Faulted({
+              health: faulty(
+                NoSuchFile({
+                  name: ref.name,
+                  file: written.name,
+                  files: fileNames(files),
+                  at: written.at,
+                }),
+                ref.anchor,
+              ),
+            }),
+        },
+      ),
+    onNone: () =>
+      files.length === 1
+        ? Referred.Named({ landed: Array.headNonEmpty(files) })
+        : Referred.Faulted({
+            health: faulty(
+              SeveralFiles({ name: ref.name, files: fileNames(files), at: ref.slot }),
+              ref.anchor,
+            ),
+          }),
+  })
+
+export type Landing = Readonly<Record<string, ReadonlyArray<Landed>>>
+
+const landedIn = (landing: Landing, id: SectionId): ReadonlyArray<Landed> =>
+  Option.getOrElse(Option.fromNullishOr(landing[keyOf(id)]), () => [])
+
+const sameFile = (one: Landed, other: Landed): boolean =>
+  one.loom === other.loom && one.file.path === other.file.path
+
+const sectionFile = (
+  modules: ReadonlyMap<string, LoomModule>,
+  landing: Landing,
+  host: Code,
+  ref: ModuleRef,
+  id: SectionId,
+): Referred => {
+  const own = pipe(
+    Option.match(Option.fromNullishOr(modules.get(id.path)), {
+      onNone: (): ReadonlyArray<Landed> => [],
+      onSome: filesOf,
+    }),
+    Array.filter((landed) => landed.file.code.origin.name === id.name),
+  )
+  if (Array.isReadonlyArrayNonEmpty(own)) return fileAmong(ref, own)
+  return Option.match(ref.file, {
+    onSome: (written) =>
+      Referred.Faulted({
+        health: faulty(
+          NoSuchFile({ name: ref.name, file: written.name, files: [], at: written.at }),
+          ref.anchor,
+        ),
+      }),
+    onNone: () => landedFile(landing, host, ref, id),
+  })
+}
+
+const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId): Referred => {
+  const lands = landedIn(landing, id)
+  const here = landedIn(landing, host.origin)
+  const inHere = (landed: Landed): boolean => Array.some(here, (one) => sameFile(one, landed))
+  const sole = lands.length === 1 ? Array.head(lands) : Option.none<Landed>()
+  return Option.match(
+    Option.filter(sole, (landed) => !inHere(landed)),
+    {
+      onSome: (landed) => Referred.Named({ landed }),
+      onNone: () =>
+        Referred.Faulted({
+          health: faulty(
+            SectionWithoutFile({
+              name: ref.name,
+              files: fileNames(lands),
+              here: Option.exists(sole, inHere),
+            }),
+            ref.anchor,
+          ),
+        }),
+    },
+  )
+}
+
+export const holdsReferences = (modules: ReadonlyMap<string, LoomModule>): boolean =>
+  Array.some(Array.fromIterable(modules.values()), (module) =>
+    Array.some(module.product.code, (code) =>
+      Array.some(code.fragments, (part) => part.type === 'ModuleRef'),
+    ),
+  )
+
+const codeAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): Option.Option<Code> =>
+  pipe(
+    Option.fromNullishOr(modules.get(id.path)),
+    Option.flatMap((there) => Array.findFirst(there.product.code, (code) => code.origin.name === id.name)),
+  )
+
+const reachedFrom = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  root: Code,
+): ReadonlyArray<string> => {
+  const walk = (seen: ReadonlySet<string>, code: Code): ReadonlySet<string> =>
+    Array.reduce(code.fragments, seen, (reached, part) =>
+      part.type !== 'NameRef'
+        ? reached
+        : pipe(
+            targetOf(book, code.origin.path, part),
+            Option.filter((target) => !reached.has(keyOf(target))),
+            Option.flatMap((target) =>
+              Option.map(codeAt(modules, target), (next) =>
+                walk(new Set([...reached, keyOf(target)]), next),
+              ),
+            ),
+            Option.getOrElse(() => reached),
+          ),
+    )
+  return Array.fromIterable(walk(new Set([keyOf(root.origin)]), root))
+}
+
+export const landingOf = (book: Book, modules: ReadonlyMap<string, LoomModule>): Landing =>
+  holdsReferences(modules)
+    ? pipe(
+        Array.fromIterable(modules.values()),
+        Array.flatMap(filesOf),
+        Array.flatMap((landed) =>
+          Array.map(reachedFrom(book, modules, landed.file.code), (key) => ({ key, landed })),
+        ),
+        Array.groupBy((entry) => entry.key),
+        Record.map((entries) => Array.map(entries, (entry) => entry.landed)),
+      )
+    : {}
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')

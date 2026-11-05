@@ -17,11 +17,17 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, `settleKind`, the kind that marks a section to be settled, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers and the `UnsettledSection` note a section to be settled carries, and the `DuplicateName` fault a repeated section name raises and the `FenceLabelAgainstLanguage` fault a fence's label raises, with the `FenceLabelToken` it is raised on, and the `RetiredTarget` fault an anchor's target raises, with the `WarpAnchorTargetToken` it is raised on, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array, option, and record combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, `Data` for the tagged answers a reference gets, `Result` for a step that may stop with one of them, and `pipe` for the spine.
+
+From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body weft a code run is made of. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
+
+The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
+
+From the product side come the schema constructors for every node the pass builds: the `Code` of a section, its `Fragment`, `NameRef`, and `ModuleRef` leaves, and the `File` a section emits. With them come the `SectionId` that stamps each node and `keyOf`, which names it, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, the `Book` it resolves names in through `trailsOf`, `sectionOf`, and `resolveName`, the `Place` a trail ends at, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` the judgement returns.
 
 =>
 
-import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, Order, pipe, Record, Result } from 'effect'
 import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
   okHealth,
@@ -35,6 +41,7 @@ import {
   type Location,
   type LoomModule,
   pathsTo,
+  type Place,
   resolveName,
   sectionOf,
   type SectionRef,
@@ -42,11 +49,13 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  referenceKind,
   settleKind,
   type FenceLabelToken,
   type ParameterToken,
   type ParametersToken,
   type SinkToken,
+  type SpecifierToken,
   type WarpAnchorTargetToken,
   type WarpAnchorToken,
   type WarpToken,
@@ -60,6 +69,9 @@ import {
   type Fragment,
   FragmentSchema,
   isMeant,
+  keyOf,
+  type ModuleRef,
+  ModuleRefSchema,
   type NameRef,
   NameRefSchema,
   type Part,
@@ -76,8 +88,14 @@ import {
   DuplicateName,
   faulty,
   FenceLabelAgainstLanguage,
-  RetiredTarget,
+  NoSuchFile,
+  SectionWithoutFile,
   SettledLabel,
+  SeveralFiles,
+  StrayTarget,
+  TangleBesideSink,
+  TangleWithoutFile,
+  UnsettledModule,
   UnsettledSection,
   UnknownVariable,
   UnresolvedAnchor,
@@ -88,7 +106,7 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 
 `ProductBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildProduct` in an Effect so callers compose it like any other pass. It takes the document's file path alongside the document, because each section's identity is its path and name, and the path is known only to the caller. It also takes the package's primary language, the default a section inherits when the frontmatter declares no `Language`, which the caller resolves from the file's configuration.
 
-`buildProduct` is the spine, and it runs from the document's head to its tail. It resolves the primary language and the output package from the frontmatter, indexes the sections by the name each anchor reaches them by, notes the first section that holds each name, then maps every section to a `Built` — its `Code`, and the `File` a `{Tangle}` section or a tangle sink adds — and folds those into the module's `Product`.
+`buildProduct` is the spine, and it runs from the document's head to its tail. It resolves the primary language and the output package from the frontmatter, indexes the sections by the name each anchor reaches them by, notes the first section that holds each name, then maps every section to a `Built` — its `Code`, and the `File` a `{Tangle}` section or a tangle sink adds — and folds those into the module's `Product`. `documentLanguage` and `documentPackage` read the primary language and the package from the frontmatter.
 
 =>
 
@@ -112,17 +130,8 @@ export const buildProduct = (
   packageLanguage?: string,
   variables: Record<string, string> = {},
 ): Product => {
-  const fm = Option.fromNullishOr(doc.frontmatter)
-  const pkg = pipe(
-    fm,
-    Option.flatMapNullishOr((f) => f.package),
-    Option.map((p) => p.value),
-  )
-  const lang = pipe(
-    frontmatterLanguage(fm),
-    Option.orElse(() => Option.fromNullishOr(packageLanguage)),
-    Option.getOrElse(() => 'plaintext'),
-  )
+  const pkg = documentPackage(doc)
+  const lang = documentLanguage(doc, packageLanguage)
   const index = nameIndex(doc.sections, lang, pkg)
   const first = firstHolders(doc.sections)
   return pipe(
@@ -131,6 +140,20 @@ export const buildProduct = (
     Array.reduce(emptyProduct, appendSection),
   )
 }
+
+const documentPackage = (doc: LoomDocument): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(doc.frontmatter),
+    Option.flatMapNullishOr((f) => f.package),
+    Option.map((p) => p.value),
+  )
+
+const documentLanguage = (doc: LoomDocument, packageLanguage?: string): string =>
+  pipe(
+    frontmatterLanguage(Option.fromNullishOr(doc.frontmatter)),
+    Option.orElse(() => Option.fromNullishOr(packageLanguage)),
+    Option.getOrElse(() => 'plaintext'),
+  )
 
 const emptyProduct: Product = ProductSchema.make({ code: [], files: [] })
 
@@ -316,7 +339,7 @@ const valueWarps = (
 
 A section's heading decides what it contributes. Every section composes to one `Code`: its identity, its language, and its fragments in composition order. A section that names a file — through a `[file]` sink, or a `{Tangle}` specifier — contributes a `File` on top, the same `Code` paired with the path it tangles to.
 
-A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. When an earlier section of the document already holds the section's name, or a fence's label names another language, the code carries the fault that says so.
+A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. The code carries a fault when an earlier section of the document already holds the section's name, when a fence's label names another language, or when the heading marks its file in a way the sink rule forbids.
 
 =>
 
@@ -341,21 +364,25 @@ const buildSection =
     )
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
-    const code = buildCode(
-      section,
-      values,
-      index,
-      origin,
-      languageId,
-      withHealth(duplicateHealth(first, section), labelHealth(section, languageId)),
+    const health = Array.reduce(
+      [
+        duplicateHealth(first, section),
+        labelHealth(section, languageId),
+        tangleHealth(section, pkg),
+      ],
+      okHealth,
+      withHealth,
     )
+    const code = buildCode(section, values, index, origin, languageId, health)
     const file = tangleFile(section, pkg, code)
     return { code, file }
   }
 
 ~
 
-`tangleFile` decides whether a section names a file, and `filePath` decides where. A heading names a file two ways: a `[file]` sink under no specifier, or a `{Tangle}` specifier. Any other specifier is a language label, so the section composes in place and writes nothing. `filePath` then resolves the target. Under a frontmatter `Package` the file lands there, where `tangleFilePath` appends the `[file]` tag to a directory package and passes a file package through unchanged. Under no package the sink names the file by itself, and the compiler resolves where it lands. So the smallest program that tangles is a heading with a sink, an arrow, and its code: `# Hi there! [mini.ts]` writes `mini.ts`, its language read from the extension.
+`tangleFile` decides whether a section names a file, and `filePath` decides where. A heading names a file with one of two marks. A `[file]` sink names the file itself. A `{Tangle}` specifier names the chapter's one file, the file the frontmatter's `Package` names when it names a file rather than a folder, and `singleFile` reads that file. Any other specifier is a language label, so the section composes in place and writes nothing.
+
+`filePath` resolves where a sink's file lands. Under a frontmatter `Package` the file lands there, where `tangleFilePath` appends the `[file]` tag to a directory package and passes a file package through unchanged. Under no package the sink names the file by itself, and the compiler resolves where it lands. So the smallest program that tangles is a heading with a sink, an arrow, and its code: `# Hi there! [mini.ts]` writes `mini.ts`, its language read from the extension.
 
 =>
 
@@ -377,6 +404,12 @@ const filePath = (
     onNone: () => Option.map(sink, (s) => s.file.value),
   })
 
+const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
+  Option.filter(pkg, (p) => !p.endsWith('/'))
+
+const isTangle = (specifier: SpecifierToken): boolean =>
+  specifier.label.value.toLowerCase() === 'tangle'
+
 const tangleFile = (
   section: LoomSection,
   pkg: Option.Option<string>,
@@ -386,13 +419,53 @@ const tangleFile = (
   const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
     onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
     onSome: (spec) =>
-      Match.value(spec.label.value.toLowerCase()).pipe(
-        Match.when('tangle', () => filePath(pkg, sink)),
+      Match.value({ tangle: isTangle(spec), sunk: Option.isSome(sink) }).pipe(
+        Match.when({ tangle: true, sunk: true }, () => filePath(pkg, sink)),
+        Match.when({ tangle: true }, () => singleFile(pkg)),
         Match.orElse(() => Option.none<string>()),
       ),
   })
   return Option.map(target, (path) => FileSchema.make({ path, code }))
 }
+
+## One mark for one file
+
+The sink and the `{Tangle}` specifier each say that a section writes a file, so a heading that carries both says it twice. `tangleHealth` holds a heading to one mark. A `{Tangle}` beside a sink raises the `TangleBesideSink` fault on the specifier, and the fault's fix removes the specifier, so `{Tangle}[room.ts]` becomes `[room.ts]`. Until the author takes the fix, the section writes the sink's file, so the editor goes on checking its code at the path it tangles to.
+
+A `{Tangle}` with no sink means the chapter's one file. When the `Package` names a folder, or the chapter names no `Package` at all, the specifier has no file to mean. It raises the `TangleWithoutFile` fault, and the section writes nothing. The fault names the folder when there is one, so the author sees why the folder cannot stand for a file.
+
+`removalOf` gives the span the fix removes: the specifier and the spaces that part it from the sink, so the heading keeps no doubled space.
+
+=>
+
+const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health =>
+  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle), {
+    onNone: () => okHealth,
+    onSome: (specifier) =>
+      Option.match(Option.fromNullishOr(section.heading.sink), {
+        onSome: (sink) =>
+          faulty(
+            TangleBesideSink({ sink: sink.source, specifier: removalOf(specifier, sink) }),
+            specifier.position,
+          ),
+        onNone: () =>
+          Option.match(singleFile(pkg), {
+            onSome: () => okHealth,
+            onNone: () =>
+              faulty(
+                TangleWithoutFile(
+                  Option.match(pkg, { onNone: () => ({}), onSome: (folder) => ({ folder }) }),
+                ),
+                specifier.position,
+              ),
+          }),
+      }),
+  })
+
+const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
+  specifier.position.start.offset < sink.position.start.offset
+    ? between(specifier.position.start, sink.position.start)
+    : between(sink.position.end, specifier.position.end)
 
 ## Composing a section's code
 
@@ -516,11 +589,13 @@ const byStart: Order.Order<WarpAnchorToken> = Order.mapInput(
 
 `bindAnchor` turns one anchor into one part. A value warp composes its literal, a named section composes an edge to that section, and an anchor that cannot compose leaves an empty fragment in its place. So a broken anchor never leaves a dangling reference: the section always composes, and the product code around the anchor keeps its language service.
 
-An anchor that writes a target in parentheses after its name, as `::[Saying hello](greeting.loom)` does, is bound first. A name finds its section through the book, so Loom reads no loom's path in an anchor. The anchor composes nothing, and its empty fragment carries the `RetiredTarget` fault on the target, whose fix removes the target. `retired` builds that health.
+A value warp binds first, whatever kind its anchor carries. The anchor composes that warp's text as a `Fragment` where the anchor stood, even when it is marked as a reference, since a literal names no module. The fragment carries the warp's health, so an undeclared `${name}` raises its fault at the warp. No edge is made, since a literal reaches no section.
 
-An anchor that stays in this document takes one of three paths. When the name is a value warp, the anchor composes that warp's text as a `Fragment` where the anchor stood. The fragment carries the warp's health, so an undeclared `${name}` raises its fault at the warp. No edge is made, since a literal reaches no section.
+An anchor of the `Reference` kind names a module, the file another section tangles to, rather than composing a section. It is a reference, written `{Reference}` in its braces, or `kind=Reference` beside other parameters, and it stands where the code names a module, as an import's path does. `isReference` reads the kind, and `referenceOf` binds the reference into a `ModuleRef`. When the document holds one section of the anchor's name, the reference records that section as its target, as a composing edge does. Two such sections make the name ambiguous, and the reference composes nothing. When the document holds none, the target stays open, and the compiler finds the name through the book. The reference also records the file the anchor names in parentheses, if it names one, and the slot just past its closing bracket, where a fix can name one. A reference makes no check of languages, because the code it names stays in its own file. A TypeScript import may name a JSON module.
 
-Otherwise the name is looked up among the document's section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity, and the projection follows it and inlines the section there. `localHealth` marks the edge in three cases. A match that holds no code yet is a section to be settled, and the edge carries the `UnsettledSection` note. A match in another language is a cross-language transclusion. The edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file. A match that holds code, reached by an anchor still labelled `{To be settled}`, carries the `SettledLabel` note, whose fix removes the label.
+The author marks a reference, because Loom treats code as opaque text and cannot tell where a path goes. An anchor that carries no such kind composes, wherever it stands. Only a reference names a file, so an anchor that composes, yet writes a file in parentheses after its name, as `::[Saying hello](greeting.loom)` does, composes nothing. Its empty fragment carries the `StrayTarget` fault on the parentheses, whose fix removes them. `stray` builds that health.
+
+Any other anchor composes a section, and its name is looked up among the document's section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity, and the projection follows it and inlines the section there. `localHealth` marks the edge in three cases. A match that holds no code yet is a section to be settled, and the edge carries the `UnsettledSection` note. A match in another language is a cross-language transclusion. The edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file. A match that holds code, reached by an anchor still labelled `{To be settled}`, carries the `SettledLabel` note, whose fix removes the label.
 
 An anchor marks its section to be settled in its braces, in any case of letters. It writes the kind alone, as `{To be settled}`, or in full beside other parameters, as `{kind="To be settled" provides=greet}`. `settleKindOf` reads the span that marks it, and every edge the pass makes records that span, so the judgement and the tangle know which names the author meant before writing them. The span is what a settled section's fix removes. For the kind alone it is the whole of the braces. For the kind in full it is the `kind` parameter with the space that parts it from its neighbour, so the other parameters stay. `parameterSpanOf` finds that span.
 
@@ -533,18 +608,27 @@ An anchor that cannot compose leaves an empty fragment instead, and what rides o
 =>
 
 const bindAnchor =
-  (index: NameIndex, values: ReadonlyMap<string, ValueWarp>, host: string, modulePath: string) =>
+  (
+    index: NameIndex,
+    values: ReadonlyMap<string, ValueWarp>,
+    host: string,
+    modulePath: string,
+  ) =>
   (anchor: WarpAnchorToken): Part => {
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
-    if (anchor.target !== undefined) return blankFragment(anchor.position, retired(anchor.target))
+    const value = values.get(name)
+    const refersHere = value === undefined && isReference(anchor)
+    if (anchor.target !== undefined && !refersHere) {
+      return blankFragment(anchor.position, stray(anchor.target))
+    }
     const label = settleKindOf(anchor)
     const provides = providesOf(anchor)
-    const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
+    if (refersHere) return referenceOf(index, modulePath, anchor, label, provides)
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => openRef(name, at, label, provides),
       onNonEmpty: (entry, rest) =>
@@ -564,7 +648,59 @@ const bindAnchor =
     })
   }
 
-const isSettleKind = (value: string): boolean => value.toLowerCase() === settleKind.toLowerCase()
+const referenceOf = (
+  index: NameIndex,
+  modulePath: string,
+  anchor: WarpAnchorToken,
+  label: Option.Option<Position>,
+  provides: ReadonlyArray<Provided>,
+): Part => {
+  const name = anchor.name.value
+  const reference = (target: Option.Option<SectionId>): ModuleRef =>
+    ModuleRefSchema.make({
+      name,
+      target,
+      file: Option.map(Option.fromNullishOr(anchor.target), (written) => ({
+        name: written.value,
+        at: written.position,
+      })),
+      anchor: anchor.name.position,
+      slot: between(anchor.close.position.end, anchor.close.position.end),
+      toBeSettled: label,
+      provides,
+    })
+  return Array.matchLeft(index.get(name) ?? [], {
+    onEmpty: () => reference(Option.none()),
+    onNonEmpty: (entry, rest) =>
+      rest.length === 0
+        ? reference(Option.some({ path: modulePath, name: entry.name }))
+        : blankFragment(
+            anchor.position,
+            ambiguous(name, anchor.name.position, rest.length + 1, []),
+          ),
+  })
+}
+
+const isKind =
+  (kind: string) =>
+  (value: string): boolean =>
+    value.toLowerCase() === kind.toLowerCase()
+
+const isSettleKind = isKind(settleKind)
+
+const isReference = (anchor: WarpAnchorToken): boolean =>
+  Match.value(anchor.specifier).pipe(
+    Match.when({ type: 'Specifier' }, (specifier) => isKind(referenceKind)(specifier.label.value)),
+    Match.when({ type: 'Parameters' }, (specifier) =>
+      Array.some(
+        specifier.parameters,
+        (parameter) =>
+          parameter.key.value === 'kind' &&
+          Array.some(parameter.values, (kind) => isKind(referenceKind)(kind.value)),
+      ),
+    ),
+    Match.orElse(() => false),
+  )
 
 const settleKindOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
   Match.value(anchor.specifier).pipe(
@@ -659,14 +795,14 @@ const ambiguous = (
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
 
-const retired = (target: WarpAnchorTargetToken): Health =>
-  faulty(RetiredTarget({ target: target.source, at: target.position }), target.position)
+const stray = (target: WarpAnchorTargetToken): Health =>
+  faulty(StrayTarget({ target: target.source, at: target.position }), target.position)
 
 ## Judging an edge beyond the document
 
 The product pass cannot judge an edge that leaves the document. `crossFileFaults` judges it once the compiler holds the whole corpus. It reads one module's product with the `Book` beside it, and returns a diagnostic for each edge beyond the module that cannot compose. The compiler adds these to the module's own diagnostics. So the editor marks a broken anchor where the author wrote it, and the tangle refuses to write a file that would silently drop one.
 
-`edgeBeyond` picks the parts worth judging: an edge whose target is open, which `nameHealth` judges.
+Two kinds of edge are worth judging. A composing edge whose target is open goes to `nameHealth`. Every reference goes to `referenceHealth`, whether its target is open or not, since even a section of its own loom must land in a file a path can name. `referenceHealth` turns the `Referred` that the section "Fitting a reference to its place" describes into health. A file found is healthy. A module nobody has written yet carries the `UnsettledModule` note, and a fault carries its own health. The compiler hands in the corpus's `Landing`, built once for every module it judges.
 
 =>
 
@@ -674,26 +810,43 @@ export const crossFileFaults = (
   book: Book,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
+  landing: Landing,
 ): ReadonlyArray<Diagnostic> =>
   pipe(
     module.product.code,
     Array.flatMap((host) =>
       Array.flatMap(host.fragments, (part) =>
-        pipe(
-          edgeBeyond(part),
-          Option.map((ref) => nameHealth(book, modules, module, host, ref).diagnostics),
-          Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
+        Match.value(part).pipe(
+          Match.when({ type: 'NameRef' }, (ref) =>
+            Option.isNone(ref.target) ? nameHealth(book, modules, module, host, ref).diagnostics : [],
+          ),
+          Match.when(
+            { type: 'ModuleRef' },
+            (ref) => referenceHealth(book, modules, landing, module, host, ref).diagnostics,
+          ),
+          Match.orElse((): ReadonlyArray<Diagnostic> => []),
         ),
       ),
     ),
   )
 
-const edgeBeyond = (part: Part): Option.Option<NameRef> =>
-  part.type === 'NameRef' && Option.isNone(part.target) ? Option.some(part) : Option.none()
+const referenceHealth = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  landing: Landing,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Health =>
+  Referred.$match(referredFileOf(book, modules, landing, module, host, ref), {
+    Named: () => okHealth,
+    Unsettled: ({ declared }) => faulty(UnsettledModule({ name: ref.name, declared }), ref.anchor),
+    Faulted: ({ health }) => health,
+  })
 
 ~
 
-An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
+An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved, and `unresolvedHealth` raises the fault, for a composing edge and a reference alike. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
 The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
 
@@ -713,26 +866,34 @@ const nameHealth = (
     onEmpty: () =>
       isMeant(ref)
         ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
-        : faulty(
-            UnresolvedAnchor({
-              name: ref.name,
-              ...Option.match(declarationBelow(module, host, ref.name), {
-                onNone: () => ({}),
-                onSome: (declaration) => ({ declaration }),
-              }),
-              ...Option.match(settleAt(module, ref.anchor), {
-                onNone: () => ({}),
-                onSome: (point) => ({ settleAt: point }),
-              }),
-            }),
-            ref.anchor,
-          ),
+        : unresolvedHealth(module, host, ref.name, ref.anchor),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
         : trailHealth(modules, host, ref, trail),
   })
 }
+
+const unresolvedHealth = (
+  module: LoomModule,
+  host: Code,
+  name: string,
+  at: Position,
+): Health =>
+  faulty(
+    UnresolvedAnchor({
+      name,
+      ...Option.match(declarationBelow(module, host, name), {
+        onNone: () => ({}),
+        onSome: (declaration) => ({ declaration }),
+      }),
+      ...Option.match(settleAt(module, at), {
+        onNone: () => ({}),
+        onSome: (point) => ({ settleAt: point }),
+      }),
+    }),
+    at,
+  )
 
 const trailHealth = (
   modules: ReadonlyMap<string, LoomModule>,
@@ -841,6 +1002,281 @@ export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Optio
       name: sectionNameOf(reached.section),
     })),
   )
+
+## Fitting a reference to its place
+
+A reference names a module, so its name must find something that emits a file. `referredFileOf` finds that file, or the reason there is none, as a `Referred`. A `Named` holds the file, a `Landed` that pairs the file with the loom that emits it. An `Unsettled` says nobody has written the module yet. A `Faulted` holds the health of the fault that stops the reference.
+
+`referredFileOf` works in two steps. The first finds what the name names, and `referredNodeOf` takes it. A reference whose own loom holds a section of its name names that section. Any other reference finds its name through the book, nearest first, as a composing anchor does, and `nodeOfPlace` reads the place where the one trail ends, a chapter or a section. A name no trail reaches is unresolved, unless the anchor promises the module, with `{To be settled}` or a `provides` parameter, and then the module is to be settled. A name two trails reach is ambiguous, and a part names no module.
+
+=>
+
+export interface Landed {
+  readonly loom: Location
+  readonly file: File
+}
+
+export type Referred = Data.TaggedEnum<{
+  Named: { readonly landed: Landed }
+  Unsettled: { readonly declared: boolean }
+  Faulted: { readonly health: Health }
+}>
+
+export const Referred = Data.taggedEnum<Referred>()
+
+type ReferredNode = Data.TaggedEnum<{
+  Chapter: { readonly module: LoomModule }
+  Section: { readonly id: SectionId }
+}>
+
+const ReferredNode = Data.taggedEnum<ReferredNode>()
+
+export const referredFileOf = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  landing: Landing,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Referred =>
+  Result.match(referredNodeOf(book, module, host, ref), {
+    onFailure: (stopped) => stopped,
+    onSuccess: (node) =>
+      ReferredNode.$match(node, {
+        Chapter: ({ module: chapter }) => chapterFile(ref, filesOf(chapter)),
+        Section: ({ id }) => sectionFile(modules, landing, host, ref, id),
+      }),
+  })
+
+const referredNodeOf = (
+  book: Book,
+  module: LoomModule,
+  host: Code,
+  ref: ModuleRef,
+): Result.Result<ReferredNode, Referred> =>
+  Option.match(ref.target, {
+    onSome: (id) => Result.succeed(ReferredNode.Section({ id })),
+    onNone: () => {
+      const trails = trailsOf(book, module.path, ref.name)
+      return Array.matchLeft(trails, {
+        onEmpty: () =>
+          Result.fail(
+            isMeant(ref)
+              ? Referred.Unsettled({ declared: false })
+              : Referred.Faulted({ health: unresolvedHealth(module, host, ref.name, ref.anchor) }),
+          ),
+        onNonEmpty: (trail, rest) =>
+          rest.length > 0
+            ? Result.fail(
+                Referred.Faulted({
+                  health: ambiguous(
+                    ref.name,
+                    ref.anchor,
+                    trails.length,
+                    pathsTo(book, module.path, trails),
+                  ),
+                }),
+              )
+            : nodeOfPlace(Array.lastNonEmpty(trail).place, ref),
+      })
+    },
+  })
+
+const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, Referred> =>
+  Match.value(place).pipe(
+    Match.tag('Chapter', ({ chapter }) =>
+      Result.succeed(ReferredNode.Chapter({ module: chapter.module })),
+    ),
+    Match.tag('Section', ({ ref: reached }) =>
+      Result.succeed(
+        ReferredNode.Section({
+          id: { path: reached.module, name: sectionNameOf(reached.section) },
+        }),
+      ),
+    ),
+    Match.tag('Part', () =>
+      Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+    ),
+    Match.exhaustive,
+  )
+
+~
+
+The second step fits what the name found to a reference, which takes a file rather than code. A chapter gives the file it emits, and `filesOf` reads a loom's files. A chapter that emits none yet is to be settled, since nobody has written its module yet. A section whose heading carries a sink gives the file the sink writes.
+
+`fileAmong` picks the file from those a chapter or a sink section emits. A reference that names a file in parentheses takes the file of that name, and a file the node does not emit raises `NoSuchFile`. A reference that names no file takes the node's one file, and a node that emits several raises `SeveralFiles`. `isNamed` matches a written name against a file's path, whole or by its last segments, so `room.ts` names `src/room.ts`. `fileNames` names a node's files in a message by the last segment of each path, or by the whole path where two of them share a last segment.
+
+=>
+
+const filesOf = (module: LoomModule): ReadonlyArray<Landed> =>
+  Array.map(module.product.files, (file): Landed => ({ loom: module.path, file }))
+
+const isNamed = (path: string, written: string): boolean =>
+  path === written || path.endsWith(`/${written}`)
+
+const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1)
+
+const fileNames = (files: ReadonlyArray<Landed>): ReadonlyArray<string> => {
+  const bases = Array.map(files, (landed) => baseName(landed.file.path))
+  return Array.map(files, (landed, i) =>
+    Array.filter(bases, (base) => base === bases[i]).length > 1
+      ? landed.file.path
+      : baseName(landed.file.path),
+  )
+}
+
+const chapterFile = (ref: ModuleRef, files: ReadonlyArray<Landed>): Referred =>
+  Array.isReadonlyArrayNonEmpty(files)
+    ? fileAmong(ref, files)
+    : Referred.Unsettled({ declared: true })
+
+const fileAmong = (ref: ModuleRef, files: Array.NonEmptyReadonlyArray<Landed>): Referred =>
+  Option.match(ref.file, {
+    onSome: (written) =>
+      Option.match(
+        Array.findFirst(files, (landed) => isNamed(landed.file.path, written.name)),
+        {
+          onSome: (landed) => Referred.Named({ landed }),
+          onNone: () =>
+            Referred.Faulted({
+              health: faulty(
+                NoSuchFile({
+                  name: ref.name,
+                  file: written.name,
+                  files: fileNames(files),
+                  at: written.at,
+                }),
+                ref.anchor,
+              ),
+            }),
+        },
+      ),
+    onNone: () =>
+      files.length === 1
+        ? Referred.Named({ landed: Array.headNonEmpty(files) })
+        : Referred.Faulted({
+            health: faulty(
+              SeveralFiles({ name: ref.name, files: fileNames(files), at: ref.slot }),
+              ref.anchor,
+            ),
+          }),
+  })
+
+~
+
+A section with no sink gives the one file it lands in, the file of the root that composes it. `sectionFile` tells the two kinds of section apart, and `landedFile` reads a sinkless section's file from the landing. It raises `SectionWithoutFile` when the section lands in no file, in several, or in the very file the reference stands in, since no path can be written for any of them. A sinkless section emits no file of its own, so a file in parentheses names nothing there, and it raises `NoSuchFile`.
+
+`landingOf` builds the landing once for the corpus: for every section, the files whose composition reaches it, keyed by the section's identity. `reachedFrom` walks one file's composition the way the projection inlines it, following each composing edge and never a reference, so it gives every section the file's root composes, the root among them. A corpus that holds no reference needs no landing, so `landingOf` walks nothing for it, and `holdsReferences` tells such a corpus from one that refers. `landedIn` reads the files one section lands in, and `sameFile` tells whether two landings are one file.
+
+=>
+
+export type Landing = Readonly<Record<string, ReadonlyArray<Landed>>>
+
+const landedIn = (landing: Landing, id: SectionId): ReadonlyArray<Landed> =>
+  Option.getOrElse(Option.fromNullishOr(landing[keyOf(id)]), () => [])
+
+const sameFile = (one: Landed, other: Landed): boolean =>
+  one.loom === other.loom && one.file.path === other.file.path
+
+const sectionFile = (
+  modules: ReadonlyMap<string, LoomModule>,
+  landing: Landing,
+  host: Code,
+  ref: ModuleRef,
+  id: SectionId,
+): Referred => {
+  const own = pipe(
+    Option.match(Option.fromNullishOr(modules.get(id.path)), {
+      onNone: (): ReadonlyArray<Landed> => [],
+      onSome: filesOf,
+    }),
+    Array.filter((landed) => landed.file.code.origin.name === id.name),
+  )
+  if (Array.isReadonlyArrayNonEmpty(own)) return fileAmong(ref, own)
+  return Option.match(ref.file, {
+    onSome: (written) =>
+      Referred.Faulted({
+        health: faulty(
+          NoSuchFile({ name: ref.name, file: written.name, files: [], at: written.at }),
+          ref.anchor,
+        ),
+      }),
+    onNone: () => landedFile(landing, host, ref, id),
+  })
+}
+
+const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId): Referred => {
+  const lands = landedIn(landing, id)
+  const here = landedIn(landing, host.origin)
+  const inHere = (landed: Landed): boolean => Array.some(here, (one) => sameFile(one, landed))
+  const sole = lands.length === 1 ? Array.head(lands) : Option.none<Landed>()
+  return Option.match(
+    Option.filter(sole, (landed) => !inHere(landed)),
+    {
+      onSome: (landed) => Referred.Named({ landed }),
+      onNone: () =>
+        Referred.Faulted({
+          health: faulty(
+            SectionWithoutFile({
+              name: ref.name,
+              files: fileNames(lands),
+              here: Option.exists(sole, inHere),
+            }),
+            ref.anchor,
+          ),
+        }),
+    },
+  )
+}
+
+export const holdsReferences = (modules: ReadonlyMap<string, LoomModule>): boolean =>
+  Array.some(Array.fromIterable(modules.values()), (module) =>
+    Array.some(module.product.code, (code) =>
+      Array.some(code.fragments, (part) => part.type === 'ModuleRef'),
+    ),
+  )
+
+const codeAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): Option.Option<Code> =>
+  pipe(
+    Option.fromNullishOr(modules.get(id.path)),
+    Option.flatMap((there) => Array.findFirst(there.product.code, (code) => code.origin.name === id.name)),
+  )
+
+const reachedFrom = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  root: Code,
+): ReadonlyArray<string> => {
+  const walk = (seen: ReadonlySet<string>, code: Code): ReadonlySet<string> =>
+    Array.reduce(code.fragments, seen, (reached, part) =>
+      part.type !== 'NameRef'
+        ? reached
+        : pipe(
+            targetOf(book, code.origin.path, part),
+            Option.filter((target) => !reached.has(keyOf(target))),
+            Option.flatMap((target) =>
+              Option.map(codeAt(modules, target), (next) =>
+                walk(new Set([...reached, keyOf(target)]), next),
+              ),
+            ),
+            Option.getOrElse(() => reached),
+          ),
+    )
+  return Array.fromIterable(walk(new Set([keyOf(root.origin)]), root))
+}
+
+export const landingOf = (book: Book, modules: ReadonlyMap<string, LoomModule>): Landing =>
+  holdsReferences(modules)
+    ? pipe(
+        Array.fromIterable(modules.values()),
+        Array.flatMap(filesOf),
+        Array.flatMap((landed) =>
+          Array.map(reachedFrom(book, modules, landed.file.code), (key) => ({ key, landed })),
+        ),
+        Array.groupBy((entry) => entry.key),
+        Record.map((entries) => Array.map(entries, (entry) => entry.landed)),
+      )
+    : {}
 
 ## A section's name and its spans
 
@@ -956,11 +1392,15 @@ The tangle composes the sections in the source's own order — the spine first, 
 
 ::[Building one section]
 
+::[One mark for one file]
+
 ::[Composing a section's code]
 
 ::[Binding an anchor]
 
 ::[Judging an edge beyond the document]
+
+::[Fitting a reference to its place]
 
 ::[A section's name and its spans]
 

@@ -841,9 +841,9 @@ const projectWith = (looms: Record<string, string>, config: string = projectConf
 }
 
 const fileLoom = (file: string): string =>
-  lines(`# Writing ${file} {Tangle}[${file}]`, '', '=>', '', `export const file = '${file}'`)
+  lines(`# Writing ${file} [${file}]`, '', '=>', '', `export const file = '${file}'`)
 
-const brokenLoom = lines('# A broken file {Tangle}[broken.ts]', '', '=>', '', anchor('Nowhere'))
+const brokenLoom = lines('# A broken file [broken.ts]', '', '=>', '', anchor('Nowhere'))
 
 const lockOf = (dir: string): ReadonlyArray<string> =>
   JSON.parse(readFileSync(join(dir, '.loom', 'loom.lock'), 'utf8')).tangled

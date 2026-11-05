@@ -2,7 +2,7 @@ import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
-import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { type Diagnostic, type Position } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   bookOf,
@@ -30,12 +30,21 @@ import {
   faultAt,
   faulty,
   MissingSymbol,
+  SpecifierUnknown,
   UnresolvedTocEntry,
+  UnsettledModule,
   UnsettledSection,
 } from '#ast/LoomFault'
-import { crossFileFaults } from '#ast/ProductBuilder'
+import {
+  crossFileFaults,
+  holdsReferences,
+  type Landing,
+  landingOf,
+  Referred,
+  referredFileOf,
+} from '#ast/ProductBuilder'
 import { anchorKinds } from '@athrio/loom-ast/LoomTokens'
-import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
+import { type Code, keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
   type FrameCompletion,
@@ -44,12 +53,18 @@ import {
   type FrameLocation,
   type FrameToken,
   type PromisedName,
+  type ServiceError,
+  type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   contractsIn,
   fromCode,
   fromProduct,
+  noSpecifiers,
+  type Reference,
+  referencesIn,
+  type Specifiers,
   type Unsettled,
   unsettledIn,
   fromProse,
@@ -63,6 +78,7 @@ import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { WorkspaceSource } from './WorkspaceSource'
+import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -101,9 +117,10 @@ const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnosti
 
 const corpusDiagnostics = (modules: Modules) => {
   const book = bookOf(modules)
+  const landing = landingOf(book, modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
-    ...crossFileFaults(book, modules, module),
+    ...crossFileFaults(book, modules, module, landing),
     ...namesakeFaults(book, module),
   ]
 }
@@ -114,25 +131,44 @@ export interface TangledFile {
   readonly content: string
 }
 
+interface Resolved {
+  readonly files: ReadonlyArray<TangledFile>
+  readonly unwritten: ReadonlyArray<Unwritten>
+}
+
 const resolveSinks = (
   modules: Modules,
   entry: Location,
   placeOf: (loom: Location, sink: string) => Effect.Effect<Location>,
-): Effect.Effect<ReadonlyArray<TangledFile>> =>
+  written: WrittenFor,
+): Effect.Effect<Resolved> =>
   pipe(
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
-      onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
+      onNone: () => Effect.succeed<Resolved>({ files: [], unwritten: [] }),
       onSome: (module) => {
         const book = bookOf(modules)
+        const landing = landingOf(book, modules)
         return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
-            Effect.map((path) => ({
-              section: file.code.origin.name,
-              path,
-              content: fromCode(modules, file.code, book).code,
-            })),
+            Effect.flatMap((path) =>
+              written(modules, book, landing, file.code, path).pipe(
+                Effect.map((paths) => ({
+                  file: {
+                    section: file.code.origin.name,
+                    path,
+                    content: fromCode(modules, file.code, book, specifiersOf(paths)).code,
+                  },
+                  unwritten: paths.unwritten,
+                })),
+              ),
+            ),
           ),
+        ).pipe(
+          Effect.map((each) => ({
+            files: Array.map(each, (one) => one.file),
+            unwritten: Array.flatMap(each, (one) => one.unwritten),
+          })),
         )
       },
     }),
@@ -162,7 +198,9 @@ const unsettledFailures = (
         unsettled,
         (one) =>
           faulty(
-            UnsettledSection({ name: one.name, declared: Option.isSome(one.section) }),
+            one.reference
+              ? UnsettledModule({ name: one.name, declared: one.declared })
+              : UnsettledSection({ name: one.name, declared: one.declared }),
             one.anchor,
           ).diagnostics,
       ),
@@ -185,6 +223,66 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     return `loom: refusing to tangle ${this.entry} — ${count} problem(s) across the corpus:\n${lines.join('\n')}`
   }
 }
+
+interface Unwritten {
+  readonly path: Location
+  readonly diagnostic: Diagnostic
+}
+
+interface Written {
+  readonly specifiers: ReadonlyMap<string, string>
+  readonly unwritten: ReadonlyArray<Unwritten>
+}
+
+type WrittenFor = (
+  modules: Modules,
+  book: Book,
+  landing: Landing,
+  root: Code,
+  from: Location,
+) => Effect.Effect<Written>
+
+const nothingWritten: Written = { specifiers: new Map(), unwritten: [] }
+
+const specifierKey = (owner: Location, at: Position): string => `${owner}#${at.start.offset}`
+
+const writtenOf = (reference: Reference, text: string): Written => ({
+  specifiers: new Map([[specifierKey(reference.owner, reference.ref.anchor), text]]),
+  unwritten: [],
+})
+
+const unwrittenOf = (reference: Reference, reason: string): Written => ({
+  specifiers: new Map(),
+  unwritten: [
+    {
+      path: reference.owner,
+      diagnostic: faultAt(
+        SpecifierUnknown({ name: reference.ref.name, language: reference.host.languageId, reason }),
+        reference.ref.anchor,
+      ),
+    },
+  ],
+})
+
+const mergeWritten = (one: Written, other: Written): Written => ({
+  specifiers: new Map([...one.specifiers, ...other.specifiers]),
+  unwritten: [...one.unwritten, ...other.unwritten],
+})
+
+const specifiersOf =
+  (written: Written): Specifiers =>
+  (owner, ref) =>
+    Option.fromNullishOr(written.specifiers.get(specifierKey(owner, ref.anchor)))
+
+const byLoom = (
+  unwritten: ReadonlyArray<Unwritten>,
+): ReadonlyArray<{ readonly path: Location; readonly diagnostics: ReadonlyArray<Diagnostic> }> =>
+  pipe(
+    unwritten,
+    Array.groupBy((one) => one.path),
+    Record.toEntries,
+    Array.map(([path, each]) => ({ path, diagnostics: Array.map(each, (one) => one.diagnostic) })),
+  )
 
 const lineCharAt = (
   text: string,
@@ -239,6 +337,14 @@ const partFaceOf = (part: Part): string =>
     Match.when({ type: 'NameRef' }, (ref) =>
       Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
     ),
+    Match.when(
+      { type: 'ModuleRef' },
+      (ref) =>
+        `module ${Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf })} ${Option.match(
+          ref.file,
+          { onNone: () => '', onSome: (file) => file.name },
+        )}`,
+    ),
     Match.exhaustive,
   )
 
@@ -284,16 +390,24 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 const composedFilesOf = (
   modules: Modules,
   book: Book,
+  landing: Landing,
   module: LoomModule,
   paths: ReadonlyArray<Location>,
-): ReadonlyArray<ComposedFile> =>
-  Array.zipWith(module.product.files, paths, (file, path): ComposedFile => ({
-    path,
-    content: fromCode(modules, file.code, book).code,
-    loomPath: module.path,
-    rootId: file.code.origin.name.toLowerCase(),
-    heading: headingLocationOf(modules, module, file.code.origin.name),
-  }))
+  written: WrittenFor,
+): Effect.Effect<ReadonlyArray<ComposedFile>> =>
+  Effect.forEach(Array.zip(module.product.files, paths), ([file, path]) =>
+    written(modules, book, landing, file.code, path).pipe(
+      Effect.map(
+        (specifiers): ComposedFile => ({
+          path,
+          content: fromCode(modules, file.code, book, specifiersOf(specifiers)).code,
+          loomPath: module.path,
+          rootId: file.code.origin.name.toLowerCase(),
+          heading: headingLocationOf(modules, module, file.code.origin.name),
+        }),
+      ),
+    ),
+  )
 
 const samePlaces = (
   before: ReadonlyArray<Location> | undefined,
@@ -336,30 +450,30 @@ const recompose = (
   previous: Composition,
   modules: Modules,
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
-): Composition => {
+  written: WrittenFor,
+): Effect.Effect<Composition> => {
   const stale = staleSince(previous, modules, placed)
-  if (stale.size === 0) return { ...previous, modules, placed }
+  if (stale.size === 0) return Effect.succeed({ ...previous, modules, placed })
   const book = bookOf(modules)
-  return {
-    modules,
-    placed,
-    files: new Map(
-      Array.map(
-        Array.fromIterable(modules.values()),
-        (module) =>
-          [
-            module.path,
-            pipe(
-              Option.fromNullishOr(previous.files.get(module.path)),
-              Option.filter(() => !stale.has(module.path)),
-              Option.getOrElse(() =>
-                composedFilesOf(modules, book, module, placed.get(module.path) ?? []),
-              ),
-            ),
-          ] as const,
-      ),
+  const landing = landingOf(book, modules)
+  return Effect.forEach(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      Option.fromNullishOr(previous.files.get(module.path)),
+      Option.filter(() => !stale.has(module.path)),
+      Option.match({
+        onSome: (kept) => Effect.succeed([module.path, kept] as const),
+        onNone: () =>
+          composedFilesOf(
+            modules,
+            book,
+            landing,
+            module,
+            placed.get(module.path) ?? [],
+            written,
+          ).pipe(Effect.map((files) => [module.path, files] as const)),
+      }),
     ),
-  }
+  ).pipe(Effect.map((pairs) => ({ modules, placed, files: new Map(pairs) })))
 }
 
 const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
@@ -407,7 +521,11 @@ const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
 
-const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
+const projectTree = (
+  modules: Modules,
+  entry: LoomModule,
+  specifiers: ReadonlyMap<string, Specifiers>,
+): LoomVirtualCode => {
   const book = bookOf(modules)
   return rootVirtualCode(
     entry.text,
@@ -415,7 +533,14 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
       fromProse(modules, entry.path),
       ...pipe(
         rootsAt(modules, entry.path),
-        Array.map((name) => fromProduct(modules, { path: entry.path, name }, book)),
+        Array.map((name) =>
+          fromProduct(
+            modules,
+            { path: entry.path, name },
+            book,
+            Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
+          ),
+        ),
       ),
     ],
     symbolMappings(entry.doc),
@@ -501,6 +626,71 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
+    const packages = yield* Effect.serviceOption(LanguagePackages)
+
+    const specifierOf = (request: SpecifierRequest): Effect.Effect<Option.Option<string>, ServiceError> =>
+      Option.match(packages, {
+        onNone: () => Effect.succeed(Option.none<string>()),
+        onSome: (held) => held.moduleSpecifier(request),
+      })
+
+    const writtenFor: WrittenFor = (modules, book, landing, root, from) =>
+      Effect.forEach(referencesIn(modules, root, book), (reference) =>
+        pipe(
+          Option.fromNullishOr(modules.get(reference.owner)),
+          Option.map((module) =>
+            referredFileOf(book, modules, landing, module, reference.host, reference.ref),
+          ),
+          Option.filter(Referred.$is('Named')),
+          Option.match({
+            onNone: () => Effect.succeed(nothingWritten),
+            onSome: ({ landed }) =>
+              workspaces.placeOf(landed.loom, landed.file.path).pipe(
+                Effect.flatMap((to) =>
+                  specifierOf({
+                    language: reference.host.languageId,
+                    loom: reference.owner,
+                    from,
+                    to,
+                  }),
+                ),
+                Effect.map(
+                  Option.match({
+                    onNone: () => unwrittenOf(reference, 'No package writes its paths.'),
+                    onSome: (text) => writtenOf(reference, text),
+                  }),
+                ),
+                Effect.catchTag('ServiceError', (error) =>
+                  Effect.succeed(unwrittenOf(reference, error.reason)),
+                ),
+              ),
+          }),
+        ),
+      ).pipe(Effect.map(Array.reduce(nothingWritten, mergeWritten)))
+
+    const fileOfRoot = (entry: LoomModule, root: Code): Effect.Effect<Location> =>
+      Option.match(
+        Array.findFirst(entry.product.files, (file) => file.code.origin.name === root.origin.name),
+        {
+          onNone: () => Effect.succeed(`${entry.path}.${root.origin.name.toLowerCase()}`),
+          onSome: (file) => workspaces.placeOf(entry.path, file.path),
+        },
+      )
+
+    const rootSpecifiers = (
+      modules: Modules,
+      entry: LoomModule,
+    ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
+      if (!holdsReferences(modules)) return Effect.succeed(new Map())
+      const book = bookOf(modules)
+      const landing = landingOf(book, modules)
+      return Effect.forEach(entry.product.code, (root) =>
+        fileOfRoot(entry, root).pipe(
+          Effect.flatMap((from) => writtenFor(modules, book, landing, root, from)),
+          Effect.map((written) => [root.origin.name, specifiersOf(written)] as const),
+        ),
+      ).pipe(Effect.map((pairs) => new Map(pairs)))
+    }
 
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
       config
@@ -558,7 +748,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         matchEntry(source, path).pipe(
           Effect.andThen(buildCorpus(source, path)),
           Effect.flatMap((modules) => entryOf(modules, path)),
-          Effect.map(({ modules, entry }) => toVolar(projectTree(modules, entry))),
+          Effect.flatMap(({ modules, entry }) =>
+            rootSpecifiers(modules, entry).pipe(
+              Effect.map((specifiers) => toVolar(projectTree(modules, entry, specifiers))),
+            ),
+          ),
           Effect.catchCause((cause) =>
             Effect.logError('loom: projection failed; serving bare document', cause).pipe(
               Effect.andThen(
@@ -581,7 +775,13 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             ]
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
-              : resolveSinks(modules, path, workspaces.placeOf)
+              : resolveSinks(modules, path, workspaces.placeOf, writtenFor).pipe(
+                  Effect.flatMap(({ files, unwritten }) =>
+                    Array.isReadonlyArrayNonEmpty(unwritten)
+                      ? Effect.fail(new TangleError({ entry: path, failures: byLoom(unwritten) }))
+                      : Effect.succeed(files),
+                  ),
+                )
           }),
         ),
 
@@ -595,10 +795,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             ).pipe(
               Effect.map((pairs) => new Map(pairs)),
               Effect.flatMap((placed) =>
-                Ref.modify(composed, (previous) => {
-                  const next = recompose(previous, modules, placed)
-                  return [composedFiles(next), next] as const
-                }),
+                Ref.get(composed).pipe(
+                  Effect.flatMap((previous) => recompose(previous, modules, placed, writtenFor)),
+                  Effect.tap((next) => Ref.set(composed, next)),
+                  Effect.map(composedFiles),
+                ),
               ),
             ),
           ),

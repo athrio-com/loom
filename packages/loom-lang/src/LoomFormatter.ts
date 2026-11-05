@@ -545,12 +545,12 @@ const refsOf = (module: LoomModule, name: string): ReadonlyArray<string> =>
     Option.map((code) =>
       Array.getSomes(
         Array.map(code.fragments, (part) =>
-          part.type === 'Fragment'
-            ? Option.none()
-            : Option.map(
+          part.type === 'NameRef'
+            ? Option.map(
                 Option.filter(part.target, (target) => target.path === module.path),
                 (target) => target.name,
-              ),
+              )
+            : Option.none(),
         ),
       ),
     ),
@@ -679,9 +679,14 @@ const composesWhole = (module: LoomModule, root: string): boolean =>
   Array.every(Array.fromIterable(membersOf(module, root)), (name) =>
     Option.exists(codeNamed(module, name), (code) =>
       Array.every(code.fragments, (part) =>
-        part.type === 'Fragment'
-          ? part.health.status === 'ok'
-          : Option.exists(part.target, (target) => target.path === module.path),
+        Match.value(part).pipe(
+          Match.when({ type: 'Fragment' }, (fragment) => fragment.health.status === 'ok'),
+          Match.when({ type: 'NameRef' }, (ref) =>
+            Option.exists(ref.target, (target) => target.path === module.path),
+          ),
+          Match.when({ type: 'ModuleRef' }, () => false),
+          Match.exhaustive,
+        ),
       ),
     ),
   )

@@ -74,7 +74,9 @@ export type ParametersToken = typeof ParametersTokenSchema.Type
 
 export const settleKind = 'To be settled'
 
-export const anchorKinds: ReadonlyArray<string> = [settleKind]
+export const referenceKind = 'Reference'
+
+export const anchorKinds: ReadonlyArray<string> = [settleKind, referenceKind]
 
 export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
 

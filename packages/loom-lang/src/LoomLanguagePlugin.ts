@@ -9,6 +9,7 @@ import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WorkspaceSettings } from './WorkspaceSettings'
+import { LanguagePackages } from './LanguagePackages'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   Composition,
@@ -197,6 +198,11 @@ export const loomServicePlugins = (
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime())
     const active = yield* loadActive(languages, workspace)
+    const packages = yield* Effect.serviceOption(LanguagePackages)
+    yield* Option.match(packages, {
+      onNone: () => Effect.void,
+      onSome: (held) => held.hold(workspace, active),
+    })
     return yield* collect(
       active,
       sdk,

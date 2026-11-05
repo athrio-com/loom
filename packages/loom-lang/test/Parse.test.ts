@@ -177,11 +177,11 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(build?.sink).toBeUndefined()
   })
 
-  it('a tangle heading carries a `{Tangle}` specifier and a file Sink', () => {
+  it('a tangle heading carries a file Sink and no specifier', () => {
     const tangle = headingTitled('Tangling the library')
     expect(tangle?.sink?.type).toBe('Sink')
     expect(tangle?.sink?.file.value).toBe('Arithmetic.scala')
-    expect(tangle?.specifier?.label.value).toBe('Tangle')
+    expect(tangle?.specifier).toBeUndefined()
   })
 
   it('a PreambleWeft with `{{rounds = 3}}` populates warps with the value binding', () => {

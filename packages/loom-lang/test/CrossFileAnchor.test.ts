@@ -89,14 +89,14 @@ describe('a code anchor composes a section from another loom', () => {
     }),
   )
 
-  it.effect('refuses an anchor that still writes a loom’s path', () =>
+  it.effect('refuses a composing anchor that writes a loom’s path', () =>
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
         '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
       }
       expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
-        '/corpus/hello.loom:6: Retired target: an anchor finds its section by its name',
+        '/corpus/hello.loom:6: Stray target: `(greeting.loom)` names a file',
       )
       const [diagnostic] = yield* LoomCompiler.pipe(
         Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
@@ -592,10 +592,12 @@ describe("completing an anchor's label", () => {
       const closed = helloAnchoring(`${anchor('Greeting')}{To b}`)
       expect(yield* complete(closed, closed.indexOf('To b') + 4)).toEqual([
         { label: 'To be settled', range: at(13, 17), text: 'To be settled' },
+        { label: 'Reference', range: at(13, 17), text: 'Reference' },
       ])
       const open = helloAnchoring(`${anchor('Greeting')}{`)
       expect(yield* complete(open, open.indexOf('{') + 1)).toEqual([
         { label: 'To be settled', range: at(13, 13), text: 'To be settled}' },
+        { label: 'Reference', range: at(13, 13), text: 'Reference}' },
       ])
       expect(yield* complete(closed, closed.indexOf('Greeting') + 2)).toEqual([])
     }),

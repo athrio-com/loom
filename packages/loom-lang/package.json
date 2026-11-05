@@ -15,6 +15,7 @@
     "./LoomFormatter": "./src/LoomFormatter.ts",
     "./WorkspaceSettings": "./src/WorkspaceSettings.ts",
     "./LoomServer": "./src/LoomServer.ts",
+    "./LanguagePackages": "./src/LanguagePackages.ts",
     "./WorkspaceSource": "./src/WorkspaceSource.ts",
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",
     "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts",

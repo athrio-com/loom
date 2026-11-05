@@ -12,7 +12,9 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnclosedFence` carries the fence that opened fenced code, so its message can show the line that would close it. A `FenceLabelAgainstLanguage` carries the label a fence wears and the language its section composes. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Three faults judge the parameters in an anchor's braces. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear. An `UnknownKey` carries a key no anchor takes, with the `keys` an anchor does take, and an `UnknownKind` carries a kind no anchor takes, with the `kinds` an anchor does take. A `MissingSymbol` carries a name an anchor says its section provides, and the section that declares no such name. A `RetiredTarget` carries the target an anchor still writes in parentheses after its name, such as `(greeting.loom)`, and the span it covers. A name finds its section through the book, so Loom reads no loom's path in an anchor.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnclosedFence` carries the fence that opened fenced code, so its message can show the line that would close it. A `FenceLabelAgainstLanguage` carries the label a fence wears and the language its section composes. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Three faults judge the parameters in an anchor's braces. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear. An `UnknownKey` carries a key no anchor takes, with the `keys` an anchor does take, and an `UnknownKind` carries a kind no anchor takes, with the `kinds` an anchor does take. A `MissingSymbol` carries a name an anchor says its section provides, and the section that declares no such name. A `StrayTarget` carries a file an anchor writes in parentheses after its name, such as `(greeting.loom)`, when the anchor composes code, and the span it covers. Only a reference names a file, so the parentheses mean nothing on any other anchor.
+
+Five faults judge a reference, an anchor of the `Reference` kind, as the chapter "Referring to modules" describes. A `NoSuchFile` carries the name a reference finds, the file it names in parentheses, the files the node it finds does emit, and the span of the parentheses. A `SeveralFiles` carries the name and the files, when the reference names none of them, with the point just past the anchor where a file can be named. A `SectionWithoutFile` carries the name of a section with no sink, the files it lands in, and whether one of them is the file the reference stands in, since a path can name none of those. An `UnsettledModule` is a note, like an `UnsettledSection`: it carries the name of a module nobody has written yet, and whether a chapter or section of that name is declared. A `SpecifierUnknown` carries the name of a reference whose path the package could not write, with the language and the reason. Two faults keep a heading to one mark for the file its section writes. A `TangleBesideSink` carries the sink a heading writes beside its `{Tangle}` specifier, and the span the fix removes. A `TangleWithoutFile` carries the folder a chapter's `Package` names, when it names one, since a `{Tangle}` specifier means the chapter's one file and a folder is no file.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -63,7 +65,23 @@ export type LoomFault = Data.TaggedEnum<{
   UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string> }
   UnknownKind: { readonly kind: string; readonly kinds: ReadonlyArray<string> }
   MissingSymbol: { readonly name: string; readonly section: string }
-  RetiredTarget: { readonly target: string; readonly at: Position }
+  StrayTarget: { readonly target: string; readonly at: Position }
+  NoSuchFile: {
+    readonly name: string
+    readonly file: string
+    readonly files: ReadonlyArray<string>
+    readonly at: Position
+  }
+  SeveralFiles: { readonly name: string; readonly files: ReadonlyArray<string>; readonly at: Position }
+  SectionWithoutFile: {
+    readonly name: string
+    readonly files: ReadonlyArray<string>
+    readonly here: boolean
+  }
+  UnsettledModule: { readonly name: string; readonly declared: boolean }
+  SpecifierUnknown: { readonly name: string; readonly language: string; readonly reason: string }
+  TangleBesideSink: { readonly sink: string; readonly specifier: Position }
+  TangleWithoutFile: { readonly folder?: string }
   HeadingAgainstCode: {}
 }>
 
@@ -95,7 +113,14 @@ export const {
   UnknownKey,
   UnknownKind,
   MissingSymbol,
-  RetiredTarget,
+  StrayTarget,
+  NoSuchFile,
+  SeveralFiles,
+  SectionWithoutFile,
+  UnsettledModule,
+  SpecifierUnknown,
+  TangleBesideSink,
+  TangleWithoutFile,
   HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
@@ -106,6 +131,8 @@ export const {
 Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
 
 `siblingPlace` says where a duplicated name already stands: a section of this loom on the line it gives, or a chapter of this part in the looms it lists.
+
+A reference's messages list files, and `fileList` joins them with backticks, as `` `a.ts` and `b.ts` `` reads. `emitted` says which files a node emits, or that it emits none of its own. `composeInstead` ends each message for a section with no file to name, since the author most likely meant the anchor to compose the section.
 
 An ambiguous anchor ends its message with the way out. `disambiguation` names the paths that each reach one candidate alone. When there are none, as for two sections of one loom that share a title, it asks the author to rename one.
 
@@ -144,6 +171,18 @@ const disambiguation = (paths: ReadonlyArray<string>): string =>
         ' or ',
       )}.`,
   })
+
+const fileList = (files: ReadonlyArray<string>): string =>
+  Array.join(
+    Array.map(files, (file) => `\`${file}\``),
+    ' and ',
+  )
+
+const emitted = (files: ReadonlyArray<string>): string =>
+  Array.isReadonlyArrayNonEmpty(files) ? `It emits ${fileList(files)}.` : 'It emits no file of its own.'
+
+const composeInstead =
+  'Take `Reference` off the anchor and move it out of the import, so it composes the section.'
 
 const rule: Record<MalformedConstruct, string> = {
   specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
@@ -219,9 +258,52 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
       ),
-    RetiredTarget: ({ target }) =>
+    StrayTarget: ({ target }) =>
       error(
-        `Retired target: an anchor finds its section by its name, through the book, so Loom no longer reads \`${target}\`. Remove it, and name the section through its chapter if the name alone is ambiguous.`,
+        `Stray target: \`${target}\` names a file, and only a reference, an anchor of the \`Reference\` kind, names one. This anchor composes code, so remove the target.`,
+      ),
+    NoSuchFile: ({ name, file, files }) =>
+      error(`No such file: \`${name}\` emits no \`${file}\`. ${emitted(files)}`),
+    SeveralFiles: ({ name, files }) =>
+      error(
+        `Several files: \`${name}\` emits ${fileList(files)}. Name the one this reference means in parentheses after its name, as \`(${files[0] ?? ''})\`.`,
+      ),
+    SectionWithoutFile: ({ name, files, here }) =>
+      error(
+        Match.value({ here, count: files.length }).pipe(
+          Match.when(
+            { here: true },
+            () =>
+              `No file to name: \`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
+          ),
+          Match.when(
+            { count: 0 },
+            () =>
+              `No file to name: \`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
+          ),
+          Match.orElse(
+            () =>
+              `No file to name: \`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
+          ),
+        ),
+      ),
+    UnsettledModule: ({ name, declared }) =>
+      information(
+        declared
+          ? `To be settled: \`${name}\` emits no file yet, so this reference names no module.`
+          : `To be settled: nothing is named \`${name}\` yet, so this reference names no module.`,
+      ),
+    SpecifierUnknown: ({ name, language, reason }) =>
+      error(`Path unwritten: the ${language} package cannot write the path to \`${name}\`. ${reason}`),
+    TangleBesideSink: ({ sink }) =>
+      error(
+        `Two marks for one file: the sink \`${sink}\` already says this section writes a file, so \`{Tangle}\` says it twice. Remove \`{Tangle}\`.`,
+      ),
+    TangleWithoutFile: ({ folder }) =>
+      error(
+        `No file for \`{Tangle}\`: it writes the one file the chapter's \`Package\` names, but ${
+          folder === undefined ? 'this chapter names no `Package`' : `\`${folder}\` names a folder`
+        }. Name the file in brackets instead, as \`[module.ts]\`.`,
       ),
     HeadingAgainstCode: () =>
       warning(
@@ -241,7 +323,7 @@ export const describe = (fault: LoomFault): Note =>
 
 A detection site holds a fault and the span it covers, and needs a `Health` for the node. `faulty` is that step: it describes the fault through the catalog and returns a health carrying the one diagnostic, positioned where the fault was found. The severity sets the node's status: an error or a warning fails it. An informational note leaves it healthy, and the catalog raises two, for a section to be settled and for a label that outlived its section's settling. A tangle refuses an unsettled section all the same, as the chapter "The compile layer" describes, because a file that composes one would ship without the code its anchor names.
 
-`fixesOf` gives the fixes a fault offers. An ambiguous anchor offers one for each of its paths, which writes the path in place of the anchor's name. An unresolved anchor offers up to two. One writes the heading of its declaration at the point the declaration names, so the section exists and the author writes its specification next. The other writes `{To be settled}` just past the anchor, so the section can wait without any prose. An anchor that states what its section provides has promised the section already, so it raises no unresolved-anchor fault and offers neither fix. A settled label offers one fix, which removes the label. A label beside parameters offers one fix too, which writes the label in full. A retired target offers one fix, which removes the target. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list. `faultAt` gives one fault's diagnostic on its own, for a site that hands a diagnostic on rather than a node's health, as the compiler hands the editor a missing symbol to raise.
+`fixesOf` gives the fixes a fault offers. An ambiguous anchor offers one for each of its paths, which writes the path in place of the anchor's name. An unresolved anchor offers up to two. One writes the heading of its declaration at the point the declaration names, so the section exists and the author writes its specification next. The other writes `{To be settled}` just past the anchor, so the section can wait without any prose. An anchor that states what its section provides has promised the section already, so it raises no unresolved-anchor fault and offers neither fix. A settled label offers one fix, which removes the label. A label beside parameters offers one fix too, which writes the label in full. A stray target offers one fix, which removes the target, and a `{Tangle}` beside a sink offers one, which removes the specifier. A reference that names no file, or one the node does not emit, offers one fix for each file the node emits, which writes that file in the parentheses. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list. `faultAt` gives one fault's diagnostic on its own, for a site that hands a diagnostic on rather than a node's health, as the compiler hands the editor a missing symbol to raise.
 
 =>
 
@@ -274,8 +356,17 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('LabelBesideParameter', ({ label }): ReadonlyArray<Fix> => [
       { title: `Write \`${label}\` in full`, text: `kind="${label}"` },
     ]),
-    Match.tag('RetiredTarget', ({ target, at }): ReadonlyArray<Fix> => [
+    Match.tag('StrayTarget', ({ target, at }): ReadonlyArray<Fix> => [
       { title: `Remove \`${target}\``, text: '', at },
+    ]),
+    Match.tag('NoSuchFile', ({ files, at }) =>
+      Array.map(files, (file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+    ),
+    Match.tag('SeveralFiles', ({ files, at }) =>
+      Array.map(files, (file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+    ),
+    Match.tag('TangleBesideSink', ({ specifier }): ReadonlyArray<Fix> => [
+      { title: 'Remove `{Tangle}`', text: '', at: specifier },
     ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )

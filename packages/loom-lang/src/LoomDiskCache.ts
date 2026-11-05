@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -12,7 +12,12 @@ import {
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
+import {
+  type Code,
+  type Part,
+  type SectionId,
+  type WrittenFile,
+} from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -83,13 +88,21 @@ const optionOf = <A>(kept: KeptOption<A>): Option.Option<A> =>
   kept._tag === 'Some' && kept.value !== undefined ? Option.some(kept.value) : Option.none()
 
 const revivedPart = (part: Part): Part =>
-  part.type === 'NameRef'
-    ? {
-        ...part,
-        target: optionOf(part.target as unknown as KeptOption<SectionId>),
-        toBeSettled: optionOf(part.toBeSettled as unknown as KeptOption<Position>),
-      }
-    : part
+  Match.value(part).pipe(
+    Match.when({ type: 'NameRef' }, (ref): Part => ({
+      ...ref,
+      target: optionOf(ref.target as unknown as KeptOption<SectionId>),
+      toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
+    })),
+    Match.when({ type: 'ModuleRef' }, (ref): Part => ({
+      ...ref,
+      target: optionOf(ref.target as unknown as KeptOption<SectionId>),
+      file: optionOf(ref.file as unknown as KeptOption<WrittenFile>),
+      toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
+    })),
+    Match.when({ type: 'Fragment' }, (fragment): Part => fragment),
+    Match.exhaustive,
+  )
 
 const revivedCode = (code: Code): Code => ({
   ...code,

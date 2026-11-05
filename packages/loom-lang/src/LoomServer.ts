@@ -38,6 +38,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
+import { LanguagePackages } from './LanguagePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -727,6 +728,7 @@ const settleEdits = (
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
+    Layer.provideMerge(LanguagePackages.held),
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(Layer.orDie(Environment)),
     Layer.provideMerge(LoomConfig.layer),

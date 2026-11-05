@@ -234,7 +234,7 @@ Language: TypeScript
 Package: src/ast/
 ---
 
-# Thing {Tangle} [Thing.ts]
+# Thing [Thing.ts]
 
 =>
 

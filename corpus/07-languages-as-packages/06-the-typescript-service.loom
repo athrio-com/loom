@@ -14,6 +14,8 @@ Besides the questions a type checker answers, the service answers three about th
 
 The service also formats TypeScript. It lays a composed root out with Prettier, and Loom's formatter maps the result back to the sections the root was composed from.
 
+And it writes the path a reference names, as the chapter "Referring to modules" describes, from the file the import stands in to the file the reference names.
+
 ## Finding a root's project
 
 The service finds a root's project the way `tsc` does. A root belongs to the project of the file it tangles to, so the service walks up from that file for the nearest `tsconfig.json`. That `tsconfig.json` names the root's project and the roots it governs, and those roots share one program.
@@ -651,9 +653,141 @@ export const lowerPromised = (
   )
 }
 
+## Writing a module's path
+
+Once Loom knows the file a reference names, the service writes the specifier from the file the import stands in. `moduleSpecifier` answers for the TypeScript family of languages, the ones `tsExtension` names, and declines every other. It writes a quoted path, relative to the importing file's folder, opening with `./` when it does not climb out of it, as `'./room.js'` and `'../lib/format.js'` do.
+
+The extension follows the project's own settings for the importing file, the options its `tsconfig.json` sets, before Loom forces anything for the editor. A project that allows importing a `.ts` file, with `allowImportingTsExtensions` or `rewriteRelativeImportExtensions`, keeps the file's own extension. Any other project imports the JavaScript the compiler emits, so `emittedExtension` turns `.ts` and `.tsx` into `.js`, `.mts` into `.mjs`, and `.cts` into `.cjs`. A module in another language, such as a `.json` file, keeps its extension. A file that no `tsconfig.json` governs follows the compiler's defaults, which import the emitted JavaScript. `specifierConfig` finds each importing file's `tsconfig.json` the way the editor plugin does, once per folder.
+
+=>
+
+const emittedExtension: ReadonlyMap<string, string> = new Map([
+  ['.ts', '.js'],
+  ['.tsx', '.js'],
+  ['.mts', '.mjs'],
+  ['.cts', '.cjs'],
+])
+
+export const specifierBetween = (from: string, to: string, keepTs: boolean): string => {
+  const path = relative(dirname(from), to).split(sep).join('/')
+  const written = path.startsWith('../') ? path : `./${path}`
+  const extension = extname(written)
+  return `'${Option.match(
+    Option.filter(Option.fromNullishOr(emittedExtension.get(extension)), () => !keepTs),
+    {
+      onNone: () => written,
+      onSome: (emitted) => written.slice(0, written.length - extension.length) + emitted,
+    },
+  )}'`
+}
+
+const specifierConfig = configNear()
+
+const moduleSpecifier = (
+  request: SpecifierRequest,
+): Effect.Effect<Option.Option<string>, ServiceError> =>
+  Effect.sync(() =>
+    Option.map(
+      Option.liftPredicate(request.language, (language) => tsExtension.has(language)),
+      () =>
+        specifierBetween(
+          request.from,
+          request.to,
+          Option.exists(specifierConfig(request.from), keepsTsExtension),
+        ),
+    ),
+  )
+
+~
+
+The service reads the two settings without a compiler, so a project on TypeScript 7, or on no TypeScript at all, gets its paths written like any other. TypeScript 7 runs as a native program, and holds no reader a service could call. A `tsconfig.json` is JSON with comments and trailing commas allowed, and `jsonOf` reads it as such. It removes each comment, leaving the strings that hold `//` alone, and each comma before a closing bracket, then parses what remains. `TsconfigSchema` takes the two fields the service reads, `extends` and `compilerOptions`, and lets the rest go.
+
+A setting the file does not set comes from the files it extends. `flagIn` reads one boolean setting, from the file itself first and then from its bases, the last base first, since a later base overrides an earlier one, as TypeScript reads them. `basesOf` finds each base the way TypeScript does. A path that starts with a dot or a slash names a file beside the extending one, as written or with `.json` added, whichever is a file. Any other name is a package, resolved from the extending file, its own `tsconfig.json` when the name names no file. A base that cannot be found or read sets nothing, and a base that extends one already read sets nothing either, so a cycle ends.
+
+=>
+
+const TsconfigSchema = Schema.Struct({
+  extends: Schema.optional(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
+  compilerOptions: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+})
+
+type Tsconfig = typeof TsconfigSchema.Type
+
+const jsonOf = (text: string): Option.Option<unknown> =>
+  Option.liftThrowable(() =>
+    JSON.parse(
+      text
+        .replace(
+          /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+          (_comment, string: string | undefined) => string ?? '',
+        )
+        .replace(/,(\s*[}\]])/g, '$1'),
+    ),
+  )()
+
+const tsconfigAt = (path: string): Option.Option<Tsconfig> =>
+  pipe(
+    Option.liftThrowable(() => readFileSync(path, 'utf8'))(),
+    Option.flatMap(jsonOf),
+    Option.flatMap(Schema.decodeUnknownOption(TsconfigSchema)),
+  )
+
+const baseFile = (from: string, name: string): Option.Option<string> =>
+  name.startsWith('.') || name.startsWith('/')
+    ? Array.findFirst(
+        [resolve(dirname(from), name), `${resolve(dirname(from), name)}.json`],
+        isFile,
+      )
+    : pipe(
+        Option.liftThrowable(() => createRequire(from).resolve(name))(),
+        Option.orElse(() =>
+          Option.liftThrowable(() => createRequire(from).resolve(`${name}/tsconfig.json`))(),
+        ),
+      )
+
+const basesOf = (from: string, config: Tsconfig): ReadonlyArray<string> =>
+  pipe(
+    Option.fromNullishOr(config.extends),
+    Option.match({
+      onNone: (): ReadonlyArray<string> => [],
+      onSome: (bases) => (typeof bases === 'string' ? [bases] : bases),
+    }),
+    Array.map((name) => baseFile(from, name)),
+    Array.getSomes,
+  )
+
+const flagIn = (
+  path: string,
+  key: string,
+  seen: ReadonlySet<string> = new Set(),
+): Option.Option<boolean> =>
+  pipe(
+    Option.liftPredicate(path, (unread) => !seen.has(unread)),
+    Option.flatMap(tsconfigAt),
+    Option.flatMap((config) =>
+      pipe(
+        Option.fromNullishOr(config.compilerOptions?.[key]),
+        Option.filter((value): value is boolean => typeof value === 'boolean'),
+        Option.orElse(() =>
+          pipe(
+            basesOf(path, config),
+            Array.reverse,
+            Array.map((base) => flagIn(base, key, new Set([...seen, path]))),
+            Array.getSomes,
+            Array.head,
+          ),
+        ),
+      ),
+    ),
+  )
+
+const keepsTsExtension = (config: string): boolean =>
+  Option.contains(flagIn(config, 'allowImportingTsExtensions'), true) ||
+  Option.contains(flagIn(config, 'rewriteRelativeImportExtensions'), true)
+
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a reference names.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -670,17 +804,18 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
+  moduleSpecifier,
 })
 
 export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, the `PromisedName` a root is promised, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, `Match` to read which file an edit creates, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`, `Diagnostic` for the reports it lowers, and `CreateFile` and `RenameFile` for the files an edit makes; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, the `PromisedName` a root is promised, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, `Match` to read which file an edit creates, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`, `Diagnostic` for the reports it lowers, and `CreateFile` and `RenameFile` for the files an edit makes; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. `relative`, `sep` and `extname` write a module's path, `readFileSync` reads a `tsconfig.json`, and `resolve` finds the files it extends. `Schema` takes what the service reads from it. The contract gives the `SpecifierRequest` the service answers. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
 
 =>
 
-import { Array, Effect, Match, Option, pipe, Result } from 'effect'
+import { Array, Effect, Match, Option, pipe, Result, Schema } from 'effect'
 import type {
   CodeAction,
   CreateFile,
@@ -692,9 +827,9 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { CompilerOptions } from 'typescript'
 import {
@@ -706,6 +841,7 @@ import {
   type FormatRequest,
   type PromisedName,
   ServiceError,
+  type SpecifierRequest,
   TypescriptSdk,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -738,6 +874,8 @@ type TypeScript = typeof import('typescript')
 ::[Formatting the product]
 
 ::[A promised name warns]
+
+::[Writing a module's path]
 
 ::[The service]
 
@@ -1311,6 +1449,57 @@ describe('productPlugin warns of a name promised before it is written', () => {
   })
 })
 
+## Testing how a module's path is written
+
+`specifierBetween` writes the path from the importing file's folder. A path that stays in the folder opens with `./`, and one that climbs out keeps its `../`. A project that imports the emitted JavaScript gets `.js` for a `.ts` or `.tsx` file, and a module in another language keeps its extension. A project that allows importing `.ts` keeps the file's own extension.
+
+`moduleSpecifier` reads that choice from the importing file's `tsconfig.json`, with no compiler. The case writes three packages into a scratch folder. One's `tsconfig.json` allows importing `.ts`, behind a comment and before a trailing comma. One's does not. The third sets nothing itself and extends a base that allows it. The service writes a path in each, and declines a JSON section.
+
+=>
+
+import { Effect } from 'effect'
+import { specifierBetween, TypescriptService } from '../src/TypescriptService'
+
+describe('the service writes the path to a module', () => {
+  it('writes a relative path with the extension the project imports', () => {
+    expect(specifierBetween('/p/src/a.ts', '/p/src/room.ts', false)).toBe("'./room.js'")
+    expect(specifierBetween('/p/src/a.ts', '/p/lib/view.tsx', false)).toBe("'../lib/view.js'")
+    expect(specifierBetween('/p/src/a.ts', '/p/src/data.json', false)).toBe("'./data.json'")
+    expect(specifierBetween('/p/src/a.ts', '/p/src/room.ts', true)).toBe("'./room.ts'")
+  })
+
+  it('reads whether the project imports .ts from its tsconfig.json', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-specifier-')))
+    const pkg = (name: string, tsconfig: string) => {
+      mkdirSync(join(folder, name, 'src'), { recursive: true })
+      writeFileSync(join(folder, name, 'tsconfig.json'), tsconfig)
+    }
+    pkg(
+      'direct',
+      '{\n  // imports name .ts files\n  "compilerOptions": { "allowImportingTsExtensions": true, "noEmit": true, },\n}\n',
+    )
+    pkg('emitted', JSON.stringify({ compilerOptions: { allowImportingTsExtensions: false } }))
+    writeFileSync(
+      join(folder, 'tsconfig.base.json'),
+      JSON.stringify({ compilerOptions: { rewriteRelativeImportExtensions: true } }),
+    )
+    pkg('extended', JSON.stringify({ extends: '../tsconfig.base' }))
+    const written = (name: string, language = 'typescript') =>
+      Effect.runSync(
+        TypescriptService.moduleSpecifier!({
+          language,
+          loom: join(folder, 'corpus', 'doc.loom'),
+          from: join(folder, name, 'src', 'interior.ts'),
+          to: join(folder, name, 'src', 'room.ts'),
+        }),
+      )
+    expect(written('direct')).toEqual(Option.some("'./room.ts'"))
+    expect(written('emitted')).toEqual(Option.some("'./room.js'"))
+    expect(written('extended')).toEqual(Option.some("'./room.ts'"))
+    expect(written('direct', 'json')).toEqual(Option.none())
+  })
+})
+
 ## The test file [test/TypescriptService.test.ts]
 
 =>
@@ -1324,3 +1513,5 @@ describe('productPlugin warns of a name promised before it is written', () => {
 ::[Testing the plugin itself]
 
 ::[Testing a promised name]
+
+::[Testing how a module's path is written]

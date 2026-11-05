@@ -83,9 +83,9 @@ const keptFileOf = (workspace: string, path: Location): string =>
 
 ## Reading a module back
 
-JSON keeps a module almost exactly. Fields whose value is `undefined` disappear, and every reader already treats a missing field the same way. The one value JSON cannot keep is an Effect `Option`: it comes back as a plain object, with none of the behaviour of an `Option`. A module holds an `Option` in exactly one place. Each `NameRef` in a product's code names its target section as an `Option`, empty when the anchor resolved to nothing.
+JSON keeps a module almost exactly. Fields whose value is `undefined` disappear, and every reader already treats a missing field the same way. The one value JSON cannot keep is an Effect `Option`: it comes back as a plain object, with none of the behaviour of an `Option`. A module holds an `Option` in the edges of a product's code alone. Each `NameRef` names its target section as an `Option`, empty when the anchor resolved to nothing, and its `{To be settled}` label as another. A `ModuleRef` holds the same two, and the file it names in parentheses as a third.
 
-So `revived` walks the product and turns each `NameRef`'s target and its `{To be settled}` label back into an `Option`, through `optionOf`. Converting only those two fields costs a third of what a reviver run over every value in the file would. A test builds modules from real chapters, keeps them, reads them back and compares the two whole. If the model ever gains another value that JSON cannot keep, that comparison fails, rather than the cache quietly serving a broken module.
+So `revived` walks the product and turns each of those fields back into an `Option`, through `optionOf`. Converting only those fields costs a third of what a reviver run over every value in the file would. A test builds modules from real chapters, keeps them, reads them back and compares the two whole. If the model ever gains another value that JSON cannot keep, that comparison fails, rather than the cache quietly serving a broken module.
 
 `recall` reads a loom's kept file. It returns the module only when the file parses, its key matches, and the module it holds names the same path and text. Anything else, from a missing file to one half written by a crashed process, returns nothing, and the loom is built as if no cache existed.
 
@@ -100,13 +100,21 @@ const optionOf = <A>(kept: KeptOption<A>): Option.Option<A> =>
   kept._tag === 'Some' && kept.value !== undefined ? Option.some(kept.value) : Option.none()
 
 const revivedPart = (part: Part): Part =>
-  part.type === 'NameRef'
-    ? {
-        ...part,
-        target: optionOf(part.target as unknown as KeptOption<SectionId>),
-        toBeSettled: optionOf(part.toBeSettled as unknown as KeptOption<Position>),
-      }
-    : part
+  Match.value(part).pipe(
+    Match.when({ type: 'NameRef' }, (ref): Part => ({
+      ...ref,
+      target: optionOf(ref.target as unknown as KeptOption<SectionId>),
+      toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
+    })),
+    Match.when({ type: 'ModuleRef' }, (ref): Part => ({
+      ...ref,
+      target: optionOf(ref.target as unknown as KeptOption<SectionId>),
+      file: optionOf(ref.file as unknown as KeptOption<WrittenFile>),
+      toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
+    })),
+    Match.when({ type: 'Fragment' }, (fragment): Part => fragment),
+    Match.exhaustive,
+  )
 
 const revivedCode = (code: Code): Code => ({
   ...code,
@@ -230,11 +238,11 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
 
 ## What the module draws on
 
-Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Location`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, with the `Position` of a label, `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to.
+Effect supplies the service, its layer, `Array`, `Option` and `pipe` for the steps, and `Match` to tell one kind of edge from another. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Location`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, with the `WrittenFile` a reference names, and the `Position` of a label. `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to.
 
 =>
 
-import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -248,7 +256,12 @@ import {
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
+import {
+  type Code,
+  type Part,
+  type SectionId,
+  type WrittenFile,
+} from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'

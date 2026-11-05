@@ -46,7 +46,7 @@ export const keyOf = (id: SectionId): string => JSON.stringify([id.path, id.name
 
 A `Fragment` is a literal product span — the code the author wrote — with the `.loom` `origin` it maps 1:1 back to.
 
-A `Ref` is a transclusion edge. It records one name anchor, `::[Heading]`, so the projection composes the section the anchor names into the section that holds the anchor, and the two share one scope. `Ref` is the single edge kind, named `NameRef`.
+A `Ref` is a transclusion edge. It records one name anchor, `::[Heading]`, so the projection composes the section the anchor names into the section that holds the anchor, and the two share one scope. `Ref` is the composing edge, named `NameRef`. A section's code holds one other kind of edge, the reference, which the section "A reference to a module" describes.
 
 A `NameRef` carries five fields. Its `name` is the name the anchor writes, exactly as written. Its `target` is the `SectionId` the edge points at. The target is absent when the product pass, which reads one loom at a time, finds no section of that name in the anchor's own loom. The name may still lie elsewhere in the book, so the compiler binds it once it holds the corpus. The `anchor` field is the span of the name in the section that holds the anchor, where a diagnostic about the edge lands. `toBeSettled` is the span of the anchor's `{To be settled}` label, when the anchor carries one: it says the section the name reaches is meant, though nobody has written it yet. `provides` holds each name the anchor says its section provides, as a `Provided` with the span where the anchor writes it. Stating those names promises the section as surely as the label does, so an edge that carries either one says its section is meant, and `isMeant` asks whether it does.
 
@@ -73,19 +73,46 @@ export const NameRefSchema = productNode('NameRef', {
 })
 export type NameRef = typeof NameRefSchema.Type
 
-export const isMeant = (ref: NameRef): boolean =>
+export const isMeant = (ref: NameRef | ModuleRef): boolean =>
   Option.isSome(ref.toBeSettled) || Array.isReadonlyArrayNonEmpty(ref.provides)
 
 export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
 
-## Composed code
+## A reference to a module
 
-A `Code` is one section, composed: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The product pass returns one `Code` per section, keyed by name.
+An anchor that stands where an import's path goes names a module, the file another section tangles to, and composes nothing. The product pass records such an anchor as a `ModuleRef`, a reference. Its fields follow a `NameRef`'s: the `name` as the anchor writes it, the `target` section when the anchor's own loom holds one of that name, the `anchor` span where a diagnostic lands, and the `toBeSettled` label and `provides` names that promise what the module is to hold.
+
+Two fields are a reference's own. `file` is the `WrittenFile` the anchor writes in parentheses after its name, as `::[Room's 2d system](room.ts)` does. It picks one of the files a chapter emits, and records the file's name and the span of the parentheses, which a fix rewrites. `slot` is the empty span just past the anchor's closing bracket, where a fix writes a file the anchor did not name.
+
+A reference carries no path. Where the module lands depends on the corpus around it, so the compiler finds the file and the language package writes the path, once both are known.
 
 =>
 
-export const PartSchema = Schema.Union([FragmentSchema, RefSchema])
+export const WrittenFileSchema = Schema.Struct({
+  name: Schema.String,
+  at: PositionSchema,
+})
+export type WrittenFile = typeof WrittenFileSchema.Type
+
+export const ModuleRefSchema = productNode('ModuleRef', {
+  name: Schema.String,
+  target: Schema.Option(SectionIdSchema),
+  file: Schema.Option(WrittenFileSchema),
+  anchor: PositionSchema,
+  slot: PositionSchema,
+  toBeSettled: Schema.Option(PositionSchema),
+  provides: Schema.Array(ProvidedSchema),
+})
+export type ModuleRef = typeof ModuleRefSchema.Type
+
+## Composed code
+
+A `Code` is one section, composed: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, a `Ref`, a transclusion edge, or a `ModuleRef`, a reference; `Part` is the union of the three. The product pass returns one `Code` per section, keyed by name.
+
+=>
+
+export const PartSchema = Schema.Union([FragmentSchema, RefSchema, ModuleRefSchema])
 export type Part = typeof PartSchema.Type
 
 export const CodeSchema = productNode('Code', {
@@ -153,6 +180,8 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 ::[Section identity]
 
 ::[The leaves]
+
+::[A reference to a module]
 
 ::[Composed code]
 

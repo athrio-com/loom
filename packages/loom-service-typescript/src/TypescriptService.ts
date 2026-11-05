@@ -1,4 +1,4 @@
-import { Array, Effect, Match, Option, pipe, Result } from 'effect'
+import { Array, Effect, Match, Option, pipe, Result, Schema } from 'effect'
 import type {
   CodeAction,
   CreateFile,
@@ -10,9 +10,9 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { CompilerOptions } from 'typescript'
 import {
@@ -24,6 +24,7 @@ import {
   type FormatRequest,
   type PromisedName,
   ServiceError,
+  type SpecifierRequest,
   TypescriptSdk,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -574,6 +575,122 @@ export const lowerPromised = (
   )
 }
 
+const emittedExtension: ReadonlyMap<string, string> = new Map([
+  ['.ts', '.js'],
+  ['.tsx', '.js'],
+  ['.mts', '.mjs'],
+  ['.cts', '.cjs'],
+])
+
+export const specifierBetween = (from: string, to: string, keepTs: boolean): string => {
+  const path = relative(dirname(from), to).split(sep).join('/')
+  const written = path.startsWith('../') ? path : `./${path}`
+  const extension = extname(written)
+  return `'${Option.match(
+    Option.filter(Option.fromNullishOr(emittedExtension.get(extension)), () => !keepTs),
+    {
+      onNone: () => written,
+      onSome: (emitted) => written.slice(0, written.length - extension.length) + emitted,
+    },
+  )}'`
+}
+
+const specifierConfig = configNear()
+
+const moduleSpecifier = (
+  request: SpecifierRequest,
+): Effect.Effect<Option.Option<string>, ServiceError> =>
+  Effect.sync(() =>
+    Option.map(
+      Option.liftPredicate(request.language, (language) => tsExtension.has(language)),
+      () =>
+        specifierBetween(
+          request.from,
+          request.to,
+          Option.exists(specifierConfig(request.from), keepsTsExtension),
+        ),
+    ),
+  )
+
+const TsconfigSchema = Schema.Struct({
+  extends: Schema.optional(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
+  compilerOptions: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+})
+
+type Tsconfig = typeof TsconfigSchema.Type
+
+const jsonOf = (text: string): Option.Option<unknown> =>
+  Option.liftThrowable(() =>
+    JSON.parse(
+      text
+        .replace(
+          /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+          (_comment, string: string | undefined) => string ?? '',
+        )
+        .replace(/,(\s*[}\]])/g, '$1'),
+    ),
+  )()
+
+const tsconfigAt = (path: string): Option.Option<Tsconfig> =>
+  pipe(
+    Option.liftThrowable(() => readFileSync(path, 'utf8'))(),
+    Option.flatMap(jsonOf),
+    Option.flatMap(Schema.decodeUnknownOption(TsconfigSchema)),
+  )
+
+const baseFile = (from: string, name: string): Option.Option<string> =>
+  name.startsWith('.') || name.startsWith('/')
+    ? Array.findFirst(
+        [resolve(dirname(from), name), `${resolve(dirname(from), name)}.json`],
+        isFile,
+      )
+    : pipe(
+        Option.liftThrowable(() => createRequire(from).resolve(name))(),
+        Option.orElse(() =>
+          Option.liftThrowable(() => createRequire(from).resolve(`${name}/tsconfig.json`))(),
+        ),
+      )
+
+const basesOf = (from: string, config: Tsconfig): ReadonlyArray<string> =>
+  pipe(
+    Option.fromNullishOr(config.extends),
+    Option.match({
+      onNone: (): ReadonlyArray<string> => [],
+      onSome: (bases) => (typeof bases === 'string' ? [bases] : bases),
+    }),
+    Array.map((name) => baseFile(from, name)),
+    Array.getSomes,
+  )
+
+const flagIn = (
+  path: string,
+  key: string,
+  seen: ReadonlySet<string> = new Set(),
+): Option.Option<boolean> =>
+  pipe(
+    Option.liftPredicate(path, (unread) => !seen.has(unread)),
+    Option.flatMap(tsconfigAt),
+    Option.flatMap((config) =>
+      pipe(
+        Option.fromNullishOr(config.compilerOptions?.[key]),
+        Option.filter((value): value is boolean => typeof value === 'boolean'),
+        Option.orElse(() =>
+          pipe(
+            basesOf(path, config),
+            Array.reverse,
+            Array.map((base) => flagIn(base, key, new Set([...seen, path]))),
+            Array.getSomes,
+            Array.head,
+          ),
+        ),
+      ),
+    ),
+  )
+
+const keepsTsExtension = (config: string): boolean =>
+  Option.contains(flagIn(config, 'allowImportingTsExtensions'), true) ||
+  Option.contains(flagIn(config, 'rewriteRelativeImportExtensions'), true)
+
 export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
@@ -585,6 +702,7 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
+  moduleSpecifier,
 })
 
 export default TypescriptService

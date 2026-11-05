@@ -40,13 +40,30 @@ export const NameRefSchema = productNode('NameRef', {
 })
 export type NameRef = typeof NameRefSchema.Type
 
-export const isMeant = (ref: NameRef): boolean =>
+export const isMeant = (ref: NameRef | ModuleRef): boolean =>
   Option.isSome(ref.toBeSettled) || Array.isReadonlyArrayNonEmpty(ref.provides)
 
 export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
 
-export const PartSchema = Schema.Union([FragmentSchema, RefSchema])
+export const WrittenFileSchema = Schema.Struct({
+  name: Schema.String,
+  at: PositionSchema,
+})
+export type WrittenFile = typeof WrittenFileSchema.Type
+
+export const ModuleRefSchema = productNode('ModuleRef', {
+  name: Schema.String,
+  target: Schema.Option(SectionIdSchema),
+  file: Schema.Option(WrittenFileSchema),
+  anchor: PositionSchema,
+  slot: PositionSchema,
+  toBeSettled: Schema.Option(PositionSchema),
+  provides: Schema.Array(ProvidedSchema),
+})
+export type ModuleRef = typeof ModuleRefSchema.Type
+
+export const PartSchema = Schema.Union([FragmentSchema, RefSchema, ModuleRefSchema])
 export type Part = typeof PartSchema.Type
 
 export const CodeSchema = productNode('Code', {
