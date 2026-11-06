@@ -161,7 +161,7 @@ const openingSectionOf = (module: LoomModule): Option.Option<LoomSection> =>
 
 ~
 
-A `Book` gathers what a lookup reads: each loom's titles, every chapter, and each loom's chapter boxes, which the section "Boxes that point to chapters" describes. `bookOf` builds it from the modules once, for a caller that resolves many names over the same corpus.
+A `Book` gathers what a lookup reads: each loom's titles, every chapter, and each loom's boxes that point to a chapter or a discussion, which the section "Boxes that point to looms" describes. `bookOf` builds it from the modules once, for a caller that resolves many names over the same corpus.
 
 =>
 
@@ -175,16 +175,13 @@ export const bookOf = (modules: Modules): Book => ({
   titles: titleIndexes(modules),
   chapters: chaptersIn(modules),
   boxes: new Map(
-    Array.map(Array.fromIterable(modules.values()), (module) => [
-      module.path,
-      chapterBoxesOf(module),
-    ]),
+    Array.map(Array.fromIterable(modules.values()), (module) => [module.path, loomBoxesOf(module)]),
   ),
 })
 
 ~
 
-A lookup walks the book from the outside in, and records where each name led. A `Place` is one stop on the way: a part, a chapter, a section, or a box that points to a chapter nobody has written yet, which the section "Boxes that point to chapters" describes. A `Segment` is one name of a path, with its offsets inside the anchor's name, so the editor can rewrite that one name in a rename. A `Step` pairs a segment with the place it named, and records whether the segment named it by number. A `Trail` lists the steps of one resolution, from the outermost name to the place the anchor reaches, and a name that resolves whole leaves a trail of one step.
+A lookup walks the book from the outside in, and records where each name led. A `Place` is one stop on the way: a part, a chapter, a section, or a box that points to a chapter or a discussion nobody has written yet, which the section "Boxes that point to looms" describes. A `Segment` is one name of a path, with its offsets inside the anchor's name, so the editor can rewrite that one name in a rename. A `Step` pairs a segment with the place it named, and records whether the segment named it by number. A `Trail` lists the steps of one resolution, from the outermost name to the place the anchor reaches, and a name that resolves whole leaves a trail of one step.
 
 =>
 
@@ -207,7 +204,7 @@ export type Trail = Array.NonEmptyReadonlyArray<Step>
 
 A name in a path is a title or a number. `Part II` names a part by its number, `Chapter 6` a chapter by its number, and `Discussion 1` a discussion by its number, the way a loom's identity line names them, and any other name is a title. A discussion is a loom of its own kind, which sits in its part beside the chapters, so a title finds a discussion wherever it finds a chapter. Chapters and discussions are numbered apart, so a number finds only its own kind, through `numberedSteps`. `numberIn` reads the number out of a name that opens with a keyword: `Part`, `Chapter`, or `Discussion`.
 
-`stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top of the book, a segment names a part or a chapter. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's chapter boxes by its name. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part by a test on its `PartRef` and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a scope that pass a test.
+`stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top of the book, a segment names a part or a chapter. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's boxes that point to a loom, by its name. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part by a test on its `PartRef` and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a scope that pass a test.
 
 `walk` follows a path's segments through `stepsNamed`, one scope deeper for each. A trail is `finished` when it ends at a chapter or a section. A part stands for no section, so a trail that ends at a part resolves nothing, and a bare name never finds a part.
 
@@ -343,7 +340,7 @@ const walk = (
 
 ~
 
-`trailsOf` puts the four steps in their order. It looks among the sections of the anchor's own loom, then among its chapter boxes, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
+`trailsOf` puts the four steps in their order. It looks among the sections of the anchor's own loom, then among its boxes that point to a loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
 
 `anchorTrails` resolves an anchor token by its name, through `trailsOf`. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. A box whose chapter is not written yet reaches no section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
 
@@ -499,15 +496,15 @@ const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
     Array.flatMap((weft) => weft.anchors),
   )
 
-## Boxes that point to chapters
+## Boxes that point to looms
 
-A box of the `Chapter` kind points to a chapter, the one its name titles, as the chapter "The leaf tokens" describes. The box stands where a thought leaves its section for a chapter of its own, and it often comes before the chapter does. So a name that finds the box finds the chapter once it is written, and finds the box itself until then.
+A box of the `Chapter` kind points to a chapter, the one its name titles, and a box of the `Discussion` kind points to a discussion in the same way, as the chapter "The leaf tokens" describes. The box stands where a thought leaves its section for a loom of its own, and it often comes before that loom does. So a name that finds the box finds the loom once it is written, and finds the box itself until then.
 
-An `OpenedBox` holds the lines of a loom that make up one box: the `opener`, the line that opens the box, with its `box` token, the box's `body`, and its `closer`, the line that closes it, when one does. `linesOf` lists a document's lines in the order they are written, its preamble and then each section's two runs. `boxFrom` reads one box from the head of those lines, and `openedBoxesOf` reads them all, with `Array.chop` passing over every line outside a box.
+An `OpenedBox` holds the lines of a loom that make up one box: the `opener`, the line that opens the box, with its `box` token, the box's `body`, and its `closer`, the line that closes it, when one does. `linesOf` lists a document's lines in the order they are written, its preamble and then each section's two runs. `boxFrom` reads one box from the head of a run of lines, and `boxesAmong` reads every box in a run, with `Array.chop` passing over each line outside a box. `openedBoxesOf` reads the boxes of a whole document.
 
 A box's name is also its caption, which the editor and the woven page show with it. `captionOf` reads it, and a box with no name takes its kind for a caption, so a folded note still says what it is.
 
-A `BoxRef` is an opened box that holds a place in the book: one with a name, and the location of its loom. `boxesOf` reads a loom's named boxes, and `chapterBoxesOf` keeps those of the `Chapter` kind. The `Book` holds them by loom, which `boxesIn` reads.
+A `BoxRef` is an opened box that holds a place in the book: one that points to a loom and has a name, with its kind and the location of its own loom. `loomBoxesOf` reads them from a loom. The `Book` holds them by loom, which `boxesIn` reads.
 
 =>
 
@@ -521,6 +518,7 @@ export type OpenedBox = {
 export type BoxRef = OpenedBox & {
   readonly module: Location
   readonly name: BoxNameToken
+  readonly kind: LoomKind
 }
 
 const linesOf = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
@@ -556,8 +554,11 @@ const boxFrom = (
   )
 }
 
+const boxesAmong = (lines: ReadonlyArray<LoomWeft>): ReadonlyArray<OpenedBox> =>
+  Array.getSomes(Array.chop(lines, boxFrom))
+
 export const openedBoxesOf = (doc: LoomDocument): ReadonlyArray<OpenedBox> =>
-  Array.getSomes(Array.chop(linesOf(doc), boxFrom))
+  boxesAmong(linesOf(doc))
 
 export const captionOf = (opened: OpenedBox): string =>
   Option.getOrElse(
@@ -565,32 +566,33 @@ export const captionOf = (opened: OpenedBox): string =>
     () => boxKind(opened.box),
   )
 
-const boxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
+const loomBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
   Array.getSomes(
-    Array.map(openedBoxesOf(module.doc), (opened) =>
-      Option.map(Option.fromNullishOr(opened.box.name), (name): BoxRef => ({
-        ...opened,
-        module: module.path,
-        name,
-      })),
-    ),
+    Array.map(openedBoxesOf(module.doc), (opened) => {
+      const kind = boxKind(opened.box)
+      return isLoomKind(kind)
+        ? Option.map(Option.fromNullishOr(opened.box.name), (name): BoxRef => ({
+            ...opened,
+            module: module.path,
+            name,
+            kind,
+          }))
+        : Option.none()
+    }),
   )
-
-const chapterBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
-  Array.filter(boxesOf(module), (ref) => boxKind(ref.box) === chapterKind)
 
 const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
   Option.getOrElse(Option.fromNullishOr(book.boxes.get(module)), () => [])
 
 ~
 
-`boxChapter` finds the chapter a box points to, and never a discussion of the same title. It looks first among the chapters of the box's own part, where the editor opens a new chapter, and then across the book. `boxNamed` finds a chapter box of one loom by its name. `boxPlace` is the place a box stands for in a lookup: its chapter once the chapter is written, and the box itself until then. `boxTrail` is the lookup's step among the chapter boxes of an anchor's own loom, which `trailsOf` takes after the loom's sections and before the book's chapters. So `::[Rooms]` beside a box `::: Rooms {Chapter}` resolves before the chapter exists and after.
+`boxTarget` finds the loom a box points to. A chapter box finds a chapter and never a discussion of the same title, and a discussion box finds a discussion and never a chapter. It looks first among the looms of the box's own part, where the editor opens a new one, and then across the book. `boxNamed` finds a box of one loom by its name. `boxPlace` is the place a box stands for in a lookup: its loom once the loom is written, and the box itself until then. `boxTrail` is the lookup's step among the boxes of an anchor's own loom, which `trailsOf` takes after the loom's sections and before the book's chapters. So `::[Rooms]` beside a box `::: Rooms {Chapter}` resolves before the chapter exists and after.
 
 =>
 
-const boxChapter = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
+const boxTarget = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
   const titled = (chapter: Chapter): boolean =>
-    !chapter.discussion && chapter.title === ref.name.value
+    chapter.discussion === (ref.kind === discussionKind) && chapter.title === ref.name.value
   return Option.orElse(
     Option.flatMap(chapterOf(book, ref.module), (own) =>
       Array.head(chaptersWithin(book, Option.some(own.part), titled)),
@@ -603,7 +605,7 @@ const boxNamed = (book: Book, module: Location, name: string): Option.Option<Box
   Array.findFirst(boxesIn(book, module), (ref) => ref.name.value === name)
 
 const boxPlace = (book: Book, ref: BoxRef): Place =>
-  Option.match(boxChapter(book, ref), {
+  Option.match(boxTarget(book, ref), {
     onNone: () => Place.Box({ ref }),
     onSome: (chapter) => Place.Chapter({ chapter }),
   })
@@ -617,7 +619,7 @@ const boxTrail = (book: Book, from: Location, name: string): ReadonlyArray<Trail
 
 ~
 
-The navigation reads a box the way it reads a contents entry. `boxLocation` is where a box's name stands, and `namesBox` tests whether a place is one box. `boxesPointingTo` finds every chapter box that points to one chapter, and `boxesNaming` gives where each one's name stands, so a reference to the chapter lists the boxes, and a rename of the chapter renames them with it.
+The navigation reads a box the way it reads a contents entry. `boxLocation` is where a box's name stands, and `namesBox` tests whether a place is one box. `boxesPointingTo` finds every box that points to one loom, and `boxesNaming` gives where each one's name stands, so a reference to the loom lists the boxes, and a rename of the loom renames them with it.
 
 =>
 
@@ -635,7 +637,7 @@ const namesBox =
 
 const boxesPointingTo = (book: Book, chapter: Chapter): ReadonlyArray<BoxRef> =>
   Array.filter(Array.flatten(Array.fromIterable(book.boxes.values())), (ref) =>
-    Option.exists(boxChapter(book, ref), (found) => found.module.path === chapter.module.path),
+    Option.exists(boxTarget(book, ref), (found) => found.module.path === chapter.module.path),
   )
 
 const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> =>
@@ -647,7 +649,7 @@ A run and a tangle need only part of the corpus: the entry and the sections it c
 
 `dependentsOf` runs the same reverse reach from several files at once. The compiler uses it to find what a batch of changed files touches, such as the dozens a `git checkout` rewrites, and it reads the anchor graph once for the whole batch rather than once for each file. It returns the dependents alone, never the files it started from. `transitiveDependents` is `dependentsOf` started from one file.
 
-`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once. Each anchor a module carries becomes an edge to every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. Each chapter box becomes an edge to the chapter it points to, so a change to the chapter's opening reaches the loom whose box holds a copy of it. A change to any of those modules then reaches the anchor's own loom, and a tangle judges an ambiguous name with all of its candidates in view. `moduleOf` reads the module a trail ends in.
+`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once. Each anchor a module carries becomes an edge to every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. Each box that points to a loom becomes an edge to that loom, so a change to the loom's summary reaches the loom whose box holds a copy of it. A change to any of those modules then reaches the anchor's own loom, and a tangle judges an ambiguous name with all of its candidates in view. `moduleOf` reads the module a trail ends in.
 
 =>
 
@@ -696,7 +698,7 @@ const anchorEdges = (
       ),
       ...Array.getSomes(
         Array.map(boxesIn(book, m.path), (ref) =>
-          Option.map(boxChapter(book, ref), (chapter) => ({
+          Option.map(boxTarget(book, ref), (chapter) => ({
             owner: m.path,
             target: chapter.module.path,
           })),
@@ -1106,9 +1108,9 @@ A `PlacedEntry` is an entry together with the part it stands under. `placedEntri
 
 The back matter lists the book's discussions under a heading of its own, `Back matter`. That heading names no part, so the entries under it stand under none, and `isBackMatter` recognises it. Each entry there names its discussion's place before the colon, as `Part I, Discussion 1: Waking` does. `discussionAt` finds the discussion that the place and the title name. It looks in the part the place gives, by the part's number or its name, and matches the discussion's own number when the place gives one.
 
-`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the chapter a chapter box's name points to, or the chapter whose frontmatter title the cursor sits on. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
+`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the loom a box's name points to, or the chapter whose frontmatter title the cursor sits on. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
 
-`entriesNaming` finds every contents entry that resolves to one chapter, and `boxesNaming` every chapter box that points to it. `chapterNames` gathers the chapter's declared title, those entries and boxes, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
+`entriesNaming` finds every contents entry that resolves to one chapter, and `boxesNaming` every box that points to it. `chapterNames` gathers the chapter's declared title, those entries and boxes, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
 
 A chapter's number is a name of its own. `chapterNumbers` gathers the `Chapter N` the chapter's frontmatter declares and every anchor that names the chapter by that number, so renumbering a chapter rewrites each numbered reference in the same edit. A contents entry is listed by title, so its own ordinal is no reference, and the table of contents is generated anew from the frontmatter. `chapterNumbersAt` gathers them for the chapter whose frontmatter number the cursor sits on.
 
@@ -1224,7 +1226,7 @@ const chapterAt = (
         Option.orElse(
           Option.flatMap(
             Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
-            (ref) => boxChapter(book, ref),
+            (ref) => boxTarget(book, ref),
           ),
           () =>
             pipe(
@@ -1445,7 +1447,7 @@ const partGroupAt = (
 
 ~
 
-`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a warp anchor to its warp, a contents entry, a chapter box's name, or a chapter's own title to that chapter, and a `Part R` or a contents part heading to where the part is announced. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the entries, boxes, and anchors that name it, a chapter's number with the anchors that name it by number, or a part's announcement and every `Part R` and contents heading that names it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
+`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a warp anchor to its warp, a contents entry, the name of a box that points to a loom, or a chapter's own title to that chapter, and a `Part R` or a contents part heading to where the part is announced. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the entries, boxes, and anchors that name it, a chapter's number with the anchors that name it by number, or a part's announcement and every `Part R` and contents heading that names it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
 
 =>
 
@@ -1668,9 +1670,11 @@ export const labelSlotAt = (
     ),
   )
 
-## Keeping a chapter box in step
+## Keeping a box in step
 
-A chapter box holds a copy of the chapter's summary, the opening prose under its title. The chapter holds the summary's source, and the box holds the copy, so a reader of the section sees what the chapter is about without leaving it. `openingProseOf` reads a chapter's summary: the lines of its opening section up to its first code, which `openingLinesOf` gives, without the boxes among them, since a box never holds another. `outsideBoxes` drops every box from a run of lines, and `stillInBox` follows whether a line stands in one. `textOf` joins lines into text, and `tidy` evens out what a copy may change without meaning to: the kind of line ending, the blank lines between paragraphs, and the space at either end.
+A box that points to a loom holds a copy of the loom's summary. The loom holds the summary's source, and the box holds the copy, so a reader of the section sees what the loom is about without leaving it.
+
+A chapter's summary is its opening prose, the lines of its opening section up to its first code. `openingProseOf` reads it from the lines `openingLinesOf` gives, without the boxes among them, since a box never holds another. `outsideBoxes` drops every box from a run of lines, and `stillInBox` follows whether a line stands in one. `textOf` joins lines into text, and `tidy` evens out what a copy may change without meaning to: the kind of line ending, the blank lines between paragraphs, and the space at either end.
 
 =>
 
@@ -1717,7 +1721,56 @@ const openingProseOf = (module: LoomModule): string =>
 
 ~
 
-A box may point to a chapter nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new chapter stands beside the loom of the box, in the box's own part, and takes the part's next chapter number, which `nextNumber` finds among the part's chapters, since discussions are numbered apart. Its file is named for that number and for its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A part without numbers names its chapters by title alone, so its new chapter takes neither a number nor one in its file name. `membership` writes the identity line in the form the part already uses. The new chapter's status is `Canvas`, as the chapter "Canvases" describes. It keeps the language of the box's chapter, and its opening prose is the box's body, so the copy and its source agree from the start.
+A discussion's summary is its opening prose, followed by the conclusion of each of its topics. Each conclusion becomes a paragraph of plain prose, without its box, in the order of the topics. A discussion's opening runs up to its first message, and `discussionOpeningOf` reads it. `topicsOf` lists the sections a divider opens, and `conclusionOf` reads the body of a topic's conclusion, the first box of the `Conclusion` kind among the topic's lines. `discussionSummaryOf` joins the opening and the conclusions, leaving out any that is empty.
+
+`summaryOf` reads a loom's summary of either kind, and `isDiscussion` tells a discussion by its identity line.
+
+=>
+
+const isDiscussion = (module: LoomModule): boolean =>
+  module.doc.frontmatter?.discussion !== undefined
+
+const discussionOpeningOf = (module: LoomModule): string =>
+  Option.match(openingSectionOf(module), {
+    onNone: () => '',
+    onSome: (section) =>
+      textOf(
+        outsideBoxes(
+          Array.takeWhile(
+            [...section.preamble, ...section.code],
+            (line) => line.type !== 'TildeWeft',
+          ),
+        ),
+      ),
+  })
+
+const topicsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
+  Array.filter(module.doc.sections, (section) => section.heading.marker.type === 'Divider')
+
+const conclusionOf = (topic: LoomSection): Option.Option<string> =>
+  pipe(
+    boxesAmong([...topic.preamble, ...topic.code]),
+    Array.findFirst((opened) => boxKind(opened.box) === conclusionKind),
+    Option.map((opened) => textOf(opened.body)),
+  )
+
+const discussionSummaryOf = (module: LoomModule): string =>
+  Array.join(
+    Array.filter(
+      [discussionOpeningOf(module), ...Array.getSomes(Array.map(topicsOf(module), conclusionOf))],
+      (paragraph) => paragraph !== '',
+    ),
+    '\n\n',
+  )
+
+const summaryOf = (module: LoomModule): string =>
+  isDiscussion(module) ? discussionSummaryOf(module) : openingProseOf(module)
+
+~
+
+A box may point to a loom nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new loom belongs to the box's own part and takes the part's next number of its kind, which `nextNumber` finds, since chapters and discussions are numbered apart. A part without numbers names its looms by title alone, so there the new loom takes no number. `membership` writes the identity line in the form the part already uses, and names the new loom a `Chapter` or a `Discussion` in it. The new loom's opening prose is the box's body, so the copy and its source agree from the start.
+
+The two kinds differ in where the new loom stands and what its identity holds besides. `fileOf` places it. A new chapter stands beside the loom of the box, in a file named for its number and its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A new discussion stands in the `discussions` folder beside the loom of the box, which `discussionsFolderOf` finds, in a file named for its title alone, as `discussions/waking.loom`. `fieldsOf` adds the rest of the identity. A new chapter's status is `Canvas`, as the chapter "Canvases" describes, and it keeps the language of the box's chapter. A discussion holds no code, so it takes neither.
 
 =>
 
@@ -1734,13 +1787,18 @@ const slugOf = (title: string): string =>
 
 const folderOf = (path: Location): string => path.slice(0, path.lastIndexOf('/') + 1)
 
+const discussionsFolderOf = (path: Location): string => {
+  const folder = folderOf(path)
+  return folder.endsWith('/discussions/') ? folder : `${folder}discussions/`
+}
+
 const numberOf = (chapter: Chapter): number =>
   Option.getOrElse(
     Option.map(chapter.number, (written) => Number.parseInt(written, 10) || 0),
     () => 0,
   )
 
-const nextNumber = (book: Book, part: PartRef): Option.Option<number> =>
+const nextNumber = (book: Book, part: PartRef, kind: LoomKind): Option.Option<number> =>
   Option.map(
     part.number,
     () =>
@@ -1748,7 +1806,11 @@ const nextNumber = (book: Book, part: PartRef): Option.Option<number> =>
       Math.max(
         0,
         ...Array.map(
-          chaptersWithin(book, Option.some(part), (chapter) => !chapter.discussion),
+          chaptersWithin(
+            book,
+            Option.some(part),
+            (chapter) => chapter.discussion === (kind === discussionKind),
+          ),
           numberOf,
         ),
       ),
@@ -1758,36 +1820,62 @@ const membership = (
   part: PartRef,
   number: Option.Option<number>,
   title: string,
+  kind: LoomKind,
 ): ReadonlyArray<string> =>
   Option.match(Option.all([part.number, number]), {
-    onSome: ([numeral, next]) => [`Part ${numeral}, Chapter ${next}: ${title}`],
+    onSome: ([numeral, next]) => [`Part ${numeral}, ${kind} ${next}: ${title}`],
     onNone: () => [
       ...Option.toArray(Option.map(part.name, (name) => `Part: ${name}`)),
-      `Chapter: ${title}`,
+      `${kind}: ${title}`,
     ],
   })
+
+const fileOf = (ref: BoxRef, number: Option.Option<number>): string =>
+  Match.value(ref.kind).pipe(
+    Match.when(chapterKind, () => {
+      const numbered = Option.match(number, {
+        onNone: () => '',
+        onSome: (next) => `${String(next).padStart(2, '0')}-`,
+      })
+      return `${folderOf(ref.module)}${numbered}${slugOf(ref.name.value)}.loom`
+    }),
+    Match.when(
+      discussionKind,
+      () => `${discussionsFolderOf(ref.module)}${slugOf(ref.name.value)}.loom`,
+    ),
+    Match.exhaustive,
+  )
+
+const fieldsOf = (ref: BoxRef, own: Option.Option<Chapter>): ReadonlyArray<string> =>
+  Match.value(ref.kind).pipe(
+    Match.when(chapterKind, () => [
+      'Status: Canvas',
+      ...Option.toArray(
+        Option.map(
+          Option.flatMap(own, (chapter) =>
+            Option.fromNullishOr(chapter.module.doc.frontmatter?.language),
+          ),
+          (written) => `Language: ${written.value}`,
+        ),
+      ),
+    ]),
+    Match.when(discussionKind, (): ReadonlyArray<string> => []),
+    Match.exhaustive,
+  )
 
 const openingOf = (book: Book, ref: BoxRef): Opening => {
   const own = chapterOf(book, ref.module)
   const part = Option.match(own, { onNone: () => noPart, onSome: (chapter) => chapter.part })
-  const number = nextNumber(book, part)
+  const number = nextNumber(book, part, ref.kind)
   const title = ref.name.value
   const body = textOf(ref.body)
-  const language = Option.flatMap(own, (chapter) =>
-    Option.fromNullishOr(chapter.module.doc.frontmatter?.language),
-  )
-  const numbered = Option.match(number, {
-    onNone: () => '',
-    onSome: (next) => `${String(next).padStart(2, '0')}-`,
-  })
   return {
-    file: `${folderOf(ref.module)}${numbered}${slugOf(title)}.loom`,
+    file: fileOf(ref, number),
     text: Array.join(
       [
         '---',
-        ...membership(part, number, title),
-        'Status: Canvas',
-        ...Option.toArray(Option.map(language, (written) => `Language: ${written.value}`)),
+        ...membership(part, number, title, ref.kind),
+        ...fieldsOf(ref, own),
         '---',
         '',
         `# ${title}`,
@@ -1801,17 +1889,18 @@ const openingOf = (book: Book, ref: BoxRef): Opening => {
 
 ~
 
-`boxNoticesIn` tells the diagnostics what each chapter box of one loom needs, as a `BoxNotice`. A box whose chapter is not written is `Unwritten`, with the opening that writes it. A box whose body no longer matches its chapter's summary is `Stale`, with the chapter's title, the `summary` the body should hold, and the span of the body, from the line after the opener to the start of the closer. A box that never closes has no body to compare, so it earns no notice, beside the fault the document builder already gives it.
+`boxNoticesIn` tells the diagnostics what each box of one loom needs, as a `BoxNotice` that carries the box's kind. A box whose loom is not written is `Unwritten`, with the opening that writes it. A box whose body no longer matches its loom's summary is `Stale`, with the loom's title, the `summary` the body should hold, and the span of the body, from the line after the opener to the start of the closer. A box that never closes has no body to compare, so it earns no notice, beside the fault the document builder already gives it.
 
-`refreshedSummaries` brings every stale box of the corpus back in step, the way `loom refresh` does. It rewrites each loom that holds a stale box, replacing each body with its chapter's summary, last box first, so each replacement leaves the spans before it where they were.
+`refreshedSummaries` brings every stale box of the corpus back in step, the way `loom refresh` does. It rewrites each loom that holds a stale box, replacing each body with its loom's summary, last box first, so each replacement leaves the spans before it where they were.
 
 =>
 
 export type BoxNotice = Data.TaggedEnum<{
-  Unwritten: { readonly name: BoxNameToken; readonly opening: Opening }
+  Unwritten: { readonly name: BoxNameToken; readonly kind: LoomKind; readonly opening: Opening }
   Stale: {
     readonly name: BoxNameToken
-    readonly chapter: string
+    readonly kind: LoomKind
+    readonly title: string
     readonly summary: string
     readonly body: Position
   }
@@ -1827,18 +1916,21 @@ const bodySpan = (ref: BoxRef, closer: LoomWeft): Position => ({
 })
 
 const noticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> =>
-  Option.match(boxChapter(book, ref), {
+  Option.match(boxTarget(book, ref), {
     onNone: () =>
-      Option.some(BoxNotice.Unwritten({ name: ref.name, opening: openingOf(book, ref) })),
-    onSome: (chapter) => {
-      const summary = openingProseOf(chapter.module)
+      Option.some(
+        BoxNotice.Unwritten({ name: ref.name, kind: ref.kind, opening: openingOf(book, ref) }),
+      ),
+    onSome: (target) => {
+      const summary = summaryOf(target.module)
       return pipe(
         ref.closer,
         Option.filter(() => textOf(ref.body) !== summary),
         Option.map((closer) =>
           BoxNotice.Stale({
             name: ref.name,
-            chapter: chapter.title,
+            kind: ref.kind,
+            title: target.title,
             summary: summary === '' ? '' : `${summary}\n`,
             body: bodySpan(ref, closer),
           }),
@@ -1884,9 +1976,9 @@ export const refreshedSummaries = (
 
 ~
 
-The editor keeps a box and its chapter in step as the author types, and `syncedSummaries` works out how. It compares a loom as it was before an edit with the loom as it is now, against the rest of the corpus, and gives the edits that bring the other side along, each a `CorpusEdit`: the loom it changes, the span, and the text written there.
+The editor keeps a box and its loom in step as the author types, and `syncedSummaries` works out how. It compares a loom as it was before an edit with the loom as it is now, against the rest of the corpus, and gives the edits that bring the other side along, each a `CorpusEdit`: the loom it changes, the span, and the text written there.
 
-An edit carries across only what was in step before it. A box whose body matched its chapter's summary before the edit, and no longer matches it after, was edited by the author, so `boxToChapter` writes the box's new body into the chapter's opening. A chapter whose summary changed takes every box along that held the old summary, through `chapterToBoxes`. A box already out of step, such as one behind a chapter that changed on disk, stays a warning, so an edit elsewhere in its loom never writes an old copy over a newer source. A box that never closes has no body to compare and moves nothing.
+An edit carries across only what was in step before it. A chapter box whose body matched its chapter's summary before the edit, and no longer matches it after, was edited by the author, so `boxToChapter` writes the box's new body into the chapter's opening. A discussion box takes no such edit. Its summary gathers conclusions from the discussion's topics, so an edit to the box has no one place to go, and it stays a warning until its fix copies the summary back. A loom whose summary changed takes every box along that held the old summary, through `loomToBoxes`. A box already out of step, such as one behind a chapter that changed on disk, stays a warning, so an edit elsewhere in its loom never writes an old copy over a newer source. A box that never closes has no body to compare and moves nothing.
 
 A chapter's opening can take a box's body only when it is prose alone. `openingEditOf` gives the edit: from the first written line of the opening to the end of the last, or, when the opening holds nothing yet, a new paragraph under the chapter's title. An opening that holds a box of its own takes no edit, since writing over it would erase that box, so the warning stays for the author to settle. `contentEnd` is where a line's text ends, before its newline.
 
@@ -1928,11 +2020,11 @@ const openingEditOf = (
 const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<CorpusEdit> =>
   pipe(
     Option.all({
-      chapter: Option.filter(
-        boxChapter(book, ref),
-        (chapter) => chapter.module.path !== ref.module,
+      chapter: Option.filter(boxTarget(book, ref), (chapter) => chapter.module.path !== ref.module),
+      before: Array.findFirst(
+        loomBoxesOf(was),
+        (old) => old.kind === ref.kind && old.name.value === ref.name.value,
       ),
-      before: Array.findFirst(chapterBoxesOf(was), (old) => old.name.value === ref.name.value),
     }),
     Option.filter(({ chapter, before }) => {
       const summary = openingProseOf(chapter.module)
@@ -1951,13 +2043,9 @@ const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<C
     ),
   )
 
-const chapterToBoxes = (
-  book: Book,
-  was: LoomModule,
-  now: LoomModule,
-): ReadonlyArray<CorpusEdit> => {
-  const before = openingProseOf(was)
-  const after = openingProseOf(now)
+const loomToBoxes = (book: Book, was: LoomModule, now: LoomModule): ReadonlyArray<CorpusEdit> => {
+  const before = summaryOf(was)
+  const after = summaryOf(now)
   return before === after
     ? []
     : pipe(
@@ -1982,8 +2070,13 @@ export const syncedSummaries = (
 ): ReadonlyArray<CorpusEdit> => {
   const book = bookOf(new Map(corpus.modules).set(now.path, now))
   return [
-    ...Array.getSomes(Array.map(boxesIn(book, now.path), (ref) => boxToChapter(book, was, ref))),
-    ...chapterToBoxes(book, was, now),
+    ...Array.getSomes(
+      Array.map(
+        Array.filter(boxesIn(book, now.path), (ref) => ref.kind === chapterKind),
+        (ref) => boxToChapter(book, was, ref),
+      ),
+    ),
+    ...loomToBoxes(book, was, now),
   ]
 }
 
@@ -2061,7 +2154,7 @@ export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Names
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `chapterKind` find the chapter boxes of a loom, and `Order` sorts the stale ones from last to first.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isLoomKind` find the boxes of a loom that point to a loom, `LoomKind` names their kinds, `chapterKind` and `discussionKind` tell the two apart, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
 
 =>
 
@@ -2072,7 +2165,11 @@ import {
   type BoxNameToken,
   type BoxToken,
   chapterKind,
+  conclusionKind,
+  discussionKind,
   type HeadingTitleToken,
+  isLoomKind,
+  type LoomKind,
   type TocPartToken,
   type TocTitleToken,
   type WarpAnchorToken,
@@ -2095,7 +2192,7 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 ::[Resolving names]
 
-::[Boxes that point to chapters]
+::[Boxes that point to looms]
 
 ::[Reaching through the corpus]
 
@@ -2107,6 +2204,6 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 ::[Braces waiting for a label]
 
-::[Keeping a chapter box in step]
+::[Keeping a box in step]
 
 ::[Diagnostics across the corpus]

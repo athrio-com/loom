@@ -153,7 +153,7 @@ const refresh = (file: string) =>
       ? Effect.forEach(written, (loom) => Console.log(`loom: refreshed the summaries in ${loom}`), {
           discard: true,
         })
-      : Console.log('loom: every chapter box is in step')
+      : Console.log('loom: every box is in step')
   })
 
 const format = (path: string, check: boolean) =>

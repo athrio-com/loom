@@ -49,6 +49,14 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
 
 const messages = (found: ReadonlyArray<Diagnostic>) => found.map((d) => d.message)
 
+const offsetOf = (text: string, at: { readonly line: number; readonly character: number }) =>
+  text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
+
+const applied = (text: string, edit: SummaryEdit) =>
+  text.slice(0, offsetOf(text, edit.range.start)) +
+  edit.text +
+  text.slice(offsetOf(text, edit.range.end))
+
 const world = '/corpus/02-shape/01-world.loom'
 const light = '/corpus/02-shape/02-light.loom'
 const rooms = '/corpus/02-shape/03-rooms.loom'
@@ -281,14 +289,6 @@ describe('the place of a chapter box', () => {
 })
 
 describe('keeping a chapter box in step as the author types', () => {
-  const offsetOf = (text: string, at: { readonly line: number; readonly character: number }) =>
-    text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
-
-  const applied = (text: string, edit: SummaryEdit) =>
-    text.slice(0, offsetOf(text, edit.range.start)) +
-    edit.text +
-    text.slice(offsetOf(text, edit.range.end))
-
   const inStep = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
 
   const edits = (files: Record<string, string>, path: string, before: string, after: string) =>

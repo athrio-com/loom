@@ -252,9 +252,21 @@ export const noteKind = 'Note'
 
 export const chapterKind = 'Chapter'
 
+export const discussionKind = 'Discussion'
+
 export const conclusionKind = 'Conclusion'
 
-export const boxKinds: ReadonlyArray<string> = [noteKind, chapterKind, conclusionKind]
+export const boxKinds: ReadonlyArray<string> = [
+  noteKind,
+  chapterKind,
+  discussionKind,
+  conclusionKind,
+]
+
+export type LoomKind = typeof chapterKind | typeof discussionKind
+
+export const isLoomKind = (kind: string): kind is LoomKind =>
+  kind === chapterKind || kind === discussionKind
 
 export const boxKeys: ReadonlyArray<string> = ['kind']
 

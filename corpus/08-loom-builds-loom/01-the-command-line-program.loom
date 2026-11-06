@@ -128,7 +128,7 @@ const toc = (file: string) =>
 
 ## Refreshing the summaries
 
-The `refresh` command brings every chapter box of a corpus back in step with its chapter. A chapter box holds a copy of the opening prose of the chapter it points to, and the copy falls behind whenever the chapter's opening changes. The command takes the path of any loom in the corpus, hands it to the writer, and names each loom it rewrote, or says that every box was already in step.
+The `refresh` command brings every box of a corpus that points to a loom back in step with that loom. A chapter box holds a copy of its chapter's opening prose and a discussion box a copy of its discussion's summary, and a copy falls behind whenever its source changes. The command takes the path of any loom in the corpus, hands it to the writer, and names each loom it rewrote, or says that every box was already in step.
 
 =>
 
@@ -140,7 +140,7 @@ const refresh = (file: string) =>
       ? Effect.forEach(written, (loom) => Console.log(`loom: refreshed the summaries in ${loom}`), {
           discard: true,
         })
-      : Console.log('loom: every chapter box is in step')
+      : Console.log('loom: every box is in step')
   })
 
 ## Formatting looms
@@ -1585,7 +1585,7 @@ Node's `path` resolves a workspace directory for `init`. `node:fs` writes the co
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomSummaries`, which brings every chapter box back in step with its chapter; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a reference names; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a reference names; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
 From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 

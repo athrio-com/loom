@@ -5,7 +5,11 @@ import {
   type BoxNameToken,
   type BoxToken,
   chapterKind,
+  conclusionKind,
+  discussionKind,
   type HeadingTitleToken,
+  isLoomKind,
+  type LoomKind,
   type TocPartToken,
   type TocTitleToken,
   type WarpAnchorToken,
@@ -143,10 +147,7 @@ export const bookOf = (modules: Modules): Book => ({
   titles: titleIndexes(modules),
   chapters: chaptersIn(modules),
   boxes: new Map(
-    Array.map(Array.fromIterable(modules.values()), (module) => [
-      module.path,
-      chapterBoxesOf(module),
-    ]),
+    Array.map(Array.fromIterable(modules.values()), (module) => [module.path, loomBoxesOf(module)]),
   ),
 })
 
@@ -439,6 +440,7 @@ export type OpenedBox = {
 export type BoxRef = OpenedBox & {
   readonly module: Location
   readonly name: BoxNameToken
+  readonly kind: LoomKind
 }
 
 const linesOf = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
@@ -474,8 +476,11 @@ const boxFrom = (
   )
 }
 
+const boxesAmong = (lines: ReadonlyArray<LoomWeft>): ReadonlyArray<OpenedBox> =>
+  Array.getSomes(Array.chop(lines, boxFrom))
+
 export const openedBoxesOf = (doc: LoomDocument): ReadonlyArray<OpenedBox> =>
-  Array.getSomes(Array.chop(linesOf(doc), boxFrom))
+  boxesAmong(linesOf(doc))
 
 export const captionOf = (opened: OpenedBox): string =>
   Option.getOrElse(
@@ -483,26 +488,27 @@ export const captionOf = (opened: OpenedBox): string =>
     () => boxKind(opened.box),
   )
 
-const boxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
+const loomBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
   Array.getSomes(
-    Array.map(openedBoxesOf(module.doc), (opened) =>
-      Option.map(Option.fromNullishOr(opened.box.name), (name): BoxRef => ({
-        ...opened,
-        module: module.path,
-        name,
-      })),
-    ),
+    Array.map(openedBoxesOf(module.doc), (opened) => {
+      const kind = boxKind(opened.box)
+      return isLoomKind(kind)
+        ? Option.map(Option.fromNullishOr(opened.box.name), (name): BoxRef => ({
+            ...opened,
+            module: module.path,
+            name,
+            kind,
+          }))
+        : Option.none()
+    }),
   )
-
-const chapterBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
-  Array.filter(boxesOf(module), (ref) => boxKind(ref.box) === chapterKind)
 
 const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
   Option.getOrElse(Option.fromNullishOr(book.boxes.get(module)), () => [])
 
-const boxChapter = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
+const boxTarget = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
   const titled = (chapter: Chapter): boolean =>
-    !chapter.discussion && chapter.title === ref.name.value
+    chapter.discussion === (ref.kind === discussionKind) && chapter.title === ref.name.value
   return Option.orElse(
     Option.flatMap(chapterOf(book, ref.module), (own) =>
       Array.head(chaptersWithin(book, Option.some(own.part), titled)),
@@ -515,7 +521,7 @@ const boxNamed = (book: Book, module: Location, name: string): Option.Option<Box
   Array.findFirst(boxesIn(book, module), (ref) => ref.name.value === name)
 
 const boxPlace = (book: Book, ref: BoxRef): Place =>
-  Option.match(boxChapter(book, ref), {
+  Option.match(boxTarget(book, ref), {
     onNone: () => Place.Box({ ref }),
     onSome: (chapter) => Place.Chapter({ chapter }),
   })
@@ -541,7 +547,7 @@ const namesBox =
 
 const boxesPointingTo = (book: Book, chapter: Chapter): ReadonlyArray<BoxRef> =>
   Array.filter(Array.flatten(Array.fromIterable(book.boxes.values())), (ref) =>
-    Option.exists(boxChapter(book, ref), (found) => found.module.path === chapter.module.path),
+    Option.exists(boxTarget(book, ref), (found) => found.module.path === chapter.module.path),
   )
 
 const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> =>
@@ -592,7 +598,7 @@ const anchorEdges = (
       ),
       ...Array.getSomes(
         Array.map(boxesIn(book, m.path), (ref) =>
-          Option.map(boxChapter(book, ref), (chapter) => ({
+          Option.map(boxTarget(book, ref), (chapter) => ({
             owner: m.path,
             target: chapter.module.path,
           })),
@@ -1068,7 +1074,7 @@ const chapterAt = (
         Option.orElse(
           Option.flatMap(
             Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
-            (ref) => boxChapter(book, ref),
+            (ref) => boxTarget(book, ref),
           ),
           () =>
             pipe(
@@ -1519,6 +1525,45 @@ const openingProseOf = (module: LoomModule): string =>
     onSome: (section) => textOf(outsideBoxes(openingLinesOf(section))),
   })
 
+const isDiscussion = (module: LoomModule): boolean =>
+  module.doc.frontmatter?.discussion !== undefined
+
+const discussionOpeningOf = (module: LoomModule): string =>
+  Option.match(openingSectionOf(module), {
+    onNone: () => '',
+    onSome: (section) =>
+      textOf(
+        outsideBoxes(
+          Array.takeWhile(
+            [...section.preamble, ...section.code],
+            (line) => line.type !== 'TildeWeft',
+          ),
+        ),
+      ),
+  })
+
+const topicsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
+  Array.filter(module.doc.sections, (section) => section.heading.marker.type === 'Divider')
+
+const conclusionOf = (topic: LoomSection): Option.Option<string> =>
+  pipe(
+    boxesAmong([...topic.preamble, ...topic.code]),
+    Array.findFirst((opened) => boxKind(opened.box) === conclusionKind),
+    Option.map((opened) => textOf(opened.body)),
+  )
+
+const discussionSummaryOf = (module: LoomModule): string =>
+  Array.join(
+    Array.filter(
+      [discussionOpeningOf(module), ...Array.getSomes(Array.map(topicsOf(module), conclusionOf))],
+      (paragraph) => paragraph !== '',
+    ),
+    '\n\n',
+  )
+
+const summaryOf = (module: LoomModule): string =>
+  isDiscussion(module) ? discussionSummaryOf(module) : openingProseOf(module)
+
 export type Opening = { readonly file: string; readonly text: string }
 
 const noPart: PartRef = { number: Option.none(), name: Option.none() }
@@ -1532,13 +1577,18 @@ const slugOf = (title: string): string =>
 
 const folderOf = (path: Location): string => path.slice(0, path.lastIndexOf('/') + 1)
 
+const discussionsFolderOf = (path: Location): string => {
+  const folder = folderOf(path)
+  return folder.endsWith('/discussions/') ? folder : `${folder}discussions/`
+}
+
 const numberOf = (chapter: Chapter): number =>
   Option.getOrElse(
     Option.map(chapter.number, (written) => Number.parseInt(written, 10) || 0),
     () => 0,
   )
 
-const nextNumber = (book: Book, part: PartRef): Option.Option<number> =>
+const nextNumber = (book: Book, part: PartRef, kind: LoomKind): Option.Option<number> =>
   Option.map(
     part.number,
     () =>
@@ -1546,7 +1596,11 @@ const nextNumber = (book: Book, part: PartRef): Option.Option<number> =>
       Math.max(
         0,
         ...Array.map(
-          chaptersWithin(book, Option.some(part), (chapter) => !chapter.discussion),
+          chaptersWithin(
+            book,
+            Option.some(part),
+            (chapter) => chapter.discussion === (kind === discussionKind),
+          ),
           numberOf,
         ),
       ),
@@ -1556,36 +1610,62 @@ const membership = (
   part: PartRef,
   number: Option.Option<number>,
   title: string,
+  kind: LoomKind,
 ): ReadonlyArray<string> =>
   Option.match(Option.all([part.number, number]), {
-    onSome: ([numeral, next]) => [`Part ${numeral}, Chapter ${next}: ${title}`],
+    onSome: ([numeral, next]) => [`Part ${numeral}, ${kind} ${next}: ${title}`],
     onNone: () => [
       ...Option.toArray(Option.map(part.name, (name) => `Part: ${name}`)),
-      `Chapter: ${title}`,
+      `${kind}: ${title}`,
     ],
   })
+
+const fileOf = (ref: BoxRef, number: Option.Option<number>): string =>
+  Match.value(ref.kind).pipe(
+    Match.when(chapterKind, () => {
+      const numbered = Option.match(number, {
+        onNone: () => '',
+        onSome: (next) => `${String(next).padStart(2, '0')}-`,
+      })
+      return `${folderOf(ref.module)}${numbered}${slugOf(ref.name.value)}.loom`
+    }),
+    Match.when(
+      discussionKind,
+      () => `${discussionsFolderOf(ref.module)}${slugOf(ref.name.value)}.loom`,
+    ),
+    Match.exhaustive,
+  )
+
+const fieldsOf = (ref: BoxRef, own: Option.Option<Chapter>): ReadonlyArray<string> =>
+  Match.value(ref.kind).pipe(
+    Match.when(chapterKind, () => [
+      'Status: Canvas',
+      ...Option.toArray(
+        Option.map(
+          Option.flatMap(own, (chapter) =>
+            Option.fromNullishOr(chapter.module.doc.frontmatter?.language),
+          ),
+          (written) => `Language: ${written.value}`,
+        ),
+      ),
+    ]),
+    Match.when(discussionKind, (): ReadonlyArray<string> => []),
+    Match.exhaustive,
+  )
 
 const openingOf = (book: Book, ref: BoxRef): Opening => {
   const own = chapterOf(book, ref.module)
   const part = Option.match(own, { onNone: () => noPart, onSome: (chapter) => chapter.part })
-  const number = nextNumber(book, part)
+  const number = nextNumber(book, part, ref.kind)
   const title = ref.name.value
   const body = textOf(ref.body)
-  const language = Option.flatMap(own, (chapter) =>
-    Option.fromNullishOr(chapter.module.doc.frontmatter?.language),
-  )
-  const numbered = Option.match(number, {
-    onNone: () => '',
-    onSome: (next) => `${String(next).padStart(2, '0')}-`,
-  })
   return {
-    file: `${folderOf(ref.module)}${numbered}${slugOf(title)}.loom`,
+    file: fileOf(ref, number),
     text: Array.join(
       [
         '---',
-        ...membership(part, number, title),
-        'Status: Canvas',
-        ...Option.toArray(Option.map(language, (written) => `Language: ${written.value}`)),
+        ...membership(part, number, title, ref.kind),
+        ...fieldsOf(ref, own),
         '---',
         '',
         `# ${title}`,
@@ -1598,10 +1678,11 @@ const openingOf = (book: Book, ref: BoxRef): Opening => {
 }
 
 export type BoxNotice = Data.TaggedEnum<{
-  Unwritten: { readonly name: BoxNameToken; readonly opening: Opening }
+  Unwritten: { readonly name: BoxNameToken; readonly kind: LoomKind; readonly opening: Opening }
   Stale: {
     readonly name: BoxNameToken
-    readonly chapter: string
+    readonly kind: LoomKind
+    readonly title: string
     readonly summary: string
     readonly body: Position
   }
@@ -1617,18 +1698,21 @@ const bodySpan = (ref: BoxRef, closer: LoomWeft): Position => ({
 })
 
 const noticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> =>
-  Option.match(boxChapter(book, ref), {
+  Option.match(boxTarget(book, ref), {
     onNone: () =>
-      Option.some(BoxNotice.Unwritten({ name: ref.name, opening: openingOf(book, ref) })),
-    onSome: (chapter) => {
-      const summary = openingProseOf(chapter.module)
+      Option.some(
+        BoxNotice.Unwritten({ name: ref.name, kind: ref.kind, opening: openingOf(book, ref) }),
+      ),
+    onSome: (target) => {
+      const summary = summaryOf(target.module)
       return pipe(
         ref.closer,
         Option.filter(() => textOf(ref.body) !== summary),
         Option.map((closer) =>
           BoxNotice.Stale({
             name: ref.name,
-            chapter: chapter.title,
+            kind: ref.kind,
+            title: target.title,
             summary: summary === '' ? '' : `${summary}\n`,
             body: bodySpan(ref, closer),
           }),
@@ -1708,11 +1792,11 @@ const openingEditOf = (
 const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<CorpusEdit> =>
   pipe(
     Option.all({
-      chapter: Option.filter(
-        boxChapter(book, ref),
-        (chapter) => chapter.module.path !== ref.module,
+      chapter: Option.filter(boxTarget(book, ref), (chapter) => chapter.module.path !== ref.module),
+      before: Array.findFirst(
+        loomBoxesOf(was),
+        (old) => old.kind === ref.kind && old.name.value === ref.name.value,
       ),
-      before: Array.findFirst(chapterBoxesOf(was), (old) => old.name.value === ref.name.value),
     }),
     Option.filter(({ chapter, before }) => {
       const summary = openingProseOf(chapter.module)
@@ -1731,13 +1815,9 @@ const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<C
     ),
   )
 
-const chapterToBoxes = (
-  book: Book,
-  was: LoomModule,
-  now: LoomModule,
-): ReadonlyArray<CorpusEdit> => {
-  const before = openingProseOf(was)
-  const after = openingProseOf(now)
+const loomToBoxes = (book: Book, was: LoomModule, now: LoomModule): ReadonlyArray<CorpusEdit> => {
+  const before = summaryOf(was)
+  const after = summaryOf(now)
   return before === after
     ? []
     : pipe(
@@ -1762,8 +1842,13 @@ export const syncedSummaries = (
 ): ReadonlyArray<CorpusEdit> => {
   const book = bookOf(new Map(corpus.modules).set(now.path, now))
   return [
-    ...Array.getSomes(Array.map(boxesIn(book, now.path), (ref) => boxToChapter(book, was, ref))),
-    ...chapterToBoxes(book, was, now),
+    ...Array.getSomes(
+      Array.map(
+        Array.filter(boxesIn(book, now.path), (ref) => ref.kind === chapterKind),
+        (ref) => boxToChapter(book, was, ref),
+      ),
+    ),
+    ...loomToBoxes(book, was, now),
   ]
 }
 

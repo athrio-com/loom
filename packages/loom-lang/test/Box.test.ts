@@ -137,7 +137,7 @@ describe('the braces on a box', () => {
 
   it('fault a kind the core does not give a box', () => {
     expect(faults('::: Cells {Mermaid}')).toEqual([
-      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, and `Conclusion`.',
+      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, and `Conclusion`.',
     ])
   })
 

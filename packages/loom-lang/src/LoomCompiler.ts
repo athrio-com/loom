@@ -41,7 +41,7 @@ import {
   SpecifierUnknown,
   StaleSummary,
   UnresolvedTocEntry,
-  UnwrittenChapter,
+  UnwrittenLoom,
   UnsettledModule,
   UnsettledSection,
 } from '#ast/LoomFault'
@@ -128,10 +128,10 @@ const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnosti
 
 const boxNoticeHealth = (notice: BoxNotice): Health =>
   BoxNotice.$match(notice, {
-    Unwritten: ({ name, opening }) =>
-      faulty(UnwrittenChapter({ name: name.value, opening }), name.position),
-    Stale: ({ name, chapter, summary, body }) =>
-      faulty(StaleSummary({ name: chapter, summary, at: body }), name.position),
+    Unwritten: ({ name, kind, opening }) =>
+      faulty(UnwrittenLoom({ kind, name: name.value, opening }), name.position),
+    Stale: ({ name, kind, title, summary, body }) =>
+      faulty(StaleSummary({ kind, name: title, summary, at: body }), name.position),
   })
 
 const corpusDiagnostics = (modules: Modules) => {

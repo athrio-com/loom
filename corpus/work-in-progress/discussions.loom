@@ -13,7 +13,7 @@ Some questions take more than a paragraph to settle. An author argues them out w
 
 A discussion is a kind of loom, as a chapter is. A chapter explains code and composes it. A discussion holds no code. It is where a thought runs freely before any of it becomes a chapter, or where a question goes when a chapter raises more than its own prose can hold.
 
-Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". The book lists its discussions in its back matter, and the weave gives each one a page, as the chapters "Generating the table of contents", "The woven corpus", and "The weave pass" describe. The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
+Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". A box of the `Discussion` kind points to a discussion from a chapter, as the chapter "The multi-file AST" describes. The book lists its discussions in its back matter, and the weave gives each one a page, as the chapters "Generating the table of contents", "The woven corpus", and "The weave pass" describe. The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
 
 ## Where a discussion sits
 
@@ -96,7 +96,9 @@ A topic without a conclusion is still open, and a second conclusion in one topic
 
 ## A discussion seen from a chapter
 
-A chapter points to a discussion with a box of kind `Discussion`, which the chapter "Boxes" describes. The box's body is the discussion's summary: its opening prose, followed by the text of its topics' conclusions, written as plain prose because a box never holds another box. The discussion holds the source, and the editor keeps the box's copy in step.
+A chapter points to a discussion with a box of kind `Discussion`, which the chapter "Boxes" describes. The box's body is the discussion's summary: its opening prose up to the first message, followed by the conclusion of each topic, one paragraph apiece. The conclusions arrive as plain prose, without their boxes, because a box never holds another box. The discussion holds the source, and the editor keeps the box's copy in step as the author edits the discussion. An edit to the box itself carries nothing back, so the box stays a warning until its fix copies the summary in.
+
+A box may name a discussion nobody has opened yet. Its fix opens the discussion in the `discussions` folder beside the box's loom, with the part's next discussion number and the box's body as its opening prose.
 
 So a settled discussion reads in the chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
 
@@ -568,7 +570,5 @@ describe("the book's back matter", () => {
 - **Discussions under a chapter.** Whether a discussion may also sit under a chapter, as well as under a part, is open.
 
 ## What this chapter grows into
-
-1. The `discussions` folder, where the editor opens a discussion from a discussion box.
 
 When discussions parse and show in the editor, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.

@@ -11,7 +11,7 @@ Language: TypeScript
 
 A loom holds more than prose and code. An author sketches a diagram, leaves a note for a reader, and keeps the command that starts a server. An author also meets thoughts too large for the section they start in, and points to a chapter or a discussion of their own. An author writes every one of these as the same block, the box, and a trope can teach Loom a new kind of box without any new syntax.
 
-Loom already reads a box. The chapter "The leaf tokens" gives its shape: a line of three colons with an optional name and braces, then the body, then a line of three colons alone. The chapters "The classifier stage", "The tokeniser stage", and "The document builder" read that shape, and fault a box opened inside another, a run of four or more colons, and a box that never closes. A box that names no kind is a note, and a box of the `Chapter` kind points to a chapter, as the chapter "The multi-file AST" describes. A box's name is its caption, which the editor shows when it folds the box and the woven page shows above a note. This chapter describes the kinds that follow the note and the chapter box.
+Loom already reads a box. The chapter "The leaf tokens" gives its shape: a line of three colons with an optional name and braces, then the body, then a line of three colons alone. The chapters "The classifier stage", "The tokeniser stage", and "The document builder" read that shape, and fault a box opened inside another, a run of four or more colons, and a box that never closes. A box that names no kind is a note, and a box of the `Chapter` kind points to a chapter, as the chapter "The multi-file AST" describes. A box's name is its caption, which the editor shows when it folds the box and the woven page shows above a note. A box of the `Discussion` kind points to a discussion in the same way. This chapter describes the kinds that follow the note, the chapter box, and the discussion box.
 
 ## Boxes that point to looms
 
@@ -31,13 +31,13 @@ How to model the room without a game engine: a grid of cells and the things that
 
 Such a box moves the opposite way to an anchor. An anchor pulls a section's code into the place where the anchor stands. A box that points to a loom pushes a thought out of the text, into a loom of its own, and leaves a short account of the thought behind.
 
-The loom may not exist yet. The box then leaves its loom to be settled: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes. A chapter box does all this already, as the chapter "The multi-file AST" describes, and a discussion box does the same once discussions exist.
+The loom may not exist yet. The box then leaves its loom to be settled: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes. A new discussion stands in the `discussions` folder beside the box's loom, and holds no code, so it takes no status. Chapter boxes and discussion boxes do all this already, as the chapter "The multi-file AST" describes.
 
 Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the text of the discussion's conclusions. Each conclusion arrives as plain prose, without its box, because a box never holds another. The loom holds the summary's source, and the box holds a copy.
 
-A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost. The warning's fix copies the source into the box, and `loom refresh` refreshes every copy at once, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. A chapter box works this way already.
+A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost. The warning's fix copies the source into the box, and `loom refresh` refreshes every copy at once, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. Both kinds of box work this way already.
 
-The editor goes further and keeps the two in step as the author types, so an edit to either one reaches the other. A chapter box works this way already, through the language server, as the chapter "The language server" describes. The author can also open the box in a side panel, to edit the loom's opening without leaving the section, in an editor that can show one.
+The editor goes further and keeps a copy in step as the author types, through the language server, as the chapter "The language server" describes. An edit to a loom's summary reaches every box that copies it. An edit to a chapter box reaches its chapter's opening too. An edit to a discussion box goes nowhere, since the box's paragraphs come from several topics of the discussion, so the box stays a warning until its fix copies the summary back. The author can also open the box in a side panel, to edit the loom's opening without leaving the section, in an editor that can show one.
 
 A settled discussion therefore reads in its chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
 
@@ -62,7 +62,7 @@ A kind that neither the core nor an installed trope knows is a fault, so a missp
 
 ## Testing boxes
 
-Two test files prove what Loom reads of a box. The first parses one loom at a time and reads back the box marks the parse made and the faults it raised. The second compiles a small corpus, because a chapter box points across looms, to the chapter its name titles.
+Three test files prove what Loom reads of a box. The first parses one loom at a time and reads back the box marks the parse made and the faults it raised. The other two compile a small corpus, because a chapter box and a discussion box each point across looms, to the loom their name titles.
 
 A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
 
@@ -217,7 +217,7 @@ describe('an opening line', () => {
 
 ## The keys and kinds a box takes
 
-A box writes its braces as an anchor does, but the two take different words in them. The core gives a box three kinds, `Note`, `Chapter`, and `Conclusion`, and one key, `kind`, so any other kind or key on a box is a fault. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Reference`.
+A box writes its braces as an anchor does, but the two take different words in them. The core gives a box four kinds, `Note`, `Chapter`, `Discussion`, and `Conclusion`, and one key, `kind`, so any other kind or key on a box is a fault. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Reference`.
 
 =>
 
@@ -227,7 +227,7 @@ describe('the braces on a box', () => {
 
   it('fault a kind the core does not give a box', () => {
     expect(faults('::: Cells {Mermaid}')).toEqual([
-      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, and `Conclusion`.',
+      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, and `Conclusion`.',
     ])
   })
 
@@ -393,11 +393,11 @@ describe('a box on the woven page', () => {
 
 ::[A box on the woven page]
 
-## Testing chapter boxes
+## A corpus held in memory
 
-A chapter box points across looms, so its cases compile a small corpus rather than parse one loom. `layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and lists those paths. Its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `withCompiler` runs one use of the compiler over such a corpus. `diagnosed` is the commonest use, the diagnostics of one loom, and `messages` keeps only their text.
+A box that points to a loom reaches across looms, so the cases for chapter boxes and for discussion boxes compile a small corpus, and both test files compile it the same way. `layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and lists those paths. Its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `withCompiler` runs one use of the compiler over such a corpus. `diagnosed` is the commonest use, the diagnostics of one loom, and `messages` keeps only their text.
 
-The corpus is a part about a world. The chapter `The world` holds a box that points to a chapter called `Rooms`, and a section after the box composes `Rooms` with an anchor. The chapter `Light` follows it in the part. `worldLoom` writes the first chapter with a given body in its box, and `roomsLoom` writes the chapter the box points to with a given opening. `unwritten` is the corpus before anyone writes `Rooms`.
+The language server carries an edit across through the editor, which reads the edit's range by line and character. `applied` writes one such edit into a text as an editor does, and `offsetOf` turns a line and a character into an offset.
 
 =>
 
@@ -451,6 +451,20 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
   withCompiler(files, (compiler) => compiler.diagnose(entry))
 
 const messages = (found: ReadonlyArray<Diagnostic>) => found.map((d) => d.message)
+
+const offsetOf = (text: string, at: { readonly line: number; readonly character: number }) =>
+  text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
+
+const applied = (text: string, edit: SummaryEdit) =>
+  text.slice(0, offsetOf(text, edit.range.start)) +
+  edit.text +
+  text.slice(offsetOf(text, edit.range.end))
+
+## Testing chapter boxes
+
+The chapter boxes stand in a part about a world. The chapter `The world` holds a box that points to a chapter called `Rooms`, and a section after the box composes `Rooms` with an anchor. The chapter `Light` follows it in the part. `worldLoom` writes the first chapter with a given body in its box, and `roomsLoom` writes the chapter the box points to with a given opening. `unwritten` is the corpus before anyone writes `Rooms`.
+
+=>
 
 const world = '/corpus/02-shape/01-world.loom'
 const light = '/corpus/02-shape/02-light.loom'
@@ -709,21 +723,13 @@ describe('the place of a chapter box', () => {
 
 ## Keeping a box in step as the author types
 
-The language server carries an edit across between a box and its chapter while the author types. The compiler's `summaryEdits` verb takes a loom's text before an edit and after it, and returns the edits that carry the change across. `applied` writes one such edit into a text, reading its range by line and character, as an editor does, and `offsetOf` turns a line and a character into an offset.
+The language server carries an edit across between a box and its chapter while the author types. The compiler's `summaryEdits` verb takes a loom's text before an edit and after it, and returns the edits that carry the change across.
 
 An edit to the box reaches the chapter's opening, and an edit to the opening reaches each box that copies it. A change crosses only between a box and a chapter that were in step before it, so an edit to a stale box carries nothing. An edit that leaves the box as it was carries nothing either. Nor does an edit to a box whose chapter opens with a box of its own, and the author keeps that pair in step by hand.
 
 =>
 
 describe('keeping a chapter box in step as the author types', () => {
-  const offsetOf = (text: string, at: { readonly line: number; readonly character: number }) =>
-    text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
-
-  const applied = (text: string, edit: SummaryEdit) =>
-    text.slice(0, offsetOf(text, edit.range.start)) +
-    edit.text +
-    text.slice(offsetOf(text, edit.range.end))
-
   const inStep = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
 
   const edits = (files: Record<string, string>, path: string, before: string, after: string) =>
@@ -788,6 +794,8 @@ describe('keeping a chapter box in step as the author types', () => {
 
 =>
 
+::[A corpus held in memory]
+
 ::[Testing chapter boxes]
 
 ::[A chapter nobody has written]
@@ -800,6 +808,357 @@ describe('keeping a chapter box in step as the author types', () => {
 
 ::[Keeping a box in step as the author types]
 
+## Testing discussion boxes
+
+The discussion boxes stand in a part about monsters. The chapter `Monsters` holds a box that points to a discussion called `Waking`, and the chapter `Rooms` comes before it in the part. `monstersLoom` writes the chapter with a given body in its box.
+
+The discussion `Waking` opens with a question, and a message follows it before the first topic. Its two topics each close with a conclusion. `wakingLoom` writes the discussion with a given first conclusion, and `summary` is what a box copies from it: the opening question, then each conclusion as a paragraph of its own. `written` is the corpus once the discussion exists, with a box whose body holds a given summary.
+
+=>
+
+const rooms = '/corpus/02-shape/01-rooms.loom'
+const monsters = '/corpus/02-shape/02-monsters.loom'
+const waking = '/corpus/02-shape/discussions/waking.loom'
+
+const roomsLoom = lines('---', 'Part II, Chapter 1: Rooms', '---', '', '# Rooms', '', 'A room.')
+
+const monstersLoom = (body: ReadonlyArray<string>) =>
+  lines(
+    '---',
+    'Part II, Chapter 2: Monsters',
+    '---',
+    '',
+    '# Monsters',
+    '',
+    'A monster sleeps until something wakes it.',
+    '',
+    '::: Waking {Discussion}',
+    ...body,
+    ':::',
+  )
+
+const wakingLoom = (first: string) =>
+  lines(
+    '---',
+    'Part II, Discussion 1: Waking',
+    '---',
+    '',
+    '# Waking',
+    '',
+    'What wakes a monster?',
+    '',
+    '~ Yegor',
+    'Noise, perhaps.',
+    '',
+    'What wakes it',
+    '---',
+    '',
+    '::: {Conclusion}',
+    first,
+    ':::',
+    '',
+    'How it strikes',
+    '---',
+    '',
+    '::: {Conclusion}',
+    'It strikes from a distance.',
+    ':::',
+  )
+
+const summary = (first: string): ReadonlyArray<string> => [
+  'What wakes a monster?',
+  '',
+  first,
+  '',
+  'It strikes from a distance.',
+]
+
+const trap = 'A trap going off within its hearing wakes it.'
+
+const written = (body: ReadonlyArray<string>) => ({
+  [rooms]: roomsLoom,
+  [monsters]: monstersLoom(body),
+  [waking]: wakingLoom(trap),
+})
+
+## A discussion nobody has opened
+
+Until its discussion exists, a discussion box carries a note, as a chapter box does. The note's fix writes the discussion in the `discussions` folder beside the box's loom. The new discussion takes the part's next discussion number, which counts discussions only, so a part with two chapters still opens its first discussion. Its identity names it a discussion, and its opening prose is the box's body.
+
+In a part without numbers the new discussion takes its title alone. A chapter that shares the box's name is no discussion, so the box still finds nothing, and an anchor beside the box resolves to the discussion to be settled.
+
+=>
+
+describe('a discussion box whose discussion is not written', () => {
+  const unwritten = { [rooms]: roomsLoom, [monsters]: monstersLoom(['What wakes a monster?']) }
+
+  it.effect('carries a note whose fix opens the discussion in its folder', () =>
+    Effect.gen(function* () {
+      const found = yield* diagnosed(unwritten, monsters)
+      const note = found.find((d) => d.message.startsWith('To be settled: no discussion'))
+      expect(note?.severity).toBe('info')
+      expect(note?.message).toBe(
+        "To be settled: no discussion is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
+      )
+      expect(note?.fixes).toEqual([
+        {
+          title: 'Open the discussion `Waking`',
+          file: waking,
+          text: lines(
+            '---',
+            'Part II, Discussion 1: Waking',
+            '---',
+            '',
+            '# Waking',
+            '',
+            'What wakes a monster?',
+          ),
+        },
+      ])
+    }),
+  )
+
+  it.effect('numbers the new discussion after the discussions of its part', () =>
+    Effect.gen(function* () {
+      const sleeping = lines('---', 'Part II, Discussion 1: Sleeping', '---', '', '# Sleeping')
+      const files = { ...unwritten, '/corpus/02-shape/discussions/sleeping.loom': sleeping }
+      const found = yield* diagnosed(files, monsters)
+      const note = found.find((d) => d.message.startsWith('To be settled: no discussion'))
+      expect(note?.fixes?.[0]?.text).toContain('Part II, Discussion 2: Waking')
+    }),
+  )
+
+  it.effect('opens a discussion of a part without numbers by its title alone', () =>
+    Effect.gen(function* () {
+      const ideas = '/corpus/wip/ideas.loom'
+      const found = yield* diagnosed(
+        {
+          [ideas]: lines(
+            '---',
+            'Part: Work in progress',
+            'Chapter: Ideas',
+            '---',
+            '',
+            '# Ideas',
+            '',
+            '::: Waking {Discussion}',
+            ':::',
+          ),
+        },
+        ideas,
+      )
+      const note = found.find((d) => d.message.startsWith('To be settled: no discussion'))
+      expect(note?.fixes).toEqual([
+        {
+          title: 'Open the discussion `Waking`',
+          file: '/corpus/wip/discussions/waking.loom',
+          text: lines('---', 'Part: Work in progress', 'Discussion: Waking', '---', '', '# Waking'),
+        },
+      ])
+    }),
+  )
+
+  it.effect('never points to a chapter of the same title', () =>
+    Effect.gen(function* () {
+      const chapter = lines(
+        '---',
+        'Part II, Chapter 3: Waking',
+        '---',
+        '',
+        '# Waking',
+        '',
+        'A chapter.',
+      )
+      const files = { ...unwritten, '/corpus/02-shape/03-waking.loom': chapter }
+      const found = messages(yield* diagnosed(files, monsters))
+      expect(found).toContain(
+        "To be settled: no discussion is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
+      )
+    }),
+  )
+
+  it.effect('lets an anchor beside it resolve, to be settled rather than missing', () =>
+    Effect.gen(function* () {
+      const beside = lines(
+        '---',
+        'Part II, Chapter 2: Monsters',
+        '---',
+        '',
+        '# Monsters [monsters.ts]',
+        '',
+        '::: Waking {Discussion}',
+        ':::',
+        '',
+        '=>',
+        anchor('Waking'),
+      )
+      const found = messages(yield* diagnosed({ [rooms]: roomsLoom, [monsters]: beside }, monsters))
+      expect(found).toContain(
+        'To be settled: `Waking` holds no code yet, so this anchor composes nothing.',
+      )
+      expect(found.some((m) => m.startsWith('Unresolved anchor'))).toBe(false)
+    }),
+  )
+})
+
+## The summary a discussion box copies
+
+Once the discussion exists, the box's body is a copy of its summary: the discussion's opening, up to its first message, and the conclusion of each topic after it. A copy that matches is in step and raises nothing. A copy that differs raises a warning that names the discussion's summary, and the warning's fix copies the summary into the box. The compiler's `summaries` verb refreshes a stale discussion box as it refreshes a chapter box.
+
+=>
+
+describe("a discussion box's summary", () => {
+  it.effect('is in step when its body holds the opening and the conclusions', () =>
+    Effect.gen(function* () {
+      const found = messages(yield* diagnosed(written(summary(trap)), monsters))
+      expect(found.some((m) => m.startsWith('To be settled: no discussion'))).toBe(false)
+      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+    }),
+  )
+
+  it.effect('warns when its body differs, with a fix that copies the summary in', () =>
+    Effect.gen(function* () {
+      const files = written(['What wakes a monster?'])
+      const found = yield* diagnosed(files, monsters)
+      const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+      expect(stale?.severity).toBe('warning')
+      expect(stale?.message).toBe(
+        "Summary out of step: this box holds a copy of the summary of the discussion `Waking`, and the two differ. Copy the discussion's summary into the box, or edit the discussion to match.",
+      )
+      const fix = stale?.fixes?.[0]
+      expect(fix?.title).toBe('Copy the summary of `Waking`')
+      const at = Option.getOrThrow(Option.fromNullishOr(fix?.at))
+      const text = files[monsters]!
+      const fixed = text.slice(0, at.start.offset) + fix!.text + text.slice(at.end.offset)
+      expect(fixed).toBe(monstersLoom(summary(trap)))
+    }),
+  )
+
+  it.effect('refreshes through summaries', () =>
+    Effect.gen(function* () {
+      const files = written(['What wakes a monster?'])
+      const refreshed = yield* withCompiler(files, (compiler) => compiler.summaries(monsters))
+      expect(refreshed).toEqual([{ path: monsters, text: monstersLoom(summary(trap)) }])
+    }),
+  )
+})
+
+## Where a discussion box may stand
+
+A discussion often argues about the code beside it, so a discussion box may stand in a section that holds code. A discussion box with no name points to no discussion, and the builder faults it, naming the discussion kind.
+
+=>
+
+describe('the place of a discussion box', () => {
+  it.effect('stands beside code without a fault', () =>
+    Effect.gen(function* () {
+      const loom = '/corpus/beside.loom'
+      const found = messages(
+        yield* diagnosed(
+          {
+            [loom]: lines(
+              '# Beside',
+              '',
+              '::: Waking {Discussion}',
+              ':::',
+              '',
+              '=>',
+              'const x = 1',
+            ),
+          },
+          loom,
+        ),
+      )
+      expect(found.some((m) => m.includes('beside code'))).toBe(false)
+    }),
+  )
+
+  it.effect('faults a discussion box with no name', () =>
+    Effect.gen(function* () {
+      const loom = '/corpus/nameless.loom'
+      const found = messages(
+        yield* diagnosed({ [loom]: lines('# Nameless', '', '::: {Discussion}', ':::') }, loom),
+      )
+      expect(found).toContain(
+        'Discussion box without a name: a box of the `Discussion` kind points to the discussion its name titles, so it needs a name, as in `::: Waking {Discussion}`.',
+      )
+    }),
+  )
+})
+
+## From a discussion box to its discussion
+
+A discussion box's name is a name for its discussion. Going to the definition of the name reaches the title the discussion declares, and the references of the name gather the box and the discussion together.
+
+=>
+
+describe('navigating from a discussion box', () => {
+  const files = written(summary(trap))
+  const boxName = files[monsters]!.indexOf('Waking {Discussion}') + 1
+
+  it.effect('follows its name to the discussion', () =>
+    Effect.gen(function* () {
+      const found = yield* withCompiler(files, (compiler) => compiler.definition(monsters, boxName))
+      expect(found?.path).toBe(waking)
+      expect(found?.range.start.line).toBe(1)
+    }),
+  )
+
+  it.effect('lists the box among the names of its discussion', () =>
+    Effect.gen(function* () {
+      const found = yield* withCompiler(files, (compiler) => compiler.references(monsters, boxName))
+      expect(found.map((location) => location.path)).toContain(monsters)
+      expect(found.map((location) => location.path)).toContain(waking)
+    }),
+  )
+})
+
+## One way as the author types
+
+A discussion box follows its discussion as the author types. An edit to a conclusion changes the discussion's summary, so it reaches every box that held the old one. An edit to the box itself carries nothing back, since the box's paragraphs come from several topics of the discussion.
+
+=>
+
+describe('keeping a discussion box in step as the author types', () => {
+  const inStep = written(summary(trap))
+  const edits = (path: string, before: string, after: string) =>
+    withCompiler(inStep, (compiler) => compiler.summaryEdits(path, before, after))
+
+  it.effect('writes an edit to a conclusion into the box', () =>
+    Effect.gen(function* () {
+      const sound = 'A sound within its hearing wakes it.'
+      const found = yield* edits(waking, inStep[waking]!, wakingLoom(sound))
+      expect(found.map((edit) => edit.path)).toEqual([monsters])
+      expect(applied(inStep[monsters]!, found[0]!)).toBe(monstersLoom(summary(sound)))
+    }),
+  )
+
+  it.effect('carries nothing from an edit to the box', () =>
+    Effect.gen(function* () {
+      const after = monstersLoom(['What wakes a monster?', '', 'Something else.'])
+      expect(yield* edits(monsters, inStep[monsters]!, after)).toEqual([])
+    }),
+  )
+})
+
+## The discussion box test file [test/DiscussionBox.test.ts]
+
+=>
+
+::[A corpus held in memory]
+
+::[Testing discussion boxes]
+
+::[A discussion nobody has opened]
+
+::[The summary a discussion box copies]
+
+::[Where a discussion box may stand]
+
+::[From a discussion box to its discussion]
+
+::[One way as the author types]
+
 ## What to work out
 
 - **The woven page.** What a reader of the woven book sees of a box that points to a loom, the summary, a link, or both, is open.
@@ -808,8 +1167,7 @@ describe('keeping a chapter box in step as the author types', () => {
 
 ## What this chapter grows into
 
-1. Discussion boxes, once the chapter "Discussions" gives discussions their loom: found by name, opened as a discussion, and their summaries, conclusions included, kept in step.
-2. The side panel that edits a loom's opening from its box, in the editors that can show one.
-3. The registry of kinds: `Discussion` and `Wildcard` beside `Note`, `Chapter`, and `Conclusion` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
+1. The side panel that edits a loom's opening from its box, in the editors that can show one.
+2. The registry of kinds: `Wildcard` beside `Note`, `Chapter`, `Discussion`, and `Conclusion` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
 
 When every kind of box reads and draws in the editor, the rest of this chapter joins the chapters that hold the box.

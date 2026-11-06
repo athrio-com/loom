@@ -753,7 +753,7 @@ const applySummaryEdits = (
         Effect.flatMap((source) =>
           Effect.promise(() =>
             server.connection.workspace.applyEdit({
-              label: 'Keep a chapter box in step',
+              label: 'Keep a box in step',
               edit: {
                 documentChanges: Array.map(
                   Object.entries(Array.groupBy(edits, (edit) => edit.path)),

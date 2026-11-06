@@ -15,6 +15,7 @@ import {
   chapterKind,
   conclusionKind,
   type FrontmatterValueToken,
+  isLoomKind,
   type HeadingTitleToken,
   HeadingTitleTokenSchema,
   openingFence,
@@ -31,7 +32,7 @@ import {
   type LoomFault,
   UnclosedBox,
   UnclosedFence,
-  UnnamedChapterBox,
+  UnnamedBox,
 } from './LoomFault'
 import {
   boxOf,
@@ -133,20 +134,24 @@ const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWef
       Array.map(wefts, (weft, at) => (at === open ? faultedBoxLine(UnclosedBox())(weft) : weft)),
   })
 
-const chapterBoxFault = (box: BoxToken, code: boolean): Option.Option<LoomFault> =>
-  box.side !== 'open' || boxKind(box) !== chapterKind
+const loomBoxFault = (box: BoxToken, code: boolean): Option.Option<LoomFault> => {
+  const kind = boxKind(box)
+  return box.side !== 'open' || !isLoomKind(kind)
     ? Option.none()
     : Option.match(Option.fromNullishOr(box.name), {
-        onNone: () => Option.some(UnnamedChapterBox()),
+        onNone: () => Option.some(UnnamedBox({ kind })),
         onSome: (name) =>
-          code ? Option.some(ChapterBoxBesideCode({ name: name.value })) : Option.none(),
+          code && kind === chapterKind
+            ? Option.some(ChapterBoxBesideCode({ name: name.value }))
+            : Option.none(),
       })
+}
 
-const judgeChapterBoxes = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> => {
+const judgeLoomBoxes = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> => {
   const code = Array.some(body, (weft) => weft.type === 'ArrowWeft')
   return Array.map(body, (weft) =>
     Option.match(
-      Option.flatMap(boxOf(weft), (box) => chapterBoxFault(box, code)),
+      Option.flatMap(boxOf(weft), (box) => loomBoxFault(box, code)),
       {
         onNone: () => weft,
         onSome: (fault) => faultedBoxLine(fault)(weft),
@@ -353,7 +358,7 @@ const buildSection = (
 ): LoomSection => {
   const h = headingOf(opener)
   const topic = discussion && opener._tag === 'Division'
-  const judged = judgeConclusions(judgeChapterBoxes(body), topic)
+  const judged = judgeConclusions(judgeLoomBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
   const entries = judged.filter(isToc)

@@ -940,7 +940,7 @@ const settleEdits = (
 
 ## A box kept in step as the author types
 
-A chapter box holds a copy of its chapter's opening prose, as the chapter "The multi-file AST" describes. The server keeps the two in step while the author types, in any editor, so an edit to the copy reaches the chapter and an edit to the chapter's opening reaches every copy. The compiler's `summaryEdits` decides what to carry across. It carries a change only between a box and a chapter that were in step before it, so a copy that was already out of date stays a warning.
+A box that points to a loom holds a copy of the loom's summary, as the chapter "The multi-file AST" describes: a chapter box copies its chapter's opening prose, and a discussion box copies its discussion's summary. The server keeps each copy in step with its source while the author types, in any editor. An edit to a loom's summary reaches every copy, and an edit to a chapter box's copy reaches the chapter. The compiler's `summaryEdits` decides what to carry across. It carries a change only between a box and a loom that were in step before it, so a copy that was already out of date stays a warning.
 
 `keepInStep` follows each change of a loom. It remembers in `seen` the text the editor held for each open loom, so every change comes with the text before it. The first text it sees for a loom, when the editor opens it, is only remembered. A later change rebuilds the edited chapters first, so the corpus holds what the editor shows, and then asks `summaryEdits` for the edits. It holds the `reprojecting` semaphore while it reads the corpus, and lets it go before it asks the editor to apply anything.
 
@@ -957,7 +957,7 @@ const applySummaryEdits = (
         Effect.flatMap((source) =>
           Effect.promise(() =>
             server.connection.workspace.applyEdit({
-              label: 'Keep a chapter box in step',
+              label: 'Keep a box in step',
               edit: {
                 documentChanges: Array.map(
                   Object.entries(Array.groupBy(edits, (edit) => edit.path)),
@@ -1143,7 +1143,7 @@ export const startLanguageServer = (): void => {
 
 ## The server module [src/LoomServer.ts]
 
-The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the chapter boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
