@@ -209,6 +209,8 @@ export const declaredKindsOf = (
 
 Every box of the loom that names a kind is judged against the core's kinds and the declared ones. `writtenKind` reads the kind a box's braces name, and where: a label's words, or the value of a `kind` parameter. A label that the tokeniser has already faulted, such as an empty one, is judged no further. A kind that neither the core nor a trope gives a box carries an `UnknownKind` fault, which lists every kind the box could take, the core's first and the declared ones after them.
 
+A box's keys depend on its kind as well. Only a trope box takes `provides` and `anchors`, so `keysOutsideTrope` gives either key on a box of any other kind a `KeyOutsideTrope` fault, on the key itself.
+
 =>
 
 const writtenKind = (
@@ -248,19 +250,43 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       ({ kind, at }) => faulty(UnknownKind({ kind, kinds: known, on: 'box' }), at).diagnostics,
     ),
   )
-  return [...refused, ...unknown]
+  return [...refused, ...unknown, ...keysOutsideTrope(module)]
 }
+
+const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
+  pipe(
+    openedBoxesOf(module.doc),
+    Array.filter((opened) => boxKind(opened.box) !== tropeKind),
+    Array.flatMap((opened) =>
+      Option.match(Option.fromNullishOr(opened.box.specifier), {
+        onNone: (): ReadonlyArray<ParameterToken> => [],
+        onSome: (specifier) => (specifier.type === 'Parameters' ? specifier.parameters : []),
+      }),
+    ),
+    Array.filter((parameter) => ['provides', 'anchors'].includes(parameter.key.value)),
+    Array.flatMap(
+      (parameter) =>
+        faulty(KeyOutsideTrope({ key: parameter.key.value }), parameter.key.position).diagnostics,
+    ),
+  )
 
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds` the core keeps and the tokens a box's braces arrive in, and from the corpus the `Book`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it. The fault catalog lends `faulty` with the `TropeRefused` and `UnknownKind` faults, and the contract lends `readManifest` with the shapes it reads.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds` the core keeps, `boxKind` and `tropeKind`, which tell a trope box, and the tokens a box's braces arrive in, and from the corpus the `Book`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shapes it reads.
 
 =>
 
 import { Array, Match, Option, Order, pipe, Result } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
-import { boxKinds, type ParametersToken, type SpecifierToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  boxKind,
+  boxKinds,
+  type ParameterToken,
+  type ParametersToken,
+  type SpecifierToken,
+  tropeKind,
+} from '@athrio/loom-ast/LoomTokens'
 import {
   type Book,
   type Location,
@@ -269,7 +295,7 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
 import { fromCode } from './LoomVirtualCodeBuilder'
-import { faulty, TropeRefused, UnknownKind } from './LoomFault'
+import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
 import { type BoxKindDeclaration, readManifest, type TropeManifest } from './TropeManifest'
 
 ## The module [src/ast/DeclaredKinds.ts]
@@ -387,13 +413,13 @@ const refusedFor = (reason: string) =>
 
 ## A kind nobody declares
 
-A box of a kind that neither the core nor a trope gives is a fault, whether its braces name the kind with a label or with a `kind` parameter. The fault lists the core's four kinds.
+A box of a kind that neither the core nor a trope gives is a fault, whether its braces name the kind with a label or with a `kind` parameter. The fault lists the core's five kinds.
 
 =>
 
 describe('a box of a kind nobody declares', () => {
   const unknown =
-    'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, and `Conclusion`.'
+    'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.'
 
   it('is a fault, named by a label', async () => {
     expect(faultsOf(await diagnosed({ [cells]: chapterWith('{Mermaid}') }, cells))).toEqual([
@@ -428,7 +454,7 @@ describe('a box of a kind a trope declares', () => {
 
   it('joins the kinds a fault lists', async () => {
     expect(faultsOf(await diagnosed(withTrope('{Chart}'), cells))).toEqual([
-      'Unknown kind: a box takes no kind `Chart`. It takes `Note`, `Chapter`, `Discussion`, `Conclusion`, and `Mermaid`.',
+      'Unknown kind: a box takes no kind `Chart`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, `Conclusion`, and `Mermaid`.',
     ])
   })
 

@@ -89,7 +89,7 @@ const refusedFor = (reason: string) =>
 
 describe('a box of a kind nobody declares', () => {
   const unknown =
-    'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, and `Conclusion`.'
+    'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.'
 
   it('is a fault, named by a label', async () => {
     expect(faultsOf(await diagnosed({ [cells]: chapterWith('{Mermaid}') }, cells))).toEqual([
@@ -118,7 +118,7 @@ describe('a box of a kind a trope declares', () => {
 
   it('joins the kinds a fault lists', async () => {
     expect(faultsOf(await diagnosed(withTrope('{Chart}'), cells))).toEqual([
-      'Unknown kind: a box takes no kind `Chart`. It takes `Note`, `Chapter`, `Discussion`, `Conclusion`, and `Mermaid`.',
+      'Unknown kind: a box takes no kind `Chart`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, `Conclusion`, and `Mermaid`.',
     ])
   })
 

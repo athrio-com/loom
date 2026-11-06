@@ -83,6 +83,7 @@
     "packages/loom-lang/test/RemoteStorage.test.ts",
     "packages/loom-lang/test/SemanticTokens.test.ts",
     "packages/loom-lang/test/Toc.test.ts",
+    "packages/loom-lang/test/TropeBox.test.ts",
     "packages/loom-lang/test/TropeContract.test.ts",
     "packages/loom-lang/test/WorkspaceSource.test.ts",
     "packages/loom-lang/test/storageStub.ts",

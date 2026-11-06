@@ -173,7 +173,7 @@ const inlineComposed =
 
 ## What a composition leaves to be settled
 
-A tangle writes no file whose composition reaches a section that holds no code yet. `unsettledIn` walks a root's composition the way `inlineComposed` does, binding each reference with `targetOf` and following it into the section it reaches. It reports an `Unsettled` reference at each edge that stops short of code: the loom that holds the anchor, the anchor's span, the name it writes, the section it reaches when a section of that name is declared, and the names the anchor says the section provides. `unsettledRef` judges one reference on its own, and the weave asks it too, to mark the woven page. `unsettledAt` builds the report from the loom that holds the reference.
+A tangle writes no file whose composition reaches a section that holds no code yet. `unsettledIn` walks a root's composition the way `inlineComposed` does, binding each reference with `targetOf` and following it into the section it reaches. It reports an `Unsettled` reference at each edge that stops short of code: the loom that holds the anchor, the anchor's span, the name it writes, the section it reaches when a section of that name is declared, and the names the anchor says the section provides. `unsettledRef` judges one reference on its own, and the weave asks it too, to mark the woven page. `unsettledAt` builds the report from the loom that holds the reference. A reference that names a trope still to be settled promises the names the trope's box lists, beside any its anchor lists, which the corpus's `promisedThrough` gives. So code that uses a trope before anyone writes it sees the trope's names as promised.
 
 An edge stops short in two ways. It reaches a section whose `Code` holds no fragments, a section declared but not yet written. Or it binds to nothing while its anchor promises the section, with the `{To be settled}` label or by stating what the section provides, so the section is not declared at all. `isMeant` asks whether an edge promises its section. An edge that binds to nothing without a promise is a fault the diagnostics already raise, so the walk passes it by. A section the walk has already entered is not entered again, which ends a cycle.
 
@@ -231,8 +231,14 @@ export const unsettledRef = (
   ref: Ref,
 ): Option.Option<Unsettled> =>
   Option.match(targetOf(book, owner, ref), {
-    onNone: () =>
-      isMeant(ref) ? Option.some(unsettledAt(owner, ref, Option.none())) : Option.none(),
+    onNone: () => {
+      const promised = promisedThrough(book, owner, ref.name)
+      return isMeant(ref) || Array.isReadonlyArrayNonEmpty(promised)
+        ? Option.some(
+            unsettledAt(owner, { ...ref, provides: [...ref.provides, ...promised] }, Option.none()),
+          )
+        : Option.none()
+    },
     onSome: (target) =>
       pipe(
         lookup(modules, target),
@@ -322,9 +328,9 @@ export const referencesIn = (
 
 ## What an anchor says its section provides
 
-An anchor may state the names its section provides, as `::[Greeting function]{provides=greet}` does. A `Contract` is what one such anchor expects of the section it composes: the `section` as the anchor names it, the loom that holds the section as `target`, the `span` of the section's own code in that loom, the `language` that code is written in, and each `Provided` name with the place the anchor writes it. A language service reports the names a document declares, and the editor compares them with a contract, as the chapter "The Loom language" describes.
+An anchor may state the names its section provides, as `::[Greeting function]{provides=greet}` does. A `Contract` is what one such anchor expects of the section it composes: the `section` as the anchor names it, the loom that holds the section as `target`, the `span` of the section's own code in that loom, the `language` that code is written in, and each `Provided` name with the place the anchor writes it. A trope box makes a contract too, with its entry point, and the contract then names the `trope`, so a missing name is laid at the trope's door rather than an anchor's. A language service reports the names a document declares, and the editor compares them with a contract, as the chapter "The Loom language" describes.
 
-`contractsIn` gathers the contracts of one loom. It walks every composing edge the loom's product holds, and `contractOf` builds the contract of one from the `provides` names the reference records. `writtenSpan` runs from the section's first fragment of code to its last. Only a section that holds code of its own has names to compare, so a section to be settled, one that is missing, or one that only composes others holds no contract. The span covers the section's own code alone, so a name that a section it composes declares is not among the names the section provides.
+`contractsIn` gathers the contracts of one loom. It walks every composing edge the loom's product holds, and `contractOf` builds the contract of one from the `provides` names the reference records. It adds the contract of each trope box the loom holds, which `tropeContractOf` builds from the corpus's `tropeContractsIn`: the code of the trope's entry point against the names the box promises. `writtenSpan` runs from the section's first fragment of code to its last. Only a section that holds code of its own has names to compare, so a section to be settled, one that is missing, or one that only composes others holds no contract. The span covers the section's own code alone, so a name that a section it composes declares is not among the names the section provides.
 
 A reference states the names its module provides the same way, as `import { greet } from ::[Greetings]{provides=greet}` does, and its contract covers the file it names. `moduleContractOf` builds it once the product pass's `referredFileOf` finds the file. A module is the file's root and every section the root composes, so `composedSpan` runs from the first fragment of code among them to the last, over the sections that live in the root's own loom, which `composedOf` gathers. A section of the file that another loom holds lies outside that span, so a name only such a section declares reads as missing. A reference whose module is to be settled, or one a fault stops, holds no contract. `contractsIn` reads the corpus's `Landing` once for every reference in the loom.
 
@@ -336,6 +342,7 @@ export type Contract = {
   readonly span: Position
   readonly language: string
   readonly provides: ReadonlyArray<Provided>
+  readonly trope: Option.Option<string>
 }
 
 const writtenSpan = (code: Code): Option.Option<Position> =>
@@ -364,7 +371,14 @@ const contractOf = (
     const target = yield* targetOf(book, path, ref)
     const code = yield* lookup(modules, target)
     const span = yield* writtenSpan(code)
-    return { section: ref.name, target: target.path, span, language: code.languageId, provides }
+    return {
+      section: ref.name,
+      target: target.path,
+      span,
+      language: code.languageId,
+      provides,
+      trope: Option.none(),
+    }
   })
 
 const composedOf =
@@ -431,6 +445,27 @@ const moduleContractOf = (
       span,
       language: landed.file.code.languageId,
       provides,
+      trope: Option.none(),
+    }
+  })
+
+const tropeContractOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  contract: TropeContract,
+): Option.Option<Contract> =>
+  Option.gen(function* () {
+    const code = yield* lookup(modules, {
+      path: contract.entry.module,
+      name: sectionNameOf(contract.entry.section),
+    })
+    const span = yield* writtenSpan(code)
+    return {
+      section: contract.entry.section.heading.title?.source ?? contract.trope,
+      target: contract.entry.module,
+      span,
+      language: code.languageId,
+      provides: contract.provides,
+      trope: Option.some(contract.trope),
     }
   })
 
@@ -443,22 +478,27 @@ export const contractsIn = (
     onNone: (): ReadonlyArray<Contract> => [],
     onSome: (module) => {
       const landing = landingOf(book, modules)
-      return pipe(
-        module.product.code,
-        Array.flatMap((host) =>
-          Array.map(host.fragments, (part) =>
-            Match.value(part).pipe(
-              Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, book, path, ref)),
-              Match.when({ type: 'ModuleRef' }, (ref) =>
-                moduleContractOf(modules, book, landing, module, host, ref),
+      return [
+        ...pipe(
+          module.product.code,
+          Array.flatMap((host) =>
+            Array.map(host.fragments, (part) =>
+              Match.value(part).pipe(
+                Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, book, path, ref)),
+                Match.when({ type: 'ModuleRef' }, (ref) =>
+                  moduleContractOf(modules, book, landing, module, host, ref),
+                ),
+                Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
+                Match.exhaustive,
               ),
-              Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
-              Match.exhaustive,
             ),
           ),
+          Array.getSomes,
         ),
-        Array.getSomes,
-      )
+        ...Array.getSomes(
+          Array.map(tropeContractsIn(book, path), (contract) => tropeContractOf(modules, contract)),
+        ),
+      ]
     },
   })
 
@@ -765,12 +805,21 @@ import {
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
-import { bookOf, type Book, type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  bookOf,
+  type Book,
+  type LoomModule,
+  type Location,
+  promisedThrough,
+  type TropeContract,
+  tropeContractsIn,
+} from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type Landing,
   landingOf,
   Referred,
   referredFileOf,
+  sectionNameOf,
   targetOf,
 } from '#ast/ProductBuilder'
 import { type LoomDocument } from '@athrio/loom-ast/LoomAst'

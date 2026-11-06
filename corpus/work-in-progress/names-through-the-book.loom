@@ -64,12 +64,12 @@ The first is an anchor that promises a section nobody has written. The `{To be s
 
 The second is a section declared with its heading and the prose that specifies it, but no code yet. Its prose already says what its code will do, so it is the literate counterpart of a mock. It fakes no behaviour, but it states the intent, and a reader can read it before any code exists. A box that points to a chapter not yet written leaves a whole loom to be settled the same way.
 
-The third is a wildcard, a box that holds the place of a compartment before the author knows where its code will live. The section "A wildcard holds a place" describes it.
+The third is a trope box, which holds the place of a compartment before the author knows where its code will live. The section "A trope holds a place" describes it.
 
 So a reference that composes or refers names one of three things:
 
 - **Something missing.** No node in reach carries the name, and the anchor promises none: it carries no `{To be settled}` label and states no `provides`. It is a typo, or a section not yet declared. The `UnresolvedAnchor` fault reports it. The editor offers two fixes: one declares the section, a heading below the section that names it, and the other labels the anchor `{To be settled}`.
-- **Something unsettled.** The anchor promises its section, with the label or with `provides`, and its name finds nothing, or the node exists but holds no code yet: a section with prose alone, a box whose chapter is not written, a wildcard that points nowhere, or a chapter that emits no file yet. The reference resolves, and nothing is wrong while the author writes. The `UnsettledSection` note marks the reference in the editor, the graph of the book lists every unsettled reference, and the woven page marks each one, the way the website marks a page it has not written yet as "Being written".
+- **Something unsettled.** The anchor promises its section, with the label or with `provides`, and its name finds nothing, or the node exists but holds no code yet: a section with prose alone, a box whose chapter is not written, a trope that points nowhere, or a chapter that emits no file yet. The reference resolves, and nothing is wrong while the author writes. The `UnsettledSection` note marks the reference in the editor, the graph of the book lists every unsettled reference, and the woven page marks each one, the way the website marks a page it has not written yet as "Being written".
 - **Something written.** The node holds code, and the reference composes it or refers to it. When the node belongs to a canvas in another chapter, a composing reference also raises the warning the chapter "Canvases" describes.
 
 Being unsettled belongs to the reference, not to the section. Many sections hold prose alone by design, such as the opening section of most chapters. A section with no code becomes unsettled only when a composing anchor names it.
@@ -96,57 +96,33 @@ Stating the names promises the section, so `::[Greeting function]{provides=greet
 
 The code around an unsettled section goes on using the names the section will provide. A call to `greet("world")` follows `::[Greeting function]{provides=greet}` long before anyone writes `greet`. The language service finds no such name, and it reports an error that tells the author nothing new.
 
-While the section is unsettled, the language package lowers that error to a warning, and the warning names the promise: "`greet` is promised by the section `Greeting function`, which is not written yet." Each language package knows which of its own diagnostics say that a name is missing. TypeScript reports 2304 and 2552 for a name it cannot find, and 2305 for a name a module does not export. Loom gives the package the promised names of each file. They are the names an anchor or a wildcard states in its `provides` parameter, and every name the code imports from a chapter that emits no file yet.
+While the section is unsettled, the language package lowers that error to a warning, and the warning names the promise: "`greet` is promised by the section `Greeting function`, which is not written yet." Each language package knows which of its own diagnostics say that a name is missing. TypeScript reports 2304 and 2552 for a name it cannot find, and 2305 for a name a module does not export. Loom gives the package the promised names of each file. They are the names an anchor or a trope box states in its `provides` parameter, and every name the code imports from a chapter that emits no file yet.
 
 The rule is narrow. It lowers a diagnostic only when the diagnostic names a promised name, only in a file that composes the unsettled section or refers to it, and only while that section is unsettled. Once the section is written, a missing name is an error again, beside the `MissingSymbol` fault at the anchor that promised it.
 
 Nothing is composed in the anchor's place, so the code the language service checks is the author's own. The price is what the service cannot check yet. A call that passes `greet` the wrong arguments goes unnoticed until the section is written, because nothing yet says what `greet` takes. A tangle lowers nothing, since it refuses a composition that is not settled.
 
-## A wildcard holds a place
+## A trope holds a place
 
-An author often knows what a program needs before knowing where the code will live. The app needs a greeting that provides `greet` and `hello`, but the author has not yet decided whether the greeting becomes a section of this chapter or a chapter of its own. A wildcard names that need. It is a box of kind `Wildcard`, the block the chapter "Boxes" defines. Code reaches the wildcard by the wildcard's name. The `provides` parameter lists the names the wildcard promises, and the body says in prose what the need is for.
-
-```
-## The app
-
-The app greets its user before it does anything else.
-
-::: Greeting module {kind=Wildcard provides=[greet, hello]}
-The words the app shows when it starts.
-:::
-
-=>
-import greet from ::[Greeting module]{Reference}
-```
-
-The author settles the wildcard by anchoring it to a section or a chapter, in this loom or another. The `anchors` parameter names the target:
+An author often knows what a program needs before knowing where the code will live, or how big it will grow. A trope box names that need, as Part XIII, Chapter 3, "A trope in the text", describes and builds. It takes the place this chapter first gave a wildcard. Code reaches the trope by its name, its `provides` key lists the names it promises, and its `anchors` key names the section or chapter that settles it.
 
 ```
-::: Greeting module {kind=Wildcard provides=[greet, hello] anchors=Greeting}
+::: Greeting {kind=Trope provides=[greet, hello] anchors=Greeting}
 The words the app shows when it starts.
 :::
 ```
 
-The value of the `anchors` parameter is a name, and it resolves like any reference, nearest first, by the rule this chapter sets. A name with a space is quoted, as in `anchors="Room's 2d system"`, and a path names a target that a bare name cannot reach. Go-to-definition follows the name, and renaming the target rewrites it.
+Loom already resolves the `anchors` value from the box's loom, follows it from the trope's name, renames it with its target, and keeps the anchors that name the trope as they are. It checks the promised names against the target once the trope is settled, and promises them to the code while the trope is unsettled, so a composing anchor that names an unsettled trope warns where the code uses a promised name.
 
-Every anchor to the wildcard stays as it was. An anchor finds the wildcard by the wildcard's name, and a wildcard with a target behaves exactly as its target does. The anchor composes the target section or refers to the target's file, as the anchor's own kind decides: an anchor of the `Reference` kind refers, and any other composes. Settling a wildcard therefore rewrites no reference to it.
+What remains is the reference. An anchor of the `Reference` kind that names an unsettled trope should refer to a module the editor serves in the trope's place. The language package would write the module, exporting each promised name and a default, so `import greet from` and `import { greet, hello } from` both resolve, with each export typed `any` in TypeScript. Only the editor would serve it: a tangle refuses an unsettled trope, as it refuses every unsettled reference, so the module never reaches a tangled file.
 
-The wildcard keeps its contract after it is settled. Loom checks its `provides` names against the target, as it checks an anchor's, so a name the target lacks is the `MissingSymbol` fault at the wildcard. The wildcard then reads as the interface its target meets.
-
-A wildcard with no target is unsettled, and so is one whose target holds no code yet. Whether the anchor refers decides what an unsettled wildcard gives the code, by the rule the chapter "Referring to modules" sets:
-
-- **As a reference,** the anchor refers to a module that the editor serves in the wildcard's place. The language package writes the module, and the module exports each promised name and a default, so `import greet from` and `import { greet, hello } from` both resolve. TypeScript's package gives each export the type `any`.
-- **As a composing anchor,** it composes nothing, and each promised name the code uses warns, as the section "Using a name before it is written" describes.
-
-Only the editor serves a wildcard's module. A tangle refuses an unsettled wildcard, as it refuses every unsettled reference, so the module never reaches a tangled file.
-
-An anchor's own promise stays the short form. A `{To be settled}` label or a `provides` parameter on one anchor needs no box. A wildcard earns its box when several anchors share one promise, or when the need deserves a name and a sentence of its own.
+An anchor's own promise stays the short form. A `{To be settled}` label or a `provides` parameter on one anchor needs no box. A trope earns its box when several anchors share one promise, or when the need deserves a name and a sentence of its own.
 
 ## The contract an unsettled section collects
 
-An unsettled section holds no code, but the code that uses it already says much about it. Each use shows how a name is meant: the arguments a function receives, the members an object must have, the type a value must fit. Those uses, with the names that anchors and wildcards promise, form the unsettled section's contract. The code that depends on the section writes it.
+An unsettled section holds no code, but the code that uses it already says much about it. Each use shows how a name is meant: the arguments a function receives, the members an object must have, the type a value must fit. Those uses, with the names that anchors and trope boxes promise, form the unsettled section's contract. The code that depends on the section writes it.
 
-Loom gathers the contract across the book, not within one file. The anchors and the wildcards give the names. The language service gives the uses, since it type-checks the code around each one. An import from a chapter that emits no file yet reaches an empty module, which the editor hands the service in place of the file. The service then reports each name the code asks of that module.
+Loom gathers the contract across the book, not within one file. The anchors and the trope boxes give the names. The language service gives the uses, since it type-checks the code around each one. An import from a chapter that emits no file yet reaches an empty module, which the editor hands the service in place of the file. The service then reports each name the code asks of that module.
 
 The editor offers the contract's names as completions. It offers them in the code that uses the section, and in the section itself while the author writes it, until the section declares each one.
 
@@ -172,7 +148,7 @@ The book's names and references, seen together, form a graph. Its nodes are the 
 - **Places:** a table-of-contents entry, or a prose anchor that places a chapter in the book.
 - **Emits:** a sink on a heading, from its section to the file the section writes.
 - **Declares:** a box of kind `Chapter` or `Discussion`, from the box to the loom it points to.
-- **Stands for:** a wildcard's `anchors` parameter, from the wildcard to the section or chapter that settles it.
+- **Stands for:** a trope box's `anchors` parameter, from the trope to the section or chapter that settles it.
 - **Relates:** a parameter whose value is a reference, which a trope declares, from the section that carries the parameter to the section it names. The edge takes the parameter's key as its name, so the relations of one trope stay apart from those of every other, as the chapter "Tropes" describes.
 
 Nothing builds this graph before compiling, and nothing in compiling reads it. Each piece already lives in the corpus. The `titleIndexes` and `chapterIndex` indexes give the nodes, and the sinks on the headings give the files. Each loom's product holds its composing edges. The anchors in its prose, its table of contents, and the reference parameters on its headings and boxes hold the rest. The graph is a projection of the produced corpus, a sibling of the compile, the tangle, and the weave, and it is computed only when something asks for it.
@@ -186,15 +162,15 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 ## What to work out
 
 - **Titles that hold a comma.** A comma separates the names in a path, yet many titles hold a comma. Part X alone anchors `::[Once, as the site is built]`, `::[What the licence says, plainly]`, and `::[A chapter, cut into entries]`. So a name is first tried whole, and is split into a path only when the whole name matches nothing, which keeps those anchors resolving. How a path names a title with a comma inside it is still open.
-- **How far a box's name reaches.** A bare name finds a box within the box's own chapter. Whether a box should also be found by a bare name from another chapter is open. A path reaches it either way. Wildcards press the question, since code in many chapters may share the need that one wildcard names.
+- **How far a box's name reaches.** A bare name finds a box within the box's own chapter. Whether a box should also be found by a bare name from another chapter is open. A path reaches it either way. Tropes press the question, since code in many chapters may share the need that one trope names.
 - **Stubs in TypeScript 7.** TypeScript 7.0.2 ships none of the fixes that create code from its uses. Asked over its language server, it offers import fixes, "Implement interface", and the fixes for a missing type annotation. TypeScript 6.0.3 also adds a missing function, declares a missing method or property in another file, adds missing properties, implements an abstract class, and infers parameter types from usage. TypeScript 7's main branch holds the same code actions as 7.0.2, and its team does not plan to port every one. No version of TypeScript offers a fix for the case an unsettled section needs most: a name imported from a module that does not export it. So the trope that writes TypeScript's stubs writes them itself, from the types the language server reports at each use, or borrows TypeScript 6's fixes in a project that still runs TypeScript 6. Which of the two is open, and so is how a stub's types read when a use gives little to infer from, as when a value is only passed along.
-- **Running before it is settled.** A wildcard's module could stand in for its target when a program runs, as it does in the editor, so a program runs before it is finished and fails only where it reaches a promised name. Whether a run asks for that, and what stands in for an unsettled section that an anchor composes, is open.
+- **Running before it is settled.** An unsettled trope's module could stand in for its target when a program runs, as it does in the editor, so a program runs before it is finished and fails only where it reaches a promised name. Whether a run asks for that, and what stands in for an unsettled section that an anchor composes, is open.
 - **Where the graph is drawn.** Whether the first view of the graph is a `loom` verb, a panel in the editor, or a page of the website is open.
 
 ## What this chapter grows into
 
-1. Wildcards: the `Wildcard` kind, its `anchors` parameter resolved, followed and renamed, and the module the editor serves while a wildcard is unsettled. They wait for boxes, and for the `Reference` kind of the chapter "Referring to modules", which marks a code anchor that refers.
-2. The contract an unsettled section collects from the code that uses it and from the names anchors and wildcards promise, offered as completions and handed to the trope that writes stubs.
+1. The module the editor serves for a reference to an unsettled trope. The trope box itself, its `anchors` parameter resolved, followed and renamed, is built in Part XIII.
+2. The contract an unsettled section collects from the code that uses it and from the names anchors and trope boxes promise, offered as completions and handed to the trope that writes stubs.
 3. The `provides` names of a referring anchor, checked against the names its file exports.
 4. The graph as a projection of the produced corpus, with its first view.
 

@@ -141,7 +141,7 @@ describe('the braces on a box', () => {
 
   it('fault a key a box does not take', () => {
     expect(faults('::: Cells {kind=Note width=480}')).toEqual([
-      'Unknown key: a box takes no `width` key. It takes `kind`.',
+      'Unknown key: a box takes no `width` key. It takes `kind`, `provides`, and `anchors`.',
     ])
   })
 

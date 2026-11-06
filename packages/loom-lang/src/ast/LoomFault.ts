@@ -1,7 +1,7 @@
 import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
-import { type Opening } from '@athrio/loom-ast/LoomCorpusAst'
-import { type LoomKind, settleKind } from '@athrio/loom-ast/LoomTokens'
+import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomKind, type PointingKind, settleKind } from '@athrio/loom-ast/LoomTokens'
 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
 
@@ -53,7 +53,8 @@ export type LoomFault = Data.TaggedEnum<{
     readonly kinds: ReadonlyArray<string>
     readonly on: BracesOn
   }
-  MissingSymbol: { readonly name: string; readonly section: string }
+  MissingSymbol: { readonly name: string; readonly section: string; readonly trope?: string }
+  KeyOutsideTrope: { readonly key: string }
   StrayTarget: { readonly target: string; readonly at: Position }
   NoSuchFile: {
     readonly name: string
@@ -74,11 +75,12 @@ export type LoomFault = Data.TaggedEnum<{
   ColonRun: { readonly colons: string }
   NestedBox: {}
   UnclosedBox: {}
-  UnnamedBox: { readonly kind: LoomKind }
+  UnnamedBox: { readonly kind: PointingKind }
   ChapterBoxBesideCode: { readonly name: string }
   UnwrittenLoom: { readonly kind: LoomKind; readonly name: string; readonly opening: Opening }
+  UnsettledTrope: { readonly name: string; readonly target?: string }
   StaleSummary: {
-    readonly kind: LoomKind
+    readonly of: CopiedFrom
     readonly name: string
     readonly summary: string
     readonly at: Position
@@ -128,6 +130,8 @@ export const {
   UnnamedBox,
   ChapterBoxBesideCode,
   UnwrittenLoom,
+  UnsettledTrope,
+  KeyOutsideTrope,
   StaleSummary,
   HeadingAgainstCode,
   DividerAgainstCode,
@@ -159,12 +163,16 @@ const noun: Record<EmptyConstruct, string> = {
 
 const bearer: Record<BracesOn, string> = { anchor: 'an anchor', box: 'a box' }
 
-const loomWords: Record<
-  LoomKind,
-  { readonly loom: string; readonly copy: string; readonly example: string }
-> = {
-  Chapter: { loom: 'chapter', copy: 'opening', example: 'Rooms' },
-  Discussion: { loom: 'discussion', copy: 'summary', example: 'Waking' },
+const pointingWords: Record<PointingKind, { readonly does: string; readonly example: string }> = {
+  Chapter: { does: 'points to the chapter its name titles', example: 'Rooms' },
+  Discussion: { does: 'points to the discussion its name titles', example: 'Waking' },
+  Trope: { does: 'names a trope', example: 'Payments' },
+}
+
+const copyWords: Record<CopiedFrom, string> = {
+  chapter: 'opening',
+  discussion: 'summary',
+  section: 'opening',
 }
 
 const knownList = (known: ReadonlyArray<string>): string => {
@@ -263,9 +271,11 @@ export const describe = (fault: LoomFault): Note =>
       error(`Unknown key: ${bearer[on]} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
     UnknownKind: ({ kind, kinds, on }) =>
       error(`Unknown kind: ${bearer[on]} takes no kind \`${kind}\`. It takes ${knownList(kinds)}.`),
-    MissingSymbol: ({ name, section }) =>
+    MissingSymbol: ({ name, section, trope }) =>
       error(
-        `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`,
+        trope === undefined
+          ? `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`
+          : `Missing symbol: \`${section}\` declares no \`${name}\`, which the trope \`${trope}\` promises.`,
       ),
     StrayTarget: ({ target }) =>
       error(
@@ -358,7 +368,7 @@ export const describe = (fault: LoomFault): Note =>
       ),
     UnnamedBox: ({ kind }) =>
       error(
-        `${kind} box without a name: a box of the \`${kind}\` kind points to the ${loomWords[kind].loom} its name titles, so it needs a name, as in \`::: ${loomWords[kind].example} {${kind}}\`.`,
+        `${kind} box without a name: a box of the \`${kind}\` kind ${pointingWords[kind].does}, so it needs a name, as in \`::: ${pointingWords[kind].example} {${kind}}\`.`,
       ),
     ChapterBoxBesideCode: ({ name }) =>
       error(
@@ -366,12 +376,22 @@ export const describe = (fault: LoomFault): Note =>
       ),
     UnwrittenLoom: ({ kind, name }) =>
       information(
-        `To be settled: no ${loomWords[kind].loom} is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
+        `To be settled: no ${kind.toLowerCase()} is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
       ),
-    StaleSummary: ({ kind, name }) => {
-      const { loom, copy } = loomWords[kind]
+    UnsettledTrope: ({ name, target }) =>
+      information(
+        target === undefined
+          ? `To be settled: the trope \`${name}\` points to no section or chapter yet. Name the one that holds it with \`anchors\`.`
+          : `To be settled: the trope \`${name}\` points to \`${target}\`, which names no single section or chapter yet.`,
+      ),
+    KeyOutsideTrope: ({ key }) =>
+      error(
+        `Key outside a trope: only a box of the \`Trope\` kind takes the \`${key}\` key, so it means nothing here. Make the box a trope, or take the key off.`,
+      ),
+    StaleSummary: ({ of, name }) => {
+      const copy = copyWords[of]
       return warning(
-        `Summary out of step: this box holds a copy of the ${copy} of the ${loom} \`${name}\`, and the two differ. Copy the ${loom}'s ${copy} into the box, or edit the ${loom} to match.`,
+        `Summary out of step: this box holds a copy of the ${copy} of the ${of} \`${name}\`, and the two differ. Copy the ${of}'s ${copy} into the box, or edit the ${of} to match.`,
       )
     },
     FenceLabelAgainstLanguage: ({ label, language }) =>
@@ -424,13 +444,13 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('ColonRun', (): ReadonlyArray<Fix> => [{ title: 'Write `:::`', text: ':::' }]),
     Match.tag('UnwrittenLoom', ({ kind, name, opening }): ReadonlyArray<Fix> => [
       {
-        title: `Open the ${loomWords[kind].loom} \`${name}\``,
+        title: `Open the ${kind.toLowerCase()} \`${name}\``,
         text: opening.text,
         file: opening.file,
       },
     ]),
-    Match.tag('StaleSummary', ({ kind, name, summary, at }): ReadonlyArray<Fix> => [
-      { title: `Copy the ${loomWords[kind].copy} of \`${name}\``, text: summary, at },
+    Match.tag('StaleSummary', ({ of, name, summary, at }): ReadonlyArray<Fix> => [
+      { title: `Copy the ${copyWords[of]} of \`${name}\``, text: summary, at },
     ]),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )

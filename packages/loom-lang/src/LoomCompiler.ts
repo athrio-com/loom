@@ -42,6 +42,7 @@ import {
   StaleSummary,
   UnresolvedTocEntry,
   UnwrittenLoom,
+  UnsettledTrope,
   UnsettledModule,
   UnsettledSection,
 } from '#ast/LoomFault'
@@ -131,8 +132,16 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
   BoxNotice.$match(notice, {
     Unwritten: ({ name, kind, opening }) =>
       faulty(UnwrittenLoom({ kind, name: name.value, opening }), name.position),
-    Stale: ({ name, kind, title, summary, body }) =>
-      faulty(StaleSummary({ kind, name: title, summary, at: body }), name.position),
+    Unsettled: ({ name, target }) =>
+      faulty(
+        UnsettledTrope({
+          name: name.value,
+          ...Option.match(target, { onNone: () => ({}), onSome: (named) => ({ target: named }) }),
+        }),
+        name.position,
+      ),
+    Stale: ({ name, of, title, summary, body }) =>
+      faulty(StaleSummary({ of, name: title, summary, at: body }), name.position),
   })
 
 const corpusDiagnostics = (modules: Modules) => {
@@ -1083,7 +1092,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     expected: Array.map(contract.provides, (provided) => ({
                       name: provided.name,
                       diagnostic: faultAt(
-                        MissingSymbol({ name: provided.name, section: contract.section }),
+                        MissingSymbol({
+                          name: provided.name,
+                          section: contract.section,
+                          ...Option.match(contract.trope, {
+                            onNone: () => ({}),
+                            onSome: (trope) => ({ trope }),
+                          }),
+                        }),
                         provided.at,
                       ),
                     })),

@@ -1,0 +1,360 @@
+---
+Part XIII, Chapter 3: A trope in the text
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# A trope in the text
+
+An author often knows that a book needs something before knowing how big it will grow. A shop needs payments: perhaps a section of the chapter about the shop, perhaps a chapter of its own, perhaps in time a part or a book. Writing a box of the `Trope` kind names that need now and leaves its size for later.
+
+```
+::: Payments {kind=Trope provides=[charge, refund]}
+Charge a member monthly, and refund the unused part of a month on cancel.
+:::
+```
+
+The box's name is the trope's name, and code reaches the trope by it, as `::[Payments]` does. The `provides` key lists the names the trope promises. The body says in prose what the trope is for. Until the author decides where the trope lives, the box is unsettled: an anchor that names the trope composes nothing yet, and the editor treats the promised names as present, so the code that uses them reads as written.
+
+The author settles the trope with its `anchors` key, which names the section or chapter that holds the trope, its entry point. Every anchor that names the trope then reaches the entry point. When the trope outgrows a section and moves to a chapter of its own, only the `anchors` value changes, so no anchor that names the trope changes with it. The box's body becomes a copy of the entry point's opening prose, kept in step as the author types, and Loom checks the promised names against the entry point's code.
+
+A trope box takes the place of the wildcard the chapter "Names through the book" first proposed. The chapters "The leaf tokens", "The document builder", "The multi-file AST", and "Projecting to virtual code" build it, and this chapter proves it whole.
+
+## Testing the trope box
+
+The cases compile a small book about a shop. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
+
+`layerOf` gives the compiler a book held in memory, and `compiled` runs one use of the compiler over it. `diagnosed` gives the messages of the diagnostics one loom raises. `shopLoom` writes the chapter about the shop, whose box names the trope `Payments` with the given braces and body, and whose program composes the trope. `billingSection` is a section of the shop that can hold the trope, and `billingLoom` a chapter of its own that can.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Layer, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const compiled = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  compiled(files, (compiler) => compiler.diagnose(entry)).then((found) =>
+    found.map((d) => d.message),
+  )
+
+const shop = '/corpus/shop.loom'
+const billing = '/corpus/billing.loom'
+
+const shopLoom = (braces: string, body: ReadonlyArray<string>, after: ReadonlyArray<string> = []) =>
+  lines(
+    '---',
+    'Part I, Chapter 1: The shop',
+    '---',
+    '',
+    '# The shop',
+    '',
+    'A shop sells, and charges for what it sells.',
+    '',
+    `::: Payments ${braces}`,
+    ...body,
+    ':::',
+    '',
+    '## The program [shop.ts]',
+    '',
+    '=>',
+    anchor('Payments'),
+    ...after,
+  )
+
+const billingSection = [
+  '',
+  '## Billing',
+  '',
+  'Charge a member monthly.',
+  '',
+  '=>',
+  'const charge = () => 1',
+]
+
+const billingLoom = (opening: string) =>
+  lines(
+    '---',
+    'Part I, Chapter 2: Billing',
+    '---',
+    '',
+    '# Billing',
+    '',
+    opening,
+    '',
+    '=>',
+    'const charge = () => 1',
+  )
+
+## A trope nobody has settled
+
+A trope box with no `anchors` key points nowhere yet, and carries a note that says so. An anchor that names the trope resolves to the box, so it is to be settled rather than unresolved. An `anchors` value that names nothing, or more than one place, leaves the trope unsettled too, and the note names the value. A trope box with no name names no trope, and is a fault.
+
+=>
+
+describe('a trope nobody has settled', () => {
+  it('carries a note, and its anchors are to be settled', async () => {
+    const found = await diagnosed(
+      { [shop]: shopLoom('{Trope}', ['Charge a member monthly.']) },
+      shop,
+    )
+    expect(found).toContain(
+      'To be settled: the trope `Payments` points to no section or chapter yet. Name the one that holds it with `anchors`.',
+    )
+    expect(found).toContain(
+      'To be settled: `Payments` holds no code yet, so this anchor composes nothing.',
+    )
+    expect(found.some((message) => message.startsWith('Unresolved anchor'))).toBe(false)
+  })
+
+  it('names an anchors value that finds nothing', async () => {
+    const found = await diagnosed(
+      { [shop]: shopLoom('{kind=Trope anchors=Ledger}', ['Charge a member monthly.']) },
+      shop,
+    )
+    expect(found).toContain(
+      'To be settled: the trope `Payments` points to `Ledger`, which names no single section or chapter yet.',
+    )
+  })
+
+  it('faults a trope box with no name', async () => {
+    const path = '/corpus/nameless.loom'
+    expect(
+      await diagnosed({ [path]: lines('# Nameless', '', '::: {Trope}', ':::') }, path),
+    ).toContain(
+      'Trope box without a name: a box of the `Trope` kind names a trope, so it needs a name, as in `::: Payments {Trope}`.',
+    )
+  })
+
+  it('faults a trope key on a box of another kind', async () => {
+    const path = '/corpus/rooms.loom'
+    const found = await diagnosed(
+      { [path]: lines('# Rooms', '', '::: Rooms {kind=Chapter anchors=Rooms}', ':::') },
+      path,
+    )
+    expect(found).toContain(
+      'Key outside a trope: only a box of the `Trope` kind takes the `anchors` key, so it means nothing here. Make the box a trope, or take the key off.',
+    )
+  })
+})
+
+## A trope settled where the author decides
+
+A trope's `anchors` value names its entry point, and an anchor that names the trope composes the entry point's code. The entry point may be a section beside the box or a chapter of its own, and the anchor that names the trope reads the same either way.
+
+=>
+
+describe('a settled trope', () => {
+  const contentOf = (files: Record<string, string>) =>
+    compiled(files, (compiler) => compiler.tangle(shop)).then((tangled) =>
+      tangled.map((file) => file.content),
+    )
+
+  it('composes a section beside it', async () => {
+    const files = {
+      [shop]: shopLoom(
+        '{kind=Trope anchors=Billing}',
+        ['Charge a member monthly.'],
+        billingSection,
+      ),
+    }
+    expect(await contentOf(files)).toEqual(['const charge = () => 1\n'])
+  })
+
+  it('composes a chapter of its own, through the same anchor', async () => {
+    const files = {
+      [shop]: shopLoom('{kind=Trope anchors=Billing}', ['Charge a member monthly.']),
+      [billing]: billingLoom('Charge a member monthly.'),
+    }
+    expect(await contentOf(files)).toEqual(['const charge = () => 1\n'])
+  })
+})
+
+## A copy of the entry point's opening
+
+Once the trope is settled, the box's body is a copy of its entry point's opening prose. A copy that matches raises nothing. A copy that differs is a warning that names the section or chapter it copies, and its fix copies the opening in.
+
+=>
+
+describe("a trope box's summary", () => {
+  it('is in step when its body holds the opening', async () => {
+    const files = {
+      [shop]: shopLoom(
+        '{kind=Trope anchors=Billing}',
+        ['Charge a member monthly.'],
+        billingSection,
+      ),
+    }
+    const found = await diagnosed(files, shop)
+    expect(found.some((message) => message.startsWith('Summary out of step'))).toBe(false)
+    expect(found.some((message) => message.startsWith('To be settled'))).toBe(false)
+  })
+
+  it('warns when its body differs, with a fix that copies the opening in', async () => {
+    const files = {
+      [shop]: shopLoom('{kind=Trope anchors=Billing}', ['Payments, somehow.'], billingSection),
+    }
+    const found = await compiled(files, (compiler) => compiler.diagnose(shop))
+    const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+    expect(stale?.message).toBe(
+      "Summary out of step: this box holds a copy of the opening of the section `Billing`, and the two differ. Copy the section's opening into the box, or edit the section to match.",
+    )
+    expect(stale?.fixes?.[0]?.title).toBe('Copy the opening of `Billing`')
+  })
+})
+
+## Following and renaming a trope
+
+The trope's name leads to its entry point, and a rename of the trope's name rewrites the anchors that name the trope. A rename of the entry point rewrites the box's `anchors` value with it, and leaves the anchors that name the trope alone, since they name the trope rather than the section.
+
+=>
+
+describe('navigating a trope', () => {
+  const settled = shopLoom(
+    '{kind=Trope anchors=Billing}',
+    ['Charge a member monthly.'],
+    billingSection,
+  )
+  const files = { [shop]: settled }
+  const lineOf = (text: string) => settled.split('\n').findIndex((line) => line.includes(text))
+
+  it('follows its name to the entry point', async () => {
+    const at = settled.indexOf('Payments {') + 1
+    const found = await compiled(files, (compiler) => compiler.definition(shop, at))
+    expect(found?.range.start.line).toBe(lineOf('## Billing'))
+  })
+
+  it('renames the anchors that name it with its name', async () => {
+    const at = settled.indexOf('Payments {') + 1
+    const found = await compiled(files, (compiler) => compiler.rename(shop, at))
+    expect(found.map((location) => location.range.start.line).sort()).toEqual(
+      [lineOf('::: Payments'), lineOf(anchor('Payments'))].sort(),
+    )
+  })
+
+  it('moves its anchors value with a renamed entry point, and nothing else', async () => {
+    const at = settled.indexOf('## Billing') + 4
+    const found = await compiled(files, (compiler) => compiler.rename(shop, at))
+    expect(found.map((location) => location.range.start.line).sort()).toEqual(
+      [lineOf('::: Payments'), lineOf('## Billing')].sort(),
+    )
+  })
+})
+
+## What a trope promises
+
+While a trope is unsettled, a root that composes it is promised the names its box lists, so the editor lowers an error about a missing promised name to a warning. Once the trope is settled, its box makes a contract with the entry point, and a name the entry point's code lacks is laid at the trope's door.
+
+=>
+
+describe("a trope's promise", () => {
+  it('promises its names while it is unsettled', async () => {
+    const files = { [shop]: shopLoom('{kind=Trope provides=[charge, refund]}', ['Charges.']) }
+    const promised = await compiled(files, (compiler) => compiler.promised(shop, 'theprogram'))
+    expect(promised.map((name) => [name.name, name.section])).toEqual([
+      ['charge', 'Payments'],
+      ['refund', 'Payments'],
+    ])
+  })
+
+  it('checks its names against the entry point once it is settled', async () => {
+    const files = {
+      [shop]: shopLoom(
+        '{kind=Trope provides=[charge, refund] anchors=Billing}',
+        ['Charge a member monthly.'],
+        billingSection,
+      ),
+    }
+    const contracts = await compiled(files, (compiler) => compiler.contracts(shop))
+    const expected = contracts.flatMap((contract) => contract.expected)
+    expect(expected.map((name) => name.diagnostic.message)).toEqual([
+      'Missing symbol: `Billing` declares no `charge`, which the trope `Payments` promises.',
+      'Missing symbol: `Billing` declares no `refund`, which the trope `Payments` promises.',
+    ])
+  })
+})
+
+## Keeping a trope box in step as the author types
+
+A trope box follows its entry point as a chapter box follows its chapter. An edit to the entry point's opening reaches the box, and an edit to the box reaches the entry point's opening, while the two stood in step before the edit.
+
+=>
+
+describe('keeping a trope box in step as the author types', () => {
+  const inStep = {
+    [shop]: shopLoom('{kind=Trope anchors=Billing}', ['Charge a member monthly.']),
+    [billing]: billingLoom('Charge a member monthly.'),
+  }
+  const edits = (path: string, before: string, after: string) =>
+    compiled(inStep, (compiler) => compiler.summaryEdits(path, before, after))
+
+  it('writes an edit to the entry point into the box', async () => {
+    const found = await edits(billing, inStep[billing]!, billingLoom('Charge a member yearly.'))
+    expect(found.map((edit) => [edit.path, edit.text])).toEqual([
+      [shop, 'Charge a member yearly.\n'],
+    ])
+  })
+
+  it('writes an edit to the box into the entry point', async () => {
+    const after = shopLoom('{kind=Trope anchors=Billing}', ['Charge a member yearly.'])
+    const found = await edits(shop, inStep[shop]!, after)
+    expect(found.map((edit) => [edit.path, edit.text])).toEqual([
+      [billing, 'Charge a member yearly.'],
+    ])
+  })
+})
+
+## The test file [test/TropeBox.test.ts]
+
+=>
+
+::[Testing the trope box]
+
+::[A trope nobody has settled]
+
+::[A trope settled where the author decides]
+
+::[A copy of the entry point's opening]
+
+::[Following and renaming a trope]
+
+::[What a trope promises]
+
+::[Keeping a trope box in step as the author types]

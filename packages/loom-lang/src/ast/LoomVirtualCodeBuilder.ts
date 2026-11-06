@@ -11,12 +11,21 @@ import {
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
-import { bookOf, type Book, type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  bookOf,
+  type Book,
+  type LoomModule,
+  type Location,
+  promisedThrough,
+  type TropeContract,
+  tropeContractsIn,
+} from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type Landing,
   landingOf,
   Referred,
   referredFileOf,
+  sectionNameOf,
   targetOf,
 } from '#ast/ProductBuilder'
 import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
@@ -214,8 +223,14 @@ export const unsettledRef = (
   ref: Ref,
 ): Option.Option<Unsettled> =>
   Option.match(targetOf(book, owner, ref), {
-    onNone: () =>
-      isMeant(ref) ? Option.some(unsettledAt(owner, ref, Option.none())) : Option.none(),
+    onNone: () => {
+      const promised = promisedThrough(book, owner, ref.name)
+      return isMeant(ref) || Array.isReadonlyArrayNonEmpty(promised)
+        ? Option.some(
+            unsettledAt(owner, { ...ref, provides: [...ref.provides, ...promised] }, Option.none()),
+          )
+        : Option.none()
+    },
     onSome: (target) =>
       pipe(
         lookup(modules, target),
@@ -303,6 +318,7 @@ export type Contract = {
   readonly span: Position
   readonly language: string
   readonly provides: ReadonlyArray<Provided>
+  readonly trope: Option.Option<string>
 }
 
 const writtenSpan = (code: Code): Option.Option<Position> =>
@@ -331,7 +347,14 @@ const contractOf = (
     const target = yield* targetOf(book, path, ref)
     const code = yield* lookup(modules, target)
     const span = yield* writtenSpan(code)
-    return { section: ref.name, target: target.path, span, language: code.languageId, provides }
+    return {
+      section: ref.name,
+      target: target.path,
+      span,
+      language: code.languageId,
+      provides,
+      trope: Option.none(),
+    }
   })
 
 const composedOf =
@@ -398,6 +421,27 @@ const moduleContractOf = (
       span,
       language: landed.file.code.languageId,
       provides,
+      trope: Option.none(),
+    }
+  })
+
+const tropeContractOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  contract: TropeContract,
+): Option.Option<Contract> =>
+  Option.gen(function* () {
+    const code = yield* lookup(modules, {
+      path: contract.entry.module,
+      name: sectionNameOf(contract.entry.section),
+    })
+    const span = yield* writtenSpan(code)
+    return {
+      section: contract.entry.section.heading.title?.source ?? contract.trope,
+      target: contract.entry.module,
+      span,
+      language: code.languageId,
+      provides: contract.provides,
+      trope: Option.some(contract.trope),
     }
   })
 
@@ -410,22 +454,27 @@ export const contractsIn = (
     onNone: (): ReadonlyArray<Contract> => [],
     onSome: (module) => {
       const landing = landingOf(book, modules)
-      return pipe(
-        module.product.code,
-        Array.flatMap((host) =>
-          Array.map(host.fragments, (part) =>
-            Match.value(part).pipe(
-              Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, book, path, ref)),
-              Match.when({ type: 'ModuleRef' }, (ref) =>
-                moduleContractOf(modules, book, landing, module, host, ref),
+      return [
+        ...pipe(
+          module.product.code,
+          Array.flatMap((host) =>
+            Array.map(host.fragments, (part) =>
+              Match.value(part).pipe(
+                Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, book, path, ref)),
+                Match.when({ type: 'ModuleRef' }, (ref) =>
+                  moduleContractOf(modules, book, landing, module, host, ref),
+                ),
+                Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
+                Match.exhaustive,
               ),
-              Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
-              Match.exhaustive,
             ),
           ),
+          Array.getSomes,
         ),
-        Array.getSomes,
-      )
+        ...Array.getSomes(
+          Array.map(tropeContractsIn(book, path), (contract) => tropeContractOf(modules, contract)),
+        ),
+      ]
     },
   })
 

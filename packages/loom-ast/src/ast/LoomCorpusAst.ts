@@ -9,14 +9,18 @@ import {
   discussionKind,
   type HeadingTitleToken,
   isLoomKind,
+  isPointingKind,
   type LoomKind,
+  type ParameterValueToken,
+  type PointingKind,
+  tropeKind,
   type TocPartToken,
   type TocTitleToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
 import { boxOf, type LoomWeft, type TocWeft } from '#ast/Weft'
-import { ProductSchema } from '#ast/ProductAst'
+import { ProductSchema, type Provided } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
@@ -147,7 +151,10 @@ export const bookOf = (modules: Modules): Book => ({
   titles: titleIndexes(modules),
   chapters: chaptersIn(modules),
   boxes: new Map(
-    Array.map(Array.fromIterable(modules.values()), (module) => [module.path, loomBoxesOf(module)]),
+    Array.map(Array.fromIterable(modules.values()), (module) => [
+      module.path,
+      pointingBoxesOf(module),
+    ]),
   ),
 })
 
@@ -162,7 +169,12 @@ const Place = Data.taggedEnum<Place>()
 
 export type Segment = { readonly text: string; readonly start: number; readonly end: number }
 
-export type Step = { readonly segment: Segment; readonly place: Place; readonly numbered: boolean }
+export type Step = {
+  readonly segment: Segment
+  readonly place: Place
+  readonly numbered: boolean
+  readonly through: Option.Option<BoxRef>
+}
 
 export type Trail = Array.NonEmptyReadonlyArray<Step>
 
@@ -223,7 +235,7 @@ const stepsNamed = (
 ): ReadonlyArray<Step> => {
   const step =
     (numbered: boolean) =>
-    (place: Place): Step => ({ segment, place, numbered })
+    (place: Place): Step => ({ segment, place, numbered, through: Option.none() })
   const chapterSteps = (part: Option.Option<PartRef>): ReadonlyArray<Step> => [
     ...Array.map(
       chaptersWithin(book, part, (chapter) => chapter.title === segment.text),
@@ -258,9 +270,10 @@ const stepsNamed = (
                 step(false)(Place.Section({ ref })),
               ),
               () =>
-                Option.map(boxNamed(book, chapter.module.path, segment.text), (ref) =>
-                  step(false)(boxPlace(book, ref)),
-                ),
+                Option.map(boxNamed(book, chapter.module.path, segment.text), (ref) => ({
+                  ...step(false)(boxPlace(book, ref)),
+                  through: throughOf(ref),
+                })),
             ),
           ),
         ),
@@ -306,7 +319,12 @@ const segmentsOf = (name: string): ReadonlyArray<Segment> =>
 const sectionTrail = (book: Book, module: Location, name: string): ReadonlyArray<Trail> =>
   Option.toArray(
     Option.map(sectionTitled(book, module, name), (ref): Trail => [
-      { segment: whole(name), place: Place.Section({ ref }), numbered: false },
+      {
+        segment: whole(name),
+        place: Place.Section({ ref }),
+        numbered: false,
+        through: Option.none(),
+      },
     ]),
   )
 
@@ -330,7 +348,10 @@ export const anchorTrails = (
 ): ReadonlyArray<Trail> => trailsOf(book, from, anchor.name.value)
 
 export const sectionOf = (trail: Trail): Option.Option<SectionRef> =>
-  Match.value(Array.lastNonEmpty(trail).place).pipe(
+  placeSectionOf(Array.lastNonEmpty(trail).place)
+
+const placeSectionOf = (place: Place): Option.Option<SectionRef> =>
+  Match.value(place).pipe(
     Match.tag('Section', ({ ref }) => Option.some(ref)),
     Match.tag('Chapter', ({ chapter }) =>
       Option.map(openingSectionOf(chapter.module), (section) => ({
@@ -440,7 +461,9 @@ export type OpenedBox = {
 export type BoxRef = OpenedBox & {
   readonly module: Location
   readonly name: BoxNameToken
-  readonly kind: LoomKind
+  readonly kind: PointingKind
+  readonly anchors: Option.Option<ParameterValueToken>
+  readonly provides: ReadonlyArray<ParameterValueToken>
 }
 
 const linesOf = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
@@ -488,16 +511,30 @@ export const captionOf = (opened: OpenedBox): string =>
     () => boxKind(opened.box),
   )
 
-const loomBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
+const parameterValues = (box: BoxToken, key: string): ReadonlyArray<ParameterValueToken> =>
+  pipe(
+    Option.fromNullishOr(box.specifier),
+    Option.flatMap((specifier) =>
+      specifier.type === 'Parameters'
+        ? Array.findFirst(specifier.parameters, (parameter) => parameter.key.value === key)
+        : Option.none(),
+    ),
+    Option.map((parameter) => parameter.values),
+    Option.getOrElse((): ReadonlyArray<ParameterValueToken> => []),
+  )
+
+const pointingBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
   Array.getSomes(
     Array.map(openedBoxesOf(module.doc), (opened) => {
       const kind = boxKind(opened.box)
-      return isLoomKind(kind)
+      return isPointingKind(kind)
         ? Option.map(Option.fromNullishOr(opened.box.name), (name): BoxRef => ({
             ...opened,
             module: module.path,
             name,
             kind,
+            anchors: Array.head(parameterValues(opened.box, 'anchors')),
+            provides: parameterValues(opened.box, 'provides'),
           }))
         : Option.none()
     }),
@@ -509,27 +546,50 @@ const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
 const boxTarget = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
   const titled = (chapter: Chapter): boolean =>
     chapter.discussion === (ref.kind === discussionKind) && chapter.title === ref.name.value
-  return Option.orElse(
-    Option.flatMap(chapterOf(book, ref.module), (own) =>
-      Array.head(chaptersWithin(book, Option.some(own.part), titled)),
-    ),
-    () => Array.findFirst(book.chapters, titled),
-  )
+  return ref.kind === tropeKind
+    ? Option.none()
+    : Option.orElse(
+        Option.flatMap(chapterOf(book, ref.module), (own) =>
+          Array.head(chaptersWithin(book, Option.some(own.part), titled)),
+        ),
+        () => Array.findFirst(book.chapters, titled),
+      )
 }
+
+const tropePlaceOf = (book: Book, ref: BoxRef): Option.Option<Place> =>
+  pipe(
+    ref.anchors,
+    Option.flatMap((value) => {
+      const trails = trailsOf({ ...book, boxes: new Map() }, ref.module, value.value)
+      return trails.length === 1 ? Array.head(trails) : Option.none()
+    }),
+    Option.map((trail) => Array.lastNonEmpty(trail).place),
+    Option.filter((place) => place._tag === 'Section' || place._tag === 'Chapter'),
+  )
 
 const boxNamed = (book: Book, module: Location, name: string): Option.Option<BoxRef> =>
   Array.findFirst(boxesIn(book, module), (ref) => ref.name.value === name)
 
 const boxPlace = (book: Book, ref: BoxRef): Place =>
-  Option.match(boxTarget(book, ref), {
-    onNone: () => Place.Box({ ref }),
-    onSome: (chapter) => Place.Chapter({ chapter }),
-  })
+  Option.getOrElse(
+    ref.kind === tropeKind
+      ? tropePlaceOf(book, ref)
+      : Option.map(boxTarget(book, ref), (chapter) => Place.Chapter({ chapter })),
+    () => Place.Box({ ref }),
+  )
+
+const throughOf = (ref: BoxRef): Option.Option<BoxRef> =>
+  ref.kind === tropeKind ? Option.some(ref) : Option.none()
 
 const boxTrail = (book: Book, from: Location, name: string): ReadonlyArray<Trail> =>
   Option.toArray(
     Option.map(boxNamed(book, from, name), (ref): Trail => [
-      { segment: whole(name), place: boxPlace(book, ref), numbered: false },
+      {
+        segment: whole(name),
+        place: boxPlace(book, ref),
+        numbered: false,
+        through: throughOf(ref),
+      },
     ]),
   )
 
@@ -545,13 +605,84 @@ const namesBox =
     place.ref.module === target.module &&
     place.ref.name.position.start.offset === target.name.position.start.offset
 
+const sameBox =
+  (target: BoxRef) =>
+  (other: BoxRef): boolean =>
+    other.module === target.module &&
+    other.name.position.start.offset === target.name.position.start.offset
+
+const valueLocation = (ref: BoxRef): Option.Option<CorpusLocation> =>
+  pipe(
+    ref.anchors,
+    Option.filter((value) => !value.value.includes(',')),
+    Option.map((value): CorpusLocation => {
+      const quoted = value.source.startsWith('"') ? 1 : 0
+      return {
+        path: ref.module,
+        position: {
+          start: shifted(value.position.start, quoted),
+          end: shifted(value.position.end, -quoted),
+        },
+      }
+    }),
+  )
+
+export const promisedThrough = (
+  book: Book,
+  from: Location,
+  name: string,
+): ReadonlyArray<Provided> =>
+  pipe(
+    soleTrail(trailsOf(book, from, name)),
+    Option.map(Array.lastNonEmpty),
+    Option.filter((step) => step.place._tag === 'Box'),
+    Option.flatMap((step) => step.through),
+    Option.map((ref) => providedOf(ref)),
+    Option.getOrElse((): ReadonlyArray<Provided> => []),
+  )
+
+export type TropeContract = {
+  readonly trope: string
+  readonly entry: SectionRef
+  readonly provides: ReadonlyArray<Provided>
+}
+
+export const tropeContractsIn = (book: Book, path: Location): ReadonlyArray<TropeContract> =>
+  pipe(
+    boxesIn(book, path),
+    Array.filter((ref) => ref.kind === tropeKind && Array.isReadonlyArrayNonEmpty(ref.provides)),
+    Array.flatMap((ref) =>
+      Option.toArray(
+        Option.map(
+          Option.flatMap(tropePlaceOf(book, ref), placeSectionOf),
+          (entry): TropeContract => ({ trope: ref.name.value, entry, provides: providedOf(ref) }),
+        ),
+      ),
+    ),
+  )
+
+const providedOf = (ref: BoxRef): ReadonlyArray<Provided> =>
+  Array.map(ref.provides, (value): Provided => ({ name: value.value, at: value.position }))
+
+const tropeValuesNaming = (
+  book: Book,
+  names: (place: Place) => boolean,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.flatten(Array.fromIterable(book.boxes.values())),
+    Array.filter((ref) => Option.exists(tropePlaceOf(book, ref), names)),
+    Array.flatMap((ref) => Option.toArray(valueLocation(ref))),
+  )
+
 const boxesPointingTo = (book: Book, chapter: Chapter): ReadonlyArray<BoxRef> =>
   Array.filter(Array.flatten(Array.fromIterable(book.boxes.values())), (ref) =>
     Option.exists(boxTarget(book, ref), (found) => found.module.path === chapter.module.path),
   )
 
-const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> =>
-  Array.map(boxesPointingTo(book, chapter), boxLocation)
+const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> => [
+  ...Array.map(boxesPointingTo(book, chapter), boxLocation),
+  ...tropeValuesNaming(book, (place) => namesChapter(chapter)(place)),
+]
 
 const reach = (
   seeds: ReadonlyArray<Location>,
@@ -569,14 +700,17 @@ const reach = (
   return grow(new Set(seeds), seeds)
 }
 
-const moduleOf = (trail: Trail): Option.Option<Location> =>
-  Match.value(Array.lastNonEmpty(trail).place).pipe(
+const placeModuleOf = (place: Place): Option.Option<Location> =>
+  Match.value(place).pipe(
     Match.tag('Section', ({ ref }) => Option.some(ref.module)),
     Match.tag('Chapter', ({ chapter }) => Option.some(chapter.module.path)),
     Match.tag('Part', () => Option.none<Location>()),
     Match.tag('Box', () => Option.none<Location>()),
     Match.exhaustive,
   )
+
+const moduleOf = (trail: Trail): Option.Option<Location> =>
+  placeModuleOf(Array.lastNonEmpty(trail).place)
 
 const anchorEdges = (
   modules: Modules,
@@ -598,9 +732,9 @@ const anchorEdges = (
       ),
       ...Array.getSomes(
         Array.map(boxesIn(book, m.path), (ref) =>
-          Option.map(boxTarget(book, ref), (chapter) => ({
+          Option.map(placeModuleOf(boxPlace(book, ref)), (target) => ({
             owner: m.path,
-            target: chapter.module.path,
+            target,
           })),
         ),
       ),
@@ -790,13 +924,16 @@ const sectionDefinitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   Option.flatMap(anchorStepAt(bookOf(corpus.modules), corpus.modules, path, offset), ({ place }) =>
-    Match.value(place).pipe(
-      Match.tag('Section', ({ ref }) => titleLocation(ref)),
-      Match.tag('Chapter', ({ chapter }) => chapterLocation(chapter)),
-      Match.tag('Box', ({ ref }) => Option.some(boxLocation(ref))),
-      Match.tag('Part', () => Option.none<CorpusLocation>()),
-      Match.exhaustive,
-    ),
+    placeLocation(place),
+  )
+
+const placeLocation = (place: Place): Option.Option<CorpusLocation> =>
+  Match.value(place).pipe(
+    Match.tag('Section', ({ ref }) => titleLocation(ref)),
+    Match.tag('Chapter', ({ chapter }) => chapterLocation(chapter)),
+    Match.tag('Box', ({ ref }) => Option.some(boxLocation(ref))),
+    Match.tag('Part', () => Option.none<CorpusLocation>()),
+    Match.exhaustive,
   )
 
 const chapterTitledBy = (book: Book, ref: SectionRef): Option.Option<Chapter> =>
@@ -815,7 +952,13 @@ const sectionNames = (
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(titleLocation(ref)),
-  ...anchorsNaming(book, modules, (step) => namesSection(ref)(step.place), spanOf),
+  ...anchorsNaming(
+    book,
+    modules,
+    (step) => Option.isNone(step.through) && namesSection(ref)(step.place),
+    spanOf,
+  ),
+  ...tropeValuesNaming(book, (place) => namesSection(ref)(place)),
   ...Option.match(chapterTitledBy(book, ref), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (chapter) => [
@@ -824,7 +967,8 @@ const sectionNames = (
       ...anchorsNaming(
         book,
         modules,
-        (step) => !step.numbered && namesChapter(chapter)(step.place),
+        (step) =>
+          !step.numbered && Option.isNone(step.through) && namesChapter(chapter)(step.place),
         spanOf,
       ),
     ],
@@ -1126,10 +1270,51 @@ const chapterNames = (
   ...anchorsNaming(
     book,
     modules,
-    (step) => !step.numbered && namesChapter(chapter)(step.place),
+    (step) => !step.numbered && Option.isNone(step.through) && namesChapter(chapter)(step.place),
     spanOf,
   ),
 ]
+
+const tropeBoxAt = (book: Book, path: Location, offset: number): Option.Option<BoxRef> =>
+  Array.findFirst(
+    boxesIn(book, path),
+    (ref) => ref.kind === tropeKind && covers(ref.name.position, offset),
+  )
+
+const tropeNames = (
+  book: Book,
+  modules: Modules,
+  ref: BoxRef,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => [
+  boxLocation(ref),
+  ...anchorsNaming(book, modules, (step) => Option.exists(step.through, sameBox(ref)), spanOf),
+]
+
+const boxDefinitionAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusLocation> => {
+  const book = bookOf(corpus.modules)
+  return Option.match(tropeBoxAt(book, path, offset), {
+    onSome: (ref) => Option.flatMap(tropePlaceOf(book, ref), placeLocation),
+    onNone: () => chapterDefinitionAt(corpus, path, offset),
+  })
+}
+
+const boxNamesAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => {
+  const book = bookOf(corpus.modules)
+  return Option.match(tropeBoxAt(book, path, offset), {
+    onSome: (ref) => tropeNames(book, corpus.modules, ref, spanOf),
+    onNone: () => chapterNamesAt(corpus, path, offset, spanOf),
+  })
+}
 
 const chapterNamesAt = (
   corpus: LoomCorpusAst,
@@ -1305,7 +1490,8 @@ export const definitionAt = (
         Match.value(symbol.kind).pipe(
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'boxName', 'frontmatterTitle', () =>
+          Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
@@ -1339,7 +1525,8 @@ export const referencesAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
-          Match.whenOr('tocEntry', 'boxName', 'frontmatterTitle', () =>
+          Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
@@ -1373,7 +1560,8 @@ export const renameAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             placeNamesAt(corpus, path, offset, segmentPosition),
           ),
-          Match.whenOr('tocEntry', 'boxName', 'frontmatterTitle', () =>
+          Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>
@@ -1620,8 +1808,8 @@ const membership = (
     ],
   })
 
-const fileOf = (ref: BoxRef, number: Option.Option<number>): string =>
-  Match.value(ref.kind).pipe(
+const fileOf = (ref: BoxRef, kind: LoomKind, number: Option.Option<number>): string =>
+  Match.value(kind).pipe(
     Match.when(chapterKind, () => {
       const numbered = Option.match(number, {
         onNone: () => '',
@@ -1636,8 +1824,8 @@ const fileOf = (ref: BoxRef, number: Option.Option<number>): string =>
     Match.exhaustive,
   )
 
-const fieldsOf = (ref: BoxRef, own: Option.Option<Chapter>): ReadonlyArray<string> =>
-  Match.value(ref.kind).pipe(
+const fieldsOf = (kind: LoomKind, own: Option.Option<Chapter>): ReadonlyArray<string> =>
+  Match.value(kind).pipe(
     Match.when(chapterKind, () => [
       'Status: Canvas',
       ...Option.toArray(
@@ -1653,19 +1841,19 @@ const fieldsOf = (ref: BoxRef, own: Option.Option<Chapter>): ReadonlyArray<strin
     Match.exhaustive,
   )
 
-const openingOf = (book: Book, ref: BoxRef): Opening => {
+const openingOf = (book: Book, ref: BoxRef, kind: LoomKind): Opening => {
   const own = chapterOf(book, ref.module)
   const part = Option.match(own, { onNone: () => noPart, onSome: (chapter) => chapter.part })
-  const number = nextNumber(book, part, ref.kind)
+  const number = nextNumber(book, part, kind)
   const title = ref.name.value
   const body = textOf(ref.body)
   return {
-    file: fileOf(ref, number),
+    file: fileOf(ref, kind, number),
     text: Array.join(
       [
         '---',
-        ...membership(part, number, title, ref.kind),
-        ...fieldsOf(ref, own),
+        ...membership(part, number, title, kind),
+        ...fieldsOf(kind, own),
         '---',
         '',
         `# ${title}`,
@@ -1677,11 +1865,14 @@ const openingOf = (book: Book, ref: BoxRef): Opening => {
   }
 }
 
+export type CopiedFrom = 'chapter' | 'discussion' | 'section'
+
 export type BoxNotice = Data.TaggedEnum<{
   Unwritten: { readonly name: BoxNameToken; readonly kind: LoomKind; readonly opening: Opening }
+  Unsettled: { readonly name: BoxNameToken; readonly target: Option.Option<string> }
   Stale: {
     readonly name: BoxNameToken
-    readonly kind: LoomKind
+    readonly of: CopiedFrom
     readonly title: string
     readonly summary: string
     readonly body: Position
@@ -1697,29 +1888,70 @@ const bodySpan = (ref: BoxRef, closer: LoomWeft): Position => ({
   end: closer.position.start,
 })
 
-const noticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> =>
+type Copied = { readonly of: CopiedFrom; readonly title: string; readonly summary: string }
+
+const sectionOpeningOf = (section: LoomSection): string =>
+  textOf(outsideBoxes(openingLinesOf(section)))
+
+const copiedFromChapter = (chapter: Chapter): Copied => ({
+  of: chapter.discussion ? 'discussion' : 'chapter',
+  title: chapter.title,
+  summary: summaryOf(chapter.module),
+})
+
+const copiedFromPlace = (place: Place): Option.Option<Copied> =>
+  Match.value(place).pipe(
+    Match.tag('Section', ({ ref }) =>
+      Option.some<Copied>({
+        of: 'section',
+        title: ref.section.heading.title?.source ?? '',
+        summary: sectionOpeningOf(ref.section),
+      }),
+    ),
+    Match.tag('Chapter', ({ chapter }) => Option.some(copiedFromChapter(chapter))),
+    Match.orElse(() => Option.none<Copied>()),
+  )
+
+const staleOf = (ref: BoxRef, copied: Copied): Option.Option<BoxNotice> =>
+  pipe(
+    ref.closer,
+    Option.filter(() => textOf(ref.body) !== copied.summary),
+    Option.map((closer) =>
+      BoxNotice.Stale({
+        name: ref.name,
+        of: copied.of,
+        title: copied.title,
+        summary: copied.summary === '' ? '' : `${copied.summary}\n`,
+        body: bodySpan(ref, closer),
+      }),
+    ),
+  )
+
+const loomNoticeOf = (book: Book, ref: BoxRef, kind: LoomKind): Option.Option<BoxNotice> =>
   Option.match(boxTarget(book, ref), {
     onNone: () =>
       Option.some(
-        BoxNotice.Unwritten({ name: ref.name, kind: ref.kind, opening: openingOf(book, ref) }),
+        BoxNotice.Unwritten({ name: ref.name, kind, opening: openingOf(book, ref, kind) }),
       ),
-    onSome: (target) => {
-      const summary = summaryOf(target.module)
-      return pipe(
-        ref.closer,
-        Option.filter(() => textOf(ref.body) !== summary),
-        Option.map((closer) =>
-          BoxNotice.Stale({
-            name: ref.name,
-            kind: ref.kind,
-            title: target.title,
-            summary: summary === '' ? '' : `${summary}\n`,
-            body: bodySpan(ref, closer),
-          }),
-        ),
-      )
-    },
+    onSome: (target) => staleOf(ref, copiedFromChapter(target)),
   })
+
+const tropeNoticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> =>
+  Option.match(Option.flatMap(tropePlaceOf(book, ref), copiedFromPlace), {
+    onNone: () =>
+      Option.some(
+        BoxNotice.Unsettled({
+          name: ref.name,
+          target: Option.map(ref.anchors, (value) => value.value),
+        }),
+      ),
+    onSome: (copied) => staleOf(ref, copied),
+  })
+
+const noticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> => {
+  const kind = ref.kind
+  return isLoomKind(kind) ? loomNoticeOf(book, ref, kind) : tropeNoticeOf(book, ref)
+}
 
 const noticesOf = (book: Book, module: Location): ReadonlyArray<BoxNotice> =>
   Array.getSomes(Array.map(boxesIn(book, module), (ref) => noticeOf(book, ref)))
@@ -1764,42 +1996,74 @@ const contentEnd = (line: LoomWeft): Point => ({
 })
 
 const openingEditOf = (
-  module: LoomModule,
+  section: LoomSection,
   body: string,
-): Option.Option<{ readonly at: Position; readonly text: string }> =>
-  Option.flatMap(openingSectionOf(module), (section) => {
-    const lines = openingLinesOf(section)
-    const written = Array.filter(lines, (line) => line.source.trim() !== '')
-    return Array.some(lines, (line) => Option.isSome(boxOf(line)))
-      ? Option.none()
-      : Option.some(
-          Array.match(written, {
-            onEmpty: () => ({
-              at: { start: section.heading.position.end, end: section.heading.position.end },
-              text: body === '' ? '' : `\n${body}\n`,
-            }),
-            onNonEmpty: (all) => ({
-              at: {
-                start: Array.headNonEmpty(all).position.start,
-                end: contentEnd(Array.lastNonEmpty(all)),
-              },
-              text: body,
-            }),
+): Option.Option<{ readonly at: Position; readonly text: string }> => {
+  const lines = openingLinesOf(section)
+  const written = Array.filter(lines, (line) => line.source.trim() !== '')
+  return Array.some(lines, (line) => Option.isSome(boxOf(line)))
+    ? Option.none()
+    : Option.some(
+        Array.match(written, {
+          onEmpty: () => ({
+            at: { start: section.heading.position.end, end: section.heading.position.end },
+            text: body === '' ? '' : `\n${body}\n`,
           }),
-        )
-  })
+          onNonEmpty: (all) => ({
+            at: {
+              start: Array.headNonEmpty(all).position.start,
+              end: contentEnd(Array.lastNonEmpty(all)),
+            },
+            text: body,
+          }),
+        }),
+      )
+}
 
-const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<CorpusEdit> =>
+type Copy = { readonly module: LoomModule; readonly section: LoomSection }
+
+const chapterCopy = (chapter: Chapter): Option.Option<Copy> =>
+  Option.map(openingSectionOf(chapter.module), (section) => ({ module: chapter.module, section }))
+
+const copyOf = (book: Book, modules: Modules, ref: BoxRef): Option.Option<Copy> =>
+  Match.value(ref.kind).pipe(
+    Match.when(chapterKind, () => Option.flatMap(boxTarget(book, ref), chapterCopy)),
+    Match.when(discussionKind, () => Option.none<Copy>()),
+    Match.when(tropeKind, () =>
+      Option.flatMap(tropePlaceOf(book, ref), (place) =>
+        Match.value(place).pipe(
+          Match.tag('Section', ({ ref: at }) =>
+            Option.map(Option.fromNullishOr(modules.get(at.module)), (module) => ({
+              module,
+              section: at.section,
+            })),
+          ),
+          Match.tag('Chapter', ({ chapter }) =>
+            chapter.discussion ? Option.none<Copy>() : chapterCopy(chapter),
+          ),
+          Match.orElse(() => Option.none<Copy>()),
+        ),
+      ),
+    ),
+    Match.exhaustive,
+  )
+
+const boxToTarget = (
+  book: Book,
+  modules: Modules,
+  was: LoomModule,
+  ref: BoxRef,
+): Option.Option<CorpusEdit> =>
   pipe(
     Option.all({
-      chapter: Option.filter(boxTarget(book, ref), (chapter) => chapter.module.path !== ref.module),
+      copy: Option.filter(copyOf(book, modules, ref), (copy) => copy.module.path !== ref.module),
       before: Array.findFirst(
-        loomBoxesOf(was),
+        pointingBoxesOf(was),
         (old) => old.kind === ref.kind && old.name.value === ref.name.value,
       ),
     }),
-    Option.filter(({ chapter, before }) => {
-      const summary = openingProseOf(chapter.module)
+    Option.filter(({ copy, before }) => {
+      const summary = sectionOpeningOf(copy.section)
       return (
         Option.isSome(before.closer) &&
         Option.isSome(ref.closer) &&
@@ -1807,9 +2071,9 @@ const boxToChapter = (book: Book, was: LoomModule, ref: BoxRef): Option.Option<C
         textOf(ref.body) !== summary
       )
     }),
-    Option.flatMap(({ chapter }) =>
-      Option.map(openingEditOf(chapter.module, textOf(ref.body)), (edit) => ({
-        path: chapter.module.path,
+    Option.flatMap(({ copy }) =>
+      Option.map(openingEditOf(copy.section, textOf(ref.body)), (edit) => ({
+        path: copy.module.path,
         ...edit,
       })),
     ),
@@ -1835,20 +2099,61 @@ const loomToBoxes = (book: Book, was: LoomModule, now: LoomModule): ReadonlyArra
       )
 }
 
+const openingsOf = (
+  place: Place,
+  was: LoomModule,
+): Option.Option<{ readonly before: string; readonly after: string }> =>
+  Match.value(place).pipe(
+    Match.tag('Section', ({ ref }) =>
+      Option.map(
+        Array.findFirst(
+          was.doc.sections,
+          (old) => old.heading.title?.source === ref.section.heading.title?.source,
+        ),
+        (old) => ({ before: sectionOpeningOf(old), after: sectionOpeningOf(ref.section) }),
+      ),
+    ),
+    Match.tag('Chapter', ({ chapter }) =>
+      Option.some({ before: summaryOf(was), after: summaryOf(chapter.module) }),
+    ),
+    Match.orElse(() => Option.none()),
+  )
+
+const tropesToBoxes = (book: Book, was: LoomModule, now: LoomModule): ReadonlyArray<CorpusEdit> =>
+  pipe(
+    Array.flatten(Array.fromIterable(book.boxes.values())),
+    Array.filter((ref) => ref.kind === tropeKind && ref.module !== now.path),
+    Array.flatMap((ref) =>
+      pipe(
+        tropePlaceOf(book, ref),
+        Option.filter((place) => Option.contains(placeModuleOf(place), now.path)),
+        Option.flatMap((place) => openingsOf(place, was)),
+        Option.filter(({ before, after }) => before !== after && textOf(ref.body) === before),
+        Option.flatMap(({ after }) =>
+          Option.map(ref.closer, (closer) => ({
+            path: ref.module,
+            at: bodySpan(ref, closer),
+            text: after === '' ? '' : `${after}\n`,
+          })),
+        ),
+        Option.toArray,
+      ),
+    ),
+  )
+
 export const syncedSummaries = (
   corpus: LoomCorpusAst,
   was: LoomModule,
   now: LoomModule,
 ): ReadonlyArray<CorpusEdit> => {
-  const book = bookOf(new Map(corpus.modules).set(now.path, now))
+  const modules = new Map(corpus.modules).set(now.path, now)
+  const book = bookOf(modules)
   return [
     ...Array.getSomes(
-      Array.map(
-        Array.filter(boxesIn(book, now.path), (ref) => ref.kind === chapterKind),
-        (ref) => boxToChapter(book, was, ref),
-      ),
+      Array.map(boxesIn(book, now.path), (ref) => boxToTarget(book, modules, was, ref)),
     ),
     ...loomToBoxes(book, was, now),
+    ...tropesToBoxes(book, was, now),
   ]
 }
 

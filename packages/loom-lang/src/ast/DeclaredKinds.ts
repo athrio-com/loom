@@ -1,7 +1,14 @@
 import { Array, Match, Option, Order, pipe, Result } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
-import { boxKinds, type ParametersToken, type SpecifierToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  boxKind,
+  boxKinds,
+  type ParameterToken,
+  type ParametersToken,
+  type SpecifierToken,
+  tropeKind,
+} from '@athrio/loom-ast/LoomTokens'
 import {
   type Book,
   type Location,
@@ -10,7 +17,7 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
 import { fromCode } from './LoomVirtualCodeBuilder'
-import { faulty, TropeRefused, UnknownKind } from './LoomFault'
+import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
 import { type BoxKindDeclaration, readManifest, type TropeManifest } from './TropeManifest'
 
 export type TropeRoot = {
@@ -215,5 +222,22 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       ({ kind, at }) => faulty(UnknownKind({ kind, kinds: known, on: 'box' }), at).diagnostics,
     ),
   )
-  return [...refused, ...unknown]
+  return [...refused, ...unknown, ...keysOutsideTrope(module)]
 }
+
+const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
+  pipe(
+    openedBoxesOf(module.doc),
+    Array.filter((opened) => boxKind(opened.box) !== tropeKind),
+    Array.flatMap((opened) =>
+      Option.match(Option.fromNullishOr(opened.box.specifier), {
+        onNone: (): ReadonlyArray<ParameterToken> => [],
+        onSome: (specifier) => (specifier.type === 'Parameters' ? specifier.parameters : []),
+      }),
+    ),
+    Array.filter((parameter) => ['provides', 'anchors'].includes(parameter.key.value)),
+    Array.flatMap(
+      (parameter) =>
+        faulty(KeyOutsideTrope({ key: parameter.key.value }), parameter.key.position).diagnostics,
+    ),
+  )

@@ -259,12 +259,15 @@ export const chapterKind = 'Chapter'
 
 export const discussionKind = 'Discussion'
 
+export const tropeKind = 'Trope'
+
 export const conclusionKind = 'Conclusion'
 
 export const boxKinds: ReadonlyArray<string> = [
   noteKind,
   chapterKind,
   discussionKind,
+  tropeKind,
   conclusionKind,
 ]
 
@@ -273,7 +276,12 @@ export type LoomKind = typeof chapterKind | typeof discussionKind
 export const isLoomKind = (kind: string): kind is LoomKind =>
   kind === chapterKind || kind === discussionKind
 
-export const boxKeys: ReadonlyArray<string> = ['kind']
+export type PointingKind = LoomKind | typeof tropeKind
+
+export const isPointingKind = (kind: string): kind is PointingKind =>
+  isLoomKind(kind) || kind === tropeKind
+
+export const boxKeys: ReadonlyArray<string> = ['kind', 'provides', 'anchors']
 
 export const specifierKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
   Match.value(specifier).pipe(

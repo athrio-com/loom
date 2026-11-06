@@ -15,7 +15,7 @@ import {
   chapterKind,
   conclusionKind,
   type FrontmatterValueToken,
-  isLoomKind,
+  isPointingKind,
   type HeadingTitleToken,
   HeadingTitleTokenSchema,
   openingFence,
@@ -136,7 +136,7 @@ const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWef
 
 const loomBoxFault = (box: BoxToken, code: boolean): Option.Option<LoomFault> => {
   const kind = boxKind(box)
-  return box.side !== 'open' || !isLoomKind(kind)
+  return box.side !== 'open' || !isPointingKind(kind)
     ? Option.none()
     : Option.match(Option.fromNullishOr(box.name), {
         onNone: () => Option.some(UnnamedBox({ kind })),

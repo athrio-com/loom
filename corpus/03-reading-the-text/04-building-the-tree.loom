@@ -119,7 +119,7 @@ const faultUnclosedBox = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWef
 
 ## A box that points to a loom
 
-A box of the `Chapter` kind points to the chapter its name titles, and a box of the `Discussion` kind points to the discussion its name titles. `judgeLoomBoxes` reads a section's body, and `loomBoxFault` gives each such box there the fault it earns. A box with no name points to no loom, so it earns an `UnnamedBox` fault that names its kind.
+A box of the `Chapter` kind points to the chapter its name titles, and a box of the `Discussion` kind points to the discussion its name titles. A box of the `Trope` kind names a trope, which its `anchors` key points to the section or chapter that holds it. `judgeLoomBoxes` reads a section's body, and `loomBoxFault` gives each such box there the fault it earns. A box of any of the three kinds with no name points nowhere, or names nothing, so it earns an `UnnamedBox` fault that names its kind.
 
 A chapter box marks the place where a thought leaves its section for a chapter of its own, so the code of that section belongs in the chapter. A chapter box in a section that holds code therefore earns a `ChapterBoxBesideCode` fault, and a section holds code when an arrow opens some in it. A discussion box may stand beside code, since a discussion often argues about the code beside it. Both faults are errors, and `faultedBoxLine` places each on its box line.
 
@@ -127,7 +127,7 @@ A chapter box marks the place where a thought leaves its section for a chapter o
 
 const loomBoxFault = (box: BoxToken, code: boolean): Option.Option<LoomFault> => {
   const kind = boxKind(box)
-  return box.side !== 'open' || !isLoomKind(kind)
+  return box.side !== 'open' || !isPointingKind(kind)
     ? Option.none()
     : Option.match(Option.fromNullishOr(box.name), {
         onNone: () => Option.some(UnnamedBox({ kind })),
@@ -607,7 +607,7 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, `Data` to name the two openers, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, and the faults raised here. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind`, `isLoomKind`, and `chapterKind`, which tell a box that points to a loom and a chapter box among them, `openingFence`, which tells a fence from a label, and the title token a label becomes.
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, `Data` to name the two openers, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, and the faults raised here. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind`, `isPointingKind`, and `chapterKind`, which tell a box that points somewhere and a chapter box among them, `openingFence`, which tells a fence from a label, and the title token a label becomes.
 
 =>
 
@@ -628,7 +628,7 @@ import {
   chapterKind,
   conclusionKind,
   type FrontmatterValueToken,
-  isLoomKind,
+  isPointingKind,
   type HeadingTitleToken,
   HeadingTitleTokenSchema,
   openingFence,
