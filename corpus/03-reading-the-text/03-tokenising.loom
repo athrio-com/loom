@@ -83,7 +83,7 @@ const tokeniseWeft = (
 
 ## Frontmatter fields
 
-A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a numbered part, a `Chapter <n>` line a numbered chapter — each carrying an ordinal past its keyword and a name beside it. Drop the ordinal and the membership is numberless: a bare `Part` names a part with no number, a bare `Chapter` a chapter with no number, for a section a reader orders by hand rather than by position. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. A discussion reads the same way, with `Discussion` in place of `Chapter`, and a bare `Discussion` gives a discussion with no number. `Target`, `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
+A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a numbered part, a `Chapter <n>` line a numbered chapter — each carrying an ordinal past its keyword and a name beside it. Drop the ordinal and the membership is numberless: a bare `Part` names a part with no number, a bare `Chapter` a chapter with no number, for a section a reader orders by hand rather than by position. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. A discussion reads the same way, with `Discussion` in place of `Chapter`, and a bare `Discussion` gives a discussion with no number. A `Trope` line names the trope the loom belongs to, and its value becomes a `FrontmatterTrope`. `Target`, `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
 
 =>
 
@@ -148,6 +148,13 @@ const buildFrontmatterField = (
       health: okHealth,
       discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, key, 'Discussion'),
       title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+    })
+  if (key.value === 'Trope')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      trope: fieldToken(FrontmatterTropeTokenSchema, line, value),
     })
   if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
@@ -1302,7 +1309,9 @@ Braces after an anchor hold a label, as `::[Greeting function]{To be settled}` d
 
 `bracesAt` reads the braces. `itemsFrom` reads what they hold as a run of items, each a word of a label or a parameter, up to the closing brace. Braces that hold anything else, such as `X: 1`, or that hold nothing, still read as a label, through `labelBracesAt`, so the label's fault names what is wrong. `braceTokens` gives the opening and closing brace their tokens.
 
-A box's braces follow the same grammar, as the section "A box line" describes, but a box takes other keys and kinds than an anchor does. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds. `anchorBraces` holds an anchor's rules and `boxBraces` a box's, and `bracesAt` judges what the braces hold by the rules it is given.
+A box's braces follow the same grammar, as the section "A box line" describes, but a box takes other keys and kinds than an anchor does. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds, when one loom alone can tell them. `anchorBraces` holds an anchor's rules and `boxBraces` a box's, and `bracesAt` judges what the braces hold by the rules it is given.
+
+An anchor's kinds are the core's own, so the tokeniser judges them. A box's kinds come from the core and from every trope the book holds, and a trope in another loom may declare the kind a box names. So `boxBraces` leaves a box's kind for the corpus to judge, as Part XIII, Tropes, describes.
 
 =>
 
@@ -1311,12 +1320,16 @@ type Span = { readonly start: number; readonly end: number; readonly value: stri
 type BraceRules = {
   readonly on: BracesOn
   readonly keys: ReadonlyArray<string>
-  readonly kinds: ReadonlyArray<string>
+  readonly kinds: Option.Option<ReadonlyArray<string>>
 }
 
-const anchorBraces: BraceRules = { on: 'anchor', keys: anchorKeys, kinds: anchorKinds }
+const anchorBraces: BraceRules = {
+  on: 'anchor',
+  keys: anchorKeys,
+  kinds: Option.some(anchorKinds),
+}
 
-const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: boxKinds }
+const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: Option.none() }
 
 type BraceItem =
   | { readonly type: 'word'; readonly word: Span }
@@ -1487,7 +1500,7 @@ const parameterAt = (text: string, at: number): Option.Option<BraceItem> =>
 
 ~
 
-Braces whose items are all words hold a label, which `specifierOf` builds through `constructSpecifier`, as a heading's label is built. A label names the kind of its bearer, so `kindChecked` faults a label that is none of the rules' kinds with `UnknownKind`, and `isKindIn` compares in any case of letters. Without the fault, braces such as `{x}` on an anchor would leave the tangle without a word. Braces with a parameter among their items hold `Parameters`, which `parametersOf` builds and judges. `parameterToken` judges each parameter. A key written a second time is a `RepeatedKey` fault, and a key the bearer does not take is an `UnknownKey` fault, each on the key itself. A `kind` whose value is none of the kinds is an `UnknownKind` fault on its value. A run of words beside the parameters is a `LabelBesideParameter` fault, whose fix writes the label in full, and `labelFaults` finds each run. `Array.groupWith` gathers consecutive items of one type, so words that a parameter separates form two runs.
+Braces whose items are all words hold a label, which `specifierOf` builds through `constructSpecifier`, as a heading's label is built. A label names the kind of its bearer, so `kindChecked` faults a label that is none of the rules' kinds with `UnknownKind`, when the rules hold kinds. `unknownTo` gives the kinds a label is none of, and `isKindIn` compares in any case of letters. Without the fault, braces such as `{x}` on an anchor would leave the tangle without a word. Braces with a parameter among their items hold `Parameters`, which `parametersOf` builds and judges. `parameterToken` judges each parameter. A key written a second time is a `RepeatedKey` fault, and a key the bearer does not take is an `UnknownKey` fault, each on the key itself. A `kind` whose value is none of the kinds is an `UnknownKind` fault on its value. A run of words beside the parameters is a `LabelBesideParameter` fault, whose fix writes the label in full, and `labelFaults` finds each run. `Array.groupWith` gathers consecutive items of one type, so words that a parameter separates form two runs.
 
 =>
 
@@ -1508,22 +1521,33 @@ const specifierOf = (
     : Option.some(parametersOf(open, close, items, lineText, linePosition, rules))
 }
 
+const unknownTo = (rules: BraceRules, kind: string): Option.Option<ReadonlyArray<string>> =>
+  Option.filter(rules.kinds, (kinds) => !isKindIn(kinds)(kind))
+
 const kindChecked =
   (rules: BraceRules) =>
   (specifier: SpecifierToken): SpecifierToken =>
-    specifier.label.health.status !== 'ok' || isKindIn(rules.kinds)(specifier.label.value)
-      ? specifier
-      : SpecifierTokenSchema.make({
-          ...specifier,
-          health: { status: 'error', diagnostics: [] },
-          label: SpecifierLabelTokenSchema.make({
-            ...specifier.label,
-            health: faulty(
-              UnknownKind({ kind: specifier.label.value, kinds: rules.kinds, on: rules.on }),
-              specifier.label.position,
-            ),
+    Option.match(
+      Option.filter(
+        unknownTo(rules, specifier.label.value),
+        () => specifier.label.health.status === 'ok',
+      ),
+      {
+        onNone: () => specifier,
+        onSome: (kinds) =>
+          SpecifierTokenSchema.make({
+            ...specifier,
+            health: { status: 'error', diagnostics: [] },
+            label: SpecifierLabelTokenSchema.make({
+              ...specifier.label,
+              health: faulty(
+                UnknownKind({ kind: specifier.label.value, kinds, on: rules.on }),
+                specifier.label.position,
+              ),
+            }),
           }),
-        })
+      },
+    )
 
 const parametersOf = (
   open: SpecifierOpenToken,
@@ -1575,7 +1599,13 @@ const parameterToken = (
   rules: BraceRules,
 ): ParameterToken => {
   const key = parameter.key.value
-  const strange = Array.findFirst(parameter.values, (value) => !isKindIn(rules.kinds)(value.value))
+  const strange = Array.head(
+    Array.getSomes(
+      Array.map(parameter.values, (value) =>
+        Option.map(unknownTo(rules, value.value), (kinds) => ({ value, kinds })),
+      ),
+    ),
+  )
   const health = Match.value({
     repeated: Array.some(earlier, (before) => before.key.value === key),
     known: Array.contains(rules.keys, key),
@@ -1588,8 +1618,8 @@ const parameterToken = (
     Match.when({ kind: true }, () =>
       Option.match(strange, {
         onNone: () => okHealth,
-        onSome: (value) =>
-          faulty(UnknownKind({ kind: value.value, kinds: rules.kinds, on: rules.on }), at(value)),
+        onSome: ({ value, kinds }) =>
+          faulty(UnknownKind({ kind: value.value, kinds, on: rules.on }), at(value)),
       }),
     ),
     Match.orElse(() => okHealth),
@@ -1981,6 +2011,7 @@ import {
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
   FrontmatterKeyTokenSchema,
+  FrontmatterTropeTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
@@ -2005,7 +2036,6 @@ import {
   BoxNameTokenSchema,
   BoxTokenSchema,
   boxKeys,
-  boxKinds,
   type BoxNameToken,
   type BoxToken,
   TocChapterTokenSchema,

@@ -86,6 +86,8 @@ export type LoomFault = Data.TaggedEnum<{
   HeadingAgainstCode: {}
   DividerAgainstCode: {}
   FileInDiscussion: {}
+  ManifestOutsideTrope: {}
+  TropeRefused: { readonly reason: string }
   ConclusionOutsideTopic: {}
   SecondConclusion: {}
 }>
@@ -130,6 +132,8 @@ export const {
   HeadingAgainstCode,
   DividerAgainstCode,
   FileInDiscussion,
+  ManifestOutsideTrope,
+  TropeRefused,
   ConclusionOutsideTopic,
   SecondConclusion,
 } = Data.taggedEnum<LoomFault>()
@@ -318,6 +322,12 @@ export const describe = (fault: LoomFault): Note =>
       warning(
         'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
       ),
+    ManifestOutsideTrope: () =>
+      error(
+        "Manifest outside a trope: a manifest belongs to a trope's root, a chapter that names its trope with a `Trope:` line, so Loom reads nothing from this section. Name the trope in the frontmatter, or take `{Manifest}` off the heading.",
+      ),
+    TropeRefused: ({ reason }) =>
+      error(`Trope refused: ${reason}, so Loom applies none of what this root declares.`),
     FileInDiscussion: () =>
       error(
         'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',

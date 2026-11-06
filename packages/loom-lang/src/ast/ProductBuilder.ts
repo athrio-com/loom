@@ -72,6 +72,7 @@ import {
   TangleBesideSink,
   TangleWithoutFile,
   FileInDiscussion,
+  ManifestOutsideTrope,
   UnsettledModule,
   UnsettledSection,
   UnknownVariable,
@@ -105,7 +106,9 @@ export const buildProduct = (
   const first = firstHolders(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc))),
+    Array.map(
+      buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc), isTrope(doc)),
+    ),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -153,6 +156,7 @@ const specifierLanguage = (
       onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
     })
   if (id === 'toc') return 'prose'
+  if (id === 'manifest') return 'json'
   return id
 }
 
@@ -292,6 +296,7 @@ const buildSection =
     pkg: Option.Option<string>,
     variables: Record<string, string>,
     discussion: boolean,
+    trope: boolean,
   ) =>
   (section: LoomSection): Built => {
     const values = valueWarps(
@@ -305,6 +310,7 @@ const buildSection =
         duplicateHealth(first, section),
         labelHealth(section, languageId),
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
+        trope ? okHealth : manifestOutsideTrope(section),
       ],
       okHealth,
       withHealth,
@@ -397,6 +403,17 @@ const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
   specifier.position.start.offset < sink.position.start.offset
     ? between(specifier.position.start, sink.position.start)
     : between(sink.position.end, specifier.position.end)
+
+export const isManifest = (specifier: SpecifierToken): boolean =>
+  specifier.label.value.toLowerCase() === 'manifest'
+
+const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
+
+const manifestOutsideTrope = (section: LoomSection): Health =>
+  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {
+    onNone: () => okHealth,
+    onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
+  })
 
 const buildCode = (
   section: LoomSection,

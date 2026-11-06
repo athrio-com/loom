@@ -1,0 +1,300 @@
+---
+Part XIII: Tropes
+Chapter 1: The trope contract
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# The trope contract
+
+Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. What the core leaves out, a trope adds: a kind of box that draws a diagram, say, or a mark for citing a paper. The word comes from writing, where a trope is a familiar turn that any author may take up. A Loom trope is the same for books: a way of doing something, written once, that any book can take up.
+
+A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, and the kinds of box a manifest declares. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
+
+## A trope is chapters
+
+A trope is a cluster of chapters, or a single chapter, that keeps a contract. Each chapter of the trope names the trope in its frontmatter with a `Trope:` line, as `Trope: Mermaid diagrams` does, and the chapters "The leaf tokens" and "The tokeniser stage" read the line. The trope's name belongs to no one chapter, so a chapter can be renamed without renaming its trope. A trope's chapters stand wherever their author puts them, in any part of the book. A trope published for other books keeps to a part of its own by convention, as the Mermaid trope does in Part XIV.
+
+One chapter of the trope is its root: the chapter that holds the trope's manifest, the trope's entry point and the home of its contract. A chapter that names the trope and holds no manifest is a member of the trope, and declares nothing.
+
+The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` and `{TOC}` are. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. A manifest in a loom that names no trope belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
+
+```
+---
+Part XIV: Mermaid diagrams
+Chapter 1: Declaring the Mermaid kind
+Trope: Mermaid diagrams
+---
+
+# Declaring the Mermaid kind
+
+A box of the Mermaid kind holds a diagram's source.
+
+## What the trope declares {Manifest}
+
+=>
+{ "contract": "1", "contributes": { "kinds": { "box": [{ "kind": "Mermaid", "body": "mermaid" }] } } }
+```
+
+The rest of a root explains the trope, as any chapter explains its code.
+
+## What contract 1 lets a trope declare
+
+The manifest's `contract` field names the version of the contract the trope was written against, and this Loom reads `contractVersion`, version 1. Contract 1 lets a trope declare kinds of box, under the manifest's `contributes.kinds.box` key. A `BoxKindDeclaration` names one kind. Its `kind` is the word a box's braces name it by, as `{Mermaid}` does, and its `body` is the format the box's body is written in, such as `mermaid` for a diagram's source or `prose` for words a reader reads.
+
+A `TropeManifest` holds nothing else. The schema decides what no trope can do, since no manifest can declare what the schema cannot express. So a manifest that writes a key contract 1 does not know, such as the `views` a later contract adds, does not fit, and Loom refuses the whole trope rather than load the parts it understands.
+
+=>
+
+export const contractVersion = '1'
+
+export const BoxKindDeclarationSchema = Schema.Struct({
+  kind: Schema.NonEmptyString,
+  body: Schema.NonEmptyString,
+})
+export type BoxKindDeclaration = typeof BoxKindDeclarationSchema.Type
+
+export const TropeManifestSchema = Schema.Struct({
+  contract: Schema.Literal(contractVersion),
+  contributes: Schema.Struct({
+    kinds: Schema.Struct({ box: Schema.Array(BoxKindDeclarationSchema) }),
+  }),
+})
+export type TropeManifest = typeof TropeManifestSchema.Type
+
+## Reading a manifest
+
+`readManifest` turns the composed text of a manifest into a `TropeManifest`, or into the reason Loom refuses the trope. A `Result` holds whichever it is. It reads in three steps, so that the reason says which of them failed.
+
+First the text must be JSON, which `parsedJson` reads. Then its `contract` must name the version this Loom reads, and `contractOf` reads the field. A trope written against another version is refused with both versions named, so the author sees whether the trope or Loom is behind. Last, the manifest must fit `TropeManifestSchema` exactly, and `fitted` decodes it with every key it does not know counted against it. The reason then carries the schema's own words for what is wrong and where, on one line.
+
+=>
+
+const parsedJson = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
+
+const fitted = Schema.decodeUnknownResult(TropeManifestSchema)
+
+const contractOf = (json: unknown): Option.Option<string> =>
+  typeof json === 'object' &&
+  json !== null &&
+  'contract' in json &&
+  typeof json.contract === 'string'
+    ? Option.some(json.contract)
+    : Option.none()
+
+export const readManifest = (text: string): Result.Result<TropeManifest, string> =>
+  pipe(
+    parsedJson(text),
+    Result.mapError(() => 'its manifest is not JSON'),
+    Result.flatMap((json) =>
+      Option.match(
+        Option.filter(contractOf(json), (contract) => contract !== contractVersion),
+        {
+          onSome: (contract) =>
+            Result.fail(
+              `it was written for contract ${contract}, and this Loom reads contract ${contractVersion}`,
+            ),
+          onNone: () =>
+            pipe(
+              fitted(json, { onExcessProperty: 'error' }),
+              Result.mapError(
+                (error) =>
+                  `its manifest does not fit contract ${contractVersion}: ${error.message.replace(/\s+/g, ' ')}`,
+              ),
+            ),
+        },
+      ),
+    ),
+  )
+
+## What the contract draws on
+
+The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps.
+
+=>
+
+import { Option, pipe, Result, Schema } from 'effect'
+
+## The module [src/ast/TropeManifest.ts]
+
+=>
+
+::[What the contract draws on]
+
+::[What contract 1 lets a trope declare]
+
+::[Reading a manifest]
+
+## Testing the contract
+
+The cases read the line that names a chapter's trope, read manifests on their own, and compile a small book to see where a manifest may stand. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds.
+
+`parse` reads a loom alone, through the layer the compiler parses with. `layerOf` gives the compiler a book held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `compiled` runs one use of the compiler over such a book, and `diagnosed` gives the messages of the diagnostics one loom raises. `manifestOf` writes a manifest declaring the given kinds of box, as JSON on one line.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Layer, Option, Result } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+import { readManifest } from '../src/ast/TropeManifest'
+import { parseDocument, ParseLayer } from './parse'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const parse = (src: string): LoomDocument =>
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const compiled = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  compiled(files, (compiler) => compiler.diagnose(entry)).then((found) =>
+    found.map((d) => d.message),
+  )
+
+const manifestOf = (...kinds: ReadonlyArray<string>): string =>
+  JSON.stringify({
+    contract: '1',
+    contributes: { kinds: { box: kinds.map((kind) => ({ kind, body: 'text' })) } },
+  })
+
+## A chapter names its trope
+
+A chapter names the trope it belongs to with a line of its own, beside its identity line. The parse reads the trope's name into a token of its own, and the chapter keeps its part, its number, and its title.
+
+=>
+
+describe("a chapter's trope", () => {
+  it('names the trope beside the identity line', () => {
+    const fm = parse(
+      lines('---', 'Part I, Chapter 1: Drawing', 'Trope: Mermaid diagrams', '---', '', '# Drawing'),
+    ).frontmatter
+    expect([fm?.trope?.value, fm?.title?.value, fm?.part?.value, fm?.chapter?.value]).toEqual([
+      'Mermaid diagrams',
+      'Drawing',
+      'I',
+      '1',
+    ])
+  })
+})
+
+## A manifest only in a trope
+
+A `{Manifest}` section composes as JSON in a chapter that names its trope, and raises nothing there. In a chapter that names no trope it is a fault, since the manifest belongs to nothing.
+
+=>
+
+describe('a manifest section', () => {
+  const manifestIn = (...identity: ReadonlyArray<string>) =>
+    lines(
+      '---',
+      ...identity,
+      '---',
+      '',
+      '# Diagrams',
+      '',
+      '## What it declares {Manifest}',
+      '',
+      '=>',
+      manifestOf('Mermaid'),
+    )
+  const outside =
+    "Manifest outside a trope: a manifest belongs to a trope's root, a chapter that names its trope with a `Trope:` line, so Loom reads nothing from this section. Name the trope in the frontmatter, or take `{Manifest}` off the heading."
+
+  it("raises nothing in a trope's root", async () => {
+    const path = '/corpus/diagrams.loom'
+    const root = manifestIn('Part I, Chapter 1: Diagrams', 'Trope: Diagrams')
+    expect(await diagnosed({ [path]: root }, path)).not.toContain(outside)
+  })
+
+  it('is a fault in a chapter of no trope', async () => {
+    const path = '/corpus/diagrams.loom'
+    expect(await diagnosed({ [path]: manifestIn('Part I, Chapter 1: Diagrams') }, path)).toContain(
+      outside,
+    )
+  })
+})
+
+## Reading a manifest whole or not at all
+
+A manifest that fits contract 1 reads as the kinds it declares. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope, and so does a kind with no name.
+
+=>
+
+describe('reading a manifest', () => {
+  const reason = (text: string) =>
+    Result.match(readManifest(text), { onSuccess: () => '', onFailure: (why) => why })
+
+  it('reads the kinds a fitting manifest declares', () => {
+    const read = Result.getOrUndefined(readManifest(manifestOf('Mermaid', 'Run')))
+    expect(read?.contributes.kinds.box.map((declared) => declared.kind)).toEqual(['Mermaid', 'Run'])
+  })
+
+  it('refuses text that is no JSON', () => {
+    expect(reason('{ "contract": "1",')).toBe('its manifest is not JSON')
+  })
+
+  it('refuses a manifest written for another contract', () => {
+    expect(reason(JSON.stringify({ contract: '2', contributes: {} }))).toBe(
+      'it was written for contract 2, and this Loom reads contract 1',
+    )
+  })
+
+  it('refuses a key contract 1 does not know', () => {
+    const views = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { box: [] }, views: [] },
+    })
+    expect(reason(views)).toBe(
+      'its manifest does not fit contract 1: Expected no excess property at ["contributes"]["views"]',
+    )
+  })
+
+  it('refuses a kind with no name', () => {
+    expect(reason(manifestOf(''))).toContain('its manifest does not fit contract 1:')
+  })
+})
+
+## The test file [test/TropeContract.test.ts]
+
+=>
+
+::[Testing the contract]
+
+::[A chapter names its trope]
+
+::[A manifest only in a trope]
+
+::[Reading a manifest whole or not at all]

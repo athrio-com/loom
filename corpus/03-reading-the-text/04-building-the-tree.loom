@@ -473,7 +473,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `Trope` field, when a loom belongs to a trope, is read on its own, since it sits beside the membership lines rather than in them. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
 
 =>
 
@@ -510,6 +510,7 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       package: Option.getOrUndefined(
         Option.orElse(frontmatterField(wefts, 'Target'), () => frontmatterField(wefts, 'Package')),
       ),
+      trope: wefts.find((w) => w.trope !== undefined)?.trope,
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
       priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),

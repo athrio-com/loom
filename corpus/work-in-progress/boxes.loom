@@ -53,9 +53,9 @@ The kinds of box form an open set, as languages do. The core knows five kinds, b
 - **Conclusion:** the answer that closes a topic in a discussion, which the chapter "Discussions" describes. A conclusion anywhere else is a fault.
 - **Wildcard:** a box that holds the place of code not yet written, with the names the code will provide, which the chapter "Names through the book" describes.
 
-Every other kind comes from a trope, the package the chapter "Tropes" defines. A trope that contributes a kind says how the editor draws a box of that kind, whether the box runs, and what the box's body must satisfy. Two such kinds come first:
+Every other kind comes from a trope, which declares the kind in its manifest, as Part XIII, Tropes, describes. A trope that contributes a kind says how the editor draws a box of that kind, whether the box runs, and what the box's body must satisfy. Two such kinds come first:
 
-- **Mermaid:** a diagram written in Mermaid, which the editor and the woven page draw from the box's body.
+- **Mermaid:** a diagram written in Mermaid, which the editor and the woven page draw from the box's body. Part XIV, Mermaid diagrams, declares the kind already.
 - **Run:** a command, which the editor runs on request, showing its output beside the box.
 
 A kind that neither the core nor an installed trope knows is a fault, so a misspelt kind never passes for content.
@@ -217,7 +217,7 @@ describe('an opening line', () => {
 
 ## The keys and kinds a box takes
 
-A box writes its braces as an anchor does, but the two take different words in them. The core gives a box four kinds, `Note`, `Chapter`, `Discussion`, and `Conclusion`, and one key, `kind`, so any other kind or key on a box is a fault. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Reference`.
+A box writes its braces as an anchor does, but the two take different words in them. A box takes one key, `kind`, so any other key on a box is a fault. A box's kind is judged against the whole book, since a trope in another loom may declare it, as Part XIII, Tropes, describes, so the parse of one loom leaves a box's kind alone. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Reference`, and the parse judges them.
 
 =>
 
@@ -225,10 +225,8 @@ describe('the braces on a box', () => {
   const faults = (line: string): ReadonlyArray<string> =>
     diagnosticsIn(parse(lines('# Chapter', '', line, 'Body.', ':::'))).map((d) => d.message)
 
-  it('fault a kind the core does not give a box', () => {
-    expect(faults('::: Cells {Mermaid}')).toEqual([
-      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, and `Conclusion`.',
-    ])
+  it('leave a kind for the book to judge', () => {
+    expect(faults('::: Cells {Mermaid}')).toEqual([])
   })
 
   it('fault a key a box does not take', () => {
@@ -1168,6 +1166,6 @@ describe('keeping a discussion box in step as the author types', () => {
 ## What this chapter grows into
 
 1. The side panel that edits a loom's opening from its box, in the editors that can show one.
-2. The registry of kinds: `Wildcard` beside `Note`, `Chapter`, `Discussion`, and `Conclusion` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
+2. `Wildcard` beside `Note`, `Chapter`, `Discussion`, and `Conclusion` in the core, a `Run` kind from a trope beside `Mermaid`, and what each kind draws in the editor and on the woven page.
 
 When every kind of box reads and draws in the editor, the rest of this chapter joins the chapters that hold the box.

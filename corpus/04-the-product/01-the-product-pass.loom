@@ -101,6 +101,7 @@ import {
   TangleBesideSink,
   TangleWithoutFile,
   FileInDiscussion,
+  ManifestOutsideTrope,
   UnsettledModule,
   UnsettledSection,
   UnknownVariable,
@@ -142,7 +143,9 @@ export const buildProduct = (
   const first = firstHolders(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc))),
+    Array.map(
+      buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc), isTrope(doc)),
+    ),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -181,6 +184,8 @@ A tangle sink resolves its language a fourth way: it carries no specifier, only 
 
 A file with no extension takes its whole name as its language, read from the last path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes `license`, and a `.gitignore`, whose one dot only marks it hidden, composes `gitignore`. A chapter that declares the same language can then anchor into it.
 
+Two of the core's own specifiers name no language. A `{TOC}` section composes as prose, and a `{Manifest}` section composes as JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes.
+
 `sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled.
 
 =>
@@ -206,6 +211,7 @@ const specifierLanguage = (
       onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
     })
   if (id === 'toc') return 'prose'
+  if (id === 'manifest') return 'json'
   return id
 }
 
@@ -345,7 +351,7 @@ const valueWarps = (
 
 A section's heading decides what it contributes. Every section composes to one `Code`: its identity, its language, and its fragments in composition order. A section that names a file — through a `[file]` sink, or a `{Tangle}` specifier — contributes a `File` on top, the same `Code` paired with the path it tangles to.
 
-A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. The code carries a fault when an earlier section of the document already holds the section's name, when a fence's label names another language, or when the heading marks its file in a way the sink rule forbids.
+A `Built` is the pair a section yields: its `Code`, which always lands in the product, and the `File` a `{Tangle}` section or a tangle sink adds, which an ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against the workspace variables, resolves its language and identity, and composes its code. The code carries a fault when an earlier section of the document already holds the section's name, when a fence's label names another language, when the heading marks its file in a way the sink rule forbids, or when a section outside a trope claims to be a manifest.
 
 =>
 
@@ -363,6 +369,7 @@ const buildSection =
     pkg: Option.Option<string>,
     variables: Record<string, string>,
     discussion: boolean,
+    trope: boolean,
   ) =>
   (section: LoomSection): Built => {
     const values = valueWarps(
@@ -376,6 +383,7 @@ const buildSection =
         duplicateHealth(first, section),
         labelHealth(section, languageId),
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
+        trope ? okHealth : manifestOutsideTrope(section),
       ],
       okHealth,
       withHealth,
@@ -488,6 +496,23 @@ const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
   specifier.position.start.offset < sink.position.start.offset
     ? between(specifier.position.start, sink.position.start)
     : between(sink.position.end, specifier.position.end)
+
+~
+
+A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a chapter that names its trope with a `Trope:` line, so a manifest in a loom that names no trope belongs to nothing. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells the specifier, and `isTrope` tells a loom that names its trope.
+
+=>
+
+export const isManifest = (specifier: SpecifierToken): boolean =>
+  specifier.label.value.toLowerCase() === 'manifest'
+
+const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
+
+const manifestOutsideTrope = (section: LoomSection): Health =>
+  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {
+    onNone: () => okHealth,
+    onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
+  })
 
 ## Composing a section's code
 

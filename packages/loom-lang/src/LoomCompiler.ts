@@ -68,6 +68,7 @@ import {
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
+import { declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
 import {
   contractsIn,
   fromCode,
@@ -137,10 +138,12 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
 const corpusDiagnostics = (modules: Modules) => {
   const book = bookOf(modules)
   const landing = landingOf(book, modules)
+  const kinds = declaredKindsOf(modules, book)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(book, modules, module, landing),
     ...namesakeFaults(book, module),
+    ...kindFaults(kinds, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
       (notice) => boxNoticeHealth(notice).diagnostics,

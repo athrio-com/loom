@@ -11,6 +11,7 @@ import {
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
   FrontmatterKeyTokenSchema,
+  FrontmatterTropeTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
@@ -35,7 +36,6 @@ import {
   BoxNameTokenSchema,
   BoxTokenSchema,
   boxKeys,
-  boxKinds,
   type BoxNameToken,
   type BoxToken,
   TocChapterTokenSchema,
@@ -249,6 +249,13 @@ const buildFrontmatterField = (
       health: okHealth,
       discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, key, 'Discussion'),
       title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+    })
+  if (key.value === 'Trope')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      trope: fieldToken(FrontmatterTropeTokenSchema, line, value),
     })
   if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
@@ -1326,12 +1333,16 @@ type Span = { readonly start: number; readonly end: number; readonly value: stri
 type BraceRules = {
   readonly on: BracesOn
   readonly keys: ReadonlyArray<string>
-  readonly kinds: ReadonlyArray<string>
+  readonly kinds: Option.Option<ReadonlyArray<string>>
 }
 
-const anchorBraces: BraceRules = { on: 'anchor', keys: anchorKeys, kinds: anchorKinds }
+const anchorBraces: BraceRules = {
+  on: 'anchor',
+  keys: anchorKeys,
+  kinds: Option.some(anchorKinds),
+}
 
-const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: boxKinds }
+const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: Option.none() }
 
 type BraceItem =
   | { readonly type: 'word'; readonly word: Span }
@@ -1511,22 +1522,33 @@ const specifierOf = (
     : Option.some(parametersOf(open, close, items, lineText, linePosition, rules))
 }
 
+const unknownTo = (rules: BraceRules, kind: string): Option.Option<ReadonlyArray<string>> =>
+  Option.filter(rules.kinds, (kinds) => !isKindIn(kinds)(kind))
+
 const kindChecked =
   (rules: BraceRules) =>
   (specifier: SpecifierToken): SpecifierToken =>
-    specifier.label.health.status !== 'ok' || isKindIn(rules.kinds)(specifier.label.value)
-      ? specifier
-      : SpecifierTokenSchema.make({
-          ...specifier,
-          health: { status: 'error', diagnostics: [] },
-          label: SpecifierLabelTokenSchema.make({
-            ...specifier.label,
-            health: faulty(
-              UnknownKind({ kind: specifier.label.value, kinds: rules.kinds, on: rules.on }),
-              specifier.label.position,
-            ),
+    Option.match(
+      Option.filter(
+        unknownTo(rules, specifier.label.value),
+        () => specifier.label.health.status === 'ok',
+      ),
+      {
+        onNone: () => specifier,
+        onSome: (kinds) =>
+          SpecifierTokenSchema.make({
+            ...specifier,
+            health: { status: 'error', diagnostics: [] },
+            label: SpecifierLabelTokenSchema.make({
+              ...specifier.label,
+              health: faulty(
+                UnknownKind({ kind: specifier.label.value, kinds, on: rules.on }),
+                specifier.label.position,
+              ),
+            }),
           }),
-        })
+      },
+    )
 
 const parametersOf = (
   open: SpecifierOpenToken,
@@ -1578,7 +1600,13 @@ const parameterToken = (
   rules: BraceRules,
 ): ParameterToken => {
   const key = parameter.key.value
-  const strange = Array.findFirst(parameter.values, (value) => !isKindIn(rules.kinds)(value.value))
+  const strange = Array.head(
+    Array.getSomes(
+      Array.map(parameter.values, (value) =>
+        Option.map(unknownTo(rules, value.value), (kinds) => ({ value, kinds })),
+      ),
+    ),
+  )
   const health = Match.value({
     repeated: Array.some(earlier, (before) => before.key.value === key),
     known: Array.contains(rules.keys, key),
@@ -1591,8 +1619,8 @@ const parameterToken = (
     Match.when({ kind: true }, () =>
       Option.match(strange, {
         onNone: () => okHealth,
-        onSome: (value) =>
-          faulty(UnknownKind({ kind: value.value, kinds: rules.kinds, on: rules.on }), at(value)),
+        onSome: ({ value, kinds }) =>
+          faulty(UnknownKind({ kind: value.value, kinds, on: rules.on }), at(value)),
       }),
     ),
     Match.orElse(() => okHealth),

@@ -135,10 +135,8 @@ describe('the braces on a box', () => {
   const faults = (line: string): ReadonlyArray<string> =>
     diagnosticsIn(parse(lines('# Chapter', '', line, 'Body.', ':::'))).map((d) => d.message)
 
-  it('fault a kind the core does not give a box', () => {
-    expect(faults('::: Cells {Mermaid}')).toEqual([
-      'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, and `Conclusion`.',
-    ])
+  it('leave a kind for the book to judge', () => {
+    expect(faults('::: Cells {Mermaid}')).toEqual([])
   })
 
   it('fault a key a box does not take', () => {

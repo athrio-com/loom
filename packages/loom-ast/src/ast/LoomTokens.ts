@@ -143,6 +143,11 @@ export const FrontmatterDiscussionTokenSchema = loomNode('FrontmatterDiscussion'
 })
 export type FrontmatterDiscussionToken = typeof FrontmatterDiscussionTokenSchema.Type
 
+export const FrontmatterTropeTokenSchema = loomNode('FrontmatterTrope', {
+  value: Schema.String,
+})
+export type FrontmatterTropeToken = typeof FrontmatterTropeTokenSchema.Type
+
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,
 })

@@ -1,0 +1,33 @@
+---
+Part XIV: Mermaid diagrams
+Chapter 1: Declaring the Mermaid kind
+Trope: Mermaid diagrams
+---
+
+# Declaring the Mermaid kind
+
+A diagram often says in one picture what prose takes a page to say: the order of a pipeline, the states of a game, the parts of a system and how they meet. Mermaid is a language for such diagrams, written as plain text, so a diagram lives in a loom as easily as code does. The Mermaid trope lets a book write a diagram in a box of the `Mermaid` kind, whose body is the diagram's Mermaid source.
+
+```
+::: The passes {Mermaid}
+flowchart LR
+  parse --> product --> tangle
+:::
+```
+
+The box's name is its caption, as for any box. Without the trope, Loom reads `Mermaid` as a kind nobody gives a box, so the box is a fault. Declaring the kind is what makes it none. Contract 1 lets a trope declare kinds and nothing more, so the editor and the woven page show a `Mermaid` box as the source it holds.
+
+This part is the trope's own, as a trope published for other books keeps to a part of its own. This chapter is the trope's root: it names the trope with its `Trope:` line and holds the trope's manifest, as Part XIII, Tropes, describes.
+
+## What the trope declares {Manifest}
+
+The trope declares one kind of box. Its `body` names the format the box holds, `mermaid`, for whatever later draws the diagram from it.
+
+=>
+
+{
+  "contract": "1",
+  "contributes": {
+    "kinds": { "box": [{ "kind": "Mermaid", "body": "mermaid" }] }
+  }
+}

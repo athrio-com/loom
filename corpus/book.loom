@@ -354,6 +354,19 @@ A reader searching the site rarely knows the words the book uses. This part lets
 2. Matching by meaning
 3. Embedding the index ahead
 
+### Part XIII — Tropes
+
+A trope adds to Loom what its small core leaves out, such as a kind of box that draws a diagram, and a book takes it up the way an author takes up a familiar turn of phrase. A trope is a cluster of chapters that keeps a contract, and its root tells Loom what the trope adds through its manifest, which Loom reads as data and never runs. This part holds the contract every trope keeps: the chapters of a trope, the root and its manifest, and the registry that gathers the kinds tropes declare and judges every box of the book against it.
+
+1. The trope contract
+2. The kinds tropes declare
+
+### Part XIV — Mermaid diagrams
+
+The first trope Loom publishes lets a book draw a diagram from a box of the `Mermaid` kind, whose body is the diagram's Mermaid source. It begins by declaring the kind, so such a box is no fault anywhere in a book that holds the trope.
+
+1. Declaring the Mermaid kind
+
 ### Work in progress
 
 - References in the editor and in other languages

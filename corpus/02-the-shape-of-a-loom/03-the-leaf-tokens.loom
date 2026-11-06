@@ -159,7 +159,7 @@ export type SinkToken = typeof SinkTokenSchema.Type
 
 ## Frontmatter tokens
 
-A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. A chapter always names itself, and its part is named once, by the chapter that opens it: that opener announces the part on its own line and its chapter on the next — `Part III: The shape of a loom`, then `Chapter 1: The node foundation`. A later chapter carries the part by its Roman numeral alone and names itself after the comma — `Part III, Chapter 3: Wefts`. `FrontmatterPart` holds the Roman numeral, `FrontmatterPartName` the part's name where the opener declares it, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` its title. A discussion names itself the same way, with `Discussion` in place of `Chapter`, as in `Part I, Discussion 1: Waking`, and `FrontmatterDiscussion` holds its number. A discussion without a number holds an empty one, so the token still says the loom is a discussion. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
+A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. A chapter always names itself, and its part is named once, by the chapter that opens it: that opener announces the part on its own line and its chapter on the next — `Part III: The shape of a loom`, then `Chapter 1: The node foundation`. A later chapter carries the part by its Roman numeral alone and names itself after the comma — `Part III, Chapter 3: Wefts`. `FrontmatterPart` holds the Roman numeral, `FrontmatterPartName` the part's name where the opener declares it, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` its title. A discussion names itself the same way, with `Discussion` in place of `Chapter`, as in `Part I, Discussion 1: Waking`, and `FrontmatterDiscussion` holds its number. A discussion without a number holds an empty one, so the token still says the loom is a discussion. A chapter that belongs to a trope says so with a line of its own, as `Trope: Mermaid diagrams` does, and `FrontmatterTrope` holds the trope's name. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
 
 =>
 
@@ -187,6 +187,11 @@ export const FrontmatterDiscussionTokenSchema = loomNode('FrontmatterDiscussion'
   value: Schema.String,
 })
 export type FrontmatterDiscussionToken = typeof FrontmatterDiscussionTokenSchema.Type
+
+export const FrontmatterTropeTokenSchema = loomNode('FrontmatterTrope', {
+  value: Schema.String,
+})
+export type FrontmatterTropeToken = typeof FrontmatterTropeTokenSchema.Type
 
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,

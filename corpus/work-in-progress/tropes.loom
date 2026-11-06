@@ -18,6 +18,8 @@ The word comes from writing, where a trope is a familiar turn that any author ma
 
 Loom already ships one kind of trope, though not under that name. Part VII, Languages as packages, defines the language service, a package that gives one language its editor support. The `LanguageLoader` module imports each language service from the workspace's store and runs it inside the editor's process. This chapter grows that contract into the contract for every trope. It says what a trope contributes, where its code runs, what it may touch, and how Loom holds it to that.
 
+Loom already reads the first of it, and it reads a trope differently from the rest of this chapter. Part XIII, Tropes, holds the contract as built: a trope is a cluster of chapters, each naming the trope with a `Trope:` line, and its root is the chapter that holds the trope's manifest in a `Manifest` section. Version 1 of the contract declares kinds of box, and the registry gathers those kinds and judges every box of the book against them. Part XIV, Mermaid diagrams, is the first trope Loom publishes. Where this chapter still speaks of a `Trope` kind of loom kept in the back matter, Part XIII's model replaces it.
+
 ## What stays in the core
 
 The core holds what every book needs before it can be read at all:
@@ -402,7 +404,7 @@ A trope that keeps failing, or that the editor stops, costs only itself. Its con
 ## What this chapter grows into
 
 1. The contract's manifest schema, in Effect Schema and versioned by the `contract` field: the language service as the first kind of contribution, TypeScript declared as a bundled trope, and the loader reading a language's `id`, `displayName`, and `extensions` from the manifest instead of from the package's export.
-2. Declared kinds: the `kinds` and `headings` keys, the value types, data bodies checked against their schemas, the registry built as a workspace opens, the refusal of a clash, the core's passes that apply the registry, and relations shown as edges in the book's graph, with the Glossary trope as the first trope to declare kinds.
+2. Declared kinds beyond boxes: kinds of loom, section, and anchor, the `headings` key, the value types, data bodies checked against their schemas, the registry read from packages as a workspace opens, and relations shown as edges in the book's graph, with the Glossary trope among the first to declare them.
 3. Third-party packages in the store: named in full, built against a contract version, installed with their install scripts off, and pinned by version and integrity.
 4. The sandbox around every trope process, with the default rights, an explicit environment, and Loom's own protected paths.
 5. Grants: `loom add` shows what a trope asks for and records the grant, and an update that asks for more asks again.
@@ -410,7 +412,7 @@ A trope that keeps failing, or that the editor stops, costs only itself. Its con
 7. Effect's RPC for kinds, views, decorators, and assists, with features that wait for a trope under a time limit or work its answer out ahead: stubs for unsettled sections first, then completion by a model.
 8. Syntax as a contribution: marks declared as patterns in the manifest, applied by the classifier, and given their meaning over RPC.
 9. Denials shown in the editor.
-10. The `Trope` kind of loom and its `Manifest` section, read with core Loom alone, in the corpus and in packages, with each trope's planes shown beside it.
+10. `Trope` looms read from packages in the store, with each trope's planes shown beside it.
 11. Templates copied into a corpus, with the starter as the first.
 12. The kit: both transports, the frames of views, decoded bodies and parameters, and the test harness.
 13. Web tropes: the `runs` key, workers that speak Effect's RPC, and bundling in the browser.

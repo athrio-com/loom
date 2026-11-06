@@ -473,6 +473,7 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       package: Option.getOrUndefined(
         Option.orElse(frontmatterField(wefts, 'Target'), () => frontmatterField(wefts, 'Package')),
       ),
+      trope: wefts.find((w) => w.trope !== undefined)?.trope,
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
       priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),
