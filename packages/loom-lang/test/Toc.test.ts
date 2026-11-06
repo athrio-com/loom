@@ -315,3 +315,36 @@ describe('parts navigate to where they are announced', () => {
     }).pipe(Effect.provide(partLayer)),
   )
 })
+
+describe('regenerating the contents', () => {
+  const described = lines(
+    '# Contents {TOC}',
+    '',
+    '### Part I — Rooms',
+    '',
+    'Rooms hold the world.',
+    '',
+    'Each room is a grid.',
+    '',
+    '1. Walls',
+  )
+  const walls = lines('---', 'Part I: Rooms', 'Chapter 1: Walls', '---', '', '# Walls')
+  const contentsOf = (book: string) =>
+    LoomCompiler.pipe(
+      Effect.flatMap((compiler) => compiler.contents('/book.loom')),
+      Effect.provide(makeCompilerLayer({ '/book.loom': book, '/walls.loom': walls })),
+    )
+
+  it.effect('keeps a description of several paragraphs as written', () =>
+    Effect.gen(function* () {
+      expect(yield* contentsOf(described)).toBe(described)
+    }),
+  )
+
+  it.effect('closes up the blank lines an older run left between paragraphs', () =>
+    Effect.gen(function* () {
+      const padded = described.replace('world.\n\n', 'world.\n\n\n\n\n\n\n')
+      expect(yield* contentsOf(padded)).toBe(described)
+    }),
+  )
+})

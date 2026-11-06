@@ -3674,6 +3674,45 @@ The editor can navigate from a part but cannot rename it. The `navigationRange` 
   )
 })
 
+## Regenerating the contents
+
+`loom toc` keeps a part's description as the author wrote it. A description of several paragraphs comes back with one blank line between each, run after run, so regenerating a book that is already up to date changes nothing. Blank lines that an older run left between the paragraphs close up to one.
+
+=>
+
+describe('regenerating the contents', () => {
+  const described = lines(
+    '# Contents {TOC}',
+    '',
+    '### Part I — Rooms',
+    '',
+    'Rooms hold the world.',
+    '',
+    'Each room is a grid.',
+    '',
+    '1. Walls',
+  )
+  const walls = lines('---', 'Part I: Rooms', 'Chapter 1: Walls', '---', '', '# Walls')
+  const contentsOf = (book: string) =>
+    LoomCompiler.pipe(
+      Effect.flatMap((compiler) => compiler.contents('/book.loom')),
+      Effect.provide(makeCompilerLayer({ '/book.loom': book, '/walls.loom': walls })),
+    )
+
+  it.effect('keeps a description of several paragraphs as written', () =>
+    Effect.gen(function* () {
+      expect(yield* contentsOf(described)).toBe(described)
+    }),
+  )
+
+  it.effect('closes up the blank lines an older run left between paragraphs', () =>
+    Effect.gen(function* () {
+      const padded = described.replace('world.\n\n', 'world.\n\n\n\n\n\n\n')
+      expect(yield* contentsOf(padded)).toBe(described)
+    }),
+  )
+})
+
 ## The contents test file [test/Toc.test.ts]
 
 =>
@@ -3685,3 +3724,5 @@ The editor can navigate from a part but cannot rename it. The `navigationRange` 
 ::[Two chapters of one title in the contents]
 
 ::[Where a part is announced]
+
+::[Regenerating the contents]

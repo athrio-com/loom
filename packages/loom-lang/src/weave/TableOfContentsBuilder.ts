@@ -277,7 +277,10 @@ type Gather = {
 }
 
 const flushed = (state: Gather): ReadonlyMap<string, string> => {
-  const description = state.lines.join('\n').trim()
+  const description = state.lines
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   return Option.match(state.part, {
     onNone: () => state.found,
     onSome: (part) =>

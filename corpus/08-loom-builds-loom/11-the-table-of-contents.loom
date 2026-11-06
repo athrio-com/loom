@@ -286,7 +286,7 @@ const toTocDiscussion = (discussion: Discussion): TocDiscussion =>
 
 ## Keeping the author's descriptions
 
-A part's introductory paragraph is prose the command must not lose, so it reads the descriptions out of the current contents before it rewrites them. `bookEntries` finds the module that carries a `{TOC}` section and reads its lines in order. `lineOf` names each line by what it holds — a heading is a part, a numbered item or a bulleted one is a chapter, and anything else is prose. Every prose line between a part heading and its first chapter is that part's description; `descriptionsFrom` gathers those, keyed by the part's identity, and drops a part whose description is empty. `partNumberOf` reads that identity from a `Part R — name` heading, falling back to the whole label for a numberless `name` heading, so the key matches the one the parts sort by.
+A part's introductory paragraph is prose the command must not lose, so it reads the descriptions out of the current contents before it rewrites them. `bookEntries` finds the module that carries a `{TOC}` section and reads its lines in order. `lineOf` names each line by what it holds — a heading is a part, a numbered item or a bulleted one is a chapter, and anything else is prose. Every prose line between a part heading and its first chapter is that part's description; `descriptionsFrom` gathers those, keyed by the part's identity, and drops a part whose description is empty. Each line keeps its own line ending, so `flushed` joins the lines as they are. It also closes any run of blank lines to one, so a description of several paragraphs reads back as the author wrote it, however many times the command runs, and blank lines an older run left between its paragraphs close up. `partNumberOf` reads that identity from a `Part R — name` heading, falling back to the whole label for a numberless `name` heading, so the key matches the one the parts sort by.
 
 =>
 
@@ -330,7 +330,10 @@ type Gather = {
 }
 
 const flushed = (state: Gather): ReadonlyMap<string, string> => {
-  const description = state.lines.join('\n').trim()
+  const description = state.lines
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   return Option.match(state.part, {
     onNone: () => state.found,
     onSome: (part) =>

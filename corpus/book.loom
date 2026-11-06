@@ -122,195 +122,9 @@ An editor runs its extensions in its own host, not a process Loom starts. This p
 
 Loom's website is a Foldkit application of five pages, set on paper. The landing makes the pitch and shows a Loom document written out. Why Loom argues the case against the three approaches it replaces. Docs teaches the marks inside an editor shell. Community gathers the people and the corpora, and Source reads a loom the way the framework renders one.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 One scheme governs all five, so the site reads as one thing: a warm cream ground under three steps of ink, two families of type on a fixed scale, and every measurement on a four-pixel grid. Loom's own woven mark ties it together — a carpet of coloured cells drawn from a grid of glyphs, small beside a name and whole in the hero.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 Each page wears the same chrome. A centred nav carries the wordmark between its links, and a slash opens a search palette that indexes both the pages and the prose inside them. A pager closes each page by naming its neighbours, and the footer ends the site on its one dark ground.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 The site renders on the server first, for a reader and a crawler, then hydrates and takes over. This part builds it up — the scheme, the model, the marks, the chrome, each page in turn, then the client, the server, the package that ships them, the image that carries the package to a host, and the search that reads across every page.
 
@@ -369,10 +183,23 @@ The first trope Loom publishes lets a book draw a diagram from a box of the `Mer
 
 ### Work in progress
 
+- Books
+- Boxes
+- Canvases
+- Decorators
+- Discussions
+- Divisions
+- Editor commands
+- Loading a workspace lazily
+- Names through the book
+- Parameters in braces
 - References in the editor and in other languages
+- Runnable looms
+- Small passes over the tree
 - Testing in looms
-- The Foldkit fork
+- The Glossary trope
 - The weave pass
 - The weave writer
 - The woven corpus
+- Tropes
 - Weaving
