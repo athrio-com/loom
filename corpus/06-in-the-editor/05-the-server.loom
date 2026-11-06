@@ -1239,7 +1239,7 @@ const workspaceAt = (root: string, service: string): string => {
 
 The cases start the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The client hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit. `definition` asks where the name at one place in a loom is defined, and keeps the loom and the line of each answer, whether the server answers with a location or a link. `rename` asks for the edits that rename the name at one place, and keeps the loom, the line, and the new text of each, whether the edits arrive by document or as changes.
 
 =>
 
@@ -1338,6 +1338,53 @@ const editorAt = async (folder: string) => {
       ).items,
       (item) => ({ label: item.label, textEdit: item.textEdit }),
     )
+  const definition = async (
+    path: string,
+    line: number,
+    character: number,
+  ): Promise<ReadonlyArray<{ readonly uri: string; readonly line: number }>> => {
+    const found = await connection.sendRequest<Location | Array<Location | LocationLink> | null>(
+      'textDocument/definition',
+      { textDocument: { uri: pathToFileURL(path).href }, position: { line, character } },
+    )
+    return Array.map(
+      Option.match(Option.fromNullishOr(found), {
+        onNone: (): ReadonlyArray<Location | LocationLink> => [],
+        onSome: (one) => (globalThis.Array.isArray(one) ? one : [one]),
+      }),
+      (one) =>
+        'targetUri' in one
+          ? { uri: one.targetUri, line: one.targetSelectionRange.start.line }
+          : { uri: one.uri, line: one.range.start.line },
+    )
+  }
+  const rename = async (
+    path: string,
+    line: number,
+    character: number,
+    newName: string,
+  ): Promise<
+    ReadonlyArray<{ readonly uri: string; readonly line: number; readonly newText: string }>
+  > => {
+    const edit = await connection.sendRequest<WorkspaceEdit | null>('textDocument/rename', {
+      textDocument: { uri: pathToFileURL(path).href },
+      position: { line, character },
+      newName,
+    })
+    const byDocument = Array.flatMap(edit?.documentChanges ?? [], (change) =>
+      'edits' in change
+        ? Array.map(change.edits, (one) => [change.textDocument.uri, one] as const)
+        : [],
+    )
+    const byChange = Array.flatMap(Object.entries(edit?.changes ?? {}), ([uri, edits]) =>
+      Array.map(edits, (one) => [uri, one] as const),
+    )
+    return Array.map([...byDocument, ...byChange], ([uri, one]) => ({
+      uri,
+      line: one.range.start.line,
+      newText: one.newText,
+    }))
+  }
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -1360,6 +1407,8 @@ const editorAt = async (folder: string) => {
     hints,
     folds,
     completions,
+    definition,
+    rename,
     changed,
     applied,
     close,
@@ -2369,9 +2418,129 @@ describe('LoomServer — the pass piece by piece', () => {
   })
 })
 
+## Testing a trope box
+
+A trope box names a trope and points to its entry point with its `anchors` key, as Part XIII, Chapter 3, "A trope in the text", describes. These cases drive one through the server, the way an editor sees it. The shop's box names the trope `Payments`, and the shop's program composes it. `shopWith` writes the shop with the given braces on the box, and `billingWith` writes the chapter `Billing`, whose opening is the given prose, as the trope's entry point. `lineOf` finds the line of a loom that holds some text.
+
+The first case opens the shop with a trope that points nowhere, and the server notes that it is to be settled. An edit that points the trope at `Billing` settles it, before anything is saved. The other cases settle the trope from the start. Going to the definition of the trope's name reaches the title of `Billing`. A rename of `Billing` rewrites the box's `anchors` value with the title, and leaves the anchor that names the trope alone. An edit to the opening of `Billing` reaches the box's copy of it, and the server asks the editor to write the new opening there.
+
+=>
+
+describe('LoomServer — a trope box', () => {
+  const shopWith = (braces: string) =>
+    lines(
+      '---',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# The shop',
+      '',
+      'A shop charges for what it sells.',
+      '',
+      `::: Payments ${braces}`,
+      'Charge a member monthly.',
+      ':::',
+      '',
+      '## The program [shop.ts]',
+      '',
+      '=>',
+      anchor('Payments'),
+    )
+  const billingWith = (opening: string) =>
+    lines(
+      '---',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# Billing',
+      '',
+      opening,
+      '',
+      '=>',
+      'const charge = 1',
+    )
+  const lineOf = (text: string, part: string) =>
+    text.split('\n').findIndex((row) => row.includes(part))
+  const settled = shopWith('{kind=Trope anchors=Billing}')
+
+  it('notes a trope that points nowhere, and settles it as the author points it', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const shop = chapterAt(root, 'shop.loom', shopWith('{Trope}'))
+    const billing = chapterAt(root, 'billing.loom', billingWith('Charge a member monthly.'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(shop)
+      await editor.open(billing)
+      expect(await editor.diagnostics(shop)).toContain(
+        'To be settled: the trope `Payments` points to no section or chapter yet. Name the one that holds it with `anchors`.',
+      )
+      await editor.edit(shop, settled)
+      const after = await editor.diagnostics(shop)
+      expect(after.filter((message) => message.startsWith('To be settled'))).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('follows the trope to its entry point, and renames the entry point with its anchors value', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const shop = chapterAt(root, 'shop.loom', settled)
+    const opening = billingWith('Charge a member monthly.')
+    const billing = chapterAt(root, 'billing.loom', opening)
+    const editor = await editorAt(root)
+    try {
+      await editor.open(shop)
+      await editor.open(billing)
+      const box = lineOf(settled, '::: Payments')
+      expect(await editor.definition(shop, box, 5)).toEqual([
+        { uri: pathToFileURL(billing).href, line: lineOf(opening, '# Billing') },
+      ])
+      const renamed = await editor.rename(billing, lineOf(opening, '# Billing'), 3, 'Invoicing')
+      expect(renamed.map((one) => [one.uri, one.line, one.newText]).sort()).toEqual(
+        [
+          [pathToFileURL(billing).href, lineOf(opening, '# Billing'), 'Invoicing'],
+          [pathToFileURL(shop).href, box, 'Invoicing'],
+        ].sort(),
+      )
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('writes an edit to the entry point into the box', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const shop = chapterAt(root, 'shop.loom', settled)
+    const billing = chapterAt(root, 'billing.loom', billingWith('Charge a member monthly.'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(shop)
+      await editor.open(billing)
+      await editor.edit(billing, billingWith('Charge a member yearly.'))
+      const [asked] = await editor.applied()
+      const box = lineOf(settled, 'Charge a member monthly.')
+      expect(asked?.edit.documentChanges).toEqual([
+        {
+          textDocument: { uri: pathToFileURL(shop).href, version: 1 },
+          edits: [
+            {
+              range: { start: { line: box, character: 0 }, end: { line: box + 1, character: 0 } },
+              newText: 'Charge a member yearly.\n',
+            },
+          ],
+        },
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns, and `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
@@ -2385,11 +2554,14 @@ import {
   FileChangeType,
   type FoldingRange,
   type InlayHint,
+  type Location,
+  type LocationLink,
   StreamMessageReader,
   StreamMessageWriter,
   type TextEdit,
+  type WorkspaceEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
+import { Array, Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
@@ -2445,5 +2617,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing the names a section must provide]
 
 ::[Testing a name that waits]
+
+::[Testing a trope box]
 
 ::[Testing the pass piece by piece]

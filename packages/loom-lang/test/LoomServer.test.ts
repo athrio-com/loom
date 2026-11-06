@@ -8,11 +8,14 @@ import {
   FileChangeType,
   type FoldingRange,
   type InlayHint,
+  type Location,
+  type LocationLink,
   StreamMessageReader,
   StreamMessageWriter,
   type TextEdit,
+  type WorkspaceEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
+import { Array, Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
@@ -188,6 +191,53 @@ const editorAt = async (folder: string) => {
       ).items,
       (item) => ({ label: item.label, textEdit: item.textEdit }),
     )
+  const definition = async (
+    path: string,
+    line: number,
+    character: number,
+  ): Promise<ReadonlyArray<{ readonly uri: string; readonly line: number }>> => {
+    const found = await connection.sendRequest<Location | Array<Location | LocationLink> | null>(
+      'textDocument/definition',
+      { textDocument: { uri: pathToFileURL(path).href }, position: { line, character } },
+    )
+    return Array.map(
+      Option.match(Option.fromNullishOr(found), {
+        onNone: (): ReadonlyArray<Location | LocationLink> => [],
+        onSome: (one) => (globalThis.Array.isArray(one) ? one : [one]),
+      }),
+      (one) =>
+        'targetUri' in one
+          ? { uri: one.targetUri, line: one.targetSelectionRange.start.line }
+          : { uri: one.uri, line: one.range.start.line },
+    )
+  }
+  const rename = async (
+    path: string,
+    line: number,
+    character: number,
+    newName: string,
+  ): Promise<
+    ReadonlyArray<{ readonly uri: string; readonly line: number; readonly newText: string }>
+  > => {
+    const edit = await connection.sendRequest<WorkspaceEdit | null>('textDocument/rename', {
+      textDocument: { uri: pathToFileURL(path).href },
+      position: { line, character },
+      newName,
+    })
+    const byDocument = Array.flatMap(edit?.documentChanges ?? [], (change) =>
+      'edits' in change
+        ? Array.map(change.edits, (one) => [change.textDocument.uri, one] as const)
+        : [],
+    )
+    const byChange = Array.flatMap(Object.entries(edit?.changes ?? {}), ([uri, edits]) =>
+      Array.map(edits, (one) => [uri, one] as const),
+    )
+    return Array.map([...byDocument, ...byChange], ([uri, one]) => ({
+      uri,
+      line: one.range.start.line,
+      newText: one.newText,
+    }))
+  }
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -210,6 +260,8 @@ const editorAt = async (folder: string) => {
     hints,
     folds,
     completions,
+    definition,
+    rename,
     changed,
     applied,
     close,
@@ -924,6 +976,118 @@ describe('LoomServer — a name that waits', () => {
       ).toEqual([
         ['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]],
         ['Mark `Saying goodbye` to be settled', [['{To be settled}', 8, 18]]],
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+describe('LoomServer — a trope box', () => {
+  const shopWith = (braces: string) =>
+    lines(
+      '---',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# The shop',
+      '',
+      'A shop charges for what it sells.',
+      '',
+      `::: Payments ${braces}`,
+      'Charge a member monthly.',
+      ':::',
+      '',
+      '## The program [shop.ts]',
+      '',
+      '=>',
+      anchor('Payments'),
+    )
+  const billingWith = (opening: string) =>
+    lines(
+      '---',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# Billing',
+      '',
+      opening,
+      '',
+      '=>',
+      'const charge = 1',
+    )
+  const lineOf = (text: string, part: string) =>
+    text.split('\n').findIndex((row) => row.includes(part))
+  const settled = shopWith('{kind=Trope anchors=Billing}')
+
+  it('notes a trope that points nowhere, and settles it as the author points it', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const shop = chapterAt(root, 'shop.loom', shopWith('{Trope}'))
+    const billing = chapterAt(root, 'billing.loom', billingWith('Charge a member monthly.'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(shop)
+      await editor.open(billing)
+      expect(await editor.diagnostics(shop)).toContain(
+        'To be settled: the trope `Payments` points to no section or chapter yet. Name the one that holds it with `anchors`.',
+      )
+      await editor.edit(shop, settled)
+      const after = await editor.diagnostics(shop)
+      expect(after.filter((message) => message.startsWith('To be settled'))).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('follows the trope to its entry point, and renames the entry point with its anchors value', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const shop = chapterAt(root, 'shop.loom', settled)
+    const opening = billingWith('Charge a member monthly.')
+    const billing = chapterAt(root, 'billing.loom', opening)
+    const editor = await editorAt(root)
+    try {
+      await editor.open(shop)
+      await editor.open(billing)
+      const box = lineOf(settled, '::: Payments')
+      expect(await editor.definition(shop, box, 5)).toEqual([
+        { uri: pathToFileURL(billing).href, line: lineOf(opening, '# Billing') },
+      ])
+      const renamed = await editor.rename(billing, lineOf(opening, '# Billing'), 3, 'Invoicing')
+      expect(renamed.map((one) => [one.uri, one.line, one.newText]).sort()).toEqual(
+        [
+          [pathToFileURL(billing).href, lineOf(opening, '# Billing'), 'Invoicing'],
+          [pathToFileURL(shop).href, box, 'Invoicing'],
+        ].sort(),
+      )
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('writes an edit to the entry point into the box', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const shop = chapterAt(root, 'shop.loom', settled)
+    const billing = chapterAt(root, 'billing.loom', billingWith('Charge a member monthly.'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(shop)
+      await editor.open(billing)
+      await editor.edit(billing, billingWith('Charge a member yearly.'))
+      const [asked] = await editor.applied()
+      const box = lineOf(settled, 'Charge a member monthly.')
+      expect(asked?.edit.documentChanges).toEqual([
+        {
+          textDocument: { uri: pathToFileURL(shop).href, version: 1 },
+          edits: [
+            {
+              range: { start: { line: box, character: 0 }, end: { line: box + 1, character: 0 } },
+              newText: 'Charge a member yearly.\n',
+            },
+          ],
+        },
       ])
     } finally {
       editor.close()
