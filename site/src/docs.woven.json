@@ -131,7 +131,9 @@
           },
           "level": 1,
           "title": "Quick start",
-          "id": "quick-start"
+          "id": "quick-start",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -149,7 +151,9 @@
           },
           "level": 2,
           "title": "Write your first loom",
-          "id": "write-your-first-loom"
+          "id": "write-your-first-loom",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -167,7 +171,9 @@
           },
           "level": 2,
           "title": "Turn it into code",
-          "id": "turn-it-into-code"
+          "id": "turn-it-into-code",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -185,7 +191,9 @@
           },
           "level": 2,
           "title": "Run it",
-          "id": "run-it"
+          "id": "run-it",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -211,7 +219,9 @@
           },
           "level": 1,
           "title": "Installing Loom",
-          "id": "installing-loom"
+          "id": "installing-loom",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -229,7 +239,9 @@
           },
           "level": 2,
           "title": "Without Node or Bun",
-          "id": "without-node-or-bun"
+          "id": "without-node-or-bun",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -247,7 +259,9 @@
           },
           "level": 2,
           "title": "On Windows",
-          "id": "on-windows"
+          "id": "on-windows",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -265,7 +279,9 @@
           },
           "level": 2,
           "title": "On macOS",
-          "id": "on-macos"
+          "id": "on-macos",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -283,7 +299,9 @@
           },
           "level": 2,
           "title": "When an older loom answers",
-          "id": "when-an-older-loom-answers"
+          "id": "when-an-older-loom-answers",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -309,7 +327,9 @@
           },
           "level": 1,
           "title": "Loom projects",
-          "id": "loom-projects"
+          "id": "loom-projects",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -327,7 +347,9 @@
           },
           "level": 2,
           "title": "Initialise project",
-          "id": "initialise-project"
+          "id": "initialise-project",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -345,7 +367,9 @@
           },
           "level": 2,
           "title": "A home for your looms",
-          "id": "a-home-for-your-looms"
+          "id": "a-home-for-your-looms",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -363,7 +387,9 @@
           },
           "level": 2,
           "title": "Tangle the project",
-          "id": "tangle-the-project"
+          "id": "tangle-the-project",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -381,7 +407,9 @@
           },
           "level": 2,
           "title": "The lock file",
-          "id": "the-lock-file"
+          "id": "the-lock-file",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -399,7 +427,9 @@
           },
           "level": 2,
           "title": "Ejecting Loom",
-          "id": "ejecting-loom"
+          "id": "ejecting-loom",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -425,7 +455,9 @@
           },
           "level": 1,
           "title": "Sections, prose and code",
-          "id": "sections-prose-and-code"
+          "id": "sections-prose-and-code",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -443,7 +475,9 @@
           },
           "level": 2,
           "title": "Sections",
-          "id": "sections"
+          "id": "sections",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -461,7 +495,9 @@
           },
           "level": 2,
           "title": "From prose to code",
-          "id": "from-prose-to-code"
+          "id": "from-prose-to-code",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -479,7 +515,9 @@
           },
           "level": 2,
           "title": "Back to prose",
-          "id": "back-to-prose"
+          "id": "back-to-prose",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -505,7 +543,9 @@
           },
           "level": 1,
           "title": "Supported editors",
-          "id": "supported-editors"
+          "id": "supported-editors",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -523,7 +563,9 @@
           },
           "level": 2,
           "title": "VS Code",
-          "id": "vs-code"
+          "id": "vs-code",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -541,7 +583,9 @@
           },
           "level": 2,
           "title": "Zed",
-          "id": "zed"
+          "id": "zed",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -559,7 +603,9 @@
           },
           "level": 2,
           "title": "Gram",
-          "id": "gram"
+          "id": "gram",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -577,7 +623,9 @@
           },
           "level": 2,
           "title": "Helix",
-          "id": "helix"
+          "id": "helix",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -595,7 +643,9 @@
           },
           "level": 2,
           "title": "Neovim",
-          "id": "neovim"
+          "id": "neovim",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -613,7 +663,9 @@
           },
           "level": 2,
           "title": "Any other editor",
-          "id": "any-other-editor"
+          "id": "any-other-editor",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -631,7 +683,9 @@
           },
           "level": 2,
           "title": "Formatting and wrapping",
-          "id": "formatting-and-wrapping"
+          "id": "formatting-and-wrapping",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -649,7 +703,9 @@
           },
           "level": 2,
           "title": "Checking TypeScript",
-          "id": "checking-typescript"
+          "id": "checking-typescript",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -675,7 +731,9 @@
           },
           "level": 1,
           "title": "Syntax",
-          "id": "syntax"
+          "id": "syntax",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -683,7 +741,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "syntax"
           },
-          "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are nine of them, and each does a single thing. Learn these and you can read any corpus."
+          "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are eight of them, and each does a single thing. Learn these and you can read any corpus."
         },
         {
           "type": "heading",
@@ -693,7 +751,9 @@
           },
           "level": 2,
           "title": "The marks",
-          "id": "the-marks"
+          "id": "the-marks",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -701,7 +761,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "the-marks"
           },
-          "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~>` | opens a code block that only `~` closes |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name = value }}` | binds a value an anchor can draw into the code |\n\nTwo more constructs look like marks but are the opposite of one, because each names a stretch of text Loom refuses to read. Three backticks fence a region left entirely alone, which is how this page quotes marks without invoking them. A `:::[Note]` block holds a remark for whoever opens the corpus next, and tangling drops it."
+          "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name = value }}` | binds a value an anchor can draw into the code |\n\nTwo more constructs set a stretch of text apart. Three backticks in prose fence a quote: Loom shows its lines and reads none of them as marks, which is how this page quotes marks without invoking them. A box sets a block of prose apart from the text around it. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. No mark inside a box opens anything. A box that names no kind is a note, a remark for whoever opens the corpus next, and tangling drops it with the rest of the prose. A box of the `Chapter` kind points to the chapter its name titles.\n\n```loom\n::: Why a grid {Note}\nThe room is small enough to model as cells, so the game needs no engine.\n:::\n```"
         },
         {
           "type": "heading",
@@ -711,7 +771,9 @@
           },
           "level": 2,
           "title": "Frontmatter",
-          "id": "frontmatter"
+          "id": "frontmatter",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -729,7 +791,9 @@
           },
           "level": 2,
           "title": "Sections",
-          "id": "sections"
+          "id": "sections",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -747,7 +811,9 @@
           },
           "level": 2,
           "title": "Parts",
-          "id": "parts"
+          "id": "parts",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -765,7 +831,9 @@
           },
           "level": 2,
           "title": "Naming a file",
-          "id": "naming-a-file"
+          "id": "naming-a-file",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -783,7 +851,9 @@
           },
           "level": 2,
           "title": "Labelling a heading",
-          "id": "labelling-a-heading"
+          "id": "labelling-a-heading",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -801,7 +871,9 @@
           },
           "level": 2,
           "title": "Opening and closing code",
-          "id": "opening-and-closing-code"
+          "id": "opening-and-closing-code",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -809,7 +881,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "opening-and-closing-code"
           },
-          "markdown": "The `=>` operator opens a code block. The `~` separator closes it and returns to prose. Between them the text is code in the chapter's language, and Loom treats it as opaque — it reads the marks, never the language.\n\n```loom\nThe parser reads one line at a time.\n\n=>\n\nexport const parse = (line: string) => line.trim()\n\n~\n\nTrimming first means the caller never has to.\n```\n\nProse and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.\n\nA block opened with `=>` also ends at the next heading. That suits most code, but some files are full of lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Open those with `~>` instead. The block then holds until `~`, and every `#` line inside it stays part of the file.\n\n```loom\n## The skill [SKILL.md]\n\n~>\n\n# Writing for the reader\n\n## Put the actor in the subject\n\n~\n```\n\nThe tilde that closes a block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. An explicit block that never closes is an error, because it would otherwise swallow the rest of the chapter."
+          "markdown": "The `=>` operator opens a code block. The `~` separator closes it and returns to prose. Between them the text is code in the chapter's language, and Loom treats it as opaque — it reads the marks, never the language.\n\n```loom\nThe parser reads one line at a time.\n\n=>\n\nexport const parse = (line: string) => line.trim()\n\n~\n\nTrimming first means the caller never has to.\n```\n\nProse and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.\n\nA block opened with `=>` also ends at the next heading. That suits most code, but some files hold lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Fence that code, the way Markdown fences any code. Three backticks go on the first line after the arrow, and three more where the code ends. Every line between the fences is code, `#` lines included, and the closing fence returns to prose without a tilde.\n\n````loom\n## The skill [SKILL.md]\n\n=>\n```\n# Writing for the reader\n\n## Put the actor in the subject\n```\n````\n\nThe tilde that closes a plain block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. A fence that never closes is an error, because it would otherwise swallow the rest of the chapter. Code that holds three backticks of its own, such as a Markdown file with an example in it, opens with a fence of four, and only four close it."
         },
         {
           "type": "heading",
@@ -819,7 +891,9 @@
           },
           "level": 2,
           "title": "Anchors",
-          "id": "anchors"
+          "id": "anchors",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -827,7 +901,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "anchors"
           },
-          "markdown": "An anchor draws another section in by name, and it is how a file gets assembled out of the pieces that explain it:\n\n```loom\n## The module [parser.ts]\n\n=>\n\n::[The tokens]\n\n::[The parser]\n```\n\nOrder on the page and order in the file are separate concerns. A section may be explained early and composed late, or the reverse, because the anchor decides where its code lands.\n\nTangling checks every anchor. Name a section that does not exist and the build stops and says so, which is what keeps a document and its files from drifting apart as the document is edited.\n\nInside a code block an anchor is always an anchor. To write one as an example rather than as a reference — as this page does throughout — put it in backticks or inside a fence, and Loom leaves it as text."
+          "markdown": "An anchor draws another section in by name, and it is how a file gets assembled out of the pieces that explain it:\n\n```loom\n## The module [parser.ts]\n\n=>\n\n::[The tokens]\n\n::[The parser]\n```\n\nOrder on the page and order in the file are separate concerns. A section may be explained early and composed late, or the reverse, because the anchor decides where its code lands.\n\nTangling checks every anchor. Name a section that does not exist and the build stops and says so, which is what keeps a document and its files from drifting apart as the document is edited.\n\nInside a code block an anchor is always an anchor, fenced or not. To write one as an example rather than as a reference, as this page does throughout, put it in backticks or in a quote, and Loom leaves it as text."
         },
         {
           "type": "heading",
@@ -837,7 +911,9 @@
           },
           "level": 2,
           "title": "Warps",
-          "id": "warps"
+          "id": "warps",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -855,7 +931,9 @@
           },
           "level": 2,
           "title": "Tangling",
-          "id": "tangling"
+          "id": "tangling",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -881,7 +959,9 @@
           },
           "level": 1,
           "title": "loom init",
-          "id": "loom-init"
+          "id": "loom-init",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -899,7 +979,9 @@
           },
           "level": 2,
           "title": "What it asks",
-          "id": "what-it-asks"
+          "id": "what-it-asks",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -917,7 +999,9 @@
           },
           "level": 2,
           "title": "What it writes",
-          "id": "what-it-writes"
+          "id": "what-it-writes",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -935,7 +1019,9 @@
           },
           "level": 2,
           "title": "Running it twice",
-          "id": "running-it-twice"
+          "id": "running-it-twice",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -961,7 +1047,9 @@
           },
           "level": 1,
           "title": "loom tangle",
-          "id": "loom-tangle"
+          "id": "loom-tangle",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -979,7 +1067,9 @@
           },
           "level": 2,
           "title": "What it writes",
-          "id": "what-it-writes"
+          "id": "what-it-writes",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -997,7 +1087,9 @@
           },
           "level": 2,
           "title": "When it refuses",
-          "id": "when-it-refuses"
+          "id": "when-it-refuses",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1005,7 +1097,7 @@
             "chapter": "05-cli/02-loom-tangle",
             "section": "when-it-refuses"
           },
-          "markdown": "Tangle checks the corpus before it writes anything, and it refuses the whole run rather than write half of it. An anchor that names a section which does not exist is the common case:\n\n```\nloom: refusing to tangle — Unresolved anchor: no section named `the parser`.\n```\n\nRefusing wholesale is what keeps a corpus and its files from drifting apart. A partial write would leave the output in a state no document describes."
+          "markdown": "Tangle checks the corpus before it writes anything, and it refuses the whole run rather than write half of it. An anchor that names a section which does not exist is the common case:\n\n```\nloom: refusing to tangle — No section or chapter is called `the parser`. Write one, or label this anchor `{To be settled}`.\n```\n\nRefusing wholesale is what keeps a corpus and its files from drifting apart. A partial write would leave the output in a state no document describes."
         },
         {
           "type": "heading",
@@ -1015,7 +1107,9 @@
           },
           "level": 2,
           "title": "Watching",
-          "id": "watching"
+          "id": "watching",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1033,7 +1127,9 @@
           },
           "level": 2,
           "title": "Finding files nothing describes",
-          "id": "finding-files-nothing-describes"
+          "id": "finding-files-nothing-describes",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1059,7 +1155,9 @@
           },
           "level": 1,
           "title": "loom weave",
-          "id": "loom-weave"
+          "id": "loom-weave",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1077,7 +1175,9 @@
           },
           "level": 2,
           "title": "What comes out",
-          "id": "what-comes-out"
+          "id": "what-comes-out",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1095,7 +1195,9 @@
           },
           "level": 2,
           "title": "Point it at a file, not a directory",
-          "id": "point-it-at-a-file-not-a-directory"
+          "id": "point-it-at-a-file-not-a-directory",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1113,7 +1215,9 @@
           },
           "level": 2,
           "title": "More than one corpus in a project",
-          "id": "more-than-one-corpus-in-a-project"
+          "id": "more-than-one-corpus-in-a-project",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1139,7 +1243,9 @@
           },
           "level": 1,
           "title": "loom eject",
-          "id": "loom-eject"
+          "id": "loom-eject",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1157,7 +1263,9 @@
           },
           "level": 2,
           "title": "What it leaves behind",
-          "id": "what-it-leaves-behind"
+          "id": "what-it-leaves-behind",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1175,7 +1283,9 @@
           },
           "level": 2,
           "title": "Why it exists",
-          "id": "why-it-exists"
+          "id": "why-it-exists",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1201,7 +1311,9 @@
           },
           "level": 1,
           "title": "loom format",
-          "id": "loom-format"
+          "id": "loom-format",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1219,7 +1331,9 @@
           },
           "level": 2,
           "title": "What it changes",
-          "id": "what-it-changes"
+          "id": "what-it-changes",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1237,7 +1351,9 @@
           },
           "level": 2,
           "title": "Checking",
-          "id": "checking"
+          "id": "checking",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1263,7 +1379,9 @@
           },
           "level": 1,
           "title": "loom update",
-          "id": "loom-update"
+          "id": "loom-update",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1281,7 +1399,9 @@
           },
           "level": 2,
           "title": "Why servers fall behind",
-          "id": "why-servers-fall-behind"
+          "id": "why-servers-fall-behind",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1299,7 +1419,9 @@
           },
           "level": 2,
           "title": "Updating",
-          "id": "updating"
+          "id": "updating",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1325,7 +1447,9 @@
           },
           "level": 1,
           "title": "loom upgrade",
-          "id": "loom-upgrade"
+          "id": "loom-upgrade",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1343,7 +1467,9 @@
           },
           "level": 2,
           "title": "Installed with curl",
-          "id": "installed-with-curl"
+          "id": "installed-with-curl",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1361,7 +1487,9 @@
           },
           "level": 2,
           "title": "Installed with a package manager",
-          "id": "installed-with-a-package-manager"
+          "id": "installed-with-a-package-manager",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1379,7 +1507,9 @@
           },
           "level": 2,
           "title": "After upgrading",
-          "id": "after-upgrading"
+          "id": "after-upgrading",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1405,7 +1535,9 @@
           },
           "level": 1,
           "title": "loom doctor",
-          "id": "loom-doctor"
+          "id": "loom-doctor",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1423,7 +1555,9 @@
           },
           "level": 2,
           "title": "Your machine",
-          "id": "your-machine"
+          "id": "your-machine",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1441,7 +1575,9 @@
           },
           "level": 2,
           "title": "Your project",
-          "id": "your-project"
+          "id": "your-project",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",
@@ -1459,7 +1595,9 @@
           },
           "level": 2,
           "title": "Reading the report",
-          "id": "reading-the-report"
+          "id": "reading-the-report",
+          "unsettled": false,
+          "divider": false
         },
         {
           "type": "prose",

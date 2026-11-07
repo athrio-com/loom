@@ -8,7 +8,7 @@ Language: Prose
 
 A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.
 
-There are nine of them, and each does a single thing. Learn these and you can read any corpus.
+There are eight of them, and each does a single thing. Learn these and you can read any corpus.
 
 ## The marks
 
@@ -19,12 +19,11 @@ There are nine of them, and each does a single thing. Learn these and you can re
 | `[file.ts]` | names the file a section's code belongs to |
 | `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |
 | `=>` | opens a code block |
-| `~>` | opens a code block that only `~` closes |
 | `~` | closes a code block and returns to prose |
 | `::[a section]` | draws that section in, whole |
 | `{{ name = value }}` | binds a value an anchor can draw into the code |
 
-Two more constructs set a stretch of text apart. Three backticks fence a region Loom leaves entirely alone, which is how this page quotes marks without invoking them. A box sets a block of prose apart from the text around it. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. No mark inside a box opens anything. A box that names no kind is a note, a remark for whoever opens the corpus next, and tangling drops it with the rest of the prose. A box of the `Chapter` kind points to the chapter its name titles.
+Two more constructs set a stretch of text apart. Three backticks in prose fence a quote: Loom shows its lines and reads none of them as marks, which is how this page quotes marks without invoking them. A box sets a block of prose apart from the text around it. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. No mark inside a box opens anything. A box that names no kind is a note, a remark for whoever opens the corpus next, and tangling drops it with the rest of the prose. A box of the `Chapter` kind points to the chapter its name titles.
 
 ```loom
 ::: Why a grid {Note}
@@ -101,21 +100,20 @@ Trimming first means the caller never has to.
 
 Prose and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.
 
-A block opened with `=>` also ends at the next heading. That suits most code, but some files are full of lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Open those with `~>` instead. The block then holds until `~`, and every `#` line inside it stays part of the file.
+A block opened with `=>` also ends at the next heading. That suits most code, but some files hold lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Fence that code, the way Markdown fences any code. Three backticks go on the first line after the arrow, and three more where the code ends. Every line between the fences is code, `#` lines included, and the closing fence returns to prose without a tilde.
 
-```loom
+````loom
 ## The skill [SKILL.md]
 
-~>
-
+=>
+```
 # Writing for the reader
 
 ## Put the actor in the subject
-
-~
 ```
+````
 
-The tilde that closes a block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. An explicit block that never closes is an error, because it would otherwise swallow the rest of the chapter.
+The tilde that closes a plain block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. A fence that never closes is an error, because it would otherwise swallow the rest of the chapter. Code that holds three backticks of its own, such as a Markdown file with an example in it, opens with a fence of four, and only four close it.
 
 ## Anchors
 
@@ -135,7 +133,7 @@ Order on the page and order in the file are separate concerns. A section may be 
 
 Tangling checks every anchor. Name a section that does not exist and the build stops and says so, which is what keeps a document and its files from drifting apart as the document is edited.
 
-Inside a code block an anchor is always an anchor. To write one as an example rather than as a reference — as this page does throughout — put it in backticks or inside a fence, and Loom leaves it as text.
+Inside a code block an anchor is always an anchor, fenced or not. To write one as an example rather than as a reference, as this page does throughout, put it in backticks or in a quote, and Loom leaves it as text.
 
 ## Warps
 
