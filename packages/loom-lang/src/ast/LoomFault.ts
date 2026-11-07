@@ -33,6 +33,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly paths: ReadonlyArray<string>
   }
   ChapterWithoutCode: { readonly name: string }
+  CompositionCycle: { readonly loop: ReadonlyArray<string> }
   UnsettledSection: { readonly name: string; readonly declared: boolean }
   SettledLabel: { readonly name: string; readonly label: Position }
   DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
@@ -114,6 +115,7 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CompositionCycle,
   UnsettledSection,
   SettledLabel,
   DuplicateName,
@@ -193,6 +195,13 @@ const copyWords: Record<CopiedFrom, string> = {
   section: 'opening',
 }
 
+const loopWords = (loop: ReadonlyArray<string>): string => {
+  const marked = Array.map(loop, (title) => `\`${title}\``)
+  return marked.length > 2
+    ? `${marked[0]} composes ${Array.join(Array.dropRight(Array.drop(marked, 1), 1), ', which composes ')}, which composes ${marked[0]} again`
+    : `${marked[0]} composes itself`
+}
+
 const knownList = (known: ReadonlyArray<string>): string => {
   const marked = Array.map(known, (each) => `\`${each}\``)
   return marked.length > 2
@@ -252,6 +261,12 @@ export const describe = (fault: LoomFault): Note =>
     ChapterWithoutCode: ({ name }) =>
       warning(
         `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
+      ),
+    CompositionCycle: ({ loop }) =>
+      error(
+        loop.length > 2
+          ? `Composition cycle: ${loopWords(loop)}, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.`
+          : `Composition cycle: ${loopWords(loop)}, so its code can never be written out whole. Take this anchor out.`,
       ),
     UnsettledSection: ({ name, declared }) =>
       information(

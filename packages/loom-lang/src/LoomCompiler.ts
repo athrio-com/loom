@@ -47,6 +47,7 @@ import {
   UnsettledSection,
 } from '#ast/LoomFault'
 import {
+  compositionCycles,
   crossFileFaults,
   holdsReferences,
   type Landing,
@@ -153,6 +154,7 @@ const corpusDiagnostics = (modules: Modules) => {
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(book, modules, module, landing),
+    ...compositionCycles(book, modules, module),
     ...namesakeFaults(book, module),
     ...kindFaults(kinds, module),
     ...boundaryFaults(boundaries, book, module),

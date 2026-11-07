@@ -21,7 +21,7 @@ The pass reads the Loom AST and writes the product AST, so it draws from both. F
 
 From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body weft a code run is made of. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
 
-The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
+The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
 
 From the product side come the schema constructors for every node the pass builds: the `Code` of a section, its `Fragment`, `NameRef`, and `ModuleRef` leaves, and the `File` a section emits. With them come the `SectionId` that stamps each node and `keyOf`, which names it, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, the `Book` it resolves names in through `trailsOf`, `sectionOf`, and `resolveName`, the `Place` a trail ends at, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` the judgement returns.
 
@@ -88,6 +88,7 @@ import {
 import {
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CompositionCycle,
   CrossLanguageAnchor,
   type Declaration,
   DuplicateName,
@@ -1333,6 +1334,101 @@ export const landingOf = (book: Book, modules: ReadonlyMap<string, LoomModule>):
       )
     : {}
 
+## A composition that loops
+
+A section cannot compose itself, however far down. When `A` composes `B` and `B` composes `A` again, writing either out would never end. The composition stops at the anchor that closes the loop and composes nothing there, so without a fault the file would silently lose the code that anchor names.
+
+`compositionCycles` raises that fault. For each composing anchor of a module, `loopThrough` looks for a way back from the section the anchor composes to the section the anchor stands in. When one exists, the anchor lies on a loop, and it carries the `CompositionCycle` fault, which names the sections of the loop by the titles `titleAt` reads. Every anchor on the loop carries the fault, since each one closes the loop from where it stands. A reference composes nothing, so a loop of references is no fault.
+
+`pathBack` finds the way back. It walks the composing anchors from one section toward another, and returns the sections it passes through, the two ends included. It keeps every section it has visited across the whole walk, so a section that two branches share is walked once. `composedTargetsOf` lists the sections one `Code` composes, each through `targetOf`, and `nextFrom` lists those of the section a `SectionId` names. A `Walked` carries what the walk has visited and the path it found, if any: `unwalked` starts one, and `prefixed` puts a section before the path found beyond it.
+
+=>
+
+type Walked = {
+  readonly visited: ReadonlySet<string>
+  readonly path: Option.Option<ReadonlyArray<SectionId>>
+}
+
+const composedTargetsOf = (book: Book, code: Code): ReadonlyArray<SectionId> =>
+  Array.getSomes(
+    Array.map(code.fragments, (part) =>
+      part.type === 'NameRef' ? targetOf(book, code.origin.path, part) : Option.none(),
+    ),
+  )
+
+const nextFrom = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  at: SectionId,
+): ReadonlyArray<SectionId> =>
+  Option.match(codeAt(modules, at), {
+    onNone: (): ReadonlyArray<SectionId> => [],
+    onSome: (code) => composedTargetsOf(book, code),
+  })
+
+const unwalked = (visited: ReadonlySet<string>): Walked => ({ visited, path: Option.none() })
+
+const prefixed = (at: SectionId, walked: Walked): Walked => ({
+  ...walked,
+  path: Option.map(walked.path, (rest) => [at, ...rest]),
+})
+
+const pathBack = (book: Book, modules: ReadonlyMap<string, LoomModule>, goal: SectionId) => {
+  const walk = (visited: ReadonlySet<string>, at: SectionId): Walked =>
+    keyOf(at) === keyOf(goal)
+      ? { visited, path: Option.some([at]) }
+      : Array.reduce(nextFrom(book, modules, at), unwalked(visited), (walked, next) =>
+          Option.isSome(walked.path) || walked.visited.has(keyOf(next))
+            ? walked
+            : prefixed(at, walk(new Set([...walked.visited, keyOf(next)]), next)),
+        )
+  return walk
+}
+
+const loopThrough = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  host: Code,
+  ref: NameRef,
+): Option.Option<ReadonlyArray<SectionId>> =>
+  Option.flatMap(targetOf(book, host.origin.path, ref), (target) =>
+    Option.map(
+      pathBack(book, modules, host.origin)(new Set([keyOf(target)]), target).path,
+      (path) => [host.origin, ...path],
+    ),
+  )
+
+const titleAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): string =>
+  pipe(
+    Option.fromNullishOr(modules.get(id.path)),
+    Option.flatMap((there) =>
+      Array.findFirst(there.doc.sections, (section) => sectionNameOf(section) === id.name),
+    ),
+    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
+    Option.map((title) => title.source),
+    Option.getOrElse(() => id.name),
+  )
+
+export const compositionCycles = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> =>
+  Array.flatMap(module.product.code, (host) =>
+    Array.flatMap(host.fragments, (part) =>
+      part.type === 'NameRef'
+        ? Option.match(loopThrough(book, modules, host, part), {
+            onNone: (): ReadonlyArray<Diagnostic> => [],
+            onSome: (loop) =>
+              faulty(
+                CompositionCycle({ loop: Array.map(loop, (id) => titleAt(modules, id)) }),
+                part.anchor,
+              ).diagnostics,
+          })
+        : [],
+    ),
+  )
+
 ## A section's name and its spans
 
 A section's name is its heading title normalised to an identifier, through the tokeniser's `normaliseTitle` — `Multiplier Function` becomes `MultiplierFunction`. Every heading has a title, so the function is total, and the name pairs with the module path to make the section's corpus-wide identity. The formatter reads the same name, to pair a section with the `Code` the pass builds for it.
@@ -1456,6 +1552,8 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[Judging an edge beyond the document]
 
 ::[Fitting a reference to its place]
+
+::[A composition that loops]
 
 ::[A section's name and its spans]
 

@@ -660,3 +660,148 @@ describe('what a program is promised', () => {
     }),
   )
 })
+
+const cycles = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(layerOf(files)),
+    Effect.map((found) =>
+      found
+        .filter((d) => d.message.startsWith('Composition cycle'))
+        .map((d) => ({ line: d.position.start.line, message: d.message })),
+    ),
+  )
+
+const looping = lines(
+  '# Main [main.ts]',
+  '',
+  '=>',
+  anchor('A'),
+  '',
+  '## A',
+  '',
+  '=>',
+  'const a = 1',
+  anchor('B'),
+  '',
+  '## B',
+  '',
+  '=>',
+  'const b = 2',
+  anchor('A'),
+)
+
+describe('a section composed into itself', () => {
+  it.effect('faults each anchor of two sections that compose each other', () =>
+    Effect.gen(function* () {
+      const files = { '/corpus/main.loom': looping }
+      expect(yield* cycles(files, '/corpus/main.loom')).toEqual([
+        {
+          line: 10,
+          message:
+            'Composition cycle: `A` composes `B`, which composes `A` again, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.',
+        },
+        {
+          line: 16,
+          message:
+            'Composition cycle: `B` composes `A`, which composes `B` again, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.',
+        },
+      ])
+      expect(yield* refusal(files, '/corpus/main.loom')).toContain(
+        '/corpus/main.loom:16: Composition cycle',
+      )
+    }),
+  )
+
+  it.effect('faults a section that composes itself', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines(
+          '# Main [main.ts]',
+          '',
+          '=>',
+          anchor('A'),
+          '',
+          '## A',
+          '',
+          '=>',
+          anchor('A'),
+        ),
+      }
+      expect(yield* cycles(files, '/corpus/main.loom')).toEqual([
+        {
+          line: 9,
+          message:
+            'Composition cycle: `A` composes itself, so its code can never be written out whole. Take this anchor out.',
+        },
+      ])
+    }),
+  )
+
+  it.effect('faults a loop that runs through two looms', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/ping.loom': lines('# Pinging [ping.ts]', '', '=>', anchor('Ponging')),
+        '/corpus/pong.loom': lines('# Ponging', '', '=>', anchor('Pinging')),
+      }
+      expect((yield* cycles(files, '/corpus/ping.loom')).map((fault) => fault.message)).toEqual([
+        'Composition cycle: `Pinging` composes `Ponging`, which composes `Pinging` again, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.',
+      ])
+    }),
+  )
+
+  it.effect('leaves a section composed in two places alone', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines(
+          '# Main [main.ts]',
+          '',
+          '=>',
+          anchor('A'),
+          anchor('B'),
+          '',
+          '## A',
+          '',
+          '=>',
+          anchor('C'),
+          'const a = 1',
+          '',
+          '## B',
+          '',
+          '=>',
+          anchor('C'),
+          'const b = 2',
+          '',
+          '## C',
+          '',
+          '=>',
+          'const c = 0',
+        ),
+      }
+      expect(yield* cycles(files, '/corpus/main.loom')).toEqual([])
+      const [file] = yield* tangled(files, '/corpus/main.loom')
+      expect(file?.content.split('const c = 0').length).toBe(3)
+    }),
+  )
+
+  it.effect('leaves two sections that refer to each other alone', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines(
+          '# Main [main.ts]',
+          '',
+          '=>',
+          `${anchor('Helper')}{Reference}`,
+          'const main = 1',
+          '',
+          '## Helper [helper.ts]',
+          '',
+          '=>',
+          `${anchor('Main')}{Reference}`,
+          'const helper = 1',
+        ),
+      }
+      expect(yield* cycles(files, '/corpus/main.loom')).toEqual([])
+    }),
+  )
+})

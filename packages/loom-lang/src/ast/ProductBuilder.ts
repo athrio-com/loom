@@ -59,6 +59,7 @@ import {
 import {
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CompositionCycle,
   CrossLanguageAnchor,
   type Declaration,
   DuplicateName,
@@ -1151,6 +1152,91 @@ export const landingOf = (book: Book, modules: ReadonlyMap<string, LoomModule>):
         Record.map((entries) => Array.map(entries, (entry) => entry.landed)),
       )
     : {}
+
+type Walked = {
+  readonly visited: ReadonlySet<string>
+  readonly path: Option.Option<ReadonlyArray<SectionId>>
+}
+
+const composedTargetsOf = (book: Book, code: Code): ReadonlyArray<SectionId> =>
+  Array.getSomes(
+    Array.map(code.fragments, (part) =>
+      part.type === 'NameRef' ? targetOf(book, code.origin.path, part) : Option.none(),
+    ),
+  )
+
+const nextFrom = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  at: SectionId,
+): ReadonlyArray<SectionId> =>
+  Option.match(codeAt(modules, at), {
+    onNone: (): ReadonlyArray<SectionId> => [],
+    onSome: (code) => composedTargetsOf(book, code),
+  })
+
+const unwalked = (visited: ReadonlySet<string>): Walked => ({ visited, path: Option.none() })
+
+const prefixed = (at: SectionId, walked: Walked): Walked => ({
+  ...walked,
+  path: Option.map(walked.path, (rest) => [at, ...rest]),
+})
+
+const pathBack = (book: Book, modules: ReadonlyMap<string, LoomModule>, goal: SectionId) => {
+  const walk = (visited: ReadonlySet<string>, at: SectionId): Walked =>
+    keyOf(at) === keyOf(goal)
+      ? { visited, path: Option.some([at]) }
+      : Array.reduce(nextFrom(book, modules, at), unwalked(visited), (walked, next) =>
+          Option.isSome(walked.path) || walked.visited.has(keyOf(next))
+            ? walked
+            : prefixed(at, walk(new Set([...walked.visited, keyOf(next)]), next)),
+        )
+  return walk
+}
+
+const loopThrough = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  host: Code,
+  ref: NameRef,
+): Option.Option<ReadonlyArray<SectionId>> =>
+  Option.flatMap(targetOf(book, host.origin.path, ref), (target) =>
+    Option.map(
+      pathBack(book, modules, host.origin)(new Set([keyOf(target)]), target).path,
+      (path) => [host.origin, ...path],
+    ),
+  )
+
+const titleAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): string =>
+  pipe(
+    Option.fromNullishOr(modules.get(id.path)),
+    Option.flatMap((there) =>
+      Array.findFirst(there.doc.sections, (section) => sectionNameOf(section) === id.name),
+    ),
+    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
+    Option.map((title) => title.source),
+    Option.getOrElse(() => id.name),
+  )
+
+export const compositionCycles = (
+  book: Book,
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> =>
+  Array.flatMap(module.product.code, (host) =>
+    Array.flatMap(host.fragments, (part) =>
+      part.type === 'NameRef'
+        ? Option.match(loopThrough(book, modules, host, part), {
+            onNone: (): ReadonlyArray<Diagnostic> => [],
+            onSome: (loop) =>
+              faulty(
+                CompositionCycle({ loop: Array.map(loop, (id) => titleAt(modules, id)) }),
+                part.anchor,
+              ).diagnostics,
+          })
+        : [],
+    ),
+  )
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')
