@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Effect, Layer } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { serviceVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
+import { serviceVersion, tropeDir, tropesDir } from '@athrio/loom-lang-services/LoomStore'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { TropePackages } from '../src/TropePackages'
 import { FileSystemEnvironment } from '../src/WorkspaceSource'
@@ -59,8 +59,8 @@ const workspaceWith = (config: ReadonlyArray<string>, looms: Record<string, stri
   const folder = tropeDir('mermaid', workspace)
   mkdirSync(join(folder, 'looms'), { recursive: true })
   writeFileSync(
-    join(folder, 'package.json'),
-    JSON.stringify({ name: '@athrio/loom-trope-mermaid', version: serviceVersion }),
+    join(tropesDir(workspace), 'package.json'),
+    JSON.stringify({ name: '@athrio/loom-tropes', version: serviceVersion }),
   )
   writeFileSync(join(folder, 'looms', 'mermaid.loom'), rootOf('Mermaid'))
   return workspace

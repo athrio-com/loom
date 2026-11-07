@@ -17,7 +17,7 @@ const run = promisify(execFile)
 
 export const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
 
-export const tropePackage = (id: string): string => `@athrio/loom-trope-${id}`
+export const tropesPackage = '@athrio/loom-tropes'
 
 export const loomTropes: ReadonlyArray<string> = ['mermaid']
 
@@ -60,8 +60,9 @@ export type ServiceManifest = typeof ServiceManifestSchema.Type
 export const serviceDir = (id: string, dir: string): string =>
   join(storeDir(dir), 'node_modules', servicePackage(id))
 
-export const tropeDir = (id: string, dir: string): string =>
-  join(storeDir(dir), 'node_modules', tropePackage(id))
+export const tropesDir = (dir: string): string => join(storeDir(dir), 'node_modules', tropesPackage)
+
+export const tropeDir = (id: string, dir: string): string => join(tropesDir(dir), id)
 
 const manifestIn = (folder: string): Option.Option<ServiceManifest> =>
   pipe(
@@ -82,7 +83,7 @@ export const installedVersion = (id: string, dir: string): Option.Option<string>
   versionIn(serviceDir(id, dir))
 
 export const installedTropeVersion = (id: string, dir: string): Option.Option<string> =>
-  versionIn(tropeDir(id, dir))
+  Option.filter(versionIn(tropesDir(dir)), () => existsSync(tropeDir(id, dir)))
 
 interface EmbeddedFile extends Blob {
   readonly name?: string
@@ -186,8 +187,8 @@ export const installService = (
 ): Effect.Effect<PackageInstall, StoreError> =>
   installInto(servicePackage(id), serviceDir(id, dir), dir)
 
-export const installTrope = (id: string, dir: string): Effect.Effect<PackageInstall, StoreError> =>
-  installInto(tropePackage(id), tropeDir(id, dir), dir)
+export const installTropes = (dir: string): Effect.Effect<PackageInstall, StoreError> =>
+  installInto(tropesPackage, tropesDir(dir), dir)
 
 export const typeScriptVersion = '7.0.2'
 
@@ -244,5 +245,5 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
 export const removeService = (id: string, dir: string): Effect.Effect<void> =>
   Effect.sync(() => rmSync(serviceDir(id, dir), { recursive: true, force: true }))
 
-export const removeTrope = (id: string, dir: string): Effect.Effect<void> =>
-  Effect.sync(() => rmSync(tropeDir(id, dir), { recursive: true, force: true }))
+export const removeTropes = (dir: string): Effect.Effect<void> =>
+  Effect.sync(() => rmSync(tropesDir(dir), { recursive: true, force: true }))

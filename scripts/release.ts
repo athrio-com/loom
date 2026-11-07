@@ -17,8 +17,8 @@ const published: ReadonlyArray<Package> = [
     dir: join(workspace, 'packages', 'loom-service-typescript'),
   },
   {
-    name: '@athrio/loom-trope-mermaid',
-    dir: join(workspace, 'packages', 'loom-trope-mermaid'),
+    name: '@athrio/loom-tropes',
+    dir: join(workspace, 'packages', 'loom-tropes'),
   },
 ]
 

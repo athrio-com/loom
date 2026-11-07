@@ -16,7 +16,7 @@ flowchart LR
 
 The box's name is its caption, as for any box. Without the trope, Loom reads `Mermaid` as a kind nobody gives a box, so the box is a fault. Declaring the kind is what makes it none. Contract 1 lets a trope declare kinds and nothing more, so the editor and the woven page show a `Mermaid` box as the source it holds.
 
-This part is the trope's own, as a trope published for other books keeps to a part of its own. Other books install it as the package `@athrio/loom-trope-mermaid`, with `loom add mermaid`, as the chapter "Packaging the Mermaid trope" describes. This chapter is a trope chapter, so it roots the trope and gives it its name, `Mermaid`, and it holds the trope's manifest, as Part XIII, Tropes, describes. It lists no entries, so it is the trope's only entry.
+This part is the trope's own, as a trope published for other books keeps to a part of its own. Other books install it with `loom add mermaid`, from the package `@athrio/loom-tropes` that holds every trope Loom publishes, as the chapter "Packaging Loom's tropes" describes. This chapter is a trope chapter, so it roots the trope and gives it its name, `Mermaid`, and it holds the trope's manifest, as Part XIII, Tropes, describes. It lists no entries, so it is the trope's only entry.
 
 ## What the trope declares {Manifest}
 

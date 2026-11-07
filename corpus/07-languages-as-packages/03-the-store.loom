@@ -22,13 +22,13 @@ export const servicePackage = (id: string): string => `@athrio/loom-service-${id
 
 ## The package a trope ships in
 
-A trope travels between books in a package too, as Part XIII, Tropes, describes. Loom publishes its own tropes the way it publishes its language services, so the same one rule names their packages: the trope `mermaid` ships in `@athrio/loom-trope-mermaid`. A trope's package holds the trope's looms and no code to load.
+A trope travels between books in a package too, as Part XIII, Tropes, describes. Loom publishes all its own tropes in one package, `@athrio/loom-tropes`, which holds a folder for each trope, named by the trope's id: the trope `mermaid` sits in the package's `mermaid` folder. A new trope of Loom's adds a folder to the package rather than a package of its own. The package holds the tropes' looms and no code to load.
 
 `loomTropes` lists the tropes Loom publishes, and `isLoomTrope` asks whether a name is one of them. `loom add` reads the list to tell a trope's name from a language's, since both are short names: a name on the list names a trope, and any other names a language.
 
 =>
 
-export const tropePackage = (id: string): string => `@athrio/loom-trope-${id}`
+export const tropesPackage = '@athrio/loom-tropes'
 
 export const loomTropes: ReadonlyArray<string> = ['mermaid']
 
@@ -82,7 +82,7 @@ export const installedServices = (dir: string): Effect.Effect<ReadonlyArray<stri
 
 Every package in the store carries a manifest, the `package.json` its author published. Loom reads three of its fields. The `version` field says which release of the service the store holds. The `exports` and `main` fields say which file a host imports to load the service.
 
-`ServiceManifestSchema` is that much of a manifest, every field optional, since a field the author left out is no error. The `exports` field may take several shapes, so the schema admits any value there and leaves its reading to the loader. `serviceDir` names the folder where the store keeps a service, and `tropeDir` the folder where it keeps a trope. `manifestIn` reads the manifest in a package's folder and decodes it, and `serviceManifest` reads a service's. Each yields nothing when the store does not hold the package, or when the file is not a manifest at all.
+`ServiceManifestSchema` is that much of a manifest, every field optional, since a field the author left out is no error. The `exports` field may take several shapes, so the schema admits any value there and leaves its reading to the loader. `serviceDir` names the folder where the store keeps a service, `tropesDir` the folder where it keeps the package of Loom's tropes, and `tropeDir` the folder of one trope inside that package. `manifestIn` reads the manifest in a package's folder and decodes it, and `serviceManifest` reads a service's. Each yields nothing when the store does not hold the package, or when the file is not a manifest at all.
 
 =>
 
@@ -97,8 +97,9 @@ export type ServiceManifest = typeof ServiceManifestSchema.Type
 export const serviceDir = (id: string, dir: string): string =>
   join(storeDir(dir), 'node_modules', servicePackage(id))
 
-export const tropeDir = (id: string, dir: string): string =>
-  join(storeDir(dir), 'node_modules', tropePackage(id))
+export const tropesDir = (dir: string): string => join(storeDir(dir), 'node_modules', tropesPackage)
+
+export const tropeDir = (id: string, dir: string): string => join(tropesDir(dir), id)
 
 const manifestIn = (folder: string): Option.Option<ServiceManifest> =>
   pipe(
@@ -116,7 +117,7 @@ Loom releases every package at one version, the command line, each language serv
 
 The comparison matters because a store outlives the Loom that filled it. A service installed by an older release stays in the store when Loom is upgraded, and a service built against an older Effect fails inside the newer host, so a stale store breaks a language's checks in every editor.
 
-`versionIn` reads the version of a package from the manifest in its folder. `installedVersion` reads the version of a service the store holds, and `installedTropeVersion` the version of a trope. Each yields nothing when the store does not hold the package.
+`versionIn` reads the version of a package from the manifest in its folder. `installedVersion` reads the version of a service the store holds. `installedTropeVersion` reads the version of the package that holds a trope, when the package the store holds has a folder for that trope. Each yields nothing when the store does not hold what it asks for.
 
 {{ version = ${version} }}
 
@@ -131,7 +132,7 @@ export const installedVersion = (id: string, dir: string): Option.Option<string>
   versionIn(serviceDir(id, dir))
 
 export const installedTropeVersion = (id: string, dir: string): Option.Option<string> =>
-  versionIn(tropeDir(id, dir))
+  Option.filter(versionIn(tropesDir(dir)), () => existsSync(tropeDir(id, dir)))
 
 ## Two ways to run Loom
 
@@ -241,7 +242,7 @@ const installPackage = (
 
 ## Installing a service or a trope
 
-`installService` brings a language's package in the store to `serviceVersion`, and `installTrope` does the same for a trope's package. Both come down to `installInto`. A store that already holds the package at that version is left alone, so the call is quick and needs no network. A store that lacks the package gets it installed, and a store that holds it at another version gets it replaced. `PackageInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language or a trope on, and bringing it up to date, all come down to these calls.
+`installService` brings a language's package in the store to `serviceVersion`, and `installTropes` does the same for the package of Loom's tropes. Both come down to `installInto`. A store that already holds the package at that version is left alone, so the call is quick and needs no network. A store that lacks the package gets it installed, and a store that holds it at another version gets it replaced. `PackageInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language or a trope on, and bringing it up to date, all come down to these calls.
 
 =>
 
@@ -273,8 +274,8 @@ export const installService = (
 ): Effect.Effect<PackageInstall, StoreError> =>
   installInto(servicePackage(id), serviceDir(id, dir), dir)
 
-export const installTrope = (id: string, dir: string): Effect.Effect<PackageInstall, StoreError> =>
-  installInto(tropePackage(id), tropeDir(id, dir), dir)
+export const installTropes = (dir: string): Effect.Effect<PackageInstall, StoreError> =>
+  installInto(tropesPackage, tropesDir(dir), dir)
 
 ## TypeScript 7 for a project that installs none
 
@@ -354,19 +355,19 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
 
 ## Removing a service or a trope
 
-`removeService` deletes a language's package from the store, and `removeTrope` a trope's. Each removes the package directory directly rather than asking the package manager to, so it undoes an install however the install arrived — and removing a package the store never held is harmless.
+`removeService` deletes a language's package from the store, and `removeTropes` the package of Loom's tropes. Each removes the package directory directly rather than asking the package manager to, so it undoes an install however the install arrived — and removing a package the store never held is harmless.
 
 =>
 
 export const removeService = (id: string, dir: string): Effect.Effect<void> =>
   Effect.sync(() => rmSync(serviceDir(id, dir), { recursive: true, force: true }))
 
-export const removeTrope = (id: string, dir: string): Effect.Effect<void> =>
-  Effect.sync(() => rmSync(tropeDir(id, dir), { recursive: true, force: true }))
+export const removeTropes = (dir: string): Effect.Effect<void> =>
+  Effect.sync(() => rmSync(tropesDir(dir), { recursive: true, force: true }))
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `PackageInstall` their tags, `Schema` decodes a service's manifest, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `join` and `dirname` form and walk the store path up to the workspace root, `existsSync` tells whether a folder holds a configuration, and `homedir` finds the home folder Loom keeps its downloads under.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `PackageInstall` their tags, `Schema` decodes a service's manifest, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `join` and `dirname` form and walk the store path up to the workspace root, `existsSync` tells whether a folder holds a configuration, or the package of Loom's tropes holds a trope's folder, and `homedir` finds the home folder Loom keeps its downloads under.
 
 =>
 

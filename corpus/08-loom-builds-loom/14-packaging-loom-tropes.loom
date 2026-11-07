@@ -1,0 +1,50 @@
+---
+Part VIII, Chapter 14: Packaging Loom's tropes
+Package: packages/loom-tropes/
+Language: JSON
+---
+
+# Packaging Loom's tropes
+
+`@athrio/loom-tropes` carries the tropes Loom publishes to other books. Today it holds one, the Mermaid trope of Part XIV. A book installs it with `loom add mermaid`, and the registry reads the trope's looms from the store, as the chapter "Tropes a workspace installs" describes. The package holds those looms and nothing else: a trope that only declares kinds has no code to build or load.
+
+Every trope Loom publishes shares this one package, each in a folder named by its id. A new trope therefore adds a folder, not a package, and the release publishes it with nothing to set up. That matters because npm lets the release workflow publish only a package that exists already, so each new package's first version must reach npm by hand. One package for all of Loom's tropes needs that once.
+
+Each trope's looms have one source, the chapters of its part in this book. npm packs only files inside the package's folder, and a tangle writes the code of a section, never a loom whole. So the package's `prepack` script copies each trope's looms into the trope's folder just before npm packs it, and Git ignores those copies.
+
+## The manifest [package.json]
+
+The `files` field ships each trope's folder, and `publishConfig` makes the scoped package public. The `repository` field points npm at this package's folder in the monorepo, which the provenance signature checks against the workflow that publishes it. The package shares Loom's version, as every package Loom releases does, so the store installs the tropes that match the Loom installing them. The `prepack` script gives each trope a fresh `looms` folder copied from its part, so a publish never ships a stale one.
+
+{{ version = ${version} }}
+
+=>
+
+{
+  "name": "@athrio/loom-tropes",
+  "version": "::[version]",
+  "description": "The tropes Loom publishes for other books, such as Mermaid, which lets a book draw a diagram in a box of the Mermaid kind.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athrio-com/loom.git",
+    "directory": "packages/loom-tropes"
+  },
+  "files": [
+    "mermaid"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "rm -rf mermaid && mkdir -p mermaid/looms && cp ../../corpus/14-mermaid-diagrams/*.loom mermaid/looms/"
+  }
+}
+
+## What Git leaves out [.gitignore]
+
+Each trope's folder is a copy that `prepack` makes, so Git ignores it.
+
+=>
+
+mermaid/

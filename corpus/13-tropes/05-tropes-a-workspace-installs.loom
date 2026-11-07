@@ -6,14 +6,14 @@ Language: TypeScript
 
 # Tropes a workspace installs
 
-A trope written in one book reaches another book as a package. Loom publishes its own tropes the way it publishes its language services, as the chapter "The store of installed services" describes. `loom add mermaid` installs the Mermaid trope's package into the workspace's store and records the trope in `.loom/config.yaml`:
+A trope written in one book reaches another book as a package. Loom publishes its own tropes the way it publishes its language services, as the chapter "The store of installed services" describes. Every trope Loom publishes sits in one package, `@athrio/loom-tropes`. `loom add mermaid` installs that package into the workspace's store and records the trope in `.loom/config.yaml`:
 
 ```
 tropes:
   mermaid: {}
 ```
 
-The package carries the trope's looms in a `looms` folder, the same looms the trope's own book holds. Loom reads them as it reads any loom, and gathers the kinds the trope's root declares. A book that installs the Mermaid trope may then write a `Mermaid` box in any of its looms. The trope's chapters stay outside the book's corpus all the same: they join no table of contents, no woven page, and no tangle of the book.
+The package gives each trope a folder named by its id, and the folder carries the trope's looms in a `looms` folder, the same looms the trope's own book holds. Loom reads only the tropes the configuration names, though the package holds them all. Loom reads them as it reads any loom, and gathers the kinds the trope's root declares. A book that installs the Mermaid trope may then write a `Mermaid` box in any of its looms. The trope's chapters stay outside the book's corpus all the same: they join no table of contents, no woven page, and no tangle of the book.
 
 Reading a package waits on files, so Loom reads a workspace's installed tropes once, before the first judgement that needs them, and keeps what it read. Every later judgement looks the kinds up in memory, as it looks up the kinds the book's own tropes declare.
 
@@ -21,7 +21,7 @@ Reading a package waits on files, so Loom reads a workspace's installed tropes o
 
 `TropePackages` is the service that reads installed tropes, and its `kindsFor` method gives the kinds that the workspace of a loom installs. `LoomConfig` resolves the loom's workspace and the tropes the workspace names. `kindsFor` keeps the kinds for that workspace once it has read them, under a key that `keyFor` writes from the workspace, each trope, and the version of it the store holds. Installing, removing, or updating a trope changes the key, so the next judgement reads the store again.
 
-`installedKinds` reads the kinds of a set of tropes. `loomsIn` lists the looms in one trope's package, from the `looms` folder of the folder the store keeps the package in, ordered by name. `LoomCorpusAstBuilder` builds each loom into a module through `fromDisk`, a source that reads the file. `declaredKindsOf` then gathers the kinds the modules declare, over a book of the packages' own looms, so two installed tropes clash as two tropes of one book do.
+`installedKinds` reads the kinds of a set of tropes. `loomsIn` lists the looms of one trope, from the `looms` folder in the trope's folder of the package, ordered by name. `LoomCorpusAstBuilder` builds each loom into a module through `fromDisk`, a source that reads the file. `declaredKindsOf` then gathers the kinds the modules declare, over a book of the packages' own looms, so two installed tropes clash as two tropes of one book do.
 
 A package the registry refuses adds no kinds. No loom of the workspace holds the package's text for an editor to mark, so Loom logs the reason as a warning instead.
 
@@ -150,7 +150,7 @@ import { type DeclaredKind, declaredKindsOf } from '#ast/DeclaredKinds'
 
 ## Testing installed tropes
 
-The cases write a workspace on disk and run the compiler over the file system, with the `TropePackages` layer the command line runs. `workspaceWith` writes the workspace: its configuration with the given lines, the given looms in its corpus, and the Mermaid trope's package in its store, at the version `serviceVersion` names, with the trope's root in its `looms` folder. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds.
+The cases write a workspace on disk and run the compiler over the file system, with the `TropePackages` layer the command line runs. `workspaceWith` writes the workspace: its configuration with the given lines, the given looms in its corpus, and the package of Loom's tropes in its store, at the version `serviceVersion` names, with the Mermaid trope's root in the `looms` folder of its `mermaid` folder. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds.
 
 `cells` is a chapter with one box of the `Mermaid` kind, and `rootOf` writes a trope chapter, titled by the trope's name, that declares `Mermaid`. `diagnosed` gives the messages of the diagnostics the compiler raises in one loom of a workspace, and `faultsOf` keeps those that speak of kinds and tropes.
 
@@ -163,7 +163,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Effect, Layer } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { serviceVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
+import { serviceVersion, tropeDir, tropesDir } from '@athrio/loom-lang-services/LoomStore'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { TropePackages } from '../src/TropePackages'
 import { FileSystemEnvironment } from '../src/WorkspaceSource'
@@ -217,8 +217,8 @@ const workspaceWith = (config: ReadonlyArray<string>, looms: Record<string, stri
   const folder = tropeDir('mermaid', workspace)
   mkdirSync(join(folder, 'looms'), { recursive: true })
   writeFileSync(
-    join(folder, 'package.json'),
-    JSON.stringify({ name: '@athrio/loom-trope-mermaid', version: serviceVersion }),
+    join(tropesDir(workspace), 'package.json'),
+    JSON.stringify({ name: '@athrio/loom-tropes', version: serviceVersion }),
   )
   writeFileSync(join(folder, 'looms', 'mermaid.loom'), rootOf('Mermaid'))
   return workspace
@@ -240,7 +240,7 @@ const installing = ['tropes:', '  mermaid: {}']
 
 ## A kind a workspace installs
 
-A book that installs the Mermaid trope may write a `Mermaid` box, and nothing is faulted. The trope's package stays in the store when the configuration does not name it, and then the box is a fault, as in a book that installs nothing. A trope of the book that declares a kind an installed trope declares is refused, as a later clash always is.
+A book that installs the Mermaid trope may write a `Mermaid` box, and nothing is faulted. The package stays in the store when the configuration names no trope, and then the box is a fault, as in a book that installs nothing. A trope of the book that declares a kind an installed trope declares is refused, as a later clash always is.
 
 =>
 

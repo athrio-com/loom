@@ -48,20 +48,20 @@ import {
   installedTropeVersion,
   installedVersion,
   installService,
-  installTrope,
+  installTropes,
   isLoomTrope,
   embeddedFile,
   fetchedExecutable,
   fetchedTypeScriptDir,
   removeService,
-  removeTrope,
+  removeTropes,
   PackageInstall,
   type StoreError,
   servicePackage,
   serviceVersion,
   standalone,
   storeDir,
-  tropePackage,
+  tropesPackage,
   typeScriptVersion,
   workspaceOf,
   workspaceRoot,
@@ -369,11 +369,11 @@ const addTrope = (trope: string) =>
     const installed = yield* activatedIn(config, dir, 'tropes')
     if (installed.includes(trope))
       return yield* alreadyOn(trope, 'installed', installedTropeVersion(trope, dir))
-    const change = yield* installTrope(trope, dir)
+    const change = yield* installTropes(dir)
     yield* updateEntries(config, dir, 'tropes', (ids) => [...ids, trope])
     yield* Console.log(
       `\n   ${teal('✓')} installed the trope ${trope}\n` +
-        `   ${dim(installNote(tropePackage(trope), change))}\n` +
+        `   ${dim(installNote(tropesPackage, change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
   }).pipe(Effect.catchTag('StoreError', failedInstall))
@@ -387,24 +387,25 @@ const removeLanguage = (language: string) =>
     yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
   })
 
-const removeTropeNamed = (trope: string) =>
+const removeTrope = (trope: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const dir = process.cwd()
-    yield* removeTrope(trope, dir)
     yield* updateEntries(config, dir, 'tropes', (ids) => ids.filter((id) => id !== trope))
+    const left = yield* activatedIn(config, dir, 'tropes')
+    if (left.length === 0) yield* removeTropes(dir)
     yield* Console.log(`\n   ${teal('✓')} removed the trope ${trope}\n`)
   })
 
 const add = (name: string) => (isLoomTrope(name) ? addTrope(name) : addLanguage(name))
 
-const remove = (name: string) => (isLoomTrope(name) ? removeTropeNamed(name) : removeLanguage(name))
+const remove = (name: string) => (isLoomTrope(name) ? removeTrope(name) : removeLanguage(name))
 
 const updateUsage = 'usage: loom update <language or trope>… | loom update --all'
 
 const installOf = (name: string, dir: string) =>
   isLoomTrope(name)
-    ? installTrope(name, dir).pipe(Effect.map((change) => installNote(tropePackage(name), change)))
+    ? installTropes(dir).pipe(Effect.map((change) => installNote(tropesPackage, change)))
     : installService(name, dir).pipe(
         Effect.map((change) => installNote(servicePackage(name), change)),
       )

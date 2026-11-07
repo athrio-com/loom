@@ -547,20 +547,20 @@ describe('loom cli — keeping a service current', () => {
   )
 })
 
-const tropeFolder = (home: string, id: string): string =>
-  join(home, 'services', 'node_modules', '@athrio', `loom-trope-${id}`)
+const tropesFolder = (home: string): string =>
+  join(home, 'services', 'node_modules', '@athrio', 'loom-tropes')
 
 const installFakeTrope = (home: string, id: string, version: string = loomVersion): void => {
-  mkdirSync(tropeFolder(home, id), { recursive: true })
+  mkdirSync(join(tropesFolder(home), id, 'looms'), { recursive: true })
   writeFileSync(
-    join(tropeFolder(home, id), 'package.json'),
-    `${JSON.stringify({ name: `@athrio/loom-trope-${id}`, version })}\n`,
+    join(tropesFolder(home), 'package.json'),
+    `${JSON.stringify({ name: '@athrio/loom-tropes', version })}\n`,
   )
 }
 
-const storedTropeVersion = (home: string, id: string): string =>
+const storedTropeVersion = (home: string): string =>
   (
-    JSON.parse(readFileSync(join(tropeFolder(home, id), 'package.json'), 'utf8')) as {
+    JSON.parse(readFileSync(join(tropesFolder(home), 'package.json'), 'utf8')) as {
       readonly version: string
     }
   ).version
@@ -578,8 +578,8 @@ describe('loom cli — installing a trope', () => {
       })
       expect(status).toBe(0)
       expect(stdout).toContain('installed the trope mermaid')
-      expect(readFileSync(npm.calls, 'utf8')).toContain(`@athrio/loom-trope-mermaid@${loomVersion}`)
-      expect(storedTropeVersion(home, 'mermaid')).toBe(loomVersion)
+      expect(readFileSync(npm.calls, 'utf8')).toContain(`@athrio/loom-tropes@${loomVersion}`)
+      expect(storedTropeVersion(home)).toBe(loomVersion)
       expect(configText(dir)).toContain('tropes:\n  mermaid: {}')
       rmSync(home, { recursive: true, force: true })
       rmSync(npm.bin, { recursive: true, force: true })
@@ -618,7 +618,7 @@ describe('loom cli — installing a trope', () => {
       const { status, stdout } = loom(['remove', 'mermaid'], { cwd: dir, env: { LOOM_HOME: home } })
       expect(status).toBe(0)
       expect(stdout).toContain('removed the trope mermaid')
-      expect(existsSync(tropeFolder(home, 'mermaid'))).toBe(false)
+      expect(existsSync(tropesFolder(home))).toBe(false)
       expect(configText(dir)).not.toContain('mermaid')
       rmSync(home, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })
@@ -641,8 +641,8 @@ describe('loom cli — installing a trope', () => {
         env: { LOOM_HOME: home, PATH: npm.path },
       })
       expect(status).toBe(0)
-      expect(stdout).toContain(`updated @athrio/loom-trope-mermaid from 0.0.1 to ${loomVersion}`)
-      expect(storedTropeVersion(home, 'mermaid')).toBe(loomVersion)
+      expect(stdout).toContain(`updated @athrio/loom-tropes from 0.0.1 to ${loomVersion}`)
+      expect(storedTropeVersion(home)).toBe(loomVersion)
       rmSync(home, { recursive: true, force: true })
       rmSync(npm.bin, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })
