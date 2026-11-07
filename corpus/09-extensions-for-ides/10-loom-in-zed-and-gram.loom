@@ -416,6 +416,7 @@ Gram installs an extension from a repository URL and looks for the manifest at t
 The README is Markdown. Its headings are underlined rather than marked with `#`, so no line of it reads as a heading of this loom, whichever version of Loom tangles it.
 
 =>
+```
 
 Loom for Zed and Gram
 =====================
@@ -442,3 +443,4 @@ Licence
 -------
 
 MIT. See [LICENSE](LICENSE).
+```

@@ -15,6 +15,7 @@ The language server starts the same way in both. `loom lsp` speaks the Language 
 Neovim 0.11 configures a language server with a table its `vim.lsp.config` function takes, and it reads such tables from an `lsp/` folder on its runtime path. The nvim-lspconfig project collects one file per server in that folder, so this file is written in its form: a short description for its generated documentation, then the table. The table names the command, the file type it serves, and how to find a project's root. Neovim matches a root marker against the names in each folder, and a name cannot reach inside `.loom`, so the table gives a `root_dir` function instead. It takes the nearest folder whose `.loom` holds a `config.yaml`, then the nearest Git repository, and otherwise starts the server with no root, as Neovim does for a loose file.
 
 =>
+```
 
 ---@brief
 ---
@@ -41,6 +42,7 @@ return {
     on_dir(vim.fs.root(bufnr, workspace) or vim.fs.root(bufnr, '.git'))
   end,
 }
+```
 
 ## Neovim's plugin [neovim/plugin/loom.lua]
 
