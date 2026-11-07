@@ -1,0 +1,20 @@
+{
+  "name": "@athrio/loom-trope-mermaid",
+  "version": "0.0.18",
+  "description": "The Mermaid trope for Loom: lets a book draw a diagram in a box of the Mermaid kind.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athrio-com/loom.git",
+    "directory": "packages/loom-trope-mermaid"
+  },
+  "files": [
+    "looms"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "rm -rf looms && mkdir looms && cp ../../corpus/14-mermaid-diagrams/*.loom looms/"
+  }
+}

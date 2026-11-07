@@ -37,6 +37,7 @@ import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
+import { TropePackages } from '@athrio/loom-lang/TropePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
@@ -44,18 +45,23 @@ import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
+  installedTropeVersion,
   installedVersion,
   installService,
+  installTrope,
+  isLoomTrope,
   embeddedFile,
   fetchedExecutable,
   fetchedTypeScriptDir,
   removeService,
-  ServiceInstall,
+  removeTrope,
+  PackageInstall,
   type StoreError,
   servicePackage,
   serviceVersion,
   standalone,
   storeDir,
+  tropePackage,
   typeScriptVersion,
   workspaceOf,
   workspaceRoot,
@@ -289,101 +295,151 @@ const init = (dir: Option.Option<string>) =>
     })
   }).pipe(Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))))
 
-const updateLanguages = (
+type Entries = 'languages' | 'tropes'
+
+const updateEntries = (
   config: LoomConfig['Service'],
   dir: string,
+  key: Entries,
   change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const workspace = workspaceRoot(dir)
-    const current = yield* config.manifest(workspace)
-    const ids = change(Object.keys(current?.languages ?? {}))
-    const languages = Object.fromEntries(ids.map((id) => [id, current?.languages?.[id] ?? {}]))
-    yield* config.edit(workspace, ['languages'], languages)
+    const current = (yield* config.manifest(workspace))?.[key] ?? {}
+    const ids = change(Object.keys(current))
+    yield* config.edit(
+      workspace,
+      [key],
+      Object.fromEntries(ids.map((id) => [id, current[id] ?? {}])),
+    )
   })
 
-const activatedLanguages = (
+const activatedIn = (
   config: LoomConfig['Service'],
   dir: string,
+  key: Entries,
 ): Effect.Effect<ReadonlyArray<string>> =>
   config
     .manifest(workspaceRoot(dir))
-    .pipe(Effect.map((manifest) => Object.keys(manifest?.languages ?? {})))
+    .pipe(Effect.map((manifest) => Object.keys(manifest?.[key] ?? {})))
 
-const installNote = (language: string, change: ServiceInstall): string =>
-  ServiceInstall.$match(change, {
-    Current: () => `${servicePackage(language)} ${serviceVersion} is already in the store`,
-    Installed: () => `installed ${servicePackage(language)} ${serviceVersion}`,
-    Updated: ({ from }) => `updated ${servicePackage(language)} from ${from} to ${serviceVersion}`,
+const installNote = (packageName: string, change: PackageInstall): string =>
+  PackageInstall.$match(change, {
+    Current: () => `${packageName} ${serviceVersion} is already in the store`,
+    Installed: () => `installed ${packageName} ${serviceVersion}`,
+    Updated: ({ from }) => `updated ${packageName} from ${from} to ${serviceVersion}`,
   })
 
 const failedInstall = (error: StoreError) =>
   refuse(`loom: could not install ${error.packageName} — ${String(error.cause)}`)
 
-const alreadyActive = (language: string, dir: string) =>
+const alreadyOn = (name: string, state: string, version: Option.Option<string>) =>
   Console.log(
-    `\n   ${teal('✓')} ${language} is already activated\n` +
-      Option.match(installedVersion(language, dir), {
+    `\n   ${teal('✓')} ${name} is already ${state}\n` +
+      Option.match(version, {
         onNone: () =>
-          `   ${dim(`its service is not in the store; \`loom update ${language}\` installs it`)}\n`,
-        onSome: (version) =>
-          version === serviceVersion
+          `   ${dim(`its package is not in the store; \`loom update ${name}\` installs it`)}\n`,
+        onSome: (held) =>
+          held === serviceVersion
             ? ''
-            : `   ${dim(`the store holds its service at ${version}; \`loom update ${language}\` brings it to ${serviceVersion}`)}\n`,
+            : `   ${dim(`the store holds its package at ${held}; \`loom update ${name}\` brings it to ${serviceVersion}`)}\n`,
       }),
   )
 
-const add = (language: string) =>
+const addLanguage = (language: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const dir = process.cwd()
-    const activated = yield* activatedLanguages(config, dir)
-    if (activated.includes(language)) return yield* alreadyActive(language, dir)
+    const activated = yield* activatedIn(config, dir, 'languages')
+    if (activated.includes(language))
+      return yield* alreadyOn(language, 'activated', installedVersion(language, dir))
     const change = yield* installService(language, dir)
-    yield* updateLanguages(config, dir, (ids) => [...ids, language])
+    yield* updateEntries(config, dir, 'languages', (ids) => [...ids, language])
     yield* Console.log(
       `\n   ${teal('✓')} activated ${language}\n` +
-        `   ${dim(installNote(language, change))}\n` +
+        `   ${dim(installNote(servicePackage(language), change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
   }).pipe(Effect.catchTag('StoreError', failedInstall))
 
-const remove = (language: string) =>
+const addTrope = (trope: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    const installed = yield* activatedIn(config, dir, 'tropes')
+    if (installed.includes(trope))
+      return yield* alreadyOn(trope, 'installed', installedTropeVersion(trope, dir))
+    const change = yield* installTrope(trope, dir)
+    yield* updateEntries(config, dir, 'tropes', (ids) => [...ids, trope])
+    yield* Console.log(
+      `\n   ${teal('✓')} installed the trope ${trope}\n` +
+        `   ${dim(installNote(tropePackage(trope), change))}\n` +
+        `   ${dim(`store: ${storeDir(dir)}`)}\n`,
+    )
+  }).pipe(Effect.catchTag('StoreError', failedInstall))
+
+const removeLanguage = (language: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const dir = process.cwd()
     yield* removeService(language, dir)
-    yield* updateLanguages(config, dir, (ids) => ids.filter((id) => id !== language))
+    yield* updateEntries(config, dir, 'languages', (ids) => ids.filter((id) => id !== language))
     yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
   })
 
-const updateUsage = 'usage: loom update <language>… | loom update --all'
-
-const update = (languages: ReadonlyArray<string>, all: boolean) =>
+const removeTropeNamed = (trope: string) =>
   Effect.gen(function* () {
-    if (languages.length === 0 && !all)
-      return yield* refuse(
-        `loom: name the languages to update, or use --all — ${updateUsage}\n` +
-          '      To upgrade Loom itself, run `loom upgrade`.',
-      )
-    if (languages.length > 0 && all)
-      return yield* refuse(`loom: name languages or use --all, not both — ${updateUsage}`)
     const config = yield* LoomConfig
     const dir = process.cwd()
-    const activated = yield* activatedLanguages(config, dir)
-    const inactive = languages.filter((id) => !activated.includes(id))
-    if (inactive.length > 0)
+    yield* removeTrope(trope, dir)
+    yield* updateEntries(config, dir, 'tropes', (ids) => ids.filter((id) => id !== trope))
+    yield* Console.log(`\n   ${teal('✓')} removed the trope ${trope}\n`)
+  })
+
+const add = (name: string) => (isLoomTrope(name) ? addTrope(name) : addLanguage(name))
+
+const remove = (name: string) => (isLoomTrope(name) ? removeTropeNamed(name) : removeLanguage(name))
+
+const updateUsage = 'usage: loom update <language or trope>… | loom update --all'
+
+const installOf = (name: string, dir: string) =>
+  isLoomTrope(name)
+    ? installTrope(name, dir).pipe(Effect.map((change) => installNote(tropePackage(name), change)))
+    : installService(name, dir).pipe(
+        Effect.map((change) => installNote(servicePackage(name), change)),
+      )
+
+const update = (names: ReadonlyArray<string>, all: boolean) =>
+  Effect.gen(function* () {
+    if (names.length === 0 && !all)
+      return yield* refuse(
+        `loom: name the languages or tropes to update, or use --all — ${updateUsage}\n` +
+          '      To upgrade Loom itself, run `loom upgrade`.',
+      )
+    if (names.length > 0 && all)
+      return yield* refuse(
+        `loom: name languages or tropes, or use --all, not both — ${updateUsage}`,
+      )
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    const on = [
+      ...(yield* activatedIn(config, dir, 'languages')),
+      ...(yield* activatedIn(config, dir, 'tropes')),
+    ]
+    const off = names.filter((id) => !on.includes(id))
+    if (off.length > 0)
       return yield* Effect.forEach(
-        inactive,
+        off,
         (id) => refuse(`loom: ${id} is not activated; \`loom add ${id}\` turns it on`),
         { discard: true },
       )
-    const ids = all ? activated : languages
-    if (ids.length === 0) return yield* Console.log(`\n   ${dim('no languages are activated')}\n`)
+    const ids = all ? on : names
+    if (ids.length === 0)
+      return yield* Console.log(`\n   ${dim('no languages or tropes are activated')}\n`)
     yield* Console.log('')
     yield* Effect.forEach(ids, (id) =>
-      installService(id, dir).pipe(
-        Effect.flatMap((change) => Console.log(`   ${teal('✓')} ${dim(installNote(id, change))}`)),
+      installOf(id, dir).pipe(
+        Effect.flatMap((note) => Console.log(`   ${teal('✓')} ${dim(note)}`)),
       ),
     )
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
@@ -1197,23 +1253,19 @@ const initCommand = Command.make(
   ({ dir }) => init(dir),
 )
 
-const addCommand = Command.make('add', { language: Argument.String('language') }, ({ language }) =>
-  add(language),
-)
+const addCommand = Command.make('add', { name: Argument.String('name') }, ({ name }) => add(name))
 
-const removeCommand = Command.make(
-  'remove',
-  { language: Argument.String('language') },
-  ({ language }) => remove(language),
+const removeCommand = Command.make('remove', { name: Argument.String('name') }, ({ name }) =>
+  remove(name),
 )
 
 const updateCommand = Command.make(
   'update',
   {
-    languages: Argument.String('language').pipe(Argument.variadic()),
+    names: Argument.String('name').pipe(Argument.variadic()),
     all: Flag.Boolean('all').pipe(Flag.withDefault(false)),
   },
-  ({ languages, all }) => update(languages, all),
+  ({ names, all }) => update(names, all),
 )
 
 const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
@@ -1261,6 +1313,7 @@ const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(LanguagePackages.layer),
+  Effect.provide(TropePackages.layer),
   Effect.provide(FileSystemEnvironment),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),

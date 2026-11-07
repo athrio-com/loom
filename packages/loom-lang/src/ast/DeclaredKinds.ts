@@ -221,9 +221,10 @@ const withTrope = (
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   book: Book,
+  installed: ReadonlyArray<DeclaredKind> = [],
 ): DeclaredKinds => {
   const tropes = tropesOf(modules)
-  return Array.reduce(tropes, { ...noKinds, tropes }, (kinds, trope) =>
+  return Array.reduce(tropes, { ...noKinds, tropes, box: installed }, (kinds, trope) =>
     withTrope(modules, book, kinds, trope),
   )
 }

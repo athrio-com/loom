@@ -134,6 +134,9 @@
         "vscode-uri": "^3.1.0",
       },
     },
+    "packages/loom-trope-mermaid": {
+      "name": "@athrio/loom-trope-mermaid",
+    },
     "packages/loom-vscode": {
       "name": "loom-vscode",
       "version": "0.0.16",
@@ -190,6 +193,8 @@
     "@athrio/loom-lang-services": ["@athrio/loom-lang-services@workspace:packages/loom-lang-services"],
 
     "@athrio/loom-service-typescript": ["@athrio/loom-service-typescript@workspace:packages/loom-service-typescript"],
+
+    "@athrio/loom-trope-mermaid": ["@athrio/loom-trope-mermaid@workspace:packages/loom-trope-mermaid"],
 
     "@azu/format-text": ["@azu/format-text@1.0.2", "", {}, "sha512-Swi4N7Edy1Eqq82GxgEECXSSLyn6GOb5htRFPzBDdUkECGXtlf12ynO5oJSpWKPwCaUssOu7NfhDcCWpIC6Ywg=="],
 

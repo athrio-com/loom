@@ -12,7 +12,7 @@ It runs from the workspace root under Bun, and it is safe to run twice: it asks 
 
 ## What the release tool draws on
 
-The tool reads the shared version from a manifest and spawns npm, so it draws on Effect's filesystem service and Bun's process spawning. The scripts live in a `scripts` directory at the workspace root; Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The published set is the two npm packages, `@athrio/loom` and `@athrio/loom-service-typescript`, each named by its directory, where an `npm publish` runs.
+The tool reads the shared version from a manifest and spawns npm, so it draws on Effect's filesystem service and Bun's process spawning. The scripts live in a `scripts` directory at the workspace root; Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The published set is the three npm packages, `@athrio/loom`, `@athrio/loom-service-typescript`, and `@athrio/loom-trope-mermaid`, each named by its directory, where an `npm publish` runs.
 
 =>
 
@@ -33,6 +33,10 @@ const published: ReadonlyArray<Package> = [
   {
     name: '@athrio/loom-service-typescript',
     dir: join(workspace, 'packages', 'loom-service-typescript'),
+  },
+  {
+    name: '@athrio/loom-trope-mermaid',
+    dir: join(workspace, 'packages', 'loom-trope-mermaid'),
   },
 ]
 

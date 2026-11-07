@@ -547,6 +547,110 @@ describe('loom cli — keeping a service current', () => {
   )
 })
 
+const tropeFolder = (home: string, id: string): string =>
+  join(home, 'services', 'node_modules', '@athrio', `loom-trope-${id}`)
+
+const installFakeTrope = (home: string, id: string, version: string = loomVersion): void => {
+  mkdirSync(tropeFolder(home, id), { recursive: true })
+  writeFileSync(
+    join(tropeFolder(home, id), 'package.json'),
+    `${JSON.stringify({ name: `@athrio/loom-trope-${id}`, version })}\n`,
+  )
+}
+
+const storedTropeVersion = (home: string, id: string): string =>
+  (
+    JSON.parse(readFileSync(join(tropeFolder(home, id), 'package.json'), 'utf8')) as {
+      readonly version: string
+    }
+  ).version
+
+describe('loom cli — installing a trope', () => {
+  it(
+    'add installs a trope and records it among the tropes',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace('corpus: corpus\nprimary: typescript\n')
+      const { status, stdout } = loom(['add', 'mermaid'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain('installed the trope mermaid')
+      expect(readFileSync(npm.calls, 'utf8')).toContain(`@athrio/loom-trope-mermaid@${loomVersion}`)
+      expect(storedTropeVersion(home, 'mermaid')).toBe(loomVersion)
+      expect(configText(dir)).toContain('tropes:\n  mermaid: {}')
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'add changes nothing for a trope that is installed and current',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace('corpus: corpus\ntropes:\n  mermaid: {}\n')
+      installFakeTrope(home, 'mermaid')
+      const { status, stdout } = loom(['add', 'mermaid'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain('mermaid is already installed')
+      expect(existsSync(npm.calls)).toBe(false)
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'remove takes the trope out of the store and the configuration',
+    () => {
+      const home = userStore()
+      const dir = workspace('corpus: corpus\ntropes:\n  mermaid: {}\n')
+      installFakeTrope(home, 'mermaid')
+      const { status, stdout } = loom(['remove', 'mermaid'], { cwd: dir, env: { LOOM_HOME: home } })
+      expect(status).toBe(0)
+      expect(stdout).toContain('removed the trope mermaid')
+      expect(existsSync(tropeFolder(home, 'mermaid'))).toBe(false)
+      expect(configText(dir)).not.toContain('mermaid')
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update --all brings a stale trope up to date beside the languages',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace(
+        'corpus: corpus\nlanguages:\n  typescript: {}\ntropes:\n  mermaid: {}\nprimary: typescript\n',
+      )
+      installFake(home, 'typescript')
+      installFakeTrope(home, 'mermaid', '0.0.1')
+      const { status, stdout } = loom(['update', '--all'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain(`updated @athrio/loom-trope-mermaid from 0.0.1 to ${loomVersion}`)
+      expect(storedTropeVersion(home, 'mermaid')).toBe(loomVersion)
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
 describe('loom cli — upgrade', () => {
   it(
     'names the package manager\'s command when Loom came from npm',

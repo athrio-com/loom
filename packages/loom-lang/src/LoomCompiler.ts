@@ -70,7 +70,8 @@ import {
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
-import { declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import { TropePackages } from './TropePackages'
 import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
 import {
   contractsIn,
@@ -146,10 +147,10 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
       faulty(StaleSummary({ of, name: title, summary, at: body }), name.position),
   })
 
-const corpusDiagnostics = (modules: Modules) => {
+const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
   const book = bookOf(modules)
   const landing = landingOf(book, modules)
-  const kinds = declaredKindsOf(modules, book)
+  const kinds = declaredKindsOf(modules, book, installed)
   const boundaries = boundariesOf(modules, book, kinds.tropes)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
@@ -680,6 +681,13 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
     const packages = yield* Effect.serviceOption(LanguagePackages)
+    const tropes = yield* Effect.serviceOption(TropePackages)
+
+    const installedKinds = (loom: Location): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+      Option.match(tropes, {
+        onNone: () => Effect.succeed<ReadonlyArray<DeclaredKind>>([]),
+        onSome: (installed) => installed.kindsFor(loom),
+      })
 
     const specifierOf = (request: SpecifierRequest): Effect.Effect<Option.Option<string>, ServiceError> =>
       Option.match(packages, {
@@ -819,11 +827,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       tangle: (path: Location): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
-        buildCorpus(documents, path).pipe(
-          Effect.flatMap((modules) => {
+        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
+          Effect.flatMap(([modules, installed]) => {
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules)),
+              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed)),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -913,14 +921,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
-        buildCorpus(documents, path).pipe(
-          Effect.map((modules) =>
+        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
+          Effect.map(([modules, installed]) =>
             pipe(
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
                 onSome: (module) => [
-                  ...corpusDiagnostics(modules)(module),
+                  ...corpusDiagnostics(modules, installed)(module),
                   ...Array.flatMap(
                     unresolvedTocEntriesIn({ modules }, module),
                     (entry) =>

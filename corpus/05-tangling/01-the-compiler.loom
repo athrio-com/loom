@@ -29,6 +29,8 @@ The build cache keys a module by its path alone, so it can hold a build of the e
 
 An anchor of the `Reference` kind refers to a module rather than composing a section, as the chapter "Referring to modules" describes, and only the module's language package can write the path to it. The compiler reaches the packages through the `LanguagePackages` service when the environment provides one. The CLI's environment loads a workspace's packages the first time it asks, and the language server holds the ones it loaded for its plugins. `specifierOf` asks a package to write the path a reference names, and `writtenFor` asks it for every reference a root holds, as the section "Writing a reference's path" describes. With no `LanguagePackages`, as in a test or over remote storage, a reference's path stays unwritten.
 
+A workspace may install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their declared kinds join the registry every judgement reads. The compiler reaches them through the `TropePackages` service when the environment provides one, the same way it reaches the language packages. `installedKinds` asks it for the kinds the workspace of a loom installs. With no `TropePackages`, as in a test or over remote storage, a workspace installs no trope.
+
 Every build passes through `LoomDiskCache`, which may keep the module on disk for the next process. The compiler's layer provides its passes and the cache in memory, but not this one. The environment provides it, as the chapter "Where a workspace is kept" describes, so a workspace on a disk keeps its modules there, and a workspace in remote storage keeps none. The cache must never keep a module built from text that was not saved, so `loadOne` hands it `DocumentSource` beside the source the build reads. The cache checks the module against the saved text that `DocumentSource` gives.
 
 =>
@@ -45,6 +47,13 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
     const packages = yield* Effect.serviceOption(LanguagePackages)
+    const tropes = yield* Effect.serviceOption(TropePackages)
+
+    const installedKinds = (loom: Location): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+      Option.match(tropes, {
+        onNone: () => Effect.succeed<ReadonlyArray<DeclaredKind>>([]),
+        onSome: (installed) => installed.kindsFor(loom),
+      })
 
     const specifierOf = (request: SpecifierRequest): Effect.Effect<Option.Option<string>, ServiceError> =>
       Option.match(packages, {
@@ -184,11 +193,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       tangle: (path: Location): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
-        buildCorpus(documents, path).pipe(
-          Effect.flatMap((modules) => {
+        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
+          Effect.flatMap(([modules, installed]) => {
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules)),
+              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed)),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -278,14 +287,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
-        buildCorpus(documents, path).pipe(
-          Effect.map((modules) =>
+        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
+          Effect.map(([modules, installed]) =>
             pipe(
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
                 onSome: (module) => [
-                  ...corpusDiagnostics(modules)(module),
+                  ...corpusDiagnostics(modules, installed)(module),
                   ...Array.flatMap(
                     unresolvedTocEntriesIn({ modules }, module),
                     (entry) =>
@@ -574,7 +583,7 @@ A module's diagnostics come from two places. Its own two tiers, the parse and th
 
 `corpusDiagnostics` reads both for one module, against the corpus the module came from. It builds the corpus's `Book` once, so the judgement of every module resolves names through the same index, and the corpus's `Landing` once, which tells the file each section lands in, for a reference that names a section with no sink. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken. A box that points to a loom needs the corpus too, since that loom lives in another file. `boxNoticeHealth` turns each of its notices into a diagnostic at the box's name: a box whose loom nobody has written carries the `UnwrittenLoom` note, a trope box that points nowhere yet carries the `UnsettledTrope` note, and a box whose copy of the summary is out of step carries the `StaleSummary` warning. Neither is an error, so neither stops a tangle.
 
-A box's kind needs the corpus as well, since a trope anywhere in the book may declare it. `corpusDiagnostics` gathers the registry of declared kinds once, through `declaredKindsOf`, and `kindFaults` judges each module against it: a box whose kind nobody gives carries the `UnknownKind` fault, and a trope Loom refuses carries the `TropeRefused` fault, as Part XIII, Tropes, describes. Both are errors, so either stops a tangle, as an unknown kind did when the parse alone judged it.
+A box's kind needs the corpus as well, since a trope anywhere in the book may declare it. A trope the workspace installs may declare it too, and the `installed` kinds the compiler hands in carry those. `corpusDiagnostics` gathers the registry of declared kinds once, through `declaredKindsOf`, and `kindFaults` judges each module against it: a box whose kind nobody gives carries the `UnknownKind` fault, and a trope Loom refuses carries the `TropeRefused` fault, as Part XIII, Tropes, describes. Both are errors, so either stops a tangle, as an unknown kind did when the parse alone judged it.
 
 A trope's boundary needs the corpus too, since the chapters that reach a trope may lie anywhere in the book. `corpusDiagnostics` derives every trope's boundary once, through `boundariesOf`, from the tropes the registry gathered, and `boundaryFaults` judges each module against them. A reach across a boundary to a chapter the trope keeps inside is an error, and stops a tangle. A member nothing reaches is a warning, and a trope with no root or a chapter it reaches by use alone is a note.
 
@@ -612,10 +621,10 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
       faulty(StaleSummary({ of, name: title, summary, at: body }), name.position),
   })
 
-const corpusDiagnostics = (modules: Modules) => {
+const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
   const book = bookOf(modules)
   const landing = landingOf(book, modules)
-  const kinds = declaredKindsOf(modules, book)
+  const kinds = declaredKindsOf(modules, book, installed)
   const boundaries = boundariesOf(modules, book, kinds.tropes)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
@@ -1222,7 +1231,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, and `compositionCycles`, which faults a composing anchor that loops back to its own section; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare and judge each module's boxes against it, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, and `compositionCycles`, which faults a composing anchor that loops back to its own section; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, each a `DeclaredKind`, and judge each module's boxes against it, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 References add a few more. From the product pass comes what fits a reference to its file: `referredFileOf`, the `Referred` it answers, the `Landing` it reads, `landingOf`, which builds the landing, and `holdsReferences`, which tells whether a corpus refers at all. The projection gives `referencesIn`, which gathers a root's references as `Reference`s, and the `Specifiers` the projection writes them with, `noSpecifiers` among them. The product model gives the `Code` of a root, and `Position` keys a specifier by its anchor's place. The fault catalog gives `UnsettledModule` and `SpecifierUnknown`, and the language-service contract gives the `SpecifierRequest` a package answers and the `ServiceError` it fails with. `LanguagePackages` is the service that asks the packages, which the environment may provide.
 
@@ -1300,7 +1309,8 @@ import {
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
-import { declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import { TropePackages } from './TropePackages'
 import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
 import {
   contractsIn,

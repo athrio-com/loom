@@ -20,6 +20,20 @@ Loom resolves an id to a package name by one rule: the id `python` names the pac
 
 export const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
 
+## The package a trope ships in
+
+A trope travels between books in a package too, as Part XIII, Tropes, describes. Loom publishes its own tropes the way it publishes its language services, so the same one rule names their packages: the trope `mermaid` ships in `@athrio/loom-trope-mermaid`. A trope's package holds the trope's looms and no code to load.
+
+`loomTropes` lists the tropes Loom publishes, and `isLoomTrope` asks whether a name is one of them. `loom add` reads the list to tell a trope's name from a language's, since both are short names: a name on the list names a trope, and any other names a language.
+
+=>
+
+export const tropePackage = (id: string): string => `@athrio/loom-trope-${id}`
+
+export const loomTropes: ReadonlyArray<string> = ['mermaid']
+
+export const isLoomTrope = (id: string): boolean => loomTropes.includes(id)
+
 ## Where the store lives
 
 The store lives in the workspace, under `.loom/services/` — the directory `loom add` fills, beside the committed `config.yaml`. Git ignores the store, since Loom rebuilds it on demand, while the configuration is committed. Loom installs each language's service there once, to serve the whole workspace, and never under the user's home directory: a project's tools belong to the project, not to the machine.
@@ -68,7 +82,7 @@ export const installedServices = (dir: string): Effect.Effect<ReadonlyArray<stri
 
 Every package in the store carries a manifest, the `package.json` its author published. Loom reads three of its fields. The `version` field says which release of the service the store holds. The `exports` and `main` fields say which file a host imports to load the service.
 
-`ServiceManifestSchema` is that much of a manifest, every field optional, since a field the author left out is no error. The `exports` field may take several shapes, so the schema admits any value there and leaves its reading to the loader. `serviceDir` names the folder where the store keeps a service, and `serviceManifest` reads the manifest in that folder and decodes it. It yields nothing when the store does not hold the service, or when the file is not a manifest at all.
+`ServiceManifestSchema` is that much of a manifest, every field optional, since a field the author left out is no error. The `exports` field may take several shapes, so the schema admits any value there and leaves its reading to the loader. `serviceDir` names the folder where the store keeps a service, and `tropeDir` the folder where it keeps a trope. `manifestIn` reads the manifest in a package's folder and decodes it, and `serviceManifest` reads a service's. Each yields nothing when the store does not hold the package, or when the file is not a manifest at all.
 
 =>
 
@@ -83,20 +97,26 @@ export type ServiceManifest = typeof ServiceManifestSchema.Type
 export const serviceDir = (id: string, dir: string): string =>
   join(storeDir(dir), 'node_modules', servicePackage(id))
 
-export const serviceManifest = (id: string, dir: string): Option.Option<ServiceManifest> =>
+export const tropeDir = (id: string, dir: string): string =>
+  join(storeDir(dir), 'node_modules', tropePackage(id))
+
+const manifestIn = (folder: string): Option.Option<ServiceManifest> =>
   pipe(
-    Option.liftThrowable(() => readFileSync(join(serviceDir(id, dir), 'package.json'), 'utf8'))(),
+    Option.liftThrowable(() => readFileSync(join(folder, 'package.json'), 'utf8'))(),
     Option.flatMap(Option.liftThrowable((text: string): unknown => JSON.parse(text))),
     Option.flatMap(Schema.decodeUnknownOption(ServiceManifestSchema)),
   )
 
+export const serviceManifest = (id: string, dir: string): Option.Option<ServiceManifest> =>
+  manifestIn(serviceDir(id, dir))
+
 ## The version a service must have
 
-Loom releases every package at one version, the command line and each language service alike, so a service works with the Loom that shares its version. `serviceVersion` is that version, the workspace's own, which the release sets for every package at once. A store can therefore check its services by a plain comparison: a service at `serviceVersion` belongs to this Loom, and a service at any other version was installed by another.
+Loom releases every package at one version, the command line, each language service, and each trope alike, so a package works with the Loom that shares its version. `serviceVersion` is that version, the workspace's own, which the release sets for every package at once. A store can therefore check its services by a plain comparison: a service at `serviceVersion` belongs to this Loom, and a service at any other version was installed by another.
 
 The comparison matters because a store outlives the Loom that filled it. A service installed by an older release stays in the store when Loom is upgraded, and a service built against an older Effect fails inside the newer host, so a stale store breaks a language's checks in every editor.
 
-`installedVersion` reads the version of a service the store holds, from the service's manifest. It yields nothing when the store does not hold the service.
+`versionIn` reads the version of a package from the manifest in its folder. `installedVersion` reads the version of a service the store holds, and `installedTropeVersion` the version of a trope. Each yields nothing when the store does not hold the package.
 
 {{ version = ${version} }}
 
@@ -104,8 +124,14 @@ The comparison matters because a store outlives the Loom that filled it. A servi
 
 export const serviceVersion = '::[version]'
 
+const versionIn = (folder: string): Option.Option<string> =>
+  Option.flatMap(manifestIn(folder), (manifest) => Option.fromNullishOr(manifest.version))
+
 export const installedVersion = (id: string, dir: string): Option.Option<string> =>
-  Option.flatMap(serviceManifest(id, dir), (manifest) => Option.fromNullishOr(manifest.version))
+  versionIn(serviceDir(id, dir))
+
+export const installedTropeVersion = (id: string, dir: string): Option.Option<string> =>
+  versionIn(tropeDir(id, dir))
 
 ## Two ways to run Loom
 
@@ -213,29 +239,42 @@ const installPackage = (
     })
   })
 
-## Installing a service
+## Installing a service or a trope
 
-`installService` brings a language's package in the store to `serviceVersion`. A store that already holds the service at that version is left alone, so the call is quick and needs no network. A store that lacks the service gets it installed, and a store that holds it at another version gets it replaced. `ServiceInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language on and bringing an active language up to date both come down to this one call.
+`installService` brings a language's package in the store to `serviceVersion`, and `installTrope` does the same for a trope's package. Both come down to `installInto`. A store that already holds the package at that version is left alone, so the call is quick and needs no network. A store that lacks the package gets it installed, and a store that holds it at another version gets it replaced. `PackageInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language or a trope on, and bringing it up to date, all come down to these calls.
 
 =>
 
-export type ServiceInstall = Data.TaggedEnum<{
+export type PackageInstall = Data.TaggedEnum<{
   Current: {}
   Installed: {}
   Updated: { readonly from: string }
 }>
-export const ServiceInstall = Data.taggedEnum<ServiceInstall>()
+export const PackageInstall = Data.taggedEnum<PackageInstall>()
 
-export const installService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
+const installInto = (
+  packageName: string,
+  folder: string,
+  dir: string,
+): Effect.Effect<PackageInstall, StoreError> =>
   Effect.gen(function* () {
-    const installed = installedVersion(id, dir)
-    if (Option.contains(installed, serviceVersion)) return ServiceInstall.Current()
-    yield* installPackage(storeDir(dir), servicePackage(id), serviceVersion)
+    const installed = versionIn(folder)
+    if (Option.contains(installed, serviceVersion)) return PackageInstall.Current()
+    yield* installPackage(storeDir(dir), packageName, serviceVersion)
     return Option.match(installed, {
-      onNone: () => ServiceInstall.Installed(),
-      onSome: (from) => ServiceInstall.Updated({ from }),
+      onNone: () => PackageInstall.Installed(),
+      onSome: (from) => PackageInstall.Updated({ from }),
     })
   })
+
+export const installService = (
+  id: string,
+  dir: string,
+): Effect.Effect<PackageInstall, StoreError> =>
+  installInto(servicePackage(id), serviceDir(id, dir), dir)
+
+export const installTrope = (id: string, dir: string): Effect.Effect<PackageInstall, StoreError> =>
+  installInto(tropePackage(id), tropeDir(id, dir), dir)
 
 ## TypeScript 7 for a project that installs none
 
@@ -313,18 +352,21 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
   )
 }
 
-## Removing a service
+## Removing a service or a trope
 
-`removeService` deletes a language's package from the store. It removes the package directory directly rather than asking the package manager to, so it undoes an install however the install arrived — and removing a language the store never held is harmless.
+`removeService` deletes a language's package from the store, and `removeTrope` a trope's. Each removes the package directory directly rather than asking the package manager to, so it undoes an install however the install arrived — and removing a package the store never held is harmless.
 
 =>
 
 export const removeService = (id: string, dir: string): Effect.Effect<void> =>
   Effect.sync(() => rmSync(serviceDir(id, dir), { recursive: true, force: true }))
 
+export const removeTrope = (id: string, dir: string): Effect.Effect<void> =>
+  Effect.sync(() => rmSync(tropeDir(id, dir), { recursive: true, force: true }))
+
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `join` and `dirname` form and walk the store path up to the workspace root, `existsSync` tells whether a folder holds a configuration, and `homedir` finds the home folder Loom keeps its downloads under.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `PackageInstall` their tags, `Schema` decodes a service's manifest, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `join` and `dirname` form and walk the store path up to the workspace root, `existsSync` tells whether a folder holds a configuration, and `homedir` finds the home folder Loom keeps its downloads under.
 
 =>
 
@@ -353,6 +395,8 @@ const run = promisify(execFile)
 
 ::[The package a language ships in]
 
+::[The package a trope ships in]
+
 ::[Where the store lives]
 
 ::[What the store holds]
@@ -365,11 +409,11 @@ const run = promisify(execFile)
 
 ::[Installing a package into the store]
 
-::[Installing a service]
+::[Installing a service or a trope]
 
 ::[TypeScript 7 for a project that installs none]
 
-::[Removing a service]
+::[Removing a service or a trope]
 
 ## Testing the fetch
 

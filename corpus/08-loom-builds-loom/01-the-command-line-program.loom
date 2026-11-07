@@ -312,129 +312,187 @@ const init = (dir: Option.Option<string>) =>
     })
   }).pipe(Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))))
 
-## Activating a language
+## Activating a language or installing a trope
 
 `loom add <language>` turns a language on. It installs the language's service into the store and records the language among the workspace's activated languages, because a language without its service gets no checks in the editor. `loom remove <language>` turns a language off, taking its service out of the store and its id out of the configuration.
 
-The install goes through the store's `installService`, which brings the service to this Loom's version. The store may lack the service, hold it already, or hold it at another version that an older release installed, and `loom add` says which of the three it found and what it did. An install that fails leaves with the reason and a non-zero exit, the configuration untouched, because a language whose service never arrived must not read as activated.
+`loom add <trope>` installs one of Loom's own tropes the same way, as the chapter "Tropes a workspace installs" describes. It installs the trope's package into the store and records the trope among the workspace's tropes, and `loom remove <trope>` takes both away again. The store's `isLoomTrope` tells the two kinds of name apart: a name on the list of Loom's tropes names a trope, and every other name a language. `add` and `remove` read the name once and hand it on, to `addLanguage` and `removeLanguage` or to `addTrope` and `removeTrope`.
 
-`loom add` on a language that is already on changes nothing. It says so, and when that language's service is missing from the store or at another version, it names `loom update`, the command whose job that is. So turning a language on never doubles as quietly replacing its service.
+The install goes through the store's `installService` or `installTrope`, which brings the package to this Loom's version. The store may lack the package, hold it already, or hold it at another version that an older release installed, and `loom add` says which of the three it found and what it did. An install that fails leaves with the reason and a non-zero exit, the configuration untouched, because a language whose service never arrived must not read as activated, nor a trope whose package never arrived as installed.
 
-Both commands record the change the same way. `updateLanguages` reads the workspace's activated languages, applies the change, and writes the new set back as the configuration's `languages` through its `edit` method. Every other line of `.loom/config.yaml` stays as it was written, so turning a language on or off changes only the set of languages. An activated language keeps its existing entry, with any service override in it, while a new one starts empty.
+`loom add` on a language or a trope that is already on changes nothing. It says so, and when the package is missing from the store or at another version, it names `loom update`, the command whose job that is. So turning a language or a trope on never doubles as quietly replacing its package.
+
+Every command records the change the same way. `updateEntries` reads one map of the configuration, the `languages` or the `tropes`, applies the change to its ids, and writes the new map back through the configuration's `edit` method. Every other line of `.loom/config.yaml` stays as it was written, so turning a language or a trope on or off changes only that map. An entry that stays keeps what it held, such as a language's service override, while a new one starts empty.
 
 =>
 
-const updateLanguages = (
+type Entries = 'languages' | 'tropes'
+
+const updateEntries = (
   config: LoomConfig['Service'],
   dir: string,
+  key: Entries,
   change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const workspace = workspaceRoot(dir)
-    const current = yield* config.manifest(workspace)
-    const ids = change(Object.keys(current?.languages ?? {}))
-    const languages = Object.fromEntries(ids.map((id) => [id, current?.languages?.[id] ?? {}]))
-    yield* config.edit(workspace, ['languages'], languages)
+    const current = (yield* config.manifest(workspace))?.[key] ?? {}
+    const ids = change(Object.keys(current))
+    yield* config.edit(
+      workspace,
+      [key],
+      Object.fromEntries(ids.map((id) => [id, current[id] ?? {}])),
+    )
   })
 
 ~
 
-Three small pieces serve both `loom add` and `loom update`. `activatedLanguages` reads the ids the configuration turns on. `installNote` says in one line what an install did. `failedInstall` reports an install that failed and sets a non-zero exit. A fourth, `alreadyActive`, is what `loom add` says about a language that is on already.
+A few small pieces serve `loom add` and `loom update`. `activatedIn` reads the ids one map of the configuration turns on. `installNote` says in one line what an install did to a package. `failedInstall` reports an install that failed and sets a non-zero exit. `alreadyOn` is what `loom add` says about a language or a trope that is on already, given the version of its package the store holds.
 
 =>
 
-const activatedLanguages = (
+const activatedIn = (
   config: LoomConfig['Service'],
   dir: string,
+  key: Entries,
 ): Effect.Effect<ReadonlyArray<string>> =>
   config
     .manifest(workspaceRoot(dir))
-    .pipe(Effect.map((manifest) => Object.keys(manifest?.languages ?? {})))
+    .pipe(Effect.map((manifest) => Object.keys(manifest?.[key] ?? {})))
 
-const installNote = (language: string, change: ServiceInstall): string =>
-  ServiceInstall.$match(change, {
-    Current: () => `${servicePackage(language)} ${serviceVersion} is already in the store`,
-    Installed: () => `installed ${servicePackage(language)} ${serviceVersion}`,
-    Updated: ({ from }) => `updated ${servicePackage(language)} from ${from} to ${serviceVersion}`,
+const installNote = (packageName: string, change: PackageInstall): string =>
+  PackageInstall.$match(change, {
+    Current: () => `${packageName} ${serviceVersion} is already in the store`,
+    Installed: () => `installed ${packageName} ${serviceVersion}`,
+    Updated: ({ from }) => `updated ${packageName} from ${from} to ${serviceVersion}`,
   })
 
 const failedInstall = (error: StoreError) =>
   refuse(`loom: could not install ${error.packageName} — ${String(error.cause)}`)
 
-const alreadyActive = (language: string, dir: string) =>
+const alreadyOn = (name: string, state: string, version: Option.Option<string>) =>
   Console.log(
-    `\n   ${teal('✓')} ${language} is already activated\n` +
-      Option.match(installedVersion(language, dir), {
+    `\n   ${teal('✓')} ${name} is already ${state}\n` +
+      Option.match(version, {
         onNone: () =>
-          `   ${dim(`its service is not in the store; \`loom update ${language}\` installs it`)}\n`,
-        onSome: (version) =>
-          version === serviceVersion
+          `   ${dim(`its package is not in the store; \`loom update ${name}\` installs it`)}\n`,
+        onSome: (held) =>
+          held === serviceVersion
             ? ''
-            : `   ${dim(`the store holds its service at ${version}; \`loom update ${language}\` brings it to ${serviceVersion}`)}\n`,
+            : `   ${dim(`the store holds its package at ${held}; \`loom update ${name}\` brings it to ${serviceVersion}`)}\n`,
       }),
   )
 
-const add = (language: string) =>
+~
+
+`addLanguage` and `removeLanguage` turn a language on and off, and `addTrope` and `removeTrope` install and remove a trope. Each pair differs only in the store call it makes, the configuration map it changes, and the words it reports with.
+
+=>
+
+const addLanguage = (language: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const dir = process.cwd()
-    const activated = yield* activatedLanguages(config, dir)
-    if (activated.includes(language)) return yield* alreadyActive(language, dir)
+    const activated = yield* activatedIn(config, dir, 'languages')
+    if (activated.includes(language))
+      return yield* alreadyOn(language, 'activated', installedVersion(language, dir))
     const change = yield* installService(language, dir)
-    yield* updateLanguages(config, dir, (ids) => [...ids, language])
+    yield* updateEntries(config, dir, 'languages', (ids) => [...ids, language])
     yield* Console.log(
       `\n   ${teal('✓')} activated ${language}\n` +
-        `   ${dim(installNote(language, change))}\n` +
+        `   ${dim(installNote(servicePackage(language), change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
   }).pipe(Effect.catchTag('StoreError', failedInstall))
 
-const remove = (language: string) =>
+const addTrope = (trope: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    const installed = yield* activatedIn(config, dir, 'tropes')
+    if (installed.includes(trope))
+      return yield* alreadyOn(trope, 'installed', installedTropeVersion(trope, dir))
+    const change = yield* installTrope(trope, dir)
+    yield* updateEntries(config, dir, 'tropes', (ids) => [...ids, trope])
+    yield* Console.log(
+      `\n   ${teal('✓')} installed the trope ${trope}\n` +
+        `   ${dim(installNote(tropePackage(trope), change))}\n` +
+        `   ${dim(`store: ${storeDir(dir)}`)}\n`,
+    )
+  }).pipe(Effect.catchTag('StoreError', failedInstall))
+
+const removeLanguage = (language: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const dir = process.cwd()
     yield* removeService(language, dir)
-    yield* updateLanguages(config, dir, (ids) => ids.filter((id) => id !== language))
+    yield* updateEntries(config, dir, 'languages', (ids) => ids.filter((id) => id !== language))
     yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
   })
 
-## Bringing a language up to date
+const removeTropeNamed = (trope: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    yield* removeTrope(trope, dir)
+    yield* updateEntries(config, dir, 'tropes', (ids) => ids.filter((id) => id !== trope))
+    yield* Console.log(`\n   ${teal('✓')} removed the trope ${trope}\n`)
+  })
 
-`loom update <language>…` brings the services of the named languages to this Loom's version, and `loom update --all` does the same for every activated language. After an upgrade of Loom, the store still holds the services the older release installed, and this is the step that replaces them. Each language goes through `installService`, so a current service stays as it is, one at another version is replaced, and a missing one is installed. A fresh clone is the common case of a missing service, since Git ignores the store. The command reports what it did for each language as it goes.
+const add = (name: string) => (isLoomTrope(name) ? addTrope(name) : addLanguage(name))
 
-The command never changes the configuration. A language it is asked to update must be on already, and one that is not is refused with the `loom add` that turns it on, so `update` never activates a language behind the reader's back. An install that fails stops the command with the reason and a non-zero exit, as it does for `loom add`.
+const remove = (name: string) => (isLoomTrope(name) ? removeTropeNamed(name) : removeLanguage(name))
 
-`loom update` alone names no languages, and a reader who types it may well mean Loom itself. So it prints the usage, points to `loom upgrade`, the command that upgrades Loom, and exits non-zero. Naming languages together with `--all` prints the usage too, since the two ask for different sets of languages.
+## Bringing a language or a trope up to date
+
+`loom update <name>…` brings the packages of the named languages and tropes to this Loom's version, and `loom update --all` does the same for every activated language and every installed trope. After an upgrade of Loom, the store still holds the packages the older release installed, and this is the step that replaces them. Each name goes through `installService` or `installTrope`, as `installOf` chooses, so a current package stays as it is, one at another version is replaced, and a missing one is installed. A fresh clone is the common case of a missing package, since Git ignores the store. The command reports what it did for each name as it goes.
+
+The command never changes the configuration. A name it is asked to update must be on already, and one that is not is refused with the `loom add` that turns it on, so `update` never activates a language or installs a trope behind the reader's back. An install that fails stops the command with the reason and a non-zero exit, as it does for `loom add`.
+
+`loom update` alone names nothing, and a reader who types it may well mean Loom itself. So it prints the usage, points to `loom upgrade`, the command that upgrades Loom, and exits non-zero. Naming languages or tropes together with `--all` prints the usage too, since the two ask for different sets.
 
 =>
 
-const updateUsage = 'usage: loom update <language>… | loom update --all'
+const updateUsage = 'usage: loom update <language or trope>… | loom update --all'
 
-const update = (languages: ReadonlyArray<string>, all: boolean) =>
+const installOf = (name: string, dir: string) =>
+  isLoomTrope(name)
+    ? installTrope(name, dir).pipe(Effect.map((change) => installNote(tropePackage(name), change)))
+    : installService(name, dir).pipe(
+        Effect.map((change) => installNote(servicePackage(name), change)),
+      )
+
+const update = (names: ReadonlyArray<string>, all: boolean) =>
   Effect.gen(function* () {
-    if (languages.length === 0 && !all)
+    if (names.length === 0 && !all)
       return yield* refuse(
-        `loom: name the languages to update, or use --all — ${updateUsage}\n` +
+        `loom: name the languages or tropes to update, or use --all — ${updateUsage}\n` +
           '      To upgrade Loom itself, run `loom upgrade`.',
       )
-    if (languages.length > 0 && all)
-      return yield* refuse(`loom: name languages or use --all, not both — ${updateUsage}`)
+    if (names.length > 0 && all)
+      return yield* refuse(
+        `loom: name languages or tropes, or use --all, not both — ${updateUsage}`,
+      )
     const config = yield* LoomConfig
     const dir = process.cwd()
-    const activated = yield* activatedLanguages(config, dir)
-    const inactive = languages.filter((id) => !activated.includes(id))
-    if (inactive.length > 0)
+    const on = [
+      ...(yield* activatedIn(config, dir, 'languages')),
+      ...(yield* activatedIn(config, dir, 'tropes')),
+    ]
+    const off = names.filter((id) => !on.includes(id))
+    if (off.length > 0)
       return yield* Effect.forEach(
-        inactive,
+        off,
         (id) => refuse(`loom: ${id} is not activated; \`loom add ${id}\` turns it on`),
         { discard: true },
       )
-    const ids = all ? activated : languages
-    if (ids.length === 0) return yield* Console.log(`\n   ${dim('no languages are activated')}\n`)
+    const ids = all ? on : names
+    if (ids.length === 0)
+      return yield* Console.log(`\n   ${dim('no languages or tropes are activated')}\n`)
     yield* Console.log('')
     yield* Effect.forEach(ids, (id) =>
-      installService(id, dir).pipe(
-        Effect.flatMap((change) => Console.log(`   ${teal('✓')} ${dim(installNote(id, change))}`)),
+      installOf(id, dir).pipe(
+        Effect.flatMap((note) => Console.log(`   ${teal('✓')} ${dim(note)}`)),
       ),
     )
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
@@ -1458,7 +1516,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is fifteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language on and off, and `loom update <language>…` or `loom update --all` brings the services of active languages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is fifteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1500,23 +1558,19 @@ const initCommand = Command.make(
   ({ dir }) => init(dir),
 )
 
-const addCommand = Command.make('add', { language: Argument.String('language') }, ({ language }) =>
-  add(language),
-)
+const addCommand = Command.make('add', { name: Argument.String('name') }, ({ name }) => add(name))
 
-const removeCommand = Command.make(
-  'remove',
-  { language: Argument.String('language') },
-  ({ language }) => remove(language),
+const removeCommand = Command.make('remove', { name: Argument.String('name') }, ({ name }) =>
+  remove(name),
 )
 
 const updateCommand = Command.make(
   'update',
   {
-    languages: Argument.String('language').pipe(Argument.variadic()),
+    names: Argument.String('name').pipe(Argument.variadic()),
     all: Flag.Boolean('all').pipe(Flag.withDefault(false)),
   },
-  ({ languages, all }) => update(languages, all),
+  ({ names, all }) => update(names, all),
 )
 
 const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
@@ -1564,6 +1618,7 @@ const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(LanguagePackages.layer),
+  Effect.provide(TropePackages.layer),
   Effect.provide(FileSystemEnvironment),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),
@@ -1585,9 +1640,9 @@ Node's `path` resolves a workspace directory for `init`. `node:fs` writes the co
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a reference names; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a reference names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
-From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
+From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTrope` and `removeTrope` a trope's, with `PackageInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropePackage` names a trope's package, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
 =>
 
@@ -1630,6 +1685,7 @@ import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
+import { TropePackages } from '@athrio/loom-lang/TropePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
@@ -1637,18 +1693,23 @@ import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
+  installedTropeVersion,
   installedVersion,
   installService,
+  installTrope,
+  isLoomTrope,
   embeddedFile,
   fetchedExecutable,
   fetchedTypeScriptDir,
   removeService,
-  ServiceInstall,
+  removeTrope,
+  PackageInstall,
   type StoreError,
   servicePackage,
   serviceVersion,
   standalone,
   storeDir,
+  tropePackage,
   typeScriptVersion,
   workspaceOf,
   workspaceRoot,
@@ -1677,9 +1738,9 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 
 ::[Scaffolding a workspace]
 
-::[Activating a language]
+::[Activating a language or installing a trope]
 
-::[Bringing a language up to date]
+::[Bringing a language or a trope up to date]
 
 ::[Who installed Loom]
 

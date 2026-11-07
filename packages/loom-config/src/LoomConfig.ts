@@ -12,6 +12,8 @@ const LanguageSchema = Schema.Struct({
   service: Schema.optional(Schema.String),
 })
 
+const TropeSchema = Schema.Struct({})
+
 const SettingsSchema = Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Unknown))
 
 const VariablesSchema = Schema.Record(
@@ -21,6 +23,7 @@ const VariablesSchema = Schema.Record(
 
 export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(Schema.Record(Schema.String, LanguageSchema)),
+  tropes: Schema.optional(Schema.Record(Schema.String, TropeSchema)),
   corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
@@ -36,6 +39,7 @@ export interface ResolvedConfig {
   readonly anchor: { readonly open?: string; readonly close?: string } | undefined
   readonly primary: string | undefined
   readonly languages: ReadonlyArray<string>
+  readonly tropes?: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
   readonly ignore?: ReadonlyArray<string>
@@ -166,6 +170,7 @@ const resolveFromManifest = (
     anchor: manifest.anchor,
     primary: manifest.primary,
     languages: Object.keys(manifest.languages ?? {}),
+    tropes: Option.getOrUndefined(Option.map(Option.fromNullishOr(manifest.tropes), Object.keys)),
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
     ignore: manifest.ignore,

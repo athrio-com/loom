@@ -45,6 +45,7 @@ import {
   within,
 } from './LoomCompiler'
 import { LanguagePackages } from './LanguagePackages'
+import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -825,6 +826,7 @@ const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effec
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
     Layer.provideMerge(LanguagePackages.held),
+    Layer.provideMerge(TropePackages.layer),
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(Layer.orDie(Environment)),
     Layer.provideMerge(LoomConfig.layer),

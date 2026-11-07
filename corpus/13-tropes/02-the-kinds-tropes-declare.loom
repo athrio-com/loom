@@ -145,7 +145,7 @@ const clashOf = (
 
 ## Gathering the registry
 
-`declaredKindsOf` builds the registry from a corpus. It gathers the tropes and folds over them, carrying the registry so far, and `withTrope` adds one trope. One trope keeps one root, so a second chapter with a `Trope:` line is refused at that line, and the refusal names the chapter that holds the trope's root, by the title `titleOf` reads. A manifest on a member is misplaced, and declares nothing. A refused root's manifest already shares its root's refusal, so only a member carries a misplaced manifest.
+`declaredKindsOf` builds the registry from a corpus. It gathers the tropes and folds over them, carrying the registry so far, and `withTrope` adds one trope. A workspace may also install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their kinds arrive as `installed`. The fold starts from them, so a trope of the book that declares a kind an installed trope declares is refused, as any later clash is. One trope keeps one root, so a second chapter with a `Trope:` line is refused at that line, and the refusal names the chapter that holds the trope's root, by the title `titleOf` reads. A manifest on a member is misplaced, and declares nothing. A refused root's manifest already shares its root's refusal, so only a member carries a misplaced manifest.
 
 `withRoot` reads the root's manifest, when the root holds one. A root whose manifest reads and clashes with nothing adds every kind it declares, and `kindsOf` turns them into rows of the registry. A root Loom refuses adds its refusal and none of its kinds, since the author agreed to the trope as a whole, and a trope that runs half its offer is not the trope the author agreed to.
 
@@ -238,9 +238,10 @@ const withTrope = (
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   book: Book,
+  installed: ReadonlyArray<DeclaredKind> = [],
 ): DeclaredKinds => {
   const tropes = tropesOf(modules)
-  return Array.reduce(tropes, { ...noKinds, tropes }, (kinds, trope) =>
+  return Array.reduce(tropes, { ...noKinds, tropes, box: installed }, (kinds, trope) =>
     withTrope(modules, book, kinds, trope),
   )
 }

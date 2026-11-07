@@ -16,6 +16,10 @@ const published: ReadonlyArray<Package> = [
     name: '@athrio/loom-service-typescript',
     dir: join(workspace, 'packages', 'loom-service-typescript'),
   },
+  {
+    name: '@athrio/loom-trope-mermaid',
+    dir: join(workspace, 'packages', 'loom-trope-mermaid'),
+  },
 ]
 
 class ReleaseError extends Data.TaggedError('ReleaseError')<{

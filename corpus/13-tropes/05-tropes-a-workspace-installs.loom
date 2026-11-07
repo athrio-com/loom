@@ -1,0 +1,312 @@
+---
+Part XIII, Chapter 5: Tropes a workspace installs
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# Tropes a workspace installs
+
+A trope written in one book reaches another book as a package. Loom publishes its own tropes the way it publishes its language services, as the chapter "The store of installed services" describes. `loom add mermaid` installs the Mermaid trope's package into the workspace's store and records the trope in `.loom/config.yaml`:
+
+```
+tropes:
+  mermaid: {}
+```
+
+The package carries the trope's looms in a `looms` folder, the same looms the trope's own book holds. Loom reads them as it reads any loom, and gathers the kinds the trope's root declares. A book that installs the Mermaid trope may then write a `Mermaid` box in any of its looms. The trope's chapters stay outside the book's corpus all the same: they join no table of contents, no woven page, and no tangle of the book.
+
+Reading a package waits on files, so Loom reads a workspace's installed tropes once, before the first judgement that needs them, and keeps what it read. Every later judgement looks the kinds up in memory, as it looks up the kinds the book's own tropes declare.
+
+## Reading a package's looms
+
+`TropePackages` is the service that reads installed tropes, and its `kindsFor` method gives the kinds that the workspace of a loom installs. `LoomConfig` resolves the loom's workspace and the tropes the workspace names. `kindsFor` keeps the kinds for that workspace once it has read them, under a key that `keyFor` writes from the workspace, each trope, and the version of it the store holds. Installing, removing, or updating a trope changes the key, so the next judgement reads the store again.
+
+`installedKinds` reads the kinds of a set of tropes. `loomsIn` lists the looms in one trope's package, from the `looms` folder of the folder the store keeps the package in, ordered by name. `LoomCorpusAstBuilder` builds each loom into a module through `fromDisk`, a source that reads the file. `declaredKindsOf` then gathers the kinds the modules declare, over a book of the packages' own looms, so two installed tropes clash as two tropes of one book do.
+
+A package the registry refuses adds no kinds. No loom of the workspace holds the package's text for an editor to mark, so Loom logs the reason as a warning instead.
+
+=>
+
+export interface TropePackagesApi {
+  readonly kindsFor: (loom: Location) => Effect.Effect<ReadonlyArray<DeclaredKind>>
+}
+
+const fromDisk: Source = {
+  read: (path) =>
+    Effect.try({
+      try: () => readFileSync(path, 'utf8'),
+      catch: (cause) => new ReadError({ path, cause }),
+    }),
+  list: Option.none(),
+}
+
+const loomsIn = (folder: string): ReadonlyArray<Location> =>
+  pipe(
+    Option.liftThrowable(() => readdirSync(folder))(),
+    Option.map((names) =>
+      pipe(
+        names,
+        Array.filter((name) => name.endsWith('.loom')),
+        Array.sort(Order.String),
+        Array.map((name) => join(folder, name)),
+      ),
+    ),
+    Option.getOrElse((): ReadonlyArray<Location> => []),
+  )
+
+const keyFor = (workspace: Location, tropes: ReadonlyArray<string>): string =>
+  JSON.stringify([
+    workspace,
+    ...Array.map(tropes, (id) => [id, Option.getOrNull(installedTropeVersion(id, workspace))]),
+  ])
+
+export class TropePackages extends Context.Service<TropePackages>()('TropePackages', {
+  make: Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const builder = yield* LoomCorpusAstBuilder
+    const kept = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<DeclaredKind>>>(new Map())
+
+    const installedKinds = (
+      workspace: Location,
+      tropes: ReadonlyArray<string>,
+    ): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+      Effect.forEach(
+        Array.flatMap(tropes, (id) => loomsIn(join(tropeDir(id, workspace), 'looms'))),
+        (path) =>
+          builder.build(fromDisk, path).pipe(Effect.map((module) => [path, module] as const)),
+      ).pipe(
+        Effect.map((pairs): ReadonlyMap<Location, LoomModule> => new Map(pairs)),
+        Effect.map((modules) => declaredKindsOf(modules, bookOf(modules))),
+        Effect.tap((kinds) =>
+          Effect.forEach(
+            kinds.refusals,
+            (refusal) =>
+              Effect.logWarning(
+                `loom: the installed trope in ${refusal.module} is refused: ${refusal.reason}`,
+              ),
+            { discard: true },
+          ),
+        ),
+        Effect.map((kinds) => kinds.box),
+      )
+
+    const kindsFor = (loom: Location): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+      config.resolve(loom).pipe(
+        Effect.flatMap(({ workspaceRoot, tropes }) =>
+          Option.match(Option.fromNullishOr(workspaceRoot), {
+            onNone: () => Effect.succeed<ReadonlyArray<DeclaredKind>>([]),
+            onSome: (workspace) => {
+              const ids = Option.getOrElse(Option.fromNullishOr(tropes), () => [])
+              const key = keyFor(workspace, ids)
+              return Ref.get(kept).pipe(
+                Effect.flatMap((known) =>
+                  Option.match(Option.fromNullishOr(known.get(key)), {
+                    onSome: (kinds) => Effect.succeed(kinds),
+                    onNone: () =>
+                      installedKinds(workspace, ids).pipe(
+                        Effect.tap((kinds) =>
+                          Ref.update(kept, (was) => new Map(was).set(key, kinds)),
+                        ),
+                      ),
+                  }),
+                ),
+              )
+            },
+          }),
+        ),
+      )
+
+    const packages: TropePackagesApi = { kindsFor }
+    return packages
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomCorpusAstBuilder.layer),
+  )
+}
+
+## What the service draws on
+
+From `effect` come the array, option, and order combinators, `Ref` for the kinds the service keeps, and the service and layer machinery. Node's `fs` lists a package's looms and reads each one, and `path` joins the folders. `LoomConfig` resolves a loom's workspace and the tropes it names. The store lends `tropeDir`, the folder of a trope's package, and `installedTropeVersion`, the version of it the store holds. `LoomCorpusAstBuilder` builds a loom from a `Source`, whose `ReadError` a failed read raises. The corpus model lends `bookOf` and the types of a module and its location, and the registry lends `declaredKindsOf` with the `DeclaredKind` it gathers.
+
+=>
+
+import { Array, Context, Effect, Layer, Option, Order, pipe, Ref } from 'effect'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { installedTropeVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
+import { bookOf, type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { type DeclaredKind, declaredKindsOf } from '#ast/DeclaredKinds'
+
+## The module [src/TropePackages.ts]
+
+=>
+
+::[What the service draws on]
+
+::[Reading a package's looms]
+
+## Testing installed tropes
+
+The cases write a workspace on disk and run the compiler over the file system, with the `TropePackages` layer the command line runs. `workspaceWith` writes the workspace: its configuration with the given lines, the given looms in its corpus, and the Mermaid trope's package in its store, at the version `serviceVersion` names, with the trope's root in its `looms` folder. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds.
+
+`cells` is a chapter with one box of the `Mermaid` kind, and `rootOf` writes a chapter that roots a trope declaring `Mermaid`. `diagnosed` gives the messages of the diagnostics the compiler raises in one loom of a workspace, and `faultsOf` keeps those that speak of kinds and tropes.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Effect, Layer } from 'effect'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { serviceVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { TropePackages } from '../src/TropePackages'
+import { FileSystemEnvironment } from '../src/WorkspaceSource'
+
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const onDisk = LoomCompiler.layer.pipe(
+  Layer.provideMerge(TropePackages.layer),
+  Layer.provideMerge(DocumentSource.layer),
+  Layer.provideMerge(FileSystemEnvironment),
+  Layer.provideMerge(LoomConfig.layer),
+)
+
+const rootOf = (trope: string) =>
+  lines(
+    '---',
+    'Part XIV: Diagrams',
+    'Chapter 1: Declaring the kind',
+    `Trope: ${trope}`,
+    '---',
+    '',
+    '# Declaring the kind',
+    '',
+    '## What the trope declares {Manifest}',
+    '',
+    '=>',
+    '{ "contract": "1", "contributes": { "kinds": { "box": [{ "kind": "Mermaid", "body": "mermaid" }] } } }',
+  )
+
+const cells = lines(
+  '---',
+  'Part I, Chapter 1: Cells',
+  '---',
+  '',
+  '# Cells',
+  '',
+  '::: The passes {Mermaid}',
+  'flowchart LR',
+  ':::',
+)
+
+const workspaceWith = (config: ReadonlyArray<string>, looms: Record<string, string>): string => {
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'loom-tropes-')))
+  mkdirSync(join(workspace, '.loom'), { recursive: true })
+  mkdirSync(join(workspace, 'corpus'), { recursive: true })
+  writeFileSync(join(workspace, '.loom', 'config.yaml'), lines('corpus: corpus', ...config))
+  Object.entries(looms).forEach(([name, text]) =>
+    writeFileSync(join(workspace, 'corpus', name), text),
+  )
+  const folder = tropeDir('mermaid', workspace)
+  mkdirSync(join(folder, 'looms'), { recursive: true })
+  writeFileSync(
+    join(folder, 'package.json'),
+    JSON.stringify({ name: '@athrio/loom-trope-mermaid', version: serviceVersion }),
+  )
+  writeFileSync(join(folder, 'looms', 'declaring.loom'), rootOf('Mermaid diagrams'))
+  return workspace
+}
+
+const diagnosed = (workspace: string, loom: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.diagnose(join(workspace, 'corpus', loom))),
+    Effect.map((found) => found.map((d) => d.message)),
+  )
+
+const faultsOf = (found: ReadonlyArray<string>) =>
+  found.filter(
+    (message) => message.startsWith('Unknown kind') || message.startsWith('Trope refused'),
+  )
+
+const installing = ['tropes:', '  mermaid: {}']
+
+## A kind a workspace installs
+
+A book that installs the Mermaid trope may write a `Mermaid` box, and nothing is faulted. The trope's package stays in the store when the configuration does not name it, and then the box is a fault, as in a book that installs nothing. A trope of the book that declares a kind an installed trope declares is refused, as a later clash always is.
+
+=>
+
+describe('a kind a workspace installs', () => {
+  it.effect('lets a book write a box of a kind an installed trope declares', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith(installing, { 'cells.loom': cells })
+      expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toEqual([])
+    }).pipe(Effect.provide(onDisk)),
+  )
+
+  it.effect('reads no package the configuration does not name', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith([], { 'cells.loom': cells })
+      expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toEqual([
+        'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.',
+      ])
+    }).pipe(Effect.provide(onDisk)),
+  )
+
+  it.effect('refuses a trope of the book that declares an installed kind', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith(installing, {
+        'cells.loom': cells,
+        'charts.loom': rootOf('Charts'),
+      })
+      expect(faultsOf(yield* diagnosed(workspace, 'charts.loom'))).toEqual([
+        'Trope refused: it declares the box kind `Mermaid`, which the trope `Mermaid diagrams` declares already, so Loom applies none of what this root declares.',
+      ])
+      expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toEqual([])
+    }).pipe(Effect.provide(onDisk)),
+  )
+})
+
+~
+
+The service keeps what it read for a workspace, and reads again when the set of tropes changes. A workspace that installs the trope after the first judgement has its box judged against the trope at the next one.
+
+=>
+
+describe('the tropes a workspace installs, kept', () => {
+  it.effect('reads the store again once the configuration names a new trope', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith([], { 'cells.loom': cells })
+      expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toHaveLength(1)
+      writeFileSync(join(workspace, '.loom', 'config.yaml'), lines('corpus: corpus', ...installing))
+      expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toEqual([])
+    }).pipe(Effect.provide(onDisk)),
+  )
+
+  it.effect('gives the kinds the installed tropes declare', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith(installing, { 'cells.loom': cells })
+      const installed = yield* TropePackages
+      const kinds = yield* installed.kindsFor(join(workspace, 'corpus', 'cells.loom'))
+      expect(kinds.map((declared) => [declared.kind, declared.trope])).toEqual([
+        ['Mermaid', 'Mermaid diagrams'],
+      ])
+    }).pipe(Effect.provide(onDisk)),
+  )
+})
+
+## The test file [test/TropePackages.test.ts]
+
+=>
+
+::[Testing installed tropes]
+
+::[A kind a workspace installs]
