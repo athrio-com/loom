@@ -125,7 +125,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
     // `::[n` is on line 9 (index 8); the close error stays there.
     expect(
       loom.some(
-        (d) => /expected closing/.test(d.message) && d.range.start.line === 8,
+        (d) => /is never closed/.test(d.message) && d.range.start.line === 8,
       ),
     ).toBe(true)
     // Nothing bleeds onto the next line (index 9): the old EOL bug captured the
@@ -150,7 +150,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
       [
         'loom',
         3,
-        'To be settled: no section is named `Greeting function` yet, so this anchor composes nothing.',
+        'No section is called `Greeting function` yet, so this anchor composes nothing.',
       ],
       ['ts', 2, '`greet` is promised by the section `Greeting function`, which is not written yet.'],
       ['ts', 1, "Cannot find name 'farewell'."],
@@ -180,10 +180,10 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
     )
     // The single true fault: the anchor's name is empty.
     expect(
-      loom.some((d) => /Anchor name cannot be empty/.test(d.message)),
+      loom.some((d) => /This anchor names nothing/.test(d.message)),
     ).toBe(true)
     // The grammatical fault must not cascade into a semantic unresolved report.
-    expect(loom.some((d) => /Unresolved anchor/.test(d.message))).toBe(false)
+    expect(loom.some((d) => /No section or chapter is called/.test(d.message))).toBe(false)
     // The broken anchor must not disable the product TypeScript under it: the
     // empty fragment keeps the run whole, so the section still has a de re and
     // TypeScript still checks `negDouble` — `negate` is undefined, so it reports.
@@ -210,7 +210,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
     // Loom reports the unresolved anchor — the author's miss.
     expect(
       diagnostics.some(
-        (d) => d.source === 'loom' && /Unresolved anchor/.test(d.message),
+        (d) => d.source === 'loom' && /No section or chapter is called/.test(d.message),
       ),
     ).toBe(true)
     // The product TypeScript under it stays active: the inert fragment keeps the
@@ -238,7 +238,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
     // The value warp resolves — no unresolved-anchor miss.
     expect(
       diagnostics.some(
-        (d) => d.source === 'loom' && /Unresolved anchor/.test(d.message),
+        (d) => d.source === 'loom' && /No section or chapter is called/.test(d.message),
       ),
     ).toBe(false)
     // `::[kw]` templates the value `const` in, so the line composes to

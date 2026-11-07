@@ -148,7 +148,7 @@ describe('ProductBuilder — fenced code', () => {
     const code = Option.getOrThrow(codeNamed(productOf(script('python')), 'Install'))
     expect(code.health.status).toBe('error')
     const [fault] = code.health.diagnostics
-    expect(fault?.message).toStartWith('Fence label against the language')
+    expect(fault?.message).toStartWith('This fence is labelled')
     expect(fault?.position.start.line).toBe(4)
   })
 })
@@ -412,6 +412,6 @@ Language: TypeScript
       JSON.stringify(ref[0]!.health.diagnostics),
     )
     expect(ref[0]!.health.status).toBe('error')
-    expect(ref[0]!.health.diagnostics[0]!.message).toContain('Cross-language transclusion')
+    expect(ref[0]!.health.diagnostics[0]!.message).toContain('but this section holds')
   })
 })

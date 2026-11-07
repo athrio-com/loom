@@ -141,7 +141,7 @@ describe('the braces on a box', () => {
 
   it('fault a key a box does not take', () => {
     expect(faults('::: Cells {kind=Note width=480}')).toEqual([
-      'Unknown key: a box takes no `width` key. It takes `kind`, `provides`, and `anchors`.',
+      'A box takes no `width` key. It takes `kind`, `provides`, and `anchors`.',
     ])
   })
 
@@ -164,7 +164,7 @@ describe('the braces on a box', () => {
       ),
     ).map((d) => d.message)
     expect(found).toContain(
-      'Unknown kind: an anchor takes no kind `Mermaid`. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Mermaid` kind. It takes `To be settled` and `Reference`.',
     )
   })
 })
@@ -174,7 +174,7 @@ describe('a stray line of colons', () => {
     const doc = parse(lines('# Chapter', '', '::: Outer', '::: Inner', ':::', '', 'After.'))
     expect(boxes(doc).map((box) => box.side)).toEqual(['open', 'stray', 'close'])
     expect(diagnosticsIn(doc).map((d) => d.message)).toEqual([
-      'Box inside a box: a box never holds another, so this line opens nothing. Close the open box with `:::` on a line of its own, then open this one.',
+      'A box never holds another box. Close the open one with `:::` on a line of its own, then open this one.',
     ])
   })
 
@@ -182,9 +182,7 @@ describe('a stray line of colons', () => {
     const doc = parse(lines('# Chapter', '', '::::', 'Prose.'))
     expect(boxes(doc).map((box) => box.side)).toEqual(['stray'])
     const [fault] = diagnosticsIn(doc)
-    expect(fault!.message).toBe(
-      'Too many colons: a box line starts with three colons, so `::::` opens and closes nothing. Write `:::`.',
-    )
+    expect(fault!.message).toBe('A box line starts with three colons, not 4. Write `:::`.')
     expect(fault!.fixes).toEqual([{ title: 'Write `:::`', text: ':::' }])
   })
 })
@@ -194,7 +192,7 @@ describe('a box that never closes', () => {
     const doc = parse(lines('# Chapter', '', '::: Open', 'Body.', '', '# Swallowed'))
     expect(doc.sections).toHaveLength(1)
     expect(diagnosticsIn(doc).map((d) => d.message)).toEqual([
-      'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
+      'Nothing closes this box, so it runs to the end of the loom. Close it with `:::` on a line of its own.',
     ])
   })
 })

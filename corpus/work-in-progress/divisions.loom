@@ -225,7 +225,7 @@ describe('a divider flush under code', () => {
     expect(diagnosticsIn(doc).map((d) => [d.severity, d.message])).toEqual([
       [
         'warning',
-        'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
+        'This divider ends the code above it. If the dashes belong to the code, format the loom to fence it. If the divider divides the chapter, leave a blank line above it.',
       ],
     ])
   })

@@ -109,11 +109,13 @@ describe('a discussion in the book', () => {
       anchor(name),
     )
   const holdsNoCode = (title: string) =>
-    `Chapter \`${title}\` opens with a section that holds no code, so this anchor composes nothing.`
+    `Chapter \`${title}\` holds no code in its opening section, so this anchor composes nothing. Name the section that holds the code instead.`
 
   it('leaves a name that nothing holds unresolved', async () => {
     const found = await diagnosed({ ...files, [monsters]: linking('Sleeping') }, monsters)
-    expect(found.some((message) => message.startsWith('Unresolved anchor'))).toBe(true)
+    expect(found.some((message) => message.startsWith('No section or chapter is called'))).toBe(
+      true,
+    )
   })
 
   it('is found by its title, as a chapter is', async () => {
@@ -143,7 +145,7 @@ describe('a discussion in the book', () => {
     )
     const found = await diagnosed({ ...files, [monsters]: boxed }, monsters)
     expect(found).toContain(
-      "To be settled: no chapter is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
+      "No chapter is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
     )
   })
 })
@@ -195,7 +197,7 @@ describe("a discussion's lines", () => {
       path,
     )
     expect(found).toContain(
-      'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',
+      'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
     )
   })
 })
@@ -242,13 +244,13 @@ describe('a topic and its conclusion', () => {
       ...conclusion('A sound.'),
     )
     expect(await faults(text)).toEqual([
-      'Second conclusion: this topic already closes with a conclusion. Merge the two, or open a new topic with a divider.',
+      'This topic already has a conclusion. Merge the two, or open a new topic with a divider.',
     ])
   })
 
   it('faults a conclusion outside a topic', async () => {
     const outside =
-      'Conclusion outside a topic: a conclusion closes a topic of a discussion, and a divider opens each topic. Move it under a topic, or make it a note.'
+      'Only a topic holds a conclusion, and a divider opens each topic. Move this one below a divider, or make it a note.'
     expect(await faults(discussion(...conclusion('Too early.')))).toEqual([outside])
     const chapter = lines('# Rooms', '', 'Rooms', '---', '', ...conclusion('No discussion here.'))
     expect(await faults(chapter)).toEqual([outside])
@@ -298,7 +300,9 @@ describe("the book's back matter", () => {
   const files = { [root]: book, '/corpus/walls.loom': walls, '/corpus/waking.loom': waking }
   const unresolved = (sources: Record<string, string>) =>
     diagnosed(sources, root).then((found) =>
-      found.filter((message) => message.startsWith('Unresolved contents entry')),
+      found.filter((message) =>
+        message.endsWith('Run `loom toc` to bring the contents up to date.'),
+      ),
     )
 
   it("reads an entry's place and title apart", () => {
@@ -320,14 +324,14 @@ describe("the book's back matter", () => {
   it('leaves an entry unresolved when its place names no such discussion', async () => {
     const wrong = { ...files, [root]: book.replace('Discussion 1', 'Discussion 2') }
     expect(await unresolved(wrong)).toEqual([
-      'Unresolved contents entry: no discussion titled `Waking`.',
+      'No discussion is titled `Waking`. Run `loom toc` to bring the contents up to date.',
     ])
   })
 
   it('never resolves a chapter entry to a discussion', async () => {
     const listed = { ...files, [root]: book.replace('1. Walls', '1. Walls\n2. Waking') }
     expect(await unresolved(listed)).toEqual([
-      'Unresolved contents entry: no chapter titled `Waking`.',
+      'No chapter is titled `Waking`. Run `loom toc` to bring the contents up to date.',
     ])
   })
 

@@ -102,10 +102,10 @@ describe('a trope nobody has settled', () => {
     expect(found).toContain(
       'The `Payments` trope points nowhere yet. Name the section or chapter that holds it with `anchors`.',
     )
-    expect(found).toContain(
-      'To be settled: `Payments` holds no code yet, so this anchor composes nothing.',
+    expect(found).toContain('`Payments` holds no code yet, so this anchor composes nothing.')
+    expect(found.some((message) => message.startsWith('No section or chapter is called'))).toBe(
+      false,
     )
-    expect(found.some((message) => message.startsWith('Unresolved anchor'))).toBe(false)
   })
 
   it('names an anchors value that finds nothing', async () => {
@@ -122,9 +122,7 @@ describe('a trope nobody has settled', () => {
     const path = '/corpus/nameless.loom'
     expect(
       await diagnosed({ [path]: lines('# Nameless', '', '::: {Trope}', ':::') }, path),
-    ).toContain(
-      'Trope box without a name: a box of the `Trope` kind names a trope, so it needs a name, as in `::: Payments {Trope}`.',
-    )
+    ).toContain('This box needs a name. Write it before `{Trope}`, as in `::: Payments {Trope}`.')
   })
 
   it('faults a trope key on a box of another kind', async () => {
@@ -173,7 +171,7 @@ describe("a trope box's summary", () => {
       ),
     }
     const found = await diagnosed(files, shop)
-    expect(found.some((message) => message.startsWith('Summary out of step'))).toBe(false)
+    expect(found.some((message) => message.startsWith('This box no longer matches'))).toBe(false)
     expect(
       found.some(
         (message) => message.startsWith('To be settled') || message.includes('points nowhere'),
@@ -186,9 +184,9 @@ describe("a trope box's summary", () => {
       [shop]: shopLoom('{kind=Trope anchors=Billing}', ['Payments, somehow.'], billingSection),
     }
     const found = await compiled(files, (compiler) => compiler.diagnose(shop))
-    const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+    const stale = found.find((d) => d.message.startsWith('This box no longer matches'))
     expect(stale?.message).toBe(
-      "Summary out of step: this box holds a copy of the opening of the section `Billing`, and the two differ. Copy the section's opening into the box, or edit the section to match.",
+      'This box no longer matches the opening of the section `Billing`. Copy that opening into it, or run `loom refresh`.',
     )
     expect(stale?.fixes?.[0]?.title).toBe('Copy the opening of `Billing`')
   })
@@ -247,8 +245,8 @@ describe("a trope's promise", () => {
     const contracts = await compiled(files, (compiler) => compiler.contracts(shop))
     const expected = contracts.flatMap((contract) => contract.expected)
     expect(expected.map((name) => name.diagnostic.message)).toEqual([
-      'Missing symbol: `Billing` declares no `charge`, which the trope `Payments` promises.',
-      'Missing symbol: `Billing` declares no `refund`, which the trope `Payments` promises.',
+      '`Billing` declares no `charge`, though the `Payments` trope promises it. Declare it in `Billing`, or take it out of `provides` on the trope box.',
+      '`Billing` declares no `refund`, though the `Payments` trope promises it. Declare it in `Billing`, or take it out of `provides` on the trope box.',
     ])
   })
 })

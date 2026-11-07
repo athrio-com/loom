@@ -424,7 +424,7 @@ describe('parseDocument — NOK preservation end-to-end', () => {
     const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Heading {Unclosed\n')
     const close = doc.sections[0].heading.specifier!.close
     expect(close.health.status).toBe('error')
-    expect(close.health.diagnostics[0].message).toMatch(/expected closing/i)
+    expect(close.health.diagnostics[0].message).toMatch(/is never closed/i)
   })
 
   it('container LoomDocument / LoomSection carry okHealth despite leaf errors', () => {

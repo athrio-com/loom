@@ -38,29 +38,29 @@ describe('LoomFault — the diagnostic catalog', () => {
   it('words an empty label by construct, in plain language', () => {
     expect(renderFault(EmptyLabel({ construct: 'specifier' }))).toEqual({
       severity: 'error',
-      message: 'Specifier label cannot be empty.',
+      message: 'These braces are empty. Write a label in them, or remove them.',
     })
     expect(renderFault(EmptyLabel({ construct: 'anchorName' })).message).toBe(
-      'Anchor name cannot be empty.',
+      'This anchor names nothing. Write the name of a section or chapter in its brackets.',
     )
     expect(
       renderFault(EmptyLabel({ construct: 'warpAnnotation' })).message,
-    ).toBe('Warp annotation cannot be empty.')
+    ).toBe('This warp has an empty type. Write a type after its colon, or remove the colon.')
   })
 
   it('words a malformed label with the rule it broke and the value it got', () => {
     expect(
       renderFault(MalformedLabel({ construct: 'specifier', value: 'a.b' })).message,
     ).toBe(
-      'Specifier label may contain only words of letters, digits, hyphens, and underscores, one space apart; got `a.b`.',
+      '`a.b` is not a valid label. A label may contain only words of letters, digits, hyphens, and underscores, one space apart.',
     )
     expect(
       renderFault(MalformedLabel({ construct: 'warpName', value: '1x' })).message,
-    ).toBe('Warp name must be a TypeScript identifier; got `1x`.')
+    ).toBe('`1x` is not a valid warp name. A warp name must be a TypeScript identifier.')
     expect(
       renderFault(MalformedLabel({ construct: 'anchorName', value: 'a]b' }))
         .message,
-    ).toBe('Anchor name may not contain `]`; got `a]b`.')
+    ).toBe('`a]b` is not a valid anchor name. An anchor name may not contain `]`.')
   })
 
   it('never leaks the internal model invariant as a message', () => {
@@ -73,23 +73,23 @@ describe('LoomFault — the diagnostic catalog', () => {
 
   it('keeps the anchor faults in their established words', () => {
     expect(renderFault(UnresolvedAnchor({ name: 'n' })).message).toMatch(
-      /^Unresolved anchor: no section named `n`\./,
+      /^No section or chapter is called `n`\./,
     )
     expect(
       renderFault(AmbiguousAnchor({ name: 'Helper', count: 2, paths: [] })).message,
-    ).toMatch(/^Ambiguous anchor: 2 sections are named `Helper`\./)
+    ).toMatch(/^`Helper` names 2 sections\./)
     expect(
       renderFault(
         CrossLanguageAnchor({ name: 'Config', host: 'typescript', found: 'json' }),
       ).message,
-    ).toMatch(/^Cross-language transclusion: `Config` is json, but/)
+    ).toMatch(/^`Config` holds json code, but/)
   })
 
   it('wraps a fault as positioned node health', () => {
     const health = faulty(UnclosedDelimiter({ expected: ']' }), POS)
     expect(health.status).toBe('error')
     expect(health.diagnostics).toEqual([
-      { message: 'expected closing `]`', position: POS, severity: 'error' },
+      { message: 'This is never closed. Add `]` on the same line.', position: POS, severity: 'error' },
     ])
   })
 

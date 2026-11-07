@@ -176,21 +176,37 @@ const information = (message: string): Note => ({ severity: 'info', message })
 
 const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
-const noun: Record<EmptyConstruct, string> = {
-  specifier: 'specifier label',
+const withArticle = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`)
+
+const empty: Record<EmptyConstruct, string> = {
+  specifier: 'These braces are empty. Write a label in them, or remove them.',
+  path: 'This sink names no file. Write a file name in its brackets, or remove them.',
+  warpName: 'This warp has no name. Write one before its `=`.',
+  anchorName: 'This anchor names nothing. Write the name of a section or chapter in its brackets.',
+  warpAnnotation: 'This warp has an empty type. Write a type after its colon, or remove the colon.',
+  warpDefault: 'This warp has no value. Write one after its `=`.',
+}
+
+const noun: Record<MalformedConstruct, string> = {
+  specifier: 'label',
   path: 'file path',
   warpName: 'warp name',
   anchorName: 'anchor name',
-  warpAnnotation: 'warp annotation',
-  warpDefault: 'warp default',
+}
+
+const rule: Record<MalformedConstruct, string> = {
+  specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
+  path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
+  warpName: 'must be a TypeScript identifier',
+  anchorName: 'may not contain `]`',
 }
 
 const bearer: Record<BracesOn, string> = { anchor: 'an anchor', box: 'a box' }
 
-const pointingWords: Record<PointingKind, { readonly does: string; readonly example: string }> = {
-  Chapter: { does: 'points to the chapter its name titles', example: 'Rooms' },
-  Discussion: { does: 'points to the discussion its name titles', example: 'Waking' },
-  Trope: { does: 'names a trope', example: 'Payments' },
+const exampleName: Record<PointingKind, string> = {
+  Chapter: 'Rooms',
+  Discussion: 'Waking',
+  Trope: 'Payments',
 }
 
 const copyWords: Record<CopiedFrom, string> = {
@@ -225,13 +241,13 @@ const knownList = (known: ReadonlyArray<string>): string => {
 }
 
 const siblingPlace: Record<Sibling, (where: string) => string> = {
-  section: (line) => `a section of this loom (line ${line})`,
-  chapter: (looms) => `a chapter of this part (${looms})`,
+  section: (line) => `Another section of this loom, on line ${line},`,
+  chapter: (looms) => `Another chapter of this part, in ${looms},`,
 }
 
 const disambiguation = (paths: ReadonlyArray<string>): string =>
   Array.match(paths, {
-    onEmpty: () => 'A name anchor resolves to exactly one section; rename to disambiguate.',
+    onEmpty: () => 'Rename one of them.',
     onNonEmpty: (all) =>
       `Write the path to the one you mean: ${Array.join(
         Array.map(all, (path) => `\`${path}\``),
@@ -251,31 +267,30 @@ const emitted = (files: ReadonlyArray<string>): string =>
 const composeInstead =
   'Take `Reference` off the anchor and move it out of the import, so it composes the section.'
 
-const rule: Record<MalformedConstruct, string> = {
-  specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
-  path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
-  warpName: 'must be a TypeScript identifier',
-  anchorName: 'may not contain `]`',
-}
-
 export const describe = (fault: LoomFault): Note =>
   Match.valueTags(fault, {
-    UnclosedDelimiter: ({ expected }) => error(`expected closing \`${expected}\``),
-    EmptyLabel: ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`),
+    UnclosedDelimiter: ({ expected }) =>
+      error(`This is never closed. Add \`${expected}\` on the same line.`),
+    EmptyLabel: ({ construct }) => error(empty[construct]),
     MalformedLabel: ({ construct, value }) =>
-      error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
+      error(
+        `\`${value}\` is not a valid ${noun[construct]}. ${cap(withArticle(noun[construct]))} ${rule[construct]}.`,
+      ),
     MissingWarpValue: ({ name }) =>
-      error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
+      error(`Warp \`${name}\` has no value. Give it one, as in \`${name} = …\`.`),
     UnknownVariable: ({ name }) =>
       error(
-        `Unknown variable: no workspace variable named \`${name}\`. Declare it under \`variables:\` in the configuration.`,
+        `No variable is called \`${name}\`. Declare it under \`variables:\` in \`.loom/config.yaml\`.`,
       ),
-    UnresolvedAnchor: ({ name }) => error(`Unresolved anchor: no section named \`${name}\`.`),
+    UnresolvedAnchor: ({ name }) =>
+      error(
+        `No section or chapter is called \`${name}\`. Write one, or label this anchor \`{To be settled}\`.`,
+      ),
     AmbiguousAnchor: ({ name, count, paths }) =>
-      error(`Ambiguous anchor: ${count} sections are named \`${name}\`. ${disambiguation(paths)}`),
+      error(`\`${name}\` names ${count} sections. ${disambiguation(paths)}`),
     ChapterWithoutCode: ({ name }) =>
       warning(
-        `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
+        `Chapter \`${name}\` holds no code in its opening section, so this anchor composes nothing. Name the section that holds the code instead.`,
       ),
     CompositionCycle: ({ loop }) =>
       error(
@@ -286,54 +301,45 @@ export const describe = (fault: LoomFault): Note =>
     UnsettledSection: ({ name, declared }) =>
       information(
         declared
-          ? `To be settled: \`${name}\` holds no code yet, so this anchor composes nothing.`
-          : `To be settled: no section is named \`${name}\` yet, so this anchor composes nothing.`,
+          ? `\`${name}\` holds no code yet, so this anchor composes nothing.`
+          : `No section is called \`${name}\` yet, so this anchor composes nothing.`,
       ),
     SettledLabel: ({ name }) =>
-      information(
-        `Settled: \`${name}\` holds code now, so its \`{To be settled}\` label has nothing left to say.`,
-      ),
+      information(`\`${name}\` holds code now. Remove the \`{To be settled}\` label.`),
     DuplicateName: ({ name, sibling, where }) =>
-      error(`Duplicate name: \`${name}\` is already ${siblingPlace[sibling](where)}. Rename one.`),
+      error(`${siblingPlace[sibling](where)} is called \`${name}\` too. Rename one of them.`),
     CrossLanguageAnchor: ({ name, host, found }) =>
       error(
-        `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
+        `\`${name}\` holds ${found} code, but this section holds ${host}. A section composes code of its own language only.`,
       ),
     UnresolvedTocEntry: ({ title, discussion }) =>
       error(
-        `Unresolved contents entry: no ${discussion ? 'discussion' : 'chapter'} titled \`${title}\`.`,
+        `No ${discussion ? 'discussion' : 'chapter'} is titled \`${title}\`. Run \`loom toc\` to bring the contents up to date.`,
       ),
     StrayFragment: ({ value }) =>
-      error(
-        `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,
-      ),
-    RepeatedKey: ({ key }) =>
-      error(
-        `Repeated key: \`${key}\` appears twice in these braces, so nothing tells which value is meant. Keep one.`,
-      ),
+      error(`This line has no place for \`${value}\`, so Loom would ignore it. Remove it.`),
+    RepeatedKey: ({ key }) => error(`\`${key}\` is written twice in these braces. Keep one.`),
     LabelBesideParameter: ({ label }) =>
       error(
-        `Label beside parameters: \`${label}\` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as \`kind="${label}"\`.`,
+        `A label stands alone only in braces that hold nothing else. Write it in full here, as \`kind="${label}"\`.`,
       ),
     UnknownKey: ({ key, keys, on }) =>
-      error(`Unknown key: ${bearer[on]} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
+      error(`${cap(bearer[on])} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
     UnknownKind: ({ kind, kinds, on }) =>
-      error(`Unknown kind: ${bearer[on]} takes no kind \`${kind}\`. It takes ${knownList(kinds)}.`),
+      error(`${cap(bearer[on])} takes no \`${kind}\` kind. It takes ${knownList(kinds)}.`),
     MissingSymbol: ({ name, section, trope }) =>
       error(
         trope === undefined
-          ? `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`
-          : `Missing symbol: \`${section}\` declares no \`${name}\`, which the trope \`${trope}\` promises.`,
+          ? `\`${section}\` declares no \`${name}\`, though this anchor lists it in \`provides\`. Declare it in \`${section}\`, or take it out of \`provides\`.`
+          : `\`${section}\` declares no \`${name}\`, though the \`${trope}\` trope promises it. Declare it in \`${section}\`, or take it out of \`provides\` on the trope box.`,
       ),
     StrayTarget: ({ target }) =>
-      error(
-        `Stray target: \`${target}\` names a file, and only a reference, an anchor of the \`Reference\` kind, names one. This anchor composes code, so remove the target.`,
-      ),
+      error(`Only a reference names a file, and this anchor composes code. Remove \`${target}\`.`),
     NoSuchFile: ({ name, file, files }) =>
-      error(`No such file: \`${name}\` emits no \`${file}\`. ${emitted(files)}`),
+      error(`\`${name}\` emits no \`${file}\`. ${emitted(files)}`),
     SeveralFiles: ({ name, files }) =>
       error(
-        `Several files: \`${name}\` emits ${fileList(files)}. Name the one this reference means in parentheses after its name, as \`(${files[0] ?? ''})\`.`,
+        `\`${name}\` emits ${fileList(files)}. Name the one you mean in parentheses after its name, as \`(${files[0] ?? ''})\`.`,
       ),
     SectionWithoutFile: ({ name, files, here }) =>
       error(
@@ -341,44 +347,44 @@ export const describe = (fault: LoomFault): Note =>
           Match.when(
             { here: true },
             () =>
-              `No file to name: \`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
+              `\`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
           ),
           Match.when(
             { count: 0 },
             () =>
-              `No file to name: \`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
+              `\`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
           ),
           Match.orElse(
             () =>
-              `No file to name: \`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
+              `\`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
           ),
         ),
       ),
     UnsettledModule: ({ name, declared }) =>
       information(
         declared
-          ? `To be settled: \`${name}\` emits no file yet, so this reference names no module.`
-          : `To be settled: nothing is named \`${name}\` yet, so this reference names no module.`,
+          ? `\`${name}\` emits no file yet, so this reference names no module.`
+          : `Nothing is called \`${name}\` yet, so this reference names no module.`,
       ),
     SpecifierUnknown: ({ name, language, reason }) =>
-      error(`Path unwritten: the ${language} package cannot write the path to \`${name}\`. ${reason}`),
+      error(`The ${language} package can't write the path to \`${name}\`. ${reason}`),
     TangleBesideSink: ({ sink }) =>
       error(
-        `Two marks for one file: the sink \`${sink}\` already says this section writes a file, so \`{Tangle}\` says it twice. Remove \`{Tangle}\`.`,
+        `The sink \`${sink}\` already names the file this section writes. Remove \`{Tangle}\`.`,
       ),
     TangleWithoutFile: ({ folder }) =>
       error(
-        `No file for \`{Tangle}\`: it writes the one file the chapter's \`Package\` names, but ${
-          folder === undefined ? 'this chapter names no `Package`' : `\`${folder}\` names a folder`
+        `\`{Tangle}\` writes the file the chapter's \`Package\` names, but ${
+          folder === undefined ? 'this chapter names no `Package`' : `\`${folder}\` is a folder`
         }. Name the file in brackets instead, as \`[module.ts]\`.`,
       ),
     HeadingAgainstCode: () =>
       warning(
-        'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, fence the block: write three backticks on the line after its arrow, and three more where the code ends. If it is a heading, leave a blank line above it.',
+        'This heading ends the code above it. If the line is a comment in the code, fence the block: three backticks on the line after its arrow, and three where the code ends. If it is a heading, leave a blank line above it.',
       ),
     DividerAgainstCode: () =>
       warning(
-        'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
+        'This divider ends the code above it. If the dashes belong to the code, format the loom to fence it. If the divider divides the chapter, leave a blank line above it.',
       ),
     ManifestOutsideTrope: () => error('Only a trope chapter can hold a manifest.'),
     TropeRefused: ({ reason }) => error(`Loom ignores this trope: ${reason}.`),
@@ -408,43 +414,41 @@ export const describe = (fault: LoomFault): Note =>
     UnusedSection: ({ name }) => warning(`\`${name}\` is never used across the corpus.`),
     FileInDiscussion: () =>
       error(
-        'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',
+        'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
       ),
     ConclusionOutsideTopic: () =>
       error(
-        'Conclusion outside a topic: a conclusion closes a topic of a discussion, and a divider opens each topic. Move it under a topic, or make it a note.',
+        'Only a topic holds a conclusion, and a divider opens each topic. Move this one below a divider, or make it a note.',
       ),
     SecondConclusion: () =>
       error(
-        'Second conclusion: this topic already closes with a conclusion. Merge the two, or open a new topic with a divider.',
+        'This topic already has a conclusion. Merge the two, or open a new topic with a divider.',
       ),
     UnclosedFence: ({ fence }) =>
       error(
-        `Unclosed fence: this fenced code runs to the end of the loom, because nothing closes it. Close it with \`${fence}\` at the same column, on a line of its own.`,
+        `Nothing closes this fence, so its code runs to the end of the loom. Close it with \`${fence}\` on a line of its own, at the same column.`,
       ),
     ColonRun: ({ colons }) =>
-      error(
-        `Too many colons: a box line starts with three colons, so \`${colons}\` opens and closes nothing. Write \`:::\`.`,
-      ),
+      error(`A box line starts with three colons, not ${colons.length}. Write \`:::\`.`),
     NestedBox: () =>
       error(
-        'Box inside a box: a box never holds another, so this line opens nothing. Close the open box with `:::` on a line of its own, then open this one.',
+        'A box never holds another box. Close the open one with `:::` on a line of its own, then open this one.',
       ),
     UnclosedBox: () =>
       error(
-        'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
+        'Nothing closes this box, so it runs to the end of the loom. Close it with `:::` on a line of its own.',
       ),
     UnnamedBox: ({ kind }) =>
       error(
-        `${kind} box without a name: a box of the \`${kind}\` kind ${pointingWords[kind].does}, so it needs a name, as in \`::: ${pointingWords[kind].example} {${kind}}\`.`,
+        `This box needs a name. Write it before \`{${kind}}\`, as in \`::: ${exampleName[kind]} {${kind}}\`.`,
       ),
     ChapterBoxBesideCode: ({ name }) =>
       error(
-        `Chapter box beside code: this box marks where the chapter \`${name}\` begins, so the code of its section belongs in that chapter. Move the code there, or move the box into a section of its own.`,
+        `This box begins the chapter \`${name}\`, so no code belongs in its section. Move the code into \`${name}\`, or give the box a section of its own.`,
       ),
     UnwrittenLoom: ({ kind, name }) =>
       information(
-        `To be settled: no ${kind.toLowerCase()} is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
+        `No ${kind.toLowerCase()} is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
       ),
     UnsettledTrope: ({ name, target }) =>
       information(
@@ -456,12 +460,12 @@ export const describe = (fault: LoomFault): Note =>
     StaleSummary: ({ of, name }) => {
       const copy = copyWords[of]
       return warning(
-        `Summary out of step: this box holds a copy of the ${copy} of the ${of} \`${name}\`, and the two differ. Copy the ${of}'s ${copy} into the box, or edit the ${of} to match.`,
+        `This box no longer matches the ${copy} of the ${of} \`${name}\`. Copy that ${copy} into it, or run \`loom refresh\`.`,
       )
     },
     FenceLabelAgainstLanguage: ({ label, language }) =>
       error(
-        `Fence label against the language: this fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
+        `This fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
       ),
   })
 

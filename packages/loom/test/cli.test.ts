@@ -893,7 +893,7 @@ describe('loom cli — fenced code', () => {
       )
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
       expect(status).not.toBe(0)
-      expect(stderr).toContain('Unclosed fence')
+      expect(stderr).toContain('Nothing closes this fence')
       expect(existsSync(join(dir, 'OPEN.md'))).toBe(false)
       rmSync(dir, { recursive: true, force: true })
     },

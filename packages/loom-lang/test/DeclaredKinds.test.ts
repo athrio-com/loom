@@ -90,7 +90,7 @@ const declaring = (...kinds: ReadonlyArray<string>): string =>
 
 const faultsOf = (found: ReadonlyArray<string>) =>
   found.filter((message) =>
-    ['Unknown kind', 'Loom ignores this trope', 'Only a trope chapter can hold a manifest'].some(
+    ['A box takes no', 'Loom ignores this trope', 'Only a trope chapter can hold a manifest'].some(
       (start) => message.startsWith(start),
     ),
   )
@@ -99,7 +99,7 @@ const refusedFor = (reason: string) => `Loom ignores this trope: ${reason}.`
 
 describe('a box of a kind nobody declares', () => {
   const unknown =
-    'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.'
+    'A box takes no `Mermaid` kind. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.'
 
   it('is a fault, named by a label', async () => {
     expect(faultsOf(await diagnosed({ [cells]: chapterWith('{Mermaid}') }, cells))).toEqual([
@@ -128,7 +128,7 @@ describe('a box of a kind a trope declares', () => {
 
   it('joins the kinds a fault lists', async () => {
     expect(faultsOf(await diagnosed(withTrope('{Chart}'), cells))).toEqual([
-      'Unknown kind: a box takes no kind `Chart`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, `Conclusion`, and `Mermaid`.',
+      'A box takes no `Chart` kind. It takes `Note`, `Chapter`, `Discussion`, `Trope`, `Conclusion`, and `Mermaid`.',
     ])
   })
 

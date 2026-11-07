@@ -195,7 +195,7 @@ describe('Tokeniser — synthetic close (unclosed bracket)', () => {
     const w = headingAt(tokenise(['# Title {Lang']), 0)
     expect(w.specifier?.close.health.status).toBe('error')
     expect(w.specifier?.close.health.diagnostics[0].message).toMatch(
-      /expected closing/i,
+      /is never closed/i,
     )
   })
 })
@@ -473,7 +473,7 @@ describe('Tokeniser — Warp declarations on PreambleWeft', () => {
     const w = preambleWeft('{{a = B')
     expect(w.warps[0].close.health.status).toBe('error')
     expect(w.warps[0].close.health.diagnostics[0].message).toMatch(
-      /expected closing/i,
+      /is never closed/i,
     )
   })
 
@@ -731,17 +731,17 @@ describe('Tokeniser — braces after an anchor', () => {
 
   it('reads the braces that touch an anchor as Loom\'s, and faults what they cannot mean', () => {
     expect(labelMessages('p := ::[Point]{X: 1}')).toEqual([
-      'Specifier label may contain only words of letters, digits, hyphens, and underscores, one space apart; got `X: 1`.',
+      '`X: 1` is not a valid label. A label may contain only words of letters, digits, hyphens, and underscores, one space apart.',
     ])
     expect(labelMessages('p := ::[Point]{x}')).toEqual([
-      'Unknown kind: an anchor takes no kind `x`. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
     ])
-    expect(labelMessages('p := ::[Point]{}')).toEqual(['Specifier label cannot be empty.'])
+    expect(labelMessages('p := ::[Point]{}')).toEqual(['These braces are empty. Write a label in them, or remove them.'])
     expect(messages('::[Point]{colour=red}')).toEqual([
-      'Unknown key: an anchor takes no `colour` key. It takes `kind` and `provides`.',
+      'An anchor takes no `colour` key. It takes `kind` and `provides`.',
     ])
     expect(messages('::[Point]{kind=Term}')).toEqual([
-      'Unknown kind: an anchor takes no kind `Term`. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
     ])
     expect(anchorIn('p := ::[Point]{X: 1}').health.status).toBe('error')
   })
@@ -787,7 +787,7 @@ describe('Tokeniser — braces after an anchor', () => {
 
   it('faults a label beside parameters, and offers its full form', () => {
     expect(messages('::[Greeting]{To be settled provides=greet}')).toEqual([
-      'Label beside parameters: `To be settled` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as `kind="To be settled"`.',
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `kind="To be settled"`.',
     ])
     const [diagnostic] = parametersOf('::[Greeting]{To be settled provides=greet}').health
       .diagnostics
@@ -797,10 +797,10 @@ describe('Tokeniser — braces after an anchor', () => {
 
   it('faults a repeated key and a key no anchor takes', () => {
     expect(messages('::[Greeting]{provides=a provides=b}')).toEqual([
-      'Repeated key: `provides` appears twice in these braces, so nothing tells which value is meant. Keep one.',
+      '`provides` is written twice in these braces. Keep one.',
     ])
     expect(messages('::[Greeting]{provides=a colour=red}')).toEqual([
-      'Unknown key: an anchor takes no `colour` key. It takes `kind` and `provides`.',
+      'An anchor takes no `colour` key. It takes `kind` and `provides`.',
     ])
   })
 

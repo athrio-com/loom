@@ -114,10 +114,10 @@ describe('a chapter box whose chapter is not written', () => {
   it.effect('carries a note whose fix writes the chapter as the next of its part', () =>
     Effect.gen(function* () {
       const found = yield* diagnosed(unwritten, world)
-      const note = found.find((d) => d.message.startsWith('To be settled: no chapter'))
+      const note = found.find((d) => d.message.startsWith('No chapter is titled'))
       expect(note?.severity).toBe('info')
       expect(note?.message).toBe(
-        "To be settled: no chapter is titled `Rooms` yet. Open it from this box, and the box's body becomes its opening.",
+        "No chapter is titled `Rooms` yet. Open it from this box, and the box's body becomes its opening.",
       )
       expect(note?.fixes).toEqual([
         {
@@ -132,10 +132,8 @@ describe('a chapter box whose chapter is not written', () => {
   it.effect('lets an anchor beside it resolve, to be settled rather than missing', () =>
     Effect.gen(function* () {
       const found = messages(yield* diagnosed(unwritten, world))
-      expect(found).toContain(
-        'To be settled: `Rooms` holds no code yet, so this anchor composes nothing.',
-      )
-      expect(found.some((m) => m.startsWith('Unresolved anchor'))).toBe(false)
+      expect(found).toContain('`Rooms` holds no code yet, so this anchor composes nothing.')
+      expect(found.some((m) => m.startsWith('No section or chapter is called'))).toBe(false)
     }),
   )
 
@@ -158,7 +156,7 @@ describe('a chapter box whose chapter is not written', () => {
         },
         ideas,
       )
-      const note = found.find((d) => d.message.startsWith('To be settled: no chapter'))
+      const note = found.find((d) => d.message.startsWith('No chapter is titled'))
       expect(note?.fixes).toEqual([
         {
           title: 'Open the chapter `Rooms`',
@@ -183,10 +181,10 @@ describe('a chapter box whose chapter is written', () => {
     Effect.gen(function* () {
       const files = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
       const found = messages(yield* diagnosed(files, world))
-      expect(found.some((m) => m.startsWith('To be settled: no chapter'))).toBe(false)
-      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+      expect(found.some((m) => m.startsWith('No chapter is titled'))).toBe(false)
+      expect(found.some((m) => m.startsWith('This box no longer matches'))).toBe(false)
       expect(found).toContain(
-        'Chapter `Rooms` opens with a section that holds no code, so this anchor composes nothing.',
+        'Chapter `Rooms` holds no code in its opening section, so this anchor composes nothing. Name the section that holds the code instead.',
       )
     }),
   )
@@ -195,7 +193,7 @@ describe('a chapter box whose chapter is written', () => {
     Effect.gen(function* () {
       const files = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
       const found = yield* diagnosed(files, world)
-      const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+      const stale = found.find((d) => d.message.startsWith('This box no longer matches'))
       expect(stale?.severity).toBe('warning')
       const fix = stale?.fixes?.[0]
       expect(fix?.title).toBe('Copy the opening of `Rooms`')
@@ -233,7 +231,7 @@ describe('a chapter box whose chapter is written', () => {
         ),
       }
       const found = messages(yield* diagnosed(files, world))
-      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+      expect(found.some((m) => m.startsWith('This box no longer matches'))).toBe(false)
     }),
   )
 })
@@ -270,7 +268,7 @@ describe('the place of a chapter box', () => {
         ),
       )
       expect(found).toContain(
-        'Chapter box beside code: this box marks where the chapter `Rooms` begins, so the code of its section belongs in that chapter. Move the code there, or move the box into a section of its own.',
+        'This box begins the chapter `Rooms`, so no code belongs in its section. Move the code into `Rooms`, or give the box a section of its own.',
       )
     }),
   )
@@ -282,7 +280,7 @@ describe('the place of a chapter box', () => {
         yield* diagnosed({ [loom]: lines('# Nameless', '', '::: {Chapter}', ':::') }, loom),
       )
       expect(found).toContain(
-        'Chapter box without a name: a box of the `Chapter` kind points to the chapter its name titles, so it needs a name, as in `::: Rooms {Chapter}`.',
+        'This box needs a name. Write it before `{Chapter}`, as in `::: Rooms {Chapter}`.',
       )
     }),
   )

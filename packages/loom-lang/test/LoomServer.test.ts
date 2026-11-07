@@ -359,7 +359,7 @@ describe('LoomServer — a chapter that changes on disk', () => {
       chapterAt(root, 'answer.loom', chapter('Question', 'const answer = 42'))
       await editor.changed(closed)
       expect(await editor.diagnostics(opened)).toEqual([
-        `Unresolved anchor: no section named \`Answer\`.`,
+        `No section or chapter is called \`Answer\`. Write one, or label this anchor \`{To be settled}\`.`,
       ])
     } finally {
       editor.close()
@@ -374,7 +374,7 @@ describe('LoomServer — a chapter that changes on disk', () => {
     try {
       await editor.open(opened)
       expect(await editor.diagnostics(opened)).toEqual([
-        `Unresolved anchor: no section named \`Answer\`.`,
+        `No section or chapter is called \`Answer\`. Write one, or label this anchor \`{To be settled}\`.`,
       ])
       const created = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
       await editor.changed(created, FileChangeType.Created)
@@ -396,7 +396,7 @@ describe('LoomServer — a chapter that changes on disk', () => {
       rmSync(deleted)
       await editor.changed(deleted, FileChangeType.Deleted)
       expect(await editor.diagnostics(opened)).toEqual([
-        `Unresolved anchor: no section named \`Answer\`.`,
+        `No section or chapter is called \`Answer\`. Write one, or label this anchor \`{To be settled}\`.`,
       ])
     } finally {
       editor.close()
@@ -893,10 +893,10 @@ describe('LoomServer — names a section must provide', () => {
       await editor.open(main)
       await editor.open(local)
       expect(await editor.diagnostics(main)).toEqual([
-        'Missing symbol: `Greeting` declares no `farewell`, which this anchor says it provides.',
+        '`Greeting` declares no `farewell`, though this anchor lists it in `provides`. Declare it in `Greeting`, or take it out of `provides`.',
       ])
       expect(await editor.diagnostics(local)).toEqual([
-        'Missing symbol: `Helper` declares no `assist`, which this anchor says it provides.',
+        '`Helper` declares no `assist`, though this anchor lists it in `provides`. Declare it in `Helper`, or take it out of `provides`.',
       ])
     } finally {
       editor.close()
@@ -925,7 +925,7 @@ describe('LoomServer — a name that waits', () => {
       await editor.open(words)
       await editor.open(other)
       expect(await editor.diagnostics(main)).toEqual([
-        'Unresolved anchor: no section named `Words, Saying hello`.',
+        'No section or chapter is called `Words, Saying hello`. Write one, or label this anchor `{To be settled}`.',
       ])
       await editor.edit(
         words,
@@ -933,7 +933,7 @@ describe('LoomServer — a name that waits', () => {
       )
       expect(await editor.diagnostics(main)).toEqual([])
       expect(await editor.diagnostics(other)).toEqual([
-        'Unresolved anchor: no section named `A chapter to come`.',
+        'No section or chapter is called `A chapter to come`. Write one, or label this anchor `{To be settled}`.',
       ])
       const later = chapterAt(
         root,

@@ -389,7 +389,7 @@ describe('a reference picks one of the files a chapter emits', () => {
         '/corpus/interior.loom',
       )
       expect(found.map((one) => one.message)).toEqual([
-        'Several files: `Rooms` emits `room.ts` and `door.ts`. Name the one this reference means in parentheses after its name, as `(room.ts)`.',
+        '`Rooms` emits `room.ts` and `door.ts`. Name the one you mean in parentheses after its name, as `(room.ts)`.',
       ])
       expect(found[0]!.fixes?.map((fix) => fix.text)).toEqual(['(room.ts)', '(door.ts)'])
     }),
@@ -418,7 +418,7 @@ describe('a reference picks one of the files a chapter emits', () => {
           },
           '/corpus/interior.loom',
         ),
-      ).toEqual(['No such file: `Rooms` emits no `window.ts`. It emits `room.ts` and `door.ts`.'])
+      ).toEqual(['`Rooms` emits no `window.ts`. It emits `room.ts` and `door.ts`.'])
     }),
   )
 })
@@ -494,7 +494,7 @@ describe('a section with no sink names the file it lands in', () => {
           '/corpus/interior.loom',
         ),
       ).toEqual([
-        'No file to name: `Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+        '`Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
       ])
       expect(
         yield* messagesOf(
@@ -502,7 +502,7 @@ describe('a section with no sink names the file it lands in', () => {
           '/corpus/interior.loom',
         ),
       ).toEqual([
-        'No file to name: `Utilities, Helpers` lands in the file this reference stands in, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+        '`Utilities, Helpers` lands in the file this reference stands in, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
       ])
     }),
   )
@@ -522,7 +522,9 @@ describe('a reference waits for a module nobody has written', () => {
           { '/corpus/interior.loom': interiorWith(reference('Nowhere')) },
           '/corpus/interior.loom',
         ),
-      ).toEqual(['Unresolved anchor: no section named `Nowhere`.'])
+      ).toEqual([
+        'No section or chapter is called `Nowhere`. Write one, or label this anchor `{To be settled}`.',
+      ])
     }),
   )
 
@@ -535,10 +537,10 @@ describe('a reference waits for a module nobody has written', () => {
       }
       const found = yield* diagnosed(files, '/corpus/interior.loom')
       expect(found.map((one) => [one.severity, one.message])).toEqual([
-        ['info', 'To be settled: nothing is named `Nowhere` yet, so this reference names no module.'],
+        ['info', 'Nothing is called `Nowhere` yet, so this reference names no module.'],
       ])
       const refusal = yield* Effect.flip(tangled(files, '/corpus/interior.loom'))
-      expect(refusal.message).toContain('nothing is named `Nowhere` yet')
+      expect(refusal.message).toContain('Nothing is called `Nowhere` yet')
     }),
   )
 })
@@ -555,7 +557,7 @@ describe('a heading marks the file it writes once', () => {
       const text = lines('---', 'Language: TypeScript', '---', '', '# Room {Tangle}[room.ts]', '', '=>', '', 'export const r = 1')
       const [fault] = yield* diagnosed({ '/corpus/room.loom': text }, '/corpus/room.loom')
       expect(fault!.message).toBe(
-        'Two marks for one file: the sink `[room.ts]` already says this section writes a file, so `{Tangle}` says it twice. Remove `{Tangle}`.',
+        'The sink `[room.ts]` already names the file this section writes. Remove `{Tangle}`.',
       )
       const at = fault!.fixes![0]!.at!
       expect(text.slice(at.start.offset, at.end.offset)).toBe('{Tangle}')
@@ -566,7 +568,7 @@ describe('a heading marks the file it writes once', () => {
     Effect.gen(function* () {
       const text = lines('---', 'Language: TypeScript', 'Package: out/', '---', '', '# Room {Tangle}', '', '=>', '', 'export const r = 1')
       expect(yield* messagesOf({ '/corpus/room.loom': text }, '/corpus/room.loom')).toEqual([
-        "No file for `{Tangle}`: it writes the one file the chapter's `Package` names, but `out/` names a folder. Name the file in brackets instead, as `[module.ts]`.",
+        "`{Tangle}` writes the file the chapter's `Package` names, but `out/` is a folder. Name the file in brackets instead, as `[module.ts]`.",
       ])
     }),
   )

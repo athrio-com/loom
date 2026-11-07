@@ -23,14 +23,14 @@ describe('silent loss — every dropped piece leaves a diagnostic', () => {
   it.effect('names a second specifier on a heading as an error', () =>
     Effect.gen(function* () {
       const found = yield* diagnosticsOf('# Book\n\n## Bun config {toml} {Tangle}[bunfig.toml]\n\n=>\n\nx\n')
-      expect(found.some((d) => d.severity === 'error' && d.message.includes('Unexpected `{Tangle}`'))).toBe(true)
+      expect(found.some((d) => d.severity === 'error' && d.message.includes('no place for `{Tangle}`'))).toBe(true)
     }),
   )
 
   it.effect('names fenced code nothing closes as an error, at its opening fence', () =>
     Effect.gen(function* () {
       const found = yield* diagnosticsOf('# Book\n\n## Skill [SKILL.md]\n\n=>\n```md\n# swallowed\n')
-      const open = found.find((d) => d.message.startsWith('Unclosed fence'))
+      const open = found.find((d) => d.message.startsWith('Nothing closes this fence'))
       expect(open?.severity).toBe('error')
       expect(open?.position.start.line).toBe(6)
     }),
@@ -46,7 +46,7 @@ describe('silent loss — every dropped piece leaves a diagnostic', () => {
   it.effect('warns about a heading flush against a line of code', () =>
     Effect.gen(function* () {
       const found = yield* diagnosticsOf('# Book\n\n## Script [run.sh]\n\n=>\n\necho start\n# then stop\necho stop\n')
-      const glued = found.find((d) => d.message.startsWith('This heading sits directly under a line of code'))
+      const glued = found.find((d) => d.message.startsWith('This heading ends the code above it'))
       expect(glued?.severity).toBe('warning')
       expect(glued?.position.start.line).toBe(8)
     }),

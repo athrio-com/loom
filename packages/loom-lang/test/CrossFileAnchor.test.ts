@@ -96,7 +96,7 @@ describe('a code anchor composes a section from another loom', () => {
         '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
       }
       expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
-        '/corpus/hello.loom:6: Stray target: `(greeting.loom)` names a file',
+        '/corpus/hello.loom:6: Only a reference names a file, and this anchor composes code. Remove `(greeting.loom)`.',
       )
       const [diagnostic] = yield* LoomCompiler.pipe(
         Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
@@ -120,7 +120,7 @@ describe('a code anchor composes a section from another loom', () => {
         '/corpus/hello.loom',
       )
       expect(message).toContain(
-        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying goodbye`.',
+        '/corpus/hello.loom:6: No section or chapter is called `Saying goodbye`. Write one, or label this anchor `{To be settled}`.',
       )
     }),
   )
@@ -134,7 +134,7 @@ describe('a code anchor composes a section from another loom', () => {
         },
         '/corpus/hello.loom',
       )
-      expect(message).toContain('Cross-language transclusion: `Saying hello` is json')
+      expect(message).toContain('`Saying hello` holds json code')
     }),
   )
 
@@ -266,7 +266,7 @@ describe('a name resolves through the book', () => {
     Effect.gen(function* () {
       const message = yield* refusal(book(anchor('Saying hello')), '/corpus/hello.loom')
       expect(message).toContain(
-        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying hello`.',
+        '/corpus/hello.loom:6: No section or chapter is called `Saying hello`. Write one, or label this anchor `{To be settled}`.',
       )
     }),
   )
@@ -286,7 +286,7 @@ describe('a name resolves through the book', () => {
         ]),
       ).toEqual([['warning', 'Words']])
       expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
-        '/corpus/hello.loom:6: To be settled: `Words` holds no code yet, so this anchor composes nothing.',
+        '/corpus/hello.loom:6: `Words` holds no code yet, so this anchor composes nothing.',
       )
     }),
   )
@@ -295,7 +295,7 @@ describe('a name resolves through the book', () => {
     Effect.gen(function* () {
       const message = yield* refusal(book(anchor('Silence')), '/corpus/hello.loom')
       expect(message).toContain(
-        '/corpus/hello.loom:6: Unresolved anchor: no section named `Silence`.',
+        '/corpus/hello.loom:6: No section or chapter is called `Silence`. Write one, or label this anchor `{To be settled}`.',
       )
     }),
   )
@@ -303,9 +303,7 @@ describe('a name resolves through the book', () => {
   it.effect('a title two chapters share is ambiguous until a part names one', () =>
     Effect.gen(function* () {
       const message = yield* refusal(book(anchor('Setup')), '/corpus/hello.loom')
-      expect(message).toContain(
-        'Ambiguous anchor: 2 sections are named `Setup`. Write the path to the one you mean:',
-      )
+      expect(message).toContain('`Setup` names 2 sections. Write the path to the one you mean:')
       expect(message).toContain('`Saying things, Setup`')
       expect(message).toContain('`Doing things, Setup`')
       const files = yield* tangled(book(anchor('Doing things, Setup')), '/corpus/hello.loom')
@@ -351,7 +349,7 @@ describe('a name repeated among siblings', () => {
     Effect.gen(function* () {
       const message = yield* refusal({ '/corpus/same.loom': samePage }, '/corpus/same.loom')
       expect(message).toContain(
-        '/corpus/same.loom:10: Duplicate name: `The page` is already a section of this loom (line 6). Rename one.',
+        '/corpus/same.loom:10: Another section of this loom, on line 6, is called `The page` too. Rename one of them.',
       )
     }),
   )
@@ -391,7 +389,7 @@ describe('a name repeated among siblings', () => {
         ]),
       ).toEqual([
         [
-          'Duplicate name: `Saying Hello!` is already a section of this loom (line 1). Rename one.',
+          'Another section of this loom, on line 1, is called `Saying Hello!` too. Rename one of them.',
           'Saying Hello!',
         ],
       ])
@@ -421,7 +419,7 @@ describe('a name repeated among siblings', () => {
         Effect.provide(layerOf(files)),
       )
       expect(diagnostics.map((d) => d.message)).toEqual([
-        'Duplicate name: `Setup` is already a chapter of this part (setup-three.loom). Rename one.',
+        'Another chapter of this part, in setup-three.loom, is called `Setup` too. Rename one of them.',
       ])
     }),
   )
@@ -458,8 +456,7 @@ describe('a fix declares a missing section', () => {
       const followed = `${alone}\n## Later\n\nMore to come.\n`
       const unsettled = (diagnostics: ReadonlyArray<{ readonly message: string }>) =>
         diagnostics.map((d) => d.message)
-      const declared =
-        'To be settled: `Saying goodbye` holds no code yet, so this anchor composes nothing.'
+      const declared = '`Saying goodbye` holds no code yet, so this anchor composes nothing.'
       const [atEnd, labelled] = (yield* diagnose(alone))[0]!.fixes ?? []
       expect([atEnd!.title, atEnd!.text]).toEqual([
         'Declare the section `Saying goodbye`',
@@ -471,7 +468,7 @@ describe('a fix declares a missing section', () => {
         '{To be settled}',
       ])
       expect(unsettled(yield* diagnose(applied(alone, labelled!)))).toEqual([
-        'To be settled: no section is named `Saying goodbye` yet, so this anchor composes nothing.',
+        'No section is called `Saying goodbye` yet, so this anchor composes nothing.',
       ])
       const [beforeNext] = (yield* diagnose(followed))[0]!.fixes ?? []
       expect(beforeNext!.text).toBe('# Saying goodbye\n\n')
@@ -493,7 +490,7 @@ const declaredLater = `${helloAnchoring(anchor('Greeting'))}\n# Greeting\n\nA gr
 describe('a section to be settled', () => {
   it.effect('marks an anchor that composes a section with no code, and refuses the tangle', () =>
     Effect.gen(function* () {
-      const note = 'To be settled: `Greeting` holds no code yet, so this anchor composes nothing.'
+      const note = '`Greeting` holds no code yet, so this anchor composes nothing.'
       expect(
         yield* settleDiagnose({ '/corpus/hello.loom': declaredLater }, '/corpus/hello.loom'),
       ).toEqual([['info', note]])
@@ -508,8 +505,7 @@ describe('a section to be settled', () => {
       const labelled = {
         '/corpus/hello.loom': helloAnchoring(`${anchor('Greeting')}{To be settled}`),
       }
-      const note =
-        'To be settled: no section is named `Greeting` yet, so this anchor composes nothing.'
+      const note = 'No section is called `Greeting` yet, so this anchor composes nothing.'
       expect(yield* settleDiagnose(labelled, '/corpus/hello.loom')).toEqual([['info', note]])
       expect(yield* refusal(labelled, '/corpus/hello.loom')).toContain(
         `/corpus/hello.loom:6: ${note}`,
@@ -522,8 +518,7 @@ describe('a section to be settled', () => {
       const promised = {
         '/corpus/hello.loom': helloAnchoring(`${anchor('Greeting')}{provides=greet}`),
       }
-      const note =
-        'To be settled: no section is named `Greeting` yet, so this anchor composes nothing.'
+      const note = 'No section is called `Greeting` yet, so this anchor composes nothing.'
       expect(yield* settleDiagnose(promised, '/corpus/hello.loom')).toEqual([['info', note]])
       expect(yield* refusal(promised, '/corpus/hello.loom')).toContain(
         `/corpus/hello.loom:6: ${note}`,
@@ -540,7 +535,7 @@ describe('a section to be settled', () => {
       )
       expect([note!.severity, note!.message]).toEqual([
         'info',
-        'Settled: `Saying hello` holds code now, so its `{To be settled}` label has nothing left to say.',
+        '`Saying hello` holds code now. Remove the `{To be settled}` label.',
       ])
       const [fix] = note!.fixes ?? []
       const at = fix!.at!
@@ -557,10 +552,7 @@ describe('a section to be settled', () => {
       const full = `${anchor('Saying hello')}{kind="To be settled" provides=greet}`
       const labelled = { '/corpus/hello.loom': helloAnchoring(full) }
       expect(yield* settleDiagnose(labelled, '/corpus/hello.loom')).toEqual([
-        [
-          'info',
-          'To be settled: no section is named `Saying hello` yet, so this anchor composes nothing.',
-        ],
+        ['info', 'No section is called `Saying hello` yet, so this anchor composes nothing.'],
       ])
       const settled = `${helloAnchoring(full)}\n${greeting}`
       const [note] = yield* LoomCompiler.pipe(
@@ -633,7 +625,7 @@ describe('what an anchor says its section provides', () => {
       expect(contract!.language).toBe('typescript')
       expect(contract!.expected.map((expected) => expected.name)).toEqual(['greet', 'farewell'])
       expect(contract!.expected[1]!.diagnostic.message).toBe(
-        'Missing symbol: `Saying hello` declares no `farewell`, which this anchor says it provides.',
+        '`Saying hello` declares no `farewell`, though this anchor lists it in `provides`. Declare it in `Saying hello`, or take it out of `provides`.',
       )
       const waiting = helloAnchoring(
         `${anchor('Saying hello')}{kind="To be settled" provides=greet}`,

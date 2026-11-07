@@ -138,7 +138,7 @@ describe('the table of contents in the editor', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const messages = (yield* c.diagnose('/book.loom')).map((d) => d.message)
-      expect(messages.some((m) => m.includes('no chapter titled'))).toBe(true)
+      expect(messages.some((m) => m.includes('No chapter is titled'))).toBe(true)
       expect(messages.join('\n')).toContain('A chapter that is missing')
       expect(messages.some((m) => m.includes('The node foundation'))).toBe(false)
     }).pipe(Effect.provide(compilerLayer)),
@@ -222,7 +222,7 @@ describe('the contents resolve an entry within its part', () => {
       const c = yield* LoomCompiler
       const diagnostics = yield* c.diagnose('/book.loom')
       expect(diagnostics.map((d) => [d.position.start.line, d.message])).toEqual([
-        [13, 'Unresolved contents entry: no chapter titled `Setup`.'],
+        [13, 'No chapter is titled `Setup`. Run `loom toc` to bring the contents up to date.'],
       ])
     }).pipe(Effect.provide(partsLayer)),
   )

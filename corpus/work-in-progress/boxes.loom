@@ -231,7 +231,7 @@ describe('the braces on a box', () => {
 
   it('fault a key a box does not take', () => {
     expect(faults('::: Cells {kind=Note width=480}')).toEqual([
-      'Unknown key: a box takes no `width` key. It takes `kind`, `provides`, and `anchors`.',
+      'A box takes no `width` key. It takes `kind`, `provides`, and `anchors`.',
     ])
   })
 
@@ -254,7 +254,7 @@ describe('the braces on a box', () => {
       ),
     ).map((d) => d.message)
     expect(found).toContain(
-      'Unknown kind: an anchor takes no kind `Mermaid`. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Mermaid` kind. It takes `To be settled` and `Reference`.',
     )
   })
 })
@@ -272,7 +272,7 @@ describe('a stray line of colons', () => {
     const doc = parse(lines('# Chapter', '', '::: Outer', '::: Inner', ':::', '', 'After.'))
     expect(boxes(doc).map((box) => box.side)).toEqual(['open', 'stray', 'close'])
     expect(diagnosticsIn(doc).map((d) => d.message)).toEqual([
-      'Box inside a box: a box never holds another, so this line opens nothing. Close the open box with `:::` on a line of its own, then open this one.',
+      'A box never holds another box. Close the open one with `:::` on a line of its own, then open this one.',
     ])
   })
 
@@ -280,9 +280,7 @@ describe('a stray line of colons', () => {
     const doc = parse(lines('# Chapter', '', '::::', 'Prose.'))
     expect(boxes(doc).map((box) => box.side)).toEqual(['stray'])
     const [fault] = diagnosticsIn(doc)
-    expect(fault!.message).toBe(
-      'Too many colons: a box line starts with three colons, so `::::` opens and closes nothing. Write `:::`.',
-    )
+    expect(fault!.message).toBe('A box line starts with three colons, not 4. Write `:::`.')
     expect(fault!.fixes).toEqual([{ title: 'Write `:::`', text: ':::' }])
   })
 })
@@ -292,7 +290,7 @@ describe('a box that never closes', () => {
     const doc = parse(lines('# Chapter', '', '::: Open', 'Body.', '', '# Swallowed'))
     expect(doc.sections).toHaveLength(1)
     expect(diagnosticsIn(doc).map((d) => d.message)).toEqual([
-      'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
+      'Nothing closes this box, so it runs to the end of the loom. Close it with `:::` on a line of its own.',
     ])
   })
 })
@@ -527,10 +525,10 @@ describe('a chapter box whose chapter is not written', () => {
   it.effect('carries a note whose fix writes the chapter as the next of its part', () =>
     Effect.gen(function* () {
       const found = yield* diagnosed(unwritten, world)
-      const note = found.find((d) => d.message.startsWith('To be settled: no chapter'))
+      const note = found.find((d) => d.message.startsWith('No chapter is titled'))
       expect(note?.severity).toBe('info')
       expect(note?.message).toBe(
-        "To be settled: no chapter is titled `Rooms` yet. Open it from this box, and the box's body becomes its opening.",
+        "No chapter is titled `Rooms` yet. Open it from this box, and the box's body becomes its opening.",
       )
       expect(note?.fixes).toEqual([
         {
@@ -545,10 +543,8 @@ describe('a chapter box whose chapter is not written', () => {
   it.effect('lets an anchor beside it resolve, to be settled rather than missing', () =>
     Effect.gen(function* () {
       const found = messages(yield* diagnosed(unwritten, world))
-      expect(found).toContain(
-        'To be settled: `Rooms` holds no code yet, so this anchor composes nothing.',
-      )
-      expect(found.some((m) => m.startsWith('Unresolved anchor'))).toBe(false)
+      expect(found).toContain('`Rooms` holds no code yet, so this anchor composes nothing.')
+      expect(found.some((m) => m.startsWith('No section or chapter is called'))).toBe(false)
     }),
   )
 
@@ -571,7 +567,7 @@ describe('a chapter box whose chapter is not written', () => {
         },
         ideas,
       )
-      const note = found.find((d) => d.message.startsWith('To be settled: no chapter'))
+      const note = found.find((d) => d.message.startsWith('No chapter is titled'))
       expect(note?.fixes).toEqual([
         {
           title: 'Open the chapter `Rooms`',
@@ -602,10 +598,10 @@ describe('a chapter box whose chapter is written', () => {
     Effect.gen(function* () {
       const files = { ...unwritten, [rooms]: roomsLoom('A room is a grid of cells.') }
       const found = messages(yield* diagnosed(files, world))
-      expect(found.some((m) => m.startsWith('To be settled: no chapter'))).toBe(false)
-      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+      expect(found.some((m) => m.startsWith('No chapter is titled'))).toBe(false)
+      expect(found.some((m) => m.startsWith('This box no longer matches'))).toBe(false)
       expect(found).toContain(
-        'Chapter `Rooms` opens with a section that holds no code, so this anchor composes nothing.',
+        'Chapter `Rooms` holds no code in its opening section, so this anchor composes nothing. Name the section that holds the code instead.',
       )
     }),
   )
@@ -614,7 +610,7 @@ describe('a chapter box whose chapter is written', () => {
     Effect.gen(function* () {
       const files = { ...unwritten, [rooms]: roomsLoom('Rooms are grids.') }
       const found = yield* diagnosed(files, world)
-      const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+      const stale = found.find((d) => d.message.startsWith('This box no longer matches'))
       expect(stale?.severity).toBe('warning')
       const fix = stale?.fixes?.[0]
       expect(fix?.title).toBe('Copy the opening of `Rooms`')
@@ -652,7 +648,7 @@ describe('a chapter box whose chapter is written', () => {
         ),
       }
       const found = messages(yield* diagnosed(files, world))
-      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+      expect(found.some((m) => m.startsWith('This box no longer matches'))).toBe(false)
     }),
   )
 })
@@ -701,7 +697,7 @@ describe('the place of a chapter box', () => {
         ),
       )
       expect(found).toContain(
-        'Chapter box beside code: this box marks where the chapter `Rooms` begins, so the code of its section belongs in that chapter. Move the code there, or move the box into a section of its own.',
+        'This box begins the chapter `Rooms`, so no code belongs in its section. Move the code into `Rooms`, or give the box a section of its own.',
       )
     }),
   )
@@ -713,7 +709,7 @@ describe('the place of a chapter box', () => {
         yield* diagnosed({ [loom]: lines('# Nameless', '', '::: {Chapter}', ':::') }, loom),
       )
       expect(found).toContain(
-        'Chapter box without a name: a box of the `Chapter` kind points to the chapter its name titles, so it needs a name, as in `::: Rooms {Chapter}`.',
+        'This box needs a name. Write it before `{Chapter}`, as in `::: Rooms {Chapter}`.',
       )
     }),
   )
@@ -893,10 +889,10 @@ describe('a discussion box whose discussion is not written', () => {
   it.effect('carries a note whose fix opens the discussion in its folder', () =>
     Effect.gen(function* () {
       const found = yield* diagnosed(unwritten, monsters)
-      const note = found.find((d) => d.message.startsWith('To be settled: no discussion'))
+      const note = found.find((d) => d.message.startsWith('No discussion is titled'))
       expect(note?.severity).toBe('info')
       expect(note?.message).toBe(
-        "To be settled: no discussion is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
+        "No discussion is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
       )
       expect(note?.fixes).toEqual([
         {
@@ -921,7 +917,7 @@ describe('a discussion box whose discussion is not written', () => {
       const sleeping = lines('---', 'Part II, Discussion 1: Sleeping', '---', '', '# Sleeping')
       const files = { ...unwritten, '/corpus/02-shape/discussions/sleeping.loom': sleeping }
       const found = yield* diagnosed(files, monsters)
-      const note = found.find((d) => d.message.startsWith('To be settled: no discussion'))
+      const note = found.find((d) => d.message.startsWith('No discussion is titled'))
       expect(note?.fixes?.[0]?.text).toContain('Part II, Discussion 2: Waking')
     }),
   )
@@ -945,7 +941,7 @@ describe('a discussion box whose discussion is not written', () => {
         },
         ideas,
       )
-      const note = found.find((d) => d.message.startsWith('To be settled: no discussion'))
+      const note = found.find((d) => d.message.startsWith('No discussion is titled'))
       expect(note?.fixes).toEqual([
         {
           title: 'Open the discussion `Waking`',
@@ -970,7 +966,7 @@ describe('a discussion box whose discussion is not written', () => {
       const files = { ...unwritten, '/corpus/02-shape/03-waking.loom': chapter }
       const found = messages(yield* diagnosed(files, monsters))
       expect(found).toContain(
-        "To be settled: no discussion is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
+        "No discussion is titled `Waking` yet. Open it from this box, and the box's body becomes its opening.",
       )
     }),
   )
@@ -991,10 +987,8 @@ describe('a discussion box whose discussion is not written', () => {
         anchor('Waking'),
       )
       const found = messages(yield* diagnosed({ [rooms]: roomsLoom, [monsters]: beside }, monsters))
-      expect(found).toContain(
-        'To be settled: `Waking` holds no code yet, so this anchor composes nothing.',
-      )
-      expect(found.some((m) => m.startsWith('Unresolved anchor'))).toBe(false)
+      expect(found).toContain('`Waking` holds no code yet, so this anchor composes nothing.')
+      expect(found.some((m) => m.startsWith('No section or chapter is called'))).toBe(false)
     }),
   )
 })
@@ -1009,8 +1003,8 @@ describe("a discussion box's summary", () => {
   it.effect('is in step when its body holds the opening and the conclusions', () =>
     Effect.gen(function* () {
       const found = messages(yield* diagnosed(written(summary(trap)), monsters))
-      expect(found.some((m) => m.startsWith('To be settled: no discussion'))).toBe(false)
-      expect(found.some((m) => m.startsWith('Summary out of step'))).toBe(false)
+      expect(found.some((m) => m.startsWith('No discussion is titled'))).toBe(false)
+      expect(found.some((m) => m.startsWith('This box no longer matches'))).toBe(false)
     }),
   )
 
@@ -1018,10 +1012,10 @@ describe("a discussion box's summary", () => {
     Effect.gen(function* () {
       const files = written(['What wakes a monster?'])
       const found = yield* diagnosed(files, monsters)
-      const stale = found.find((d) => d.message.startsWith('Summary out of step'))
+      const stale = found.find((d) => d.message.startsWith('This box no longer matches'))
       expect(stale?.severity).toBe('warning')
       expect(stale?.message).toBe(
-        "Summary out of step: this box holds a copy of the summary of the discussion `Waking`, and the two differ. Copy the discussion's summary into the box, or edit the discussion to match.",
+        'This box no longer matches the summary of the discussion `Waking`. Copy that summary into it, or run `loom refresh`.',
       )
       const fix = stale?.fixes?.[0]
       expect(fix?.title).toBe('Copy the summary of `Waking`')
@@ -1078,7 +1072,7 @@ describe('the place of a discussion box', () => {
         yield* diagnosed({ [loom]: lines('# Nameless', '', '::: {Discussion}', ':::') }, loom),
       )
       expect(found).toContain(
-        'Discussion box without a name: a box of the `Discussion` kind points to the discussion its name titles, so it needs a name, as in `::: Waking {Discussion}`.',
+        'This box needs a name. Write it before `{Discussion}`, as in `::: Waking {Discussion}`.',
       )
     }),
   )

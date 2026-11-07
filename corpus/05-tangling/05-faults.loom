@@ -14,7 +14,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnclosedFence` carries the fence that opened fenced code, so its message can show the line that would close it. A `FenceLabelAgainstLanguage` carries the label a fence wears and the language its section composes. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `CompositionCycle` carries the `loop` a composing anchor closes: the titles of the sections it passes through, from the anchor's own section back to that section again. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter, and whether the entry looked for a discussion instead, as an entry of the back matter does. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `DividerAgainstCode` is its twin for a line of dashes, which most likely belonged to the code, such as a YAML file's separator. A `FileInDiscussion` carries nothing: it marks a sink or a `{Tangle}` on a heading of a discussion, which writes no file. A `ManifestOutsideTrope` carries nothing either: it marks a `{Manifest}` on a heading of a loom that names no trope. A `TropeRefused` carries the `reason` Loom refuses a trope's root for, such as a manifest that does not fit the contract, as Part XIII, Tropes, describes. A `ConclusionOutsideTopic` carries nothing either: it marks a conclusion anywhere but in a topic of a discussion. A `SecondConclusion` marks a conclusion in a topic that another already closed. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Four faults judge what the braces of an anchor or a box hold. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear. An `UnknownKey` carries a key that the bearer of the braces does not take, with the `keys` it does take, and an `UnknownKind` carries a kind it does not take, with the `kinds` it does. Each of the two also carries `on`, which says whether the braces stand on an anchor or on a box, since the two take different keys and kinds. A `MissingSymbol` carries a name an anchor says its section provides, and the section that declares no such name. When a trope box promised the name, it carries the `trope` too. A `KeyOutsideTrope` carries a key that only a trope box takes, `provides` or `anchors`, written on a box of another kind. A `StrayTarget` carries a file an anchor writes in parentheses after its name, such as `(greeting.loom)`, when the anchor composes code, and the span it covers. Only a reference names a file, so the parentheses mean nothing on any other anchor.
 
-Five faults judge a reference, an anchor of the `Reference` kind, as the chapter "Referring to modules" describes. A `NoSuchFile` carries the name a reference finds, the file it names in parentheses, the files the node it finds does emit, and the span of the parentheses. A `SeveralFiles` carries the name and the files, when the reference names none of them, with the point just past the anchor where a file can be named. A `SectionWithoutFile` carries the name of a section with no sink, the files it lands in, and whether one of them is the file the reference stands in, since a path can name none of those. An `UnsettledModule` is a note, like an `UnsettledSection`: it carries the name of a module nobody has written yet, and whether a chapter or section of that name is declared. A `SpecifierUnknown` carries the name of a reference whose path the package could not write, with the language and the reason. Three faults keep boxes whole, as the chapter "The tokeniser stage" describes. A `ColonRun` carries a run of four or more colons, which opens and closes nothing. A `NestedBox` carries nothing: it marks three colons that would open a box inside one already open. An `UnclosedBox` carries nothing either: it marks a box that runs to the end of its loom, because no line of three colons alone closes it. Five more judge a box that points somewhere: to a chapter, to a discussion, or, for a trope, to the section or chapter that holds it, as the chapter "The multi-file AST" describes. An `UnnamedBox` carries the box's `kind`, since each kind needs its name for a reason of its own. An `UnwrittenLoom` is a note: it carries the kind and the name of a loom nobody has written yet, and the `opening` that writes it, a new loom's `file` and its `text`. An `UnsettledTrope` is a note too: it carries the name of a trope that points nowhere yet, and the `target` its `anchors` key names, when it names one. A `StaleSummary` carries what the box copies from, a chapter, a discussion, or a section, with its name, the `summary` the box should copy, and the span of the box's body, which no longer matches it. A `ChapterBoxBesideCode` carries the name of a chapter box written in a section that holds code. Two faults keep a heading to one mark for the file its section writes. A `TangleBesideSink` carries the sink a heading writes beside its `{Tangle}` specifier, and the span the fix removes. A `TangleWithoutFile` carries the folder a chapter's `Package` names, when it names one, since a `{Tangle}` specifier means the chapter's one file and a folder is no file.
+Five faults judge a reference, an anchor of the `Reference` kind, as the chapter "Referring to modules" describes. A `NoSuchFile` carries the name a reference finds, the file it names in parentheses, the files the node it finds does emit, and the span of the parentheses. A `SeveralFiles` carries the name and the files, when the reference names none of them, with the point just past the anchor where a file can be named. A `SectionWithoutFile` carries the name of a section with no sink, the files it lands in, and whether one of them is the file the reference stands in, since a path can name none of those. An `UnsettledModule` is a note, like an `UnsettledSection`: it carries the name of a module nobody has written yet, and whether a chapter or section of that name is declared. A `SpecifierUnknown` carries the name of a reference whose path the package could not write, with the language and the reason. Three faults keep boxes whole, as the chapter "The tokeniser stage" describes. A `ColonRun` carries a run of four or more colons, which opens and closes nothing. A `NestedBox` carries nothing: it marks three colons that would open a box inside one already open. An `UnclosedBox` carries nothing either: it marks a box that runs to the end of its loom, because no line of three colons alone closes it. Five more judge a box that points somewhere: to a chapter, to a discussion, or, for a trope, to the section or chapter that holds it, as the chapter "The multi-file AST" describes. An `UnnamedBox` carries the box's `kind`, so its message can show a named box of that kind. An `UnwrittenLoom` is a note: it carries the kind and the name of a loom nobody has written yet, and the `opening` that writes it, a new loom's `file` and its `text`. An `UnsettledTrope` is a note too: it carries the name of a trope that points nowhere yet, and the `target` its `anchors` key names, when it names one. A `StaleSummary` carries what the box copies from, a chapter, a discussion, or a section, with its name, the `summary` the box should copy, and the span of the box's body, which no longer matches it. A `ChapterBoxBesideCode` carries the name of a chapter box written in a section that holds code. Two faults keep a heading to one mark for the file its section writes. A `TangleBesideSink` carries the sink a heading writes beside its `{Tangle}` specifier, and the span the fix removes. A `TangleWithoutFile` carries the folder a chapter's `Package` names, when it names one, since a `{Tangle}` specifier means the chapter's one file and a folder is no file.
 
 Eight faults judge the boundary of a trope, as the chapter "The boundaries of a trope" describes. An `UnrootedTrope` is a note: it carries the name a `Rooted in:` line gives, when no trope chapter carries it. A `CircularRoots` carries the `loop` of tropes rooted in each other, from the trope whose root raises it back to that trope. An `EntriesOffRoot` carries nothing: it marks an `Entries:` line on a chapter that is no trope chapter. An `UnknownEntry` carries an entry's name that leads to no chapter. A `ForeignEntry` carries an entry's name that leads to a chapter of another trope, with that `trope`. A `PrivateEntry` carries an entry's name that leads to a chapter private to an inner `trope`. An `UnsettledMember` is a note too: it carries the trope whose chapter reaches a chapter that names no trope. A `ReachingInside` carries the `chapter` an anchor or a box reaches from outside its `trope`, and the `entries` that trope offers instead.
 
@@ -197,13 +197,13 @@ export const {
 
 `describe` reads a fault aloud. Through `Match.valueTags`, it maps each variant's tag to a `severity` and the `message` a person sees, and it is exhaustive over the union — a new fault does not compile until it has a line here. The table cannot drift from the faults it describes.
 
-A message is written for the author, who reads it beside the line it marks. It says plainly what is wrong, in one short sentence, and then what to do about it, when one fix is clear. It names things by the words the book defines, such as chapter, section, anchor, trope, and entry, and leaves Loom's own workings out of it. It opens on the problem itself, with no label before it to match the others. The faults of tropes and of composition follow this rule, and so does every fault added from now on.
+A message is written for the author, who reads it beside the line it marks. It says plainly what is wrong, in one short sentence, and then what to do about it, when one fix is clear. It names things by the words the book defines, such as chapter, section, anchor, trope, and entry, and leaves Loom's own workings out of it. It opens on the problem itself, with no label before it to match the others. Every message in the table follows this rule.
 
-Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
+A label's message depends on its construct. `empty` gives each construct the message for leaving it empty, with the fix that fills it. A malformed label reads `` `<value>` is not a valid <noun> ``, then states the rule its text broke: `noun` gives each construct that can be malformed the name a reader knows it by, and `rule` gives the rule. `withArticle` puts `a` or `an` before the noun, where it opens the second sentence.
 
-`siblingPlace` says where a duplicated name already stands: a section of this loom on the line it gives, or a chapter of this part in the looms it lists. `bearer` names what an unknown key or kind was written on, an anchor or a box, and `knownList` lists what that bearer takes, two joined by `and` and more by commas. `orList` joins names with `or`. A loop, of composition or of roots, reads as its names joined by arrows, which `loopLine` writes, and `elsewhere` names the other places that close it, every name between the first and the last.
+`siblingPlace` names the other sibling that holds a duplicated name: another section of this loom, on the line it gives, or another chapter of this part, in the looms it lists. `bearer` names what an unknown key or kind was written on, an anchor or a box, and `knownList` lists what that bearer takes, two joined by `and` and more by commas. `orList` joins names with `or`. A loop, of composition or of roots, reads as its names joined by arrows, which `loopLine` writes, and `elsewhere` names the other places that close it, every name between the first and the last.
 
-A box that points somewhere speaks of what it points to. `pointingWords` gives each kind of such a box what it does with its name, and a name to show in an example: a chapter box and a discussion box point to the loom their name titles, and a trope box names a trope. `copyWords` gives what a box copies from each thing it can copy, which `CopiedFrom` names: a chapter's opening, a discussion's summary, or a section's opening.
+A box that points somewhere needs a name, and its message shows one in an example. `exampleName` gives that name for each kind of such a box: `Rooms` for a chapter box, `Waking` for a discussion box, and `Payments` for a trope box. `copyWords` gives what a box copies from each thing it can copy, which `CopiedFrom` names: a chapter's opening, a discussion's summary, or a section's opening.
 
 A reference's messages list files, and `fileList` joins them with backticks, as `` `a.ts` and `b.ts` `` reads. `emitted` says which files a node emits, or that it emits none of its own. `composeInstead` ends each message for a section with no file to name, since the author most likely meant the anchor to compose the section.
 
@@ -221,21 +221,37 @@ const information = (message: string): Note => ({ severity: 'info', message })
 
 const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
-const noun: Record<EmptyConstruct, string> = {
-  specifier: 'specifier label',
+const withArticle = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`)
+
+const empty: Record<EmptyConstruct, string> = {
+  specifier: 'These braces are empty. Write a label in them, or remove them.',
+  path: 'This sink names no file. Write a file name in its brackets, or remove them.',
+  warpName: 'This warp has no name. Write one before its `=`.',
+  anchorName: 'This anchor names nothing. Write the name of a section or chapter in its brackets.',
+  warpAnnotation: 'This warp has an empty type. Write a type after its colon, or remove the colon.',
+  warpDefault: 'This warp has no value. Write one after its `=`.',
+}
+
+const noun: Record<MalformedConstruct, string> = {
+  specifier: 'label',
   path: 'file path',
   warpName: 'warp name',
   anchorName: 'anchor name',
-  warpAnnotation: 'warp annotation',
-  warpDefault: 'warp default',
+}
+
+const rule: Record<MalformedConstruct, string> = {
+  specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
+  path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
+  warpName: 'must be a TypeScript identifier',
+  anchorName: 'may not contain `]`',
 }
 
 const bearer: Record<BracesOn, string> = { anchor: 'an anchor', box: 'a box' }
 
-const pointingWords: Record<PointingKind, { readonly does: string; readonly example: string }> = {
-  Chapter: { does: 'points to the chapter its name titles', example: 'Rooms' },
-  Discussion: { does: 'points to the discussion its name titles', example: 'Waking' },
-  Trope: { does: 'names a trope', example: 'Payments' },
+const exampleName: Record<PointingKind, string> = {
+  Chapter: 'Rooms',
+  Discussion: 'Waking',
+  Trope: 'Payments',
 }
 
 const copyWords: Record<CopiedFrom, string> = {
@@ -270,13 +286,13 @@ const knownList = (known: ReadonlyArray<string>): string => {
 }
 
 const siblingPlace: Record<Sibling, (where: string) => string> = {
-  section: (line) => `a section of this loom (line ${line})`,
-  chapter: (looms) => `a chapter of this part (${looms})`,
+  section: (line) => `Another section of this loom, on line ${line},`,
+  chapter: (looms) => `Another chapter of this part, in ${looms},`,
 }
 
 const disambiguation = (paths: ReadonlyArray<string>): string =>
   Array.match(paths, {
-    onEmpty: () => 'A name anchor resolves to exactly one section; rename to disambiguate.',
+    onEmpty: () => 'Rename one of them.',
     onNonEmpty: (all) =>
       `Write the path to the one you mean: ${Array.join(
         Array.map(all, (path) => `\`${path}\``),
@@ -296,31 +312,30 @@ const emitted = (files: ReadonlyArray<string>): string =>
 const composeInstead =
   'Take `Reference` off the anchor and move it out of the import, so it composes the section.'
 
-const rule: Record<MalformedConstruct, string> = {
-  specifier: 'may contain only words of letters, digits, hyphens, and underscores, one space apart',
-  path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
-  warpName: 'must be a TypeScript identifier',
-  anchorName: 'may not contain `]`',
-}
-
 export const describe = (fault: LoomFault): Note =>
   Match.valueTags(fault, {
-    UnclosedDelimiter: ({ expected }) => error(`expected closing \`${expected}\``),
-    EmptyLabel: ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`),
+    UnclosedDelimiter: ({ expected }) =>
+      error(`This is never closed. Add \`${expected}\` on the same line.`),
+    EmptyLabel: ({ construct }) => error(empty[construct]),
     MalformedLabel: ({ construct, value }) =>
-      error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
+      error(
+        `\`${value}\` is not a valid ${noun[construct]}. ${cap(withArticle(noun[construct]))} ${rule[construct]}.`,
+      ),
     MissingWarpValue: ({ name }) =>
-      error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
+      error(`Warp \`${name}\` has no value. Give it one, as in \`${name} = …\`.`),
     UnknownVariable: ({ name }) =>
       error(
-        `Unknown variable: no workspace variable named \`${name}\`. Declare it under \`variables:\` in the configuration.`,
+        `No variable is called \`${name}\`. Declare it under \`variables:\` in \`.loom/config.yaml\`.`,
       ),
-    UnresolvedAnchor: ({ name }) => error(`Unresolved anchor: no section named \`${name}\`.`),
+    UnresolvedAnchor: ({ name }) =>
+      error(
+        `No section or chapter is called \`${name}\`. Write one, or label this anchor \`{To be settled}\`.`,
+      ),
     AmbiguousAnchor: ({ name, count, paths }) =>
-      error(`Ambiguous anchor: ${count} sections are named \`${name}\`. ${disambiguation(paths)}`),
+      error(`\`${name}\` names ${count} sections. ${disambiguation(paths)}`),
     ChapterWithoutCode: ({ name }) =>
       warning(
-        `Chapter \`${name}\` opens with a section that holds no code, so this anchor composes nothing.`,
+        `Chapter \`${name}\` holds no code in its opening section, so this anchor composes nothing. Name the section that holds the code instead.`,
       ),
     CompositionCycle: ({ loop }) =>
       error(
@@ -331,54 +346,45 @@ export const describe = (fault: LoomFault): Note =>
     UnsettledSection: ({ name, declared }) =>
       information(
         declared
-          ? `To be settled: \`${name}\` holds no code yet, so this anchor composes nothing.`
-          : `To be settled: no section is named \`${name}\` yet, so this anchor composes nothing.`,
+          ? `\`${name}\` holds no code yet, so this anchor composes nothing.`
+          : `No section is called \`${name}\` yet, so this anchor composes nothing.`,
       ),
     SettledLabel: ({ name }) =>
-      information(
-        `Settled: \`${name}\` holds code now, so its \`{To be settled}\` label has nothing left to say.`,
-      ),
+      information(`\`${name}\` holds code now. Remove the \`{To be settled}\` label.`),
     DuplicateName: ({ name, sibling, where }) =>
-      error(`Duplicate name: \`${name}\` is already ${siblingPlace[sibling](where)}. Rename one.`),
+      error(`${siblingPlace[sibling](where)} is called \`${name}\` too. Rename one of them.`),
     CrossLanguageAnchor: ({ name, host, found }) =>
       error(
-        `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
+        `\`${name}\` holds ${found} code, but this section holds ${host}. A section composes code of its own language only.`,
       ),
     UnresolvedTocEntry: ({ title, discussion }) =>
       error(
-        `Unresolved contents entry: no ${discussion ? 'discussion' : 'chapter'} titled \`${title}\`.`,
+        `No ${discussion ? 'discussion' : 'chapter'} is titled \`${title}\`. Run \`loom toc\` to bring the contents up to date.`,
       ),
     StrayFragment: ({ value }) =>
-      error(
-        `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,
-      ),
-    RepeatedKey: ({ key }) =>
-      error(
-        `Repeated key: \`${key}\` appears twice in these braces, so nothing tells which value is meant. Keep one.`,
-      ),
+      error(`This line has no place for \`${value}\`, so Loom would ignore it. Remove it.`),
+    RepeatedKey: ({ key }) => error(`\`${key}\` is written twice in these braces. Keep one.`),
     LabelBesideParameter: ({ label }) =>
       error(
-        `Label beside parameters: \`${label}\` stands alone only in braces that hold nothing else. Beside parameters, write it in full, as \`kind="${label}"\`.`,
+        `A label stands alone only in braces that hold nothing else. Write it in full here, as \`kind="${label}"\`.`,
       ),
     UnknownKey: ({ key, keys, on }) =>
-      error(`Unknown key: ${bearer[on]} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
+      error(`${cap(bearer[on])} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
     UnknownKind: ({ kind, kinds, on }) =>
-      error(`Unknown kind: ${bearer[on]} takes no kind \`${kind}\`. It takes ${knownList(kinds)}.`),
+      error(`${cap(bearer[on])} takes no \`${kind}\` kind. It takes ${knownList(kinds)}.`),
     MissingSymbol: ({ name, section, trope }) =>
       error(
         trope === undefined
-          ? `Missing symbol: \`${section}\` declares no \`${name}\`, which this anchor says it provides.`
-          : `Missing symbol: \`${section}\` declares no \`${name}\`, which the trope \`${trope}\` promises.`,
+          ? `\`${section}\` declares no \`${name}\`, though this anchor lists it in \`provides\`. Declare it in \`${section}\`, or take it out of \`provides\`.`
+          : `\`${section}\` declares no \`${name}\`, though the \`${trope}\` trope promises it. Declare it in \`${section}\`, or take it out of \`provides\` on the trope box.`,
       ),
     StrayTarget: ({ target }) =>
-      error(
-        `Stray target: \`${target}\` names a file, and only a reference, an anchor of the \`Reference\` kind, names one. This anchor composes code, so remove the target.`,
-      ),
+      error(`Only a reference names a file, and this anchor composes code. Remove \`${target}\`.`),
     NoSuchFile: ({ name, file, files }) =>
-      error(`No such file: \`${name}\` emits no \`${file}\`. ${emitted(files)}`),
+      error(`\`${name}\` emits no \`${file}\`. ${emitted(files)}`),
     SeveralFiles: ({ name, files }) =>
       error(
-        `Several files: \`${name}\` emits ${fileList(files)}. Name the one this reference means in parentheses after its name, as \`(${files[0] ?? ''})\`.`,
+        `\`${name}\` emits ${fileList(files)}. Name the one you mean in parentheses after its name, as \`(${files[0] ?? ''})\`.`,
       ),
     SectionWithoutFile: ({ name, files, here }) =>
       error(
@@ -386,44 +392,44 @@ export const describe = (fault: LoomFault): Note =>
           Match.when(
             { here: true },
             () =>
-              `No file to name: \`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
+              `\`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
           ),
           Match.when(
             { count: 0 },
             () =>
-              `No file to name: \`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
+              `\`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
           ),
           Match.orElse(
             () =>
-              `No file to name: \`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
+              `\`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
           ),
         ),
       ),
     UnsettledModule: ({ name, declared }) =>
       information(
         declared
-          ? `To be settled: \`${name}\` emits no file yet, so this reference names no module.`
-          : `To be settled: nothing is named \`${name}\` yet, so this reference names no module.`,
+          ? `\`${name}\` emits no file yet, so this reference names no module.`
+          : `Nothing is called \`${name}\` yet, so this reference names no module.`,
       ),
     SpecifierUnknown: ({ name, language, reason }) =>
-      error(`Path unwritten: the ${language} package cannot write the path to \`${name}\`. ${reason}`),
+      error(`The ${language} package can't write the path to \`${name}\`. ${reason}`),
     TangleBesideSink: ({ sink }) =>
       error(
-        `Two marks for one file: the sink \`${sink}\` already says this section writes a file, so \`{Tangle}\` says it twice. Remove \`{Tangle}\`.`,
+        `The sink \`${sink}\` already names the file this section writes. Remove \`{Tangle}\`.`,
       ),
     TangleWithoutFile: ({ folder }) =>
       error(
-        `No file for \`{Tangle}\`: it writes the one file the chapter's \`Package\` names, but ${
-          folder === undefined ? 'this chapter names no `Package`' : `\`${folder}\` names a folder`
+        `\`{Tangle}\` writes the file the chapter's \`Package\` names, but ${
+          folder === undefined ? 'this chapter names no `Package`' : `\`${folder}\` is a folder`
         }. Name the file in brackets instead, as \`[module.ts]\`.`,
       ),
     HeadingAgainstCode: () =>
       warning(
-        'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, fence the block: write three backticks on the line after its arrow, and three more where the code ends. If it is a heading, leave a blank line above it.',
+        'This heading ends the code above it. If the line is a comment in the code, fence the block: three backticks on the line after its arrow, and three where the code ends. If it is a heading, leave a blank line above it.',
       ),
     DividerAgainstCode: () =>
       warning(
-        'This divider sits directly under a line of code, so it ends the code here. Format the loom to fence the code, which keeps the dashes in it. If the divider divides the chapter, leave a blank line above it.',
+        'This divider ends the code above it. If the dashes belong to the code, format the loom to fence it. If the divider divides the chapter, leave a blank line above it.',
       ),
     ManifestOutsideTrope: () => error('Only a trope chapter can hold a manifest.'),
     TropeRefused: ({ reason }) => error(`Loom ignores this trope: ${reason}.`),
@@ -453,43 +459,41 @@ export const describe = (fault: LoomFault): Note =>
     UnusedSection: ({ name }) => warning(`\`${name}\` is never used across the corpus.`),
     FileInDiscussion: () =>
       error(
-        'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',
+        'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
       ),
     ConclusionOutsideTopic: () =>
       error(
-        'Conclusion outside a topic: a conclusion closes a topic of a discussion, and a divider opens each topic. Move it under a topic, or make it a note.',
+        'Only a topic holds a conclusion, and a divider opens each topic. Move this one below a divider, or make it a note.',
       ),
     SecondConclusion: () =>
       error(
-        'Second conclusion: this topic already closes with a conclusion. Merge the two, or open a new topic with a divider.',
+        'This topic already has a conclusion. Merge the two, or open a new topic with a divider.',
       ),
     UnclosedFence: ({ fence }) =>
       error(
-        `Unclosed fence: this fenced code runs to the end of the loom, because nothing closes it. Close it with \`${fence}\` at the same column, on a line of its own.`,
+        `Nothing closes this fence, so its code runs to the end of the loom. Close it with \`${fence}\` on a line of its own, at the same column.`,
       ),
     ColonRun: ({ colons }) =>
-      error(
-        `Too many colons: a box line starts with three colons, so \`${colons}\` opens and closes nothing. Write \`:::\`.`,
-      ),
+      error(`A box line starts with three colons, not ${colons.length}. Write \`:::\`.`),
     NestedBox: () =>
       error(
-        'Box inside a box: a box never holds another, so this line opens nothing. Close the open box with `:::` on a line of its own, then open this one.',
+        'A box never holds another box. Close the open one with `:::` on a line of its own, then open this one.',
       ),
     UnclosedBox: () =>
       error(
-        'Unclosed box: this box runs to the end of the loom, because nothing closes it. Close it with `:::` on a line of its own.',
+        'Nothing closes this box, so it runs to the end of the loom. Close it with `:::` on a line of its own.',
       ),
     UnnamedBox: ({ kind }) =>
       error(
-        `${kind} box without a name: a box of the \`${kind}\` kind ${pointingWords[kind].does}, so it needs a name, as in \`::: ${pointingWords[kind].example} {${kind}}\`.`,
+        `This box needs a name. Write it before \`{${kind}}\`, as in \`::: ${exampleName[kind]} {${kind}}\`.`,
       ),
     ChapterBoxBesideCode: ({ name }) =>
       error(
-        `Chapter box beside code: this box marks where the chapter \`${name}\` begins, so the code of its section belongs in that chapter. Move the code there, or move the box into a section of its own.`,
+        `This box begins the chapter \`${name}\`, so no code belongs in its section. Move the code into \`${name}\`, or give the box a section of its own.`,
       ),
     UnwrittenLoom: ({ kind, name }) =>
       information(
-        `To be settled: no ${kind.toLowerCase()} is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
+        `No ${kind.toLowerCase()} is titled \`${name}\` yet. Open it from this box, and the box's body becomes its opening.`,
       ),
     UnsettledTrope: ({ name, target }) =>
       information(
@@ -501,12 +505,12 @@ export const describe = (fault: LoomFault): Note =>
     StaleSummary: ({ of, name }) => {
       const copy = copyWords[of]
       return warning(
-        `Summary out of step: this box holds a copy of the ${copy} of the ${of} \`${name}\`, and the two differ. Copy the ${of}'s ${copy} into the box, or edit the ${of} to match.`,
+        `This box no longer matches the ${copy} of the ${of} \`${name}\`. Copy that ${copy} into it, or run \`loom refresh\`.`,
       )
     },
     FenceLabelAgainstLanguage: ({ label, language }) =>
       error(
-        `Fence label against the language: this fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
+        `This fence is labelled \`${label}\`, but its section's code is ${language}. Label it \`${language}\`, or leave the label off.`,
       ),
   })
 

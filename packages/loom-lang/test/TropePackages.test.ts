@@ -75,7 +75,7 @@ const diagnosed = (workspace: string, loom: string) =>
 const faultsOf = (found: ReadonlyArray<string>) =>
   found.filter(
     (message) =>
-      message.startsWith('Unknown kind') || message.startsWith('Loom ignores this trope'),
+      message.startsWith('A box takes no') || message.startsWith('Loom ignores this trope'),
   )
 
 const installing = ['tropes:', '  mermaid: {}']
@@ -92,7 +92,7 @@ describe('a kind a workspace installs', () => {
     Effect.gen(function* () {
       const workspace = workspaceWith([], { 'cells.loom': cells })
       expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toEqual([
-        'Unknown kind: a box takes no kind `Mermaid`. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.',
+        'A box takes no `Mermaid` kind. It takes `Note`, `Chapter`, `Discussion`, `Trope`, and `Conclusion`.',
       ])
     }).pipe(Effect.provide(onDisk)),
   )
