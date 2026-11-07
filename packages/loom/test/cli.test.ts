@@ -36,7 +36,7 @@ const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
-const loomVersion = '0.0.18'
+const loomVersion = '0.0.19'
 
 const workspace = (configYaml: string): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-proj-')))

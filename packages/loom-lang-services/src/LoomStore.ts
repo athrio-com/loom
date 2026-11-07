@@ -74,7 +74,7 @@ const manifestIn = (folder: string): Option.Option<ServiceManifest> =>
 export const serviceManifest = (id: string, dir: string): Option.Option<ServiceManifest> =>
   manifestIn(serviceDir(id, dir))
 
-export const serviceVersion = '0.0.18'
+export const serviceVersion = '0.0.19'
 
 const versionIn = (folder: string): Option.Option<string> =>
   Option.flatMap(manifestIn(folder), (manifest) => Option.fromNullishOr(manifest.version))
