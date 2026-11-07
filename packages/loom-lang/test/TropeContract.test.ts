@@ -56,32 +56,34 @@ const manifestOf = (...kinds: ReadonlyArray<string>): string =>
   })
 
 describe("a chapter's trope", () => {
-  it('names the trope beside the identity line', () => {
+  it('roots the trope a trope chapter titles', () => {
     const fm = parse(
-      lines('---', 'Part I, Chapter 1: Drawing', 'Trope: Mermaid diagrams', '---', '', '# Drawing'),
+      lines('---', 'Part I, Trope Chapter 1: Mermaid', '---', '', '# Mermaid'),
     ).frontmatter
     expect([fm?.trope?.value, fm?.title?.value, fm?.part?.value, fm?.chapter?.value]).toEqual([
-      'Mermaid diagrams',
-      'Drawing',
+      'Mermaid',
+      'Mermaid',
       'I',
       '1',
     ])
   })
 
+  it('reads a trope chapter with no number and no part', () => {
+    const fm = parse(lines('---', 'Trope Chapter: Mermaid', '---', '', '# Mermaid')).frontmatter
+    expect([fm?.trope?.value, fm?.title?.value, fm?.chapter?.value]).toEqual([
+      'Mermaid',
+      'Mermaid',
+      undefined,
+    ])
+  })
+
   it("reads a member's line apart from a root's", () => {
     const fm = parse(
-      lines(
-        '---',
-        'Part I, Chapter 2: Shapes',
-        'Rooted in: Mermaid diagrams',
-        '---',
-        '',
-        '# Shapes',
-      ),
+      lines('---', 'Part I, Chapter 2: Shapes', 'Rooted in: Mermaid', '---', '', '# Shapes'),
     ).frontmatter
     expect([fm?.trope?.value, fm?.rootedIn?.value, fm?.title?.value]).toEqual([
       undefined,
-      'Mermaid diagrams',
+      'Mermaid',
       'Shapes',
     ])
   })
@@ -101,12 +103,11 @@ describe('a manifest section', () => {
       '=>',
       manifestOf('Mermaid'),
     )
-  const outside =
-    "Manifest outside a trope: a manifest belongs to a trope's root, a chapter that names its trope with a `Trope:` line, so Loom reads nothing from this section. Name the trope in the frontmatter, or take `{Manifest}` off the heading."
+  const outside = 'Only a trope chapter can hold a manifest.'
 
-  it("raises nothing in a trope's root", async () => {
+  it('raises nothing in a trope chapter', async () => {
     const path = '/corpus/diagrams.loom'
-    const root = manifestIn('Part I, Chapter 1: Diagrams', 'Trope: Diagrams')
+    const root = manifestIn('Part I, Trope Chapter 1: Diagrams')
     expect(await diagnosed({ [path]: root }, path)).not.toContain(outside)
   })
 
@@ -115,6 +116,12 @@ describe('a manifest section', () => {
     expect(await diagnosed({ [path]: manifestIn('Part I, Chapter 1: Diagrams') }, path)).toContain(
       outside,
     )
+  })
+
+  it('is a fault in a member of a trope', async () => {
+    const path = '/corpus/diagrams.loom'
+    const member = manifestIn('Part I, Chapter 2: Diagrams', 'Rooted in: Charts')
+    expect(await diagnosed({ [path]: member }, path)).toContain(outside)
   })
 })
 
@@ -133,7 +140,7 @@ describe('reading a manifest', () => {
 
   it('refuses a manifest written for another contract', () => {
     expect(reason(JSON.stringify({ contract: '2', contributes: {} }))).toBe(
-      'it was written for contract 2, and this Loom reads contract 1',
+      'it needs contract 2, and this Loom reads contract 1',
     )
   })
 

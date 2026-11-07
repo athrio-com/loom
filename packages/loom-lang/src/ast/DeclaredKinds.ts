@@ -18,7 +18,7 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
 import { fromCode } from './LoomVirtualCodeBuilder'
-import { faulty, KeyOutsideTrope, ManifestOffRoot, TropeRefused, UnknownKind } from './LoomFault'
+import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
 import { type BoxKindDeclaration, readManifest, type TropeManifest } from './TropeManifest'
 
 export type Trope = {
@@ -36,16 +36,13 @@ export type DeclaredKind = {
 
 export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
 
-export type Misplaced = { readonly module: Location; readonly trope: string; readonly at: Position }
-
 export type DeclaredKinds = {
   readonly tropes: ReadonlyArray<Trope>
   readonly box: ReadonlyArray<DeclaredKind>
   readonly refusals: ReadonlyArray<Refusal>
-  readonly misplaced: ReadonlyArray<Misplaced>
 }
 
-const noKinds: DeclaredKinds = { tropes: [], box: [], refusals: [], misplaced: [] }
+const noKinds: DeclaredKinds = { tropes: [], box: [], refusals: [] }
 
 const tropeLine = (module: LoomModule): Option.Option<FrontmatterTropeToken> =>
   Option.orElse(Option.fromNullishOr(module.doc.frontmatter?.trope), () =>
@@ -119,17 +116,11 @@ const clashOf = (
       earlier: Array.findFirst(taken, (other) => sameKind(other.kind, kind)),
       twice: Array.some(Array.take(declared, at), (before) => sameKind(before.kind, kind)),
     }).pipe(
-      Match.when({ core: true }, () =>
-        Option.some(`it declares the box kind \`${kind}\`, which the core keeps for itself`),
-      ),
+      Match.when({ core: true }, () => Option.some(`\`${kind}\` is one of Loom's own kinds`)),
       Match.when({ earlier: Option.isSome }, ({ earlier }) =>
-        Option.map(
-          earlier,
-          (other) =>
-            `it declares the box kind \`${kind}\`, which the trope \`${other.trope}\` declares already`,
-        ),
+        Option.map(earlier, (other) => `the \`${other.trope}\` trope declares \`${kind}\` already`),
       ),
-      Match.when({ twice: true }, () => Option.some(`it declares the box kind \`${kind}\` twice`)),
+      Match.when({ twice: true }, () => Option.some(`it declares \`${kind}\` twice`)),
       Match.orElse(() => Option.none<string>()),
     )
   })
@@ -192,26 +183,11 @@ const withTrope = (
     onSome: (root) =>
       Array.map(Array.filter(others, rootsTrope), (chapter): Refusal => ({
         module: chapter.path,
-        reason: `the trope \`${trope.name}\` already has its root in the chapter \`${titleOf(root)}\``,
+        reason: `another trope chapter is called \`${titleOf(root)}\``,
         at: tropeLineOf(chapter),
       })),
   })
-  const misplaced = pipe(
-    others,
-    Array.filter((chapter) => !rootsTrope(chapter)),
-    Array.flatMap((member) =>
-      Array.map(manifestSectionsOf(member), (section): Misplaced => ({
-        module: member.path,
-        trope: trope.name,
-        at: section.heading.position,
-      })),
-    ),
-  )
-  const settled: DeclaredKinds = {
-    ...kinds,
-    refusals: [...kinds.refusals, ...duplicates],
-    misplaced: [...kinds.misplaced, ...misplaced],
-  }
+  const settled: DeclaredKinds = { ...kinds, refusals: [...kinds.refusals, ...duplicates] }
   return Option.match(trope.root, {
     onNone: () => settled,
     onSome: (root) => withRoot(modules, book, settled, trope.name, root),
@@ -257,13 +233,6 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       (refusal) => faulty(TropeRefused({ reason: refusal.reason }), refusal.at).diagnostics,
     ),
   )
-  const misplaced = pipe(
-    kinds.misplaced,
-    Array.filter((manifest) => manifest.module === module.path),
-    Array.flatMap(
-      (manifest) => faulty(ManifestOffRoot({ trope: manifest.trope }), manifest.at).diagnostics,
-    ),
-  )
   const unknown = pipe(
     openedBoxesOf(module.doc),
     Array.flatMap((opened) => Option.toArray(Option.fromNullishOr(opened.box.specifier))),
@@ -273,7 +242,7 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       ({ kind, at }) => faulty(UnknownKind({ kind, kinds: known, on: 'box' }), at).diagnostics,
     ),
   )
-  return [...refused, ...misplaced, ...unknown, ...keysOutsideTrope(module)]
+  return [...refused, ...unknown, ...keysOutsideTrope(module)]
 }
 
 const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>

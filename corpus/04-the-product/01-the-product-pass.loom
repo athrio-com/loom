@@ -21,7 +21,7 @@ The pass reads the Loom AST and writes the product AST, so it draws from both. F
 
 From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body weft a code run is made of. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
 
-The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
+The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
 
 From the product side come the schema constructors for every node the pass builds: the `Code` of a section, its `Fragment`, `NameRef`, and `ModuleRef` leaves, and the `File` a section emits. With them come the `SectionId` that stamps each node and `keyOf`, which names it, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, the `Book` it resolves names in through `trailsOf`, `sectionOf`, and `resolveName`, the `Place` a trail ends at, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` the judgement returns.
 
@@ -107,6 +107,7 @@ import {
   UnsettledSection,
   UnknownVariable,
   UnresolvedAnchor,
+  UnusedSection,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 
@@ -500,15 +501,14 @@ const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
 
 ~
 
-A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a chapter that names its trope with a `Trope:` line, and the trope's other chapters name it with a `Rooted in:` line, so a manifest in a loom that names no trope on either line belongs to nothing. A manifest on a member is the registry's to judge, as the chapter "The kinds tropes declare" describes. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells the specifier, and `isTrope` tells a loom that names its trope.
+A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a trope chapter, so a manifest in any other loom belongs to nothing, a member of the trope included. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells the specifier, and `isTrope` tells a trope chapter.
 
 =>
 
 export const isManifest = (specifier: SpecifierToken): boolean =>
   specifier.label.value.toLowerCase() === 'manifest'
 
-const isTrope = (doc: LoomDocument): boolean =>
-  doc.frontmatter?.trope !== undefined || doc.frontmatter?.rootedIn !== undefined
+const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 
 const manifestOutsideTrope = (section: LoomSection): Health =>
   Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {
@@ -1429,6 +1429,72 @@ export const compositionCycles = (
     ),
   )
 
+## Code no file includes
+
+A section's code is used when a file includes it: the section writes a file of its own, or an anchor composes it into another section. Code that nothing uses is never written anywhere, the way a function nobody calls never runs, so `unusedSections` warns of it with the `UnusedSection` fault, at the section's heading.
+
+`usedSections` gathers a corpus's `Usage` once, so each loom's judgement only looks it up. Its `used` sections are the section behind every file a loom writes, and every section an anchor composes, through `composedTargetsOf`. It also says whether the corpus `writes` any file at all. A corpus that writes none is documentation rather than a program, as a book that only weaves is, so none of its code counts as unused. A manifest is read by Loom itself, so its section counts as used. A section that holds no code yet has nothing to use, and the note that it is to be settled covers it already.
+
+Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter marked `Canvas` or `Planned` is unfinished, as the chapter "Canvases" describes, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose, as every section of a chapter whose language is `Prose` is, holds words for a reader rather than code for a file, and `isProse` tells such a section.
+
+=>
+
+export type Usage = { readonly writes: boolean; readonly used: ReadonlySet<string> }
+
+export const usedSections = (book: Book, modules: ReadonlyMap<string, LoomModule>): Usage => {
+  const all = Array.fromIterable(modules.values())
+  const files = Array.flatMap(all, (module) => module.product.files)
+  return {
+    writes: Array.isReadonlyArrayNonEmpty(files),
+    used: new Set([
+      ...Array.map(files, (file) => keyOf(file.code.origin)),
+      ...Array.flatMap(all, (module) =>
+        Array.flatMap(module.product.code, (code) =>
+          Array.map(composedTargetsOf(book, code), keyOf),
+        ),
+      ),
+    ]),
+  }
+}
+
+const unfinished = (module: LoomModule): boolean =>
+  Option.exists(Option.fromNullishOr(module.doc.frontmatter?.status), (status) =>
+    ['Canvas', 'Planned'].includes(status.value),
+  )
+
+const holdsCode = (code: Code): boolean =>
+  Array.some(code.fragments, (part) => part.type !== 'Fragment' || part.text.trim() !== '')
+
+const isProse = (code: Code): boolean => code.languageId === 'prose'
+
+export const unusedSections = (usage: Usage, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  !usage.writes || module.doc.frontmatter?.discussion !== undefined || unfinished(module)
+    ? []
+    : pipe(
+        module.product.code,
+        Array.filter(
+          (code) => holdsCode(code) && !isProse(code) && !usage.used.has(keyOf(code.origin)),
+        ),
+        Array.flatMap((code) =>
+          Option.toArray(
+            Array.findFirst(
+              module.doc.sections,
+              (section) => sectionNameOf(section) === code.origin.name,
+            ),
+          ),
+        ),
+        Array.filter(
+          (section) => !Option.exists(Option.fromNullishOr(section.heading.specifier), isManifest),
+        ),
+        Array.flatMap((section) =>
+          Option.match(Option.fromNullishOr(section.heading.title), {
+            onNone: (): ReadonlyArray<Diagnostic> => [],
+            onSome: (title) =>
+              faulty(UnusedSection({ name: title.source }), title.position).diagnostics,
+          }),
+        ),
+      )
+
 ## A section's name and its spans
 
 A section's name is its heading title normalised to an identifier, through the tokeniser's `normaliseTitle` — `Multiplier Function` becomes `MultiplierFunction`. Every heading has a title, so the function is total, and the name pairs with the module path to make the section's corpus-wide identity. The formatter reads the same name, to pair a section with the `Code` the pass builds for it.
@@ -1554,6 +1620,8 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[Fitting a reference to its place]
 
 ::[A composition that loops]
+
+::[Code no file includes]
 
 ::[A section's name and its spans]
 

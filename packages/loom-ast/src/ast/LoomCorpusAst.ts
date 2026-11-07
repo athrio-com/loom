@@ -989,6 +989,7 @@ const sectionNames = (
       ...entriesNaming(book, modules, chapter),
       ...boxesNaming(book, chapter),
       ...tropeEntriesNaming(book, modules, chapter),
+      ...rootedInNaming(book, modules, chapter),
       ...anchorsNaming(
         book,
         modules,
@@ -1253,6 +1254,13 @@ const chapterAt = (
       ),
       Option.orElse(() =>
         pipe(
+          Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
+          Option.filter((line) => covers(line.position, offset)),
+          Option.flatMap((line) => tropeChapterOf(book, line.value)),
+        ),
+      ),
+      Option.orElse(() =>
+        pipe(
           Option.fromNullishOr(module.doc.frontmatter?.title),
           Option.filter((title) => covers(title.position, offset)),
           Option.flatMap(() => chapterOf(book, path)),
@@ -1263,6 +1271,14 @@ const chapterAt = (
 
 const tropeEntriesOf = (module: LoomModule): ReadonlyArray<FrontmatterEntryToken> =>
   Option.getOrElse(Option.fromNullishOr(module.doc.frontmatter?.entries), () => [])
+
+const tropeChapterOf = (book: Book, name: string): Option.Option<Chapter> => {
+  const roots = Array.filter(
+    book.chapters,
+    (chapter) => chapter.module.doc.frontmatter?.trope?.value === name,
+  )
+  return roots.length === 1 ? Array.head(roots) : Option.none()
+}
 
 const chapterDefinitionAt = (
   corpus: LoomCorpusAst,
@@ -1312,6 +1328,25 @@ const tropeEntriesNaming = (
     ),
   )
 
+const rootedInNaming = (
+  book: Book,
+  modules: Modules,
+  chapter: Chapter,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
+      Option.filter((line) =>
+        Option.exists(
+          tropeChapterOf(book, line.value),
+          (found) => found.module.path === chapter.module.path,
+        ),
+      ),
+      Option.map((line): CorpusLocation => ({ path: module.path, position: line.position })),
+      Option.toArray,
+    ),
+  )
+
 const chapterNames = (
   book: Book,
   modules: Modules,
@@ -1322,6 +1357,7 @@ const chapterNames = (
   ...entriesNaming(book, modules, chapter),
   ...boxesNaming(book, chapter),
   ...tropeEntriesNaming(book, modules, chapter),
+  ...rootedInNaming(book, modules, chapter),
   ...anchorsNaming(
     book,
     modules,
@@ -1546,7 +1582,7 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
@@ -1581,7 +1617,7 @@ export const referencesAt = (
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
@@ -1616,7 +1652,7 @@ export const renameAt = (
             placeNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>

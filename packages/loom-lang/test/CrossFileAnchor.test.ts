@@ -667,7 +667,7 @@ const cycles = (files: Record<string, string>, entry: string) =>
     Effect.provide(layerOf(files)),
     Effect.map((found) =>
       found
-        .filter((d) => d.message.startsWith('Composition cycle'))
+        .filter((d) => d.message.startsWith('Circular composition'))
         .map((d) => ({ line: d.position.start.line, message: d.message })),
     ),
   )
@@ -699,16 +699,16 @@ describe('a section composed into itself', () => {
         {
           line: 10,
           message:
-            'Composition cycle: `A` composes `B`, which composes `A` again, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.',
+            'Circular composition: `A` → `B` → `A`. Remove this anchor, or the one in `B`.',
         },
         {
           line: 16,
           message:
-            'Composition cycle: `B` composes `A`, which composes `B` again, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.',
+            'Circular composition: `B` → `A` → `B`. Remove this anchor, or the one in `A`.',
         },
       ])
       expect(yield* refusal(files, '/corpus/main.loom')).toContain(
-        '/corpus/main.loom:16: Composition cycle',
+        '/corpus/main.loom:16: Circular composition',
       )
     }),
   )
@@ -731,8 +731,7 @@ describe('a section composed into itself', () => {
       expect(yield* cycles(files, '/corpus/main.loom')).toEqual([
         {
           line: 9,
-          message:
-            'Composition cycle: `A` composes itself, so its code can never be written out whole. Take this anchor out.',
+          message: 'Circular composition: `A` composes itself. Remove this anchor.',
         },
       ])
     }),
@@ -745,7 +744,7 @@ describe('a section composed into itself', () => {
         '/corpus/pong.loom': lines('# Ponging', '', '=>', anchor('Pinging')),
       }
       expect((yield* cycles(files, '/corpus/ping.loom')).map((fault) => fault.message)).toEqual([
-        'Composition cycle: `Pinging` composes `Ponging`, which composes `Pinging` again, so none of them can be written out whole. Take this anchor out, or another anchor on the loop.',
+        'Circular composition: `Pinging` → `Ponging` → `Pinging`. Remove this anchor, or the one in `Ponging`.',
       ])
     }),
   )
@@ -802,6 +801,69 @@ describe('a section composed into itself', () => {
         ),
       }
       expect(yield* cycles(files, '/corpus/main.loom')).toEqual([])
+    }),
+  )
+})
+
+const unused = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(layerOf(files)),
+    Effect.map((found) =>
+      found
+        .filter((d) => d.message.includes('is never used'))
+        .map((d) => ({ line: d.position.start.line, message: d.message })),
+    ),
+  )
+
+const withHelper = (main: ReadonlyArray<string>) =>
+  lines(...main, '', '## Helper', '', '=>', 'const help = 1')
+
+describe('code that no file includes', () => {
+  it.effect('warns of a section whose code no file includes', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': withHelper(['# Main [main.ts]', '', '=>', 'const main = 1']),
+      }
+      expect(yield* unused(files, '/corpus/main.loom')).toEqual([
+        { line: 6, message: '`Helper` is never used across the corpus.' },
+      ])
+    }),
+  )
+
+  it.effect('counts a section an anchor composes as used', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': withHelper(['# Main [main.ts]', '', '=>', anchor('Helper')]),
+      }
+      expect(yield* unused(files, '/corpus/main.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('judges nothing in a corpus that writes no file', () =>
+    Effect.gen(function* () {
+      const files = { '/corpus/main.loom': withHelper(['# Main', '', '=>', 'const main = 1']) }
+      expect(yield* unused(files, '/corpus/main.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('passes over an unfinished chapter', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines('# Main [main.ts]', '', '=>', 'const main = 1'),
+        '/corpus/sketch.loom': withHelper(['---', 'Status: Canvas', '---', '', '# Sketch']),
+      }
+      expect(yield* unused(files, '/corpus/sketch.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('passes over a chapter written in prose', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines('# Main [main.ts]', '', '=>', 'const main = 1'),
+        '/corpus/genesis.loom': withHelper(['---', 'Language: Prose', '---', '', '# Genesis']),
+      }
+      expect(yield* unused(files, '/corpus/genesis.loom')).toEqual([])
     }),
   )
 })

@@ -58,25 +58,29 @@ const chapterWith = (braces: string) =>
     ':::',
   )
 
-const tropeLoom =
-  (line: string) => (title: string, trope: string, manifest: ReadonlyArray<string>) =>
-    lines(
-      '---',
-      `Chapter: ${title}`,
-      `${line}: ${trope}`,
-      '---',
-      '',
-      `# ${title}`,
-      '',
-      '## What it declares {Manifest}',
-      '',
-      '=>',
-      ...manifest,
-    )
+const withManifest = (
+  identity: ReadonlyArray<string>,
+  title: string,
+  manifest: ReadonlyArray<string>,
+) =>
+  lines(
+    '---',
+    ...identity,
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    '## What it declares {Manifest}',
+    '',
+    '=>',
+    ...manifest,
+  )
 
-const rootLoom = tropeLoom('Trope')
+const rootLoom = (title: string, manifest: ReadonlyArray<string>, part = '') =>
+  withManifest([`${part}Trope Chapter: ${title}`], title, manifest)
 
-const memberLoom = tropeLoom('Rooted in')
+const memberLoom = (title: string, trope: string, manifest: ReadonlyArray<string>) =>
+  withManifest([`Chapter: ${title}`, `Rooted in: ${trope}`], title, manifest)
 
 const declaring = (...kinds: ReadonlyArray<string>): string =>
   JSON.stringify({
@@ -86,13 +90,12 @@ const declaring = (...kinds: ReadonlyArray<string>): string =>
 
 const faultsOf = (found: ReadonlyArray<string>) =>
   found.filter((message) =>
-    ['Unknown kind', 'Trope refused', 'Manifest off the root'].some((prefix) =>
-      message.startsWith(prefix),
+    ['Unknown kind', 'Loom ignores this trope', 'Only a trope chapter can hold a manifest'].some(
+      (start) => message.startsWith(start),
     ),
   )
 
-const refusedFor = (reason: string) =>
-  `Trope refused: ${reason}, so Loom applies none of what this root declares.`
+const refusedFor = (reason: string) => `Loom ignores this trope: ${reason}.`
 
 describe('a box of a kind nobody declares', () => {
   const unknown =
@@ -115,7 +118,7 @@ describe('a box of a kind a trope declares', () => {
   const mermaid = '/corpus/mermaid/declaring.loom'
   const withTrope = (braces: string) => ({
     [cells]: chapterWith(braces),
-    [mermaid]: rootLoom('Declaring the Mermaid kind', 'Mermaid diagrams', [declaring('Mermaid')]),
+    [mermaid]: rootLoom('Mermaid', [declaring('Mermaid')]),
   })
 
   it('raises nothing', async () => {
@@ -132,11 +135,10 @@ describe('a box of a kind a trope declares', () => {
   it('may come from a manifest that draws in another section', async () => {
     const drawn = lines(
       '---',
-      'Chapter: Declaring the Mermaid kind',
-      'Trope: Mermaid diagrams',
+      'Trope Chapter: Mermaid',
       '---',
       '',
-      '# Declaring the Mermaid kind',
+      '# Mermaid',
       '',
       '## The Mermaid kind {json}',
       '',
@@ -167,21 +169,13 @@ describe('a root Loom refuses', () => {
   }
 
   it('declares nothing when it holds no manifest', async () => {
-    const member = lines(
-      '---',
-      'Chapter: Drawing',
-      'Trope: Mermaid diagrams',
-      '---',
-      '',
-      '# Drawing',
-    )
-    const found = await refused(member)
+    const found = await refused(lines('---', 'Trope Chapter: Drawing', '---', '', '# Drawing'))
     expect(found.own).toEqual([])
     expect(found.box).toHaveLength(1)
   })
 
   it('holds two manifests', async () => {
-    const twice = rootLoom('Declaring', 'Mermaid diagrams', [
+    const twice = rootLoom('Mermaid', [
       declaring('Mermaid'),
       '',
       '## Again {Manifest}',
@@ -193,10 +187,8 @@ describe('a root Loom refuses', () => {
   })
 
   it('holds a manifest that does not read', async () => {
-    const found = await refused(rootLoom('Declaring', 'Mermaid diagrams', ['{ "contract": "2" }']))
-    expect(found.own).toEqual([
-      refusedFor('it was written for contract 2, and this Loom reads contract 1'),
-    ])
+    const found = await refused(rootLoom('Mermaid', ['{ "contract": "2" }']))
+    expect(found.own).toEqual([refusedFor('it needs contract 2, and this Loom reads contract 1')])
     expect(found.box).toHaveLength(1)
   })
 })
@@ -207,51 +199,51 @@ describe('roots and kinds that clash', () => {
 
   it('refuses a second root of one trope', async () => {
     const files = {
-      [first]: rootLoom('Charts', 'Pictures', [declaring('Chart')]),
-      [second]: rootLoom('Diagrams', 'Pictures', [declaring('Diagram')]),
+      [first]: rootLoom('Pictures', [declaring('Chart')], 'Part I, '),
+      [second]: rootLoom('Pictures', [declaring('Diagram')], 'Part II, '),
     }
     expect(faultsOf(await diagnosed(files, first))).toEqual([])
     expect(faultsOf(await diagnosed(files, second))).toEqual([
-      refusedFor('the trope `Pictures` already has its root in the chapter `Charts`'),
+      refusedFor('another trope chapter is called `Pictures`'),
     ])
   })
 
   it('reads nothing from a manifest off the root', async () => {
     const files = {
       [cells]: chapterWith('{Diagram}'),
-      [first]: rootLoom('Charts', 'Pictures', [declaring('Chart')]),
+      [first]: rootLoom('Pictures', [declaring('Chart')]),
       [second]: memberLoom('Diagrams', 'Pictures', [declaring('Diagram')]),
     }
     expect(faultsOf(await diagnosed(files, second))).toEqual([
-      'Manifest off the root: the manifest of the trope `Pictures` belongs on its root, the chapter that names the trope with a `Trope:` line, so Loom reads nothing from this section. Move it to the root.',
+      'Only a trope chapter can hold a manifest.',
     ])
     expect(faultsOf(await diagnosed(files, cells))).toHaveLength(1)
   })
 
   it('refuses a root that declares a core kind', async () => {
-    const files = { [first]: rootLoom('Notes', 'Notes', [declaring('note')]) }
+    const files = { [first]: rootLoom('Notes', [declaring('note')]) }
     expect(faultsOf(await diagnosed(files, first))).toEqual([
-      refusedFor('it declares the box kind `note`, which the core keeps for itself'),
+      refusedFor("`note` is one of Loom's own kinds"),
     ])
   })
 
   it('refuses the later of two roots that declare one kind', async () => {
     const files = {
       [cells]: chapterWith('{Mermaid}'),
-      [first]: rootLoom('Charts', 'Charts', [declaring('Mermaid')]),
-      [second]: rootLoom('Diagrams', 'Diagrams', [declaring('Mermaid', 'Run')]),
+      [first]: rootLoom('Charts', [declaring('Mermaid')]),
+      [second]: rootLoom('Diagrams', [declaring('Mermaid', 'Run')]),
     }
     expect(faultsOf(await diagnosed(files, first))).toEqual([])
     expect(faultsOf(await diagnosed(files, second))).toEqual([
-      refusedFor('it declares the box kind `Mermaid`, which the trope `Charts` declares already'),
+      refusedFor('the `Charts` trope declares `Mermaid` already'),
     ])
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
   })
 
   it('refuses a root that declares one kind twice', async () => {
-    const files = { [first]: rootLoom('Charts', 'Charts', [declaring('Chart', 'chart')]) }
+    const files = { [first]: rootLoom('Charts', [declaring('Chart', 'chart')]) }
     expect(faultsOf(await diagnosed(files, first))).toEqual([
-      refusedFor('it declares the box kind `chart` twice'),
+      refusedFor('it declares `chart` twice'),
     ])
   })
 })

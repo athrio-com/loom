@@ -38,7 +38,7 @@ export const readManifest = (text: string): Result.Result<TropeManifest, string>
         {
           onSome: (contract) =>
             Result.fail(
-              `it was written for contract ${contract}, and this Loom reads contract ${contractVersion}`,
+              `it needs contract ${contract}, and this Loom reads contract ${contractVersion}`,
             ),
           onNone: () =>
             pipe(

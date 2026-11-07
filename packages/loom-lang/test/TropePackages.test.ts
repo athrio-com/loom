@@ -25,11 +25,10 @@ const rootOf = (trope: string) =>
   lines(
     '---',
     'Part XIV: Diagrams',
-    'Chapter 1: Declaring the kind',
-    `Trope: ${trope}`,
+    `Trope Chapter 1: ${trope}`,
     '---',
     '',
-    '# Declaring the kind',
+    `# ${trope}`,
     '',
     '## What the trope declares {Manifest}',
     '',
@@ -63,7 +62,7 @@ const workspaceWith = (config: ReadonlyArray<string>, looms: Record<string, stri
     join(folder, 'package.json'),
     JSON.stringify({ name: '@athrio/loom-trope-mermaid', version: serviceVersion }),
   )
-  writeFileSync(join(folder, 'looms', 'declaring.loom'), rootOf('Mermaid diagrams'))
+  writeFileSync(join(folder, 'looms', 'mermaid.loom'), rootOf('Mermaid'))
   return workspace
 }
 
@@ -75,7 +74,8 @@ const diagnosed = (workspace: string, loom: string) =>
 
 const faultsOf = (found: ReadonlyArray<string>) =>
   found.filter(
-    (message) => message.startsWith('Unknown kind') || message.startsWith('Trope refused'),
+    (message) =>
+      message.startsWith('Unknown kind') || message.startsWith('Loom ignores this trope'),
   )
 
 const installing = ['tropes:', '  mermaid: {}']
@@ -104,7 +104,7 @@ describe('a kind a workspace installs', () => {
         'charts.loom': rootOf('Charts'),
       })
       expect(faultsOf(yield* diagnosed(workspace, 'charts.loom'))).toEqual([
-        'Trope refused: it declares the box kind `Mermaid`, which the trope `Mermaid diagrams` declares already, so Loom applies none of what this root declares.',
+        'Loom ignores this trope: the `Mermaid` trope declares `Mermaid` already.',
       ])
       expect(faultsOf(yield* diagnosed(workspace, 'cells.loom'))).toEqual([])
     }).pipe(Effect.provide(onDisk)),
@@ -127,7 +127,7 @@ describe('the tropes a workspace installs, kept', () => {
       const installed = yield* TropePackages
       const kinds = yield* installed.kindsFor(join(workspace, 'corpus', 'cells.loom'))
       expect(kinds.map((declared) => [declared.kind, declared.trope])).toEqual([
-        ['Mermaid', 'Mermaid diagrams'],
+        ['Mermaid', 'Mermaid'],
       ])
     }).pipe(Effect.provide(onDisk)),
   )

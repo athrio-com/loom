@@ -2,7 +2,7 @@
 Language: TypeScript
 ---
 
-# The program
+# The program [program.ts]
 
 The program greets the world before anyone writes the greeting.
 

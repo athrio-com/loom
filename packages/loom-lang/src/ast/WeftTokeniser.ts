@@ -209,6 +209,8 @@ const buildFrontmatterField = (
   key: TrimmedSpan,
   value: TrimmedSpan,
 ): FrontmatterWeft => {
+  if (/(?:^|,\s*)Trope Chapter(?:\s|$)/.test(key.value))
+    return tropeChapterField(weft, line, key, value)
   if (key.value.startsWith('Part ') && key.value.includes(', Chapter '))
     return belongingField(weft, line, key, value)
   if (key.value.startsWith('Part ') && key.value.includes(', Discussion '))
@@ -250,13 +252,6 @@ const buildFrontmatterField = (
       health: okHealth,
       discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, key, 'Discussion'),
       title: fieldToken(FrontmatterTitleTokenSchema, line, value),
-    })
-  if (key.value === 'Trope')
-    return FrontmatterWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      trope: fieldToken(FrontmatterTropeTokenSchema, line, value),
     })
   if (key.value === 'Rooted in')
     return FrontmatterWeftSchema.make({
@@ -301,6 +296,43 @@ const belongingDiscussion = (
     part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
     discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, discussionSpan, 'Discussion'),
     title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+  })
+}
+
+const tropeChapterField = (
+  weft: FrontmatterWeft,
+  line: number,
+  key: TrimmedSpan,
+  value: TrimmedSpan,
+): FrontmatterWeft => {
+  const comma = key.value.indexOf(',')
+  const own = comma < 0 ? key : trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
+  const mark = trimSpan(own.value.slice(0, 'Trope'.length), own.start)
+  const chapterSpan = trimSpan(own.value.slice('Trope'.length), own.start + 'Trope'.length)
+  return FrontmatterWeftSchema.make({
+    position: weft.position,
+    source: weft.source,
+    health: okHealth,
+    ...(comma < 0
+      ? {}
+      : {
+          part: ordinalToken(
+            FrontmatterPartTokenSchema,
+            line,
+            trimSpan(key.value.slice(0, comma), key.start),
+            'Part ',
+          ),
+        }),
+    ...(chapterSpan.value === 'Chapter'
+      ? {}
+      : { chapter: ordinalToken(FrontmatterChapterTokenSchema, line, chapterSpan, 'Chapter ') }),
+    title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+    trope: FrontmatterTropeTokenSchema.make({
+      position: span(line, mark.start, mark.end),
+      source: mark.value,
+      health: okHealth,
+      value: value.value,
+    }),
   })
 }
 

@@ -1030,11 +1030,15 @@ describe('LoomServer — a trope box', () => {
       await editor.open(shop)
       await editor.open(billing)
       expect(await editor.diagnostics(shop)).toContain(
-        'To be settled: the trope `Payments` points to no section or chapter yet. Name the one that holds it with `anchors`.',
+        'The `Payments` trope points nowhere yet. Name the section or chapter that holds it with `anchors`.',
       )
       await editor.edit(shop, settled)
       const after = await editor.diagnostics(shop)
-      expect(after.filter((message) => message.startsWith('To be settled'))).toEqual([])
+      expect(
+        after.filter(
+          (message) => message.startsWith('To be settled') || message.includes('points nowhere'),
+        ),
+      ).toEqual([])
     } finally {
       editor.close()
     }
@@ -1098,8 +1102,8 @@ describe('LoomServer — a trope box', () => {
 describe("LoomServer — a trope's entries", () => {
   const paymentsText = lines(
     '---',
+    'Trope Chapter: Payments',
     'Language: TypeScript',
-    'Trope: Payments',
     'Entries: Billing',
     '---',
     '',
@@ -1142,6 +1146,32 @@ describe("LoomServer — a trope's entries", () => {
           [pathToFileURL(billing).href, title, 'Invoicing'],
           [pathToFileURL(payments).href, entry, 'Invoicing'],
           [pathToFileURL(payments).href, lineOf(paymentsText, anchor('Billing')), 'Invoicing'],
+        ].sort(),
+      )
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('follows a Rooted in line to its root, and renames the root with it', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const payments = chapterAt(root, 'payments.loom', paymentsText)
+    const billing = chapterAt(root, 'billing.loom', billingText)
+    const editor = await editorAt(root)
+    try {
+      await editor.open(payments)
+      await editor.open(billing)
+      const rooted = lineOf(billingText, 'Rooted in:')
+      const identity = lineOf(paymentsText, 'Trope Chapter:')
+      expect(await editor.definition(billing, rooted, 13)).toEqual([
+        { uri: pathToFileURL(payments).href, line: identity },
+      ])
+      const renamed = await editor.rename(payments, identity, 17, 'Charges')
+      expect(renamed.map((one) => [one.uri, one.line, one.newText]).sort()).toEqual(
+        [
+          [pathToFileURL(payments).href, identity, 'Charges'],
+          [pathToFileURL(billing).href, rooted, 'Charges'],
         ].sort(),
       )
     } finally {

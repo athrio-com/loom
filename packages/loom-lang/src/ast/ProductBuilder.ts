@@ -78,6 +78,7 @@ import {
   UnsettledSection,
   UnknownVariable,
   UnresolvedAnchor,
+  UnusedSection,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 
@@ -408,8 +409,7 @@ const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
 export const isManifest = (specifier: SpecifierToken): boolean =>
   specifier.label.value.toLowerCase() === 'manifest'
 
-const isTrope = (doc: LoomDocument): boolean =>
-  doc.frontmatter?.trope !== undefined || doc.frontmatter?.rootedIn !== undefined
+const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 
 const manifestOutsideTrope = (section: LoomSection): Health =>
   Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {
@@ -1237,6 +1237,62 @@ export const compositionCycles = (
         : [],
     ),
   )
+
+export type Usage = { readonly writes: boolean; readonly used: ReadonlySet<string> }
+
+export const usedSections = (book: Book, modules: ReadonlyMap<string, LoomModule>): Usage => {
+  const all = Array.fromIterable(modules.values())
+  const files = Array.flatMap(all, (module) => module.product.files)
+  return {
+    writes: Array.isReadonlyArrayNonEmpty(files),
+    used: new Set([
+      ...Array.map(files, (file) => keyOf(file.code.origin)),
+      ...Array.flatMap(all, (module) =>
+        Array.flatMap(module.product.code, (code) =>
+          Array.map(composedTargetsOf(book, code), keyOf),
+        ),
+      ),
+    ]),
+  }
+}
+
+const unfinished = (module: LoomModule): boolean =>
+  Option.exists(Option.fromNullishOr(module.doc.frontmatter?.status), (status) =>
+    ['Canvas', 'Planned'].includes(status.value),
+  )
+
+const holdsCode = (code: Code): boolean =>
+  Array.some(code.fragments, (part) => part.type !== 'Fragment' || part.text.trim() !== '')
+
+const isProse = (code: Code): boolean => code.languageId === 'prose'
+
+export const unusedSections = (usage: Usage, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  !usage.writes || module.doc.frontmatter?.discussion !== undefined || unfinished(module)
+    ? []
+    : pipe(
+        module.product.code,
+        Array.filter(
+          (code) => holdsCode(code) && !isProse(code) && !usage.used.has(keyOf(code.origin)),
+        ),
+        Array.flatMap((code) =>
+          Option.toArray(
+            Array.findFirst(
+              module.doc.sections,
+              (section) => sectionNameOf(section) === code.origin.name,
+            ),
+          ),
+        ),
+        Array.filter(
+          (section) => !Option.exists(Option.fromNullishOr(section.heading.specifier), isManifest),
+        ),
+        Array.flatMap((section) =>
+          Option.match(Option.fromNullishOr(section.heading.title), {
+            onNone: (): ReadonlyArray<Diagnostic> => [],
+            onSome: (title) =>
+              faulty(UnusedSection({ name: title.source }), title.position).diagnostics,
+          }),
+        ),
+      )
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')

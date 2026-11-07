@@ -183,7 +183,7 @@ A trope adds to Loom what its small core leaves out, such as a kind of box that 
 
 The first trope Loom publishes lets a book draw a diagram from a box of the `Mermaid` kind, whose body is the diagram's Mermaid source. It begins by declaring the kind, so such a box is no fault anywhere in a book that holds the trope.
 
-1. Declaring the Mermaid kind
+1. Mermaid
 
 ### Work in progress
 

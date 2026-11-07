@@ -136,7 +136,7 @@ describe('a trope nobody has settled', () => {
       shop,
     )
     expect(found).toContain(
-      'To be settled: the trope `Payments` points to no section or chapter yet. Name the one that holds it with `anchors`.',
+      'The `Payments` trope points nowhere yet. Name the section or chapter that holds it with `anchors`.',
     )
     expect(found).toContain(
       'To be settled: `Payments` holds no code yet, so this anchor composes nothing.',
@@ -150,7 +150,7 @@ describe('a trope nobody has settled', () => {
       shop,
     )
     expect(found).toContain(
-      'To be settled: the trope `Payments` points to `Ledger`, which names no single section or chapter yet.',
+      'No single section or chapter is called `Ledger`, so the `Payments` trope points nowhere yet.',
     )
   })
 
@@ -169,9 +169,7 @@ describe('a trope nobody has settled', () => {
       { [path]: lines('# Rooms', '', '::: Rooms {kind=Chapter anchors=Rooms}', ':::') },
       path,
     )
-    expect(found).toContain(
-      'Key outside a trope: only a box of the `Trope` kind takes the `anchors` key, so it means nothing here. Make the box a trope, or take the key off.',
-    )
+    expect(found).toContain('Only a trope box takes the `anchors` key.')
   })
 })
 
@@ -224,7 +222,11 @@ describe("a trope box's summary", () => {
     }
     const found = await diagnosed(files, shop)
     expect(found.some((message) => message.startsWith('Summary out of step'))).toBe(false)
-    expect(found.some((message) => message.startsWith('To be settled'))).toBe(false)
+    expect(
+      found.some(
+        (message) => message.startsWith('To be settled') || message.includes('points nowhere'),
+      ),
+    ).toBe(false)
   })
 
   it('warns when its body differs, with a fix that copies the opening in', async () => {

@@ -54,6 +54,8 @@ import {
   landingOf,
   Referred,
   referredFileOf,
+  unusedSections,
+  usedSections,
 } from '#ast/ProductBuilder'
 import { anchorKinds } from '@athrio/loom-ast/LoomTokens'
 import { type Code, keyOf, type Part } from '@athrio/loom-ast/ProductAst'
@@ -152,13 +154,15 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
   const landing = landingOf(book, modules)
   const kinds = declaredKindsOf(modules, book, installed)
   const boundaries = boundariesOf(modules, book, kinds.tropes)
+  const used = usedSections(book, modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(book, modules, module, landing),
     ...compositionCycles(book, modules, module),
+    ...unusedSections(used, module),
     ...namesakeFaults(book, module),
     ...kindFaults(kinds, module),
-    ...boundaryFaults(boundaries, book, module),
+    ...boundaryFaults(boundaries, book, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
       (notice) => boxNoticeHealth(notice).diagnostics,

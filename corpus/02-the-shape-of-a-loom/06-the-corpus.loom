@@ -1081,7 +1081,7 @@ const namesChapter =
 
 ~
 
-`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, the title a chapter declares, or the name of a box that points nowhere yet. `placeLocation` gives where each of those stands. `sectionNames` gathers a section's heading beside every anchor that names it, and beside the `anchors` value of every trope box that points to it. An anchor that reached the section through a trope box named the trope rather than the section, so it stays out, and a rename of the section leaves the trope's name alone. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the contents entries that list the chapter, the boxes that point to it, the names on a trope root's `Entries:` line that make it an entry, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
+`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, the title a chapter declares, or the name of a box that points nowhere yet. `placeLocation` gives where each of those stands. `sectionNames` gathers a section's heading beside every anchor that names it, and beside the `anchors` value of every trope box that points to it. An anchor that reached the section through a trope box named the trope rather than the section, so it stays out, and a rename of the section leaves the trope's name alone. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the contents entries that list the chapter, the boxes that point to it, the names on a trope root's `Entries:` line that make it an entry, the `Rooted in:` lines that name it, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
 
 =>
 
@@ -1132,6 +1132,7 @@ const sectionNames = (
       ...entriesNaming(book, modules, chapter),
       ...boxesNaming(book, chapter),
       ...tropeEntriesNaming(book, modules, chapter),
+      ...rootedInNaming(book, modules, chapter),
       ...anchorsNaming(
         book,
         modules,
@@ -1292,9 +1293,9 @@ A `PlacedEntry` is an entry together with the part it stands under. `placedEntri
 
 The back matter lists the book's discussions under a heading of its own, `Back matter`. That heading names no part, so the entries under it stand under none, and `isBackMatter` recognises it. Each entry there names its discussion's place before the colon, as `Part I, Discussion 1: Waking` does. `discussionAt` finds the discussion that the place and the title name. It looks in the part the place gives, by the part's number or its name, and matches the discussion's own number when the place gives one.
 
-`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the loom a box's name points to, the chapter a name on an `Entries:` line leads to, or the chapter whose frontmatter title the cursor sits on. `tropeEntriesOf` reads the names a loom's `Entries:` line lists. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
+`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the loom a box's name points to, the chapter a name on an `Entries:` line leads to, the trope chapter a `Rooted in:` line names, which `tropeChapterOf` finds by its title, or the chapter whose frontmatter title the cursor sits on. `tropeEntriesOf` reads the names a loom's `Entries:` line lists. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
 
-`entriesNaming` finds every contents entry that resolves to one chapter, `boxesNaming` every box that points to it, and `tropeEntriesNaming` every trope's entry that names it by its bare title. A rename rewrites an entry whole, so an entry written as a path, with the chapter's part before its title, is left as it stands. `chapterNames` gathers the chapter's declared title, those contents entries, boxes and trope entries, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
+`entriesNaming` finds every contents entry that resolves to one chapter, `boxesNaming` every box that points to it, `tropeEntriesNaming` every trope's entry that names it by its bare title, and `rootedInNaming` every `Rooted in:` line that names it, when it is a trope chapter. A rename rewrites an entry whole, so an entry written as a path, with the chapter's part before its title, is left as it stands. `chapterNames` gathers the chapter's declared title, those contents entries, boxes, trope entries and `Rooted in:` lines, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
 
 A box's name leads where its kind says. `boxDefinitionAt` follows the name of a chapter box or a discussion box to its loom, and the name of a trope box to the trope's entry point, which `tropeBoxAt` finds under the cursor. `boxNamesAt` gathers a box's names. A trope's names are its box's name and every anchor that reached the entry point through the box, which `tropeNames` gathers, so a rename of the trope rewrites them and leaves the entry point alone. A chapter box's names are its chapter's.
 
@@ -1422,6 +1423,13 @@ const chapterAt = (
       ),
       Option.orElse(() =>
         pipe(
+          Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
+          Option.filter((line) => covers(line.position, offset)),
+          Option.flatMap((line) => tropeChapterOf(book, line.value)),
+        ),
+      ),
+      Option.orElse(() =>
+        pipe(
           Option.fromNullishOr(module.doc.frontmatter?.title),
           Option.filter((title) => covers(title.position, offset)),
           Option.flatMap(() => chapterOf(book, path)),
@@ -1432,6 +1440,14 @@ const chapterAt = (
 
 const tropeEntriesOf = (module: LoomModule): ReadonlyArray<FrontmatterEntryToken> =>
   Option.getOrElse(Option.fromNullishOr(module.doc.frontmatter?.entries), () => [])
+
+const tropeChapterOf = (book: Book, name: string): Option.Option<Chapter> => {
+  const roots = Array.filter(
+    book.chapters,
+    (chapter) => chapter.module.doc.frontmatter?.trope?.value === name,
+  )
+  return roots.length === 1 ? Array.head(roots) : Option.none()
+}
 
 const chapterDefinitionAt = (
   corpus: LoomCorpusAst,
@@ -1481,6 +1497,25 @@ const tropeEntriesNaming = (
     ),
   )
 
+const rootedInNaming = (
+  book: Book,
+  modules: Modules,
+  chapter: Chapter,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
+      Option.filter((line) =>
+        Option.exists(
+          tropeChapterOf(book, line.value),
+          (found) => found.module.path === chapter.module.path,
+        ),
+      ),
+      Option.map((line): CorpusLocation => ({ path: module.path, position: line.position })),
+      Option.toArray,
+    ),
+  )
+
 const chapterNames = (
   book: Book,
   modules: Modules,
@@ -1491,6 +1526,7 @@ const chapterNames = (
   ...entriesNaming(book, modules, chapter),
   ...boxesNaming(book, chapter),
   ...tropeEntriesNaming(book, modules, chapter),
+  ...rootedInNaming(book, modules, chapter),
   ...anchorsNaming(
     book,
     modules,
@@ -1721,7 +1757,7 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
@@ -1756,7 +1792,7 @@ export const referencesAt = (
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
@@ -1797,7 +1833,7 @@ export const renameAt = (
             placeNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>
