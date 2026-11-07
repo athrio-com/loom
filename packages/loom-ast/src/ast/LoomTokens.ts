@@ -148,6 +148,11 @@ export const FrontmatterTropeTokenSchema = loomNode('FrontmatterTrope', {
 })
 export type FrontmatterTropeToken = typeof FrontmatterTropeTokenSchema.Type
 
+export const FrontmatterEntryTokenSchema = loomNode('FrontmatterEntry', {
+  value: Schema.String,
+})
+export type FrontmatterEntryToken = typeof FrontmatterEntryTokenSchema.Type
+
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,
 })

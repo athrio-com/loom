@@ -89,7 +89,18 @@ export type LoomFault = Data.TaggedEnum<{
   DividerAgainstCode: {}
   FileInDiscussion: {}
   ManifestOutsideTrope: {}
+  ManifestOffRoot: { readonly trope: string }
   TropeRefused: { readonly reason: string }
+  UnrootedTrope: { readonly trope: string }
+  EntriesOffRoot: {}
+  UnknownEntry: { readonly name: string; readonly owner?: string }
+  UnsettledMember: { readonly trope: string }
+  UnreachedMember: { readonly trope: string }
+  ReachingInside: {
+    readonly trope: string
+    readonly chapter: string
+    readonly entries: ReadonlyArray<string>
+  }
   ConclusionOutsideTopic: {}
   SecondConclusion: {}
 }>
@@ -132,12 +143,19 @@ export const {
   UnwrittenLoom,
   UnsettledTrope,
   KeyOutsideTrope,
+  ManifestOffRoot,
   StaleSummary,
   HeadingAgainstCode,
   DividerAgainstCode,
   FileInDiscussion,
   ManifestOutsideTrope,
   TropeRefused,
+  UnrootedTrope,
+  EntriesOffRoot,
+  UnknownEntry,
+  UnsettledMember,
+  UnreachedMember,
+  ReachingInside,
   ConclusionOutsideTopic,
   SecondConclusion,
 } = Data.taggedEnum<LoomFault>()
@@ -336,8 +354,38 @@ export const describe = (fault: LoomFault): Note =>
       error(
         "Manifest outside a trope: a manifest belongs to a trope's root, a chapter that names its trope with a `Trope:` line, so Loom reads nothing from this section. Name the trope in the frontmatter, or take `{Manifest}` off the heading.",
       ),
+    ManifestOffRoot: ({ trope }) =>
+      error(
+        `Manifest off the root: the manifest of the trope \`${trope}\` belongs on its root, the chapter that names the trope with a \`Trope:\` line, so Loom reads nothing from this section. Move it to the root.`,
+      ),
     TropeRefused: ({ reason }) =>
       error(`Trope refused: ${reason}, so Loom applies none of what this root declares.`),
+    UnrootedTrope: ({ trope }) =>
+      information(
+        `To be settled: no chapter roots the trope \`${trope}\` yet, so Loom draws no boundary around it. Name the trope with a \`Trope:\` line in the chapter that roots it.`,
+      ),
+    EntriesOffRoot: () =>
+      error(
+        "Entries off the root: only a trope's root, the chapter that names the trope with a `Trope:` line, lists the trope's entries, so Loom reads nothing from this line. Move it to the root.",
+      ),
+    UnknownEntry: ({ name, owner }) =>
+      error(
+        owner === undefined
+          ? `Unknown entry: \`${name}\` leads to no one chapter of the book, so the trope has no entry by that name.`
+          : `Unknown entry: \`${name}\` is a chapter of the trope \`${owner}\`, and only that trope can make it an entry.`,
+      ),
+    UnsettledMember: ({ trope }) =>
+      information(
+        `To be settled: the trope \`${trope}\` reaches this chapter, which names no trope, so it belongs to \`${trope}\` by use alone. Add \`Rooted in: ${trope}\` to its frontmatter to settle it.`,
+      ),
+    UnreachedMember: ({ trope }) =>
+      warning(
+        `Unreached member: this chapter names the trope \`${trope}\`, but neither the trope's root nor its entries reach it, so it is a missing link or dead code. Reach it from the trope, or take its \`Rooted in:\` line off.`,
+      ),
+    ReachingInside: ({ trope, chapter, entries }) =>
+      error(
+        `Reaching inside: \`${chapter}\` lies inside the trope \`${trope}\`, and a chapter outside the trope reaches only its entries${Array.isReadonlyArrayNonEmpty(entries) ? `: ${knownList(entries)}` : ', which it has none of yet'}.`,
+      ),
     FileInDiscussion: () =>
       error(
         'File in a discussion: a discussion holds no code and writes no file, so this mark means nothing here. Move the code into a chapter, or remove the mark.',

@@ -58,20 +58,25 @@ const chapterWith = (braces: string) =>
     ':::',
   )
 
-const rootLoom = (title: string, trope: string, manifest: ReadonlyArray<string>) =>
-  lines(
-    '---',
-    `Chapter: ${title}`,
-    `Trope: ${trope}`,
-    '---',
-    '',
-    `# ${title}`,
-    '',
-    '## What it declares {Manifest}',
-    '',
-    '=>',
-    ...manifest,
-  )
+const tropeLoom =
+  (line: string) => (title: string, trope: string, manifest: ReadonlyArray<string>) =>
+    lines(
+      '---',
+      `Chapter: ${title}`,
+      `${line}: ${trope}`,
+      '---',
+      '',
+      `# ${title}`,
+      '',
+      '## What it declares {Manifest}',
+      '',
+      '=>',
+      ...manifest,
+    )
+
+const rootLoom = tropeLoom('Trope')
+
+const memberLoom = tropeLoom('Rooted in')
 
 const declaring = (...kinds: ReadonlyArray<string>): string =>
   JSON.stringify({
@@ -80,8 +85,10 @@ const declaring = (...kinds: ReadonlyArray<string>): string =>
   })
 
 const faultsOf = (found: ReadonlyArray<string>) =>
-  found.filter(
-    (message) => message.startsWith('Unknown kind') || message.startsWith('Trope refused'),
+  found.filter((message) =>
+    ['Unknown kind', 'Trope refused', 'Manifest off the root'].some((prefix) =>
+      message.startsWith(prefix),
+    ),
   )
 
 const refusedFor = (reason: string) =>
@@ -159,7 +166,7 @@ describe('a root Loom refuses', () => {
     }
   }
 
-  it('is no root when it holds no manifest', async () => {
+  it('declares nothing when it holds no manifest', async () => {
     const member = lines(
       '---',
       'Chapter: Drawing',
@@ -207,6 +214,18 @@ describe('roots and kinds that clash', () => {
     expect(faultsOf(await diagnosed(files, second))).toEqual([
       refusedFor('the trope `Pictures` already has its root in the chapter `Charts`'),
     ])
+  })
+
+  it('reads nothing from a manifest off the root', async () => {
+    const files = {
+      [cells]: chapterWith('{Diagram}'),
+      [first]: rootLoom('Charts', 'Pictures', [declaring('Chart')]),
+      [second]: memberLoom('Diagrams', 'Pictures', [declaring('Diagram')]),
+    }
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      'Manifest off the root: the manifest of the trope `Pictures` belongs on its root, the chapter that names the trope with a `Trope:` line, so Loom reads nothing from this section. Move it to the root.',
+    ])
+    expect(faultsOf(await diagnosed(files, cells))).toHaveLength(1)
   })
 
   it('refuses a root that declares a core kind', async () => {

@@ -9,15 +9,15 @@ Language: TypeScript
 
 Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. What the core leaves out, a trope adds: a kind of box that draws a diagram, say, or a mark for citing a paper. The word comes from writing, where a trope is a familiar turn that any author may take up. A Loom trope is the same for books: a way of doing something, written once, that any book can take up.
 
-A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, and the kinds of box a manifest declares. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
+A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box a manifest declares, and the boundary a trope draws around its chapters. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
 
 ## A trope is chapters
 
-A trope is a cluster of chapters, or a single chapter, that keeps a contract. Each chapter of the trope names the trope in its frontmatter with a `Trope:` line, as `Trope: Mermaid diagrams` does, and the chapters "The leaf tokens" and "The tokeniser stage" read the line. The trope's name belongs to no one chapter, so a chapter can be renamed without renaming its trope. A trope's chapters stand wherever their author puts them, in any part of the book. A trope published for other books keeps to a part of its own by convention, as the Mermaid trope does in Part XIV.
+A trope is a cluster of chapters, or a single chapter, that keeps a contract. Each chapter of the trope names the trope in its frontmatter, and the chapters "The leaf tokens" and "The tokeniser stage" read the line it names the trope on. The trope's name belongs to no one chapter, so a chapter can be renamed without renaming its trope. A trope's chapters stand wherever their author puts them, in any part of the book. A trope published for other books keeps to a part of its own by convention, as the Mermaid trope does in Part XIV.
 
-One chapter of the trope is its root: the chapter that holds the trope's manifest, the trope's entry point and the home of its contract. A chapter that names the trope and holds no manifest is a member of the trope, and declares nothing.
+One chapter of the trope is its root, the home of the trope's contract, and it names the trope with a `Trope:` line, as `Trope: Mermaid diagrams` does. A trope has one root. Every other chapter of the trope is a member, which names the trope with a `Rooted in:` line, as `Rooted in: Mermaid diagrams` would, and declares nothing to Loom. The root may list the trope's entries on an `Entries:` line: the chapters that a chapter outside the trope may reach, as the chapter "The boundaries of a trope" describes.
 
-The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` and `{TOC}` are. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. A manifest in a loom that names no trope belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
+The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` and `{TOC}` are. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. A manifest belongs on the trope's root, and one on any other member declares nothing, as the chapter "The kinds tropes declare" describes. A manifest in a loom that names no trope belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
 
 ```
 ---
@@ -192,7 +192,7 @@ const manifestOf = (...kinds: ReadonlyArray<string>): string =>
 
 ## A chapter names its trope
 
-A chapter names the trope it belongs to with a line of its own, beside its identity line. The parse reads the trope's name into a token of its own, and the chapter keeps its part, its number, and its title.
+A chapter names the trope it roots or belongs to with a line of its own, beside its identity line. The parse reads the trope's name into a token of its own, from a root's `Trope:` line or a member's `Rooted in:` line, and the chapter keeps its part, its number, and its title.
 
 =>
 
@@ -206,6 +206,24 @@ describe("a chapter's trope", () => {
       'Drawing',
       'I',
       '1',
+    ])
+  })
+
+  it("reads a member's line apart from a root's", () => {
+    const fm = parse(
+      lines(
+        '---',
+        'Part I, Chapter 2: Shapes',
+        'Rooted in: Mermaid diagrams',
+        '---',
+        '',
+        '# Shapes',
+      ),
+    ).frontmatter
+    expect([fm?.trope?.value, fm?.rootedIn?.value, fm?.title?.value]).toEqual([
+      undefined,
+      'Mermaid diagrams',
+      'Shapes',
     ])
   })
 })

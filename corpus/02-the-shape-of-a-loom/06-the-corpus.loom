@@ -349,7 +349,7 @@ const walk = (
 
 ~
 
-`trailsOf` puts the four steps in their order. It looks among the sections of the anchor's own loom, then among its boxes that point to a loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
+`trailsOf` puts the four steps in their order. It looks among the sections of the anchor's own loom, then among its boxes that point to a loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `chapterTrails` takes the last two steps alone, which look through the book and never in the anchor's own loom. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
 
 `anchorTrails` resolves an anchor token by its name, through `trailsOf`. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. A box whose chapter is not written yet reaches no section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
 
@@ -381,12 +381,14 @@ const nothingFound: ReadonlyArray<Trail> = []
 const nearest = (lookups: ReadonlyArray<() => ReadonlyArray<Trail>>): ReadonlyArray<Trail> =>
   Array.reduce(lookups, nothingFound, (found, lookup) => (found.length > 0 ? found : lookup()))
 
+const chapterTrails = (book: Book, name: string): ReadonlyArray<Trail> =>
+  nearest([() => walk(book, [], [whole(name)]), () => walk(book, [], segmentsOf(name))])
+
 export const trailsOf = (book: Book, from: Location, name: string): ReadonlyArray<Trail> =>
   nearest([
     () => sectionTrail(book, from, name),
     () => boxTrail(book, from, name),
-    () => walk(book, [], [whole(name)]),
-    () => walk(book, [], segmentsOf(name)),
+    () => chapterTrails(book, name),
   ])
 
 export const anchorTrails = (
@@ -424,6 +426,24 @@ export const resolveAnchor = (
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
   Option.flatMap(soleTrail(anchorTrails(book, from, anchor)), sectionOf)
+
+~
+
+A trope's root lists its entries, the chapters that a chapter outside the trope may reach, in an `Entries:` line, as Part XIII, Tropes, describes. Each name on that line resolves like an anchor's name, by title or by path, but always to a whole chapter of the book. A section of the root's own loom never stands in for one, so an entry reads only the chapter steps of `chapterTrails`. `tropeEntryChapterOf` gives the one chapter an entry's name leads to, and nothing when the name leads nowhere, to several places, or to a place that is not a chapter. `tropeEntryModuleOf` gives the loom of that chapter.
+
+=>
+
+const tropeEntryChapterOf = (book: Book, name: string): Option.Option<Chapter> =>
+  pipe(
+    soleTrail(chapterTrails(book, name)),
+    Option.map((trail) => Array.lastNonEmpty(trail).place),
+    Option.flatMap((place) =>
+      place._tag === 'Chapter' ? Option.some(place.chapter) : Option.none(),
+    ),
+  )
+
+export const tropeEntryModuleOf = (book: Book, name: string): Option.Option<LoomModule> =>
+  Option.map(tropeEntryChapterOf(book, name), (chapter) => chapter.module)
 
 ~
 
@@ -786,11 +806,15 @@ A run and a tangle need only part of the corpus: the entry and the sections it c
 
 `dependentsOf` runs the same reverse reach from several files at once. The compiler uses it to find what a batch of changed files touches, such as the dozens a `git checkout` rewrites, and it reads the anchor graph once for the whole batch rather than once for each file. It returns the dependents alone, never the files it started from. `transitiveDependents` is `dependentsOf` started from one file.
 
-`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once. Each anchor a module carries becomes an edge to every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. Each box that points somewhere becomes an edge to the loom it points to, and a trope box to the loom of its entry point, so a change to what a box copies reaches the loom whose box holds the copy. A change to any of those modules then reaches the anchor's own loom, and a tangle judges an ambiguous name with all of its candidates in view. `placeModuleOf` reads the module a place stands in, and `moduleOf` the module a trail ends in.
+`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `placeModuleOf` reads the module a place stands in, and `moduleOf` the module a trail ends in.
+
+A `Reach` is one edge out of a module: the `target` loom, and the span `at` which the module reaches it. `reachesOf` lists a module's reaches. Each anchor the module carries reaches every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. Each box that points somewhere reaches the loom it points to, and a trope box reaches the loom of its entry point, at the value of its `anchors` key. The boundaries of a trope judge each reach at its span, as Part XIII, Tropes, describes.
+
+`anchorEdges` reads every reach of the corpus once, as an edge from its module to its target. A change to what a box copies then reaches the loom whose box holds the copy, a change to any module an anchor names reaches the anchor's own loom, and a tangle judges an ambiguous name with all of its candidates in view.
 
 =>
 
-const reach = (
+export const reach = (
   seeds: ReadonlyArray<Location>,
   step: (module: Location) => ReadonlyArray<Location>,
 ): ReadonlySet<Location> => {
@@ -818,33 +842,42 @@ const placeModuleOf = (place: Place): Option.Option<Location> =>
 const moduleOf = (trail: Trail): Option.Option<Location> =>
   placeModuleOf(Array.lastNonEmpty(trail).place)
 
+export type Reach = { readonly target: Location; readonly at: Position }
+
+const boxReachAt = (ref: BoxRef): Position =>
+  Option.getOrElse(
+    Option.map(ref.anchors, (value) => value.position),
+    () => ref.name.position,
+  )
+
+export const reachesOf = (book: Book, module: LoomModule): ReadonlyArray<Reach> => [
+  ...pipe(
+    module.doc.sections,
+    Array.flatMap(anchorsOf),
+    Array.flatMap((anchor) =>
+      Array.getSomes(
+        Array.map(anchorTrails(book, module.path, anchor), (trail) =>
+          Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
+        ),
+      ),
+    ),
+  ),
+  ...Array.getSomes(
+    Array.map(boxesIn(book, module.path), (ref) =>
+      Option.map(placeModuleOf(boxPlace(book, ref)), (target): Reach => ({
+        target,
+        at: boxReachAt(ref),
+      })),
+    ),
+  ),
+]
+
 const anchorEdges = (
   modules: Modules,
 ): ReadonlyArray<{ readonly owner: Location; readonly target: Location }> => {
   const book = bookOf(modules)
-  return pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) => [
-      ...pipe(
-        m.doc.sections,
-        Array.flatMap(anchorsOf),
-        Array.flatMap((anchor) =>
-          Array.getSomes(
-            Array.map(anchorTrails(book, m.path, anchor), (trail) =>
-              Option.map(moduleOf(trail), (target) => ({ owner: m.path, target })),
-            ),
-          ),
-        ),
-      ),
-      ...Array.getSomes(
-        Array.map(boxesIn(book, m.path), (ref) =>
-          Option.map(placeModuleOf(boxPlace(book, ref)), (target) => ({
-            owner: m.path,
-            target,
-          })),
-        ),
-      ),
-    ]),
+  return Array.flatMap(Array.fromIterable(modules.values()), (m) =>
+    Array.map(reachesOf(book, m), ({ target }) => ({ owner: m.path, target })),
   )
 }
 
@@ -1048,7 +1081,7 @@ const namesChapter =
 
 ~
 
-`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, the title a chapter declares, or the name of a box that points nowhere yet. `placeLocation` gives where each of those stands. `sectionNames` gathers a section's heading beside every anchor that names it, and beside the `anchors` value of every trope box that points to it. An anchor that reached the section through a trope box named the trope rather than the section, so it stays out, and a rename of the section leaves the trope's name alone. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the contents entries that list the chapter, the boxes that point to it, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
+`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, the title a chapter declares, or the name of a box that points nowhere yet. `placeLocation` gives where each of those stands. `sectionNames` gathers a section's heading beside every anchor that names it, and beside the `anchors` value of every trope box that points to it. An anchor that reached the section through a trope box named the trope rather than the section, so it stays out, and a rename of the section leaves the trope's name alone. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the contents entries that list the chapter, the boxes that point to it, the names on a trope root's `Entries:` line that make it an entry, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
 
 =>
 
@@ -1098,6 +1131,7 @@ const sectionNames = (
     onSome: (chapter) => [
       ...entriesNaming(book, modules, chapter),
       ...boxesNaming(book, chapter),
+      ...tropeEntriesNaming(book, modules, chapter),
       ...anchorsNaming(
         book,
         modules,
@@ -1258,9 +1292,9 @@ A `PlacedEntry` is an entry together with the part it stands under. `placedEntri
 
 The back matter lists the book's discussions under a heading of its own, `Back matter`. That heading names no part, so the entries under it stand under none, and `isBackMatter` recognises it. Each entry there names its discussion's place before the colon, as `Part I, Discussion 1: Waking` does. `discussionAt` finds the discussion that the place and the title name. It looks in the part the place gives, by the part's number or its name, and matches the discussion's own number when the place gives one.
 
-`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the loom a box's name points to, or the chapter whose frontmatter title the cursor sits on. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
+`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the loom a box's name points to, the chapter a name on an `Entries:` line leads to, or the chapter whose frontmatter title the cursor sits on. `tropeEntriesOf` reads the names a loom's `Entries:` line lists. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
 
-`entriesNaming` finds every contents entry that resolves to one chapter, and `boxesNaming` every box that points to it. `chapterNames` gathers the chapter's declared title, those entries and boxes, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
+`entriesNaming` finds every contents entry that resolves to one chapter, `boxesNaming` every box that points to it, and `tropeEntriesNaming` every trope's entry that names it by its bare title. A rename rewrites an entry whole, so an entry written as a path, with the chapter's part before its title, is left as it stands. `chapterNames` gathers the chapter's declared title, those contents entries, boxes and trope entries, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
 
 A box's name leads where its kind says. `boxDefinitionAt` follows the name of a chapter box or a discussion box to its loom, and the name of a trope box to the trope's entry point, which `tropeBoxAt` finds under the cursor. `boxNamesAt` gathers a box's names. A trope's names are its box's name and every anchor that reached the entry point through the box, which `tropeNames` gathers, so a rename of the trope rewrites them and leaves the entry point alone. A chapter box's names are its chapter's.
 
@@ -1369,26 +1403,35 @@ const chapterAt = (
   offset: number,
 ): Option.Option<Chapter> =>
   Option.flatMap(Option.fromNullishOr(modules.get(path)), (module) =>
-    Option.orElse(
+    pipe(
       Option.flatMap(
         Array.findFirst(placedEntriesOf(module), (placed) => covers(placed.title.position, offset)),
         (placed) => entryChapter(book, placed),
       ),
-      () =>
-        Option.orElse(
-          Option.flatMap(
-            Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
-            (ref) => boxTarget(book, ref),
-          ),
-          () =>
-            pipe(
-              Option.fromNullishOr(module.doc.frontmatter?.title),
-              Option.filter((title) => covers(title.position, offset)),
-              Option.flatMap(() => chapterOf(book, path)),
-            ),
+      Option.orElse(() =>
+        Option.flatMap(
+          Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
+          (ref) => boxTarget(book, ref),
         ),
+      ),
+      Option.orElse(() =>
+        Option.flatMap(
+          Array.findFirst(tropeEntriesOf(module), (name) => covers(name.position, offset)),
+          (name) => tropeEntryChapterOf(book, name.value),
+        ),
+      ),
+      Option.orElse(() =>
+        pipe(
+          Option.fromNullishOr(module.doc.frontmatter?.title),
+          Option.filter((title) => covers(title.position, offset)),
+          Option.flatMap(() => chapterOf(book, path)),
+        ),
+      ),
     ),
   )
+
+const tropeEntriesOf = (module: LoomModule): ReadonlyArray<FrontmatterEntryToken> =>
+  Option.getOrElse(Option.fromNullishOr(module.doc.frontmatter?.entries), () => [])
 
 const chapterDefinitionAt = (
   corpus: LoomCorpusAst,
@@ -1418,6 +1461,26 @@ const entriesNaming = (
     ),
   )
 
+const tropeEntriesNaming = (
+  book: Book,
+  modules: Modules,
+  chapter: Chapter,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      tropeEntriesOf(module),
+      Array.filter(
+        (name) =>
+          name.value === chapter.title &&
+          Option.exists(
+            tropeEntryChapterOf(book, name.value),
+            (found) => found.module.path === chapter.module.path,
+          ),
+      ),
+      Array.map((name): CorpusLocation => ({ path: module.path, position: name.position })),
+    ),
+  )
+
 const chapterNames = (
   book: Book,
   modules: Modules,
@@ -1427,6 +1490,7 @@ const chapterNames = (
   ...Option.toArray(chapterLocation(chapter)),
   ...entriesNaming(book, modules, chapter),
   ...boxesNaming(book, chapter),
+  ...tropeEntriesNaming(book, modules, chapter),
   ...anchorsNaming(
     book,
     modules,
@@ -1657,7 +1721,7 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
@@ -1692,7 +1756,7 @@ export const referencesAt = (
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
@@ -1733,7 +1797,7 @@ export const renameAt = (
             placeNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>
@@ -2469,7 +2533,7 @@ export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Names
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
 
 =>
 
@@ -2482,6 +2546,7 @@ import {
   chapterKind,
   conclusionKind,
   discussionKind,
+  type FrontmatterEntryToken,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,

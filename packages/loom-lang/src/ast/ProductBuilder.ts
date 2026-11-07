@@ -407,7 +407,8 @@ const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
 export const isManifest = (specifier: SpecifierToken): boolean =>
   specifier.label.value.toLowerCase() === 'manifest'
 
-const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
+const isTrope = (doc: LoomDocument): boolean =>
+  doc.frontmatter?.trope !== undefined || doc.frontmatter?.rootedIn !== undefined
 
 const manifestOutsideTrope = (section: LoomSection): Health =>
   Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {

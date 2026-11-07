@@ -1,0 +1,603 @@
+---
+Part XIII, Chapter 4: The boundaries of a trope
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# The boundaries of a trope
+
+A trope gathers the chapters that serve one purpose, such as the payments of a shop. A program keeps such a cluster whole by drawing a boundary around it. A few chapters are the ways in, which other code may use, and the rest is the inside, which nobody outside touches. A package's `exports` field draws that line for npm, and a module's `exports` clause draws it for Java. A trope draws it in the frontmatter of its chapters.
+
+```
+---
+Part III, Chapter 4: Payments
+Trope: Payments
+Entries: Charging, Refunds
+---
+```
+
+```
+---
+Part III, Chapter 5: Charging
+Rooted in: Payments
+---
+```
+
+The `Trope:` line makes a chapter the root of the trope `Payments`, and a trope has one root, as the chapter "The kinds tropes declare" describes. A `Rooted in:` line makes a chapter one of the trope's members. The root's `Entries:` line lists the trope's entries, the ways in: the chapters that a chapter outside the trope may reach. The root is an entry only when it lists itself. Otherwise it declares the trope without being a way in, as a package's `package.json` declares the package.
+
+A root with no `Entries:` line is the trope's only entry. The Mermaid trope of Part XIV has such a root, and no members.
+
+## What lies inside
+
+Every chapter of a trope except its entries lies inside the trope. Loom never asks an author to list more than that, and derives the rest from what the chapters already say. A chapter reaches another when an anchor in it names the other, or when a box in it points to the other, as the chapter "The multi-file AST" lists. A trope reaches whatever its root and its entries reach, step by step, through the trope's own chapters.
+
+Three judgements follow from those reaches. A member that neither the root nor an entry reaches is a missing link or dead code, like a file nobody imports, so Loom warns of it. A chapter that the trope reaches and that names no trope belongs to the trope by use alone. Loom marks it to be settled, so a trope never grows past what its author meant without the author seeing it. A chapter outside the trope may reach the trope's entries and nothing else. Loom faults any other reach across the boundary, at the anchor or the box that makes it. A trope box's `anchors` key reaches its trope too, so it must name an entry.
+
+A trope whose chapters are all members has no root yet. Loom draws no boundary around it, and notes that the trope is to be settled. An `Entries:` line belongs to a root alone, so Loom faults one on any other chapter and reads nothing from it.
+
+## A trope's boundary
+
+A `Boundary` holds what Loom derives for one rooted trope: the trope's name, its `root`, the `entries` its names lead to, and the `unknown` names, which lead to no chapter the trope may make an entry. `guarded` holds the trope's chapters that are not entries, which no chapter outside the trope may reach. `unreached` holds the members nothing reaches, and `unsettled` the chapters the trope reaches by use alone. `insiders` holds the paths of every chapter that belongs to the trope, its own chapters and the chapters it reaches by use, since those may reach the guarded chapters freely.
+
+An `UnknownName` is a name on the `Entries:` line that Loom cannot make an entry, with its `owner`, the trope that holds the chapter it leads to, when another trope does. `Boundaries` holds the boundary of every rooted trope, and every trope with no root yet.
+
+=>
+
+export type UnknownName = {
+  readonly name: FrontmatterEntryToken
+  readonly owner: Option.Option<string>
+}
+
+export type Boundary = {
+  readonly trope: string
+  readonly root: LoomModule
+  readonly entries: ReadonlyArray<LoomModule>
+  readonly unknown: ReadonlyArray<UnknownName>
+  readonly guarded: ReadonlyArray<LoomModule>
+  readonly unreached: ReadonlyArray<LoomModule>
+  readonly unsettled: ReadonlyArray<LoomModule>
+  readonly insiders: ReadonlySet<Location>
+}
+
+export type Boundaries = {
+  readonly bounded: ReadonlyArray<Boundary>
+  readonly unrooted: ReadonlyArray<Trope>
+}
+
+## Reading the entries
+
+`entryOf` reads one name of the root's `Entries:` line, through the corpus's own `tropeEntryModuleOf`, which resolves the name to a chapter as an anchor's name resolves. A name that leads to no one chapter is unknown. So is a name that leads to a chapter of another trope, since only that trope can make it an entry. A chapter that names no trope may stand as an entry. The trope then reaches it, and Loom marks it to be settled like any chapter the trope reaches by use.
+
+`entriesOf` reads the whole line and separates the chapters it makes entries from the names it cannot. A root with no `Entries:` line is the trope's only chapter, so it is the trope's only entry.
+
+=>
+
+const entryOf = (
+  book: Book,
+  trope: string,
+  name: FrontmatterEntryToken,
+): Result.Result<LoomModule, UnknownName> =>
+  Option.match(tropeEntryModuleOf(book, name.value), {
+    onNone: () => Result.fail({ name, owner: Option.none() }),
+    onSome: (module) =>
+      Option.match(
+        Option.filter(tropeOf(module), (owner) => owner !== trope),
+        {
+          onNone: () => Result.succeed(module),
+          onSome: (owner) => Result.fail({ name, owner: Option.some(owner) }),
+        },
+      ),
+  })
+
+const entriesOf = (
+  book: Book,
+  trope: string,
+  root: LoomModule,
+): readonly [ReadonlyArray<LoomModule>, ReadonlyArray<UnknownName>] =>
+  Option.match(Option.fromNullishOr(root.doc.frontmatter?.entries), {
+    onNone: () => [[root], []],
+    onSome: (names) => Array.separate(Array.map(names, (name) => entryOf(book, trope, name))),
+  })
+
+## Walking what the trope reaches
+
+`boundaryOf` derives one trope's boundary. It walks from the root and the entries with the corpus's own `reach`, along the reaches that `reachesOf` lists. The walk records a chapter outside the trope but never steps out of it, so the walk ends at the trope's edge. When that chapter belongs to another trope, the other trope's own boundary judges the reach. Every member the walk misses is unreached. A second chapter that names the trope with a `Trope:` line is no member, since the registry already refuses it as a second root. Every chapter it finds that names no trope is unsettled, unless it holds a discussion, which `outsideEveryTrope` sets aside, since a discussion belongs to the book rather than to a trope.
+
+`boundariesOf` derives the boundary of every trope that has a root, and keeps aside every trope that has none.
+
+=>
+
+const outsideEveryTrope = (module: LoomModule): boolean =>
+  Option.isNone(tropeOf(module)) && module.doc.frontmatter?.discussion === undefined
+
+const boundaryOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  trope: Trope,
+  root: LoomModule,
+): Boundary => {
+  const chapters = new Map(Array.map(trope.chapters, (chapter) => [chapter.path, chapter] as const))
+  const [entries, unknown] = entriesOf(book, trope.name, root)
+  const reached = reach([root.path, ...Array.map(entries, (module) => module.path)], (path) =>
+    Option.match(Option.fromNullishOr(chapters.get(path)), {
+      onNone: (): ReadonlyArray<Location> => [],
+      onSome: (chapter) => Array.map(reachesOf(book, chapter), (each) => each.target),
+    }),
+  )
+  const unsettled = pipe(
+    Array.fromIterable(reached),
+    Array.filter((path) => !chapters.has(path)),
+    Array.flatMap((path) => Option.toArray(Option.fromNullishOr(modules.get(path)))),
+    Array.filter(outsideEveryTrope),
+  )
+  const entered = new Set(Array.map(entries, (module) => module.path))
+  return {
+    trope: trope.name,
+    root,
+    entries,
+    unknown,
+    guarded: Array.filter(trope.chapters, (chapter) => !entered.has(chapter.path)),
+    unreached: Array.filter(
+      trope.chapters,
+      (chapter) => !reached.has(chapter.path) && !rootsTrope(chapter),
+    ),
+    unsettled,
+    insiders: new Set([...chapters.keys(), ...Array.map(unsettled, (module) => module.path)]),
+  }
+}
+
+export const boundariesOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  tropes: ReadonlyArray<Trope>,
+): Boundaries => ({
+  bounded: Array.getSomes(
+    Array.map(tropes, (trope) =>
+      Option.map(trope.root, (root) => boundaryOf(modules, book, trope, root)),
+    ),
+  ),
+  unrooted: Array.filter(tropes, (trope) => Option.isNone(trope.root)),
+})
+
+## Judging a loom against the boundaries
+
+`boundaryFaults` gives a loom the faults that its tropes' boundaries find in it. A member of a trope with no root carries the `UnrootedTrope` note on its `Rooted in:` line, which `tropeLineOf` finds. A root carries the `UnknownEntry` fault on each name of its `Entries:` line that it cannot make an entry, and `entriesOffRoot` gives the `EntriesOffRoot` fault to an `Entries:` line on a chapter with no `Trope:` line, at the line's first name. An unreached member carries the `UnreachedMember` warning on its `Rooted in:` line. A chapter the trope reaches by use alone carries the `UnsettledMember` note on its title, which `titleLineOf` finds, since the frontmatter is where the chapter would name the trope.
+
+=>
+
+const titleLineOf = (module: LoomModule): Position =>
+  Option.getOrElse(
+    Option.map(Option.fromNullishOr(module.doc.frontmatter?.title), (title) => title.position),
+    () => ({ start: module.doc.position.start, end: module.doc.position.start }),
+  )
+
+const isModule =
+  (module: LoomModule) =>
+  (other: LoomModule): boolean =>
+    other.path === module.path
+
+const unrootedFaults = (boundaries: Boundaries, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  pipe(
+    boundaries.unrooted,
+    Array.filter((trope) => Array.some(trope.chapters, isModule(module))),
+    Array.flatMap(
+      (trope) => faulty(UnrootedTrope({ trope: trope.name }), tropeLineOf(module)).diagnostics,
+    ),
+  )
+
+const entriesOffRoot = (module: LoomModule): ReadonlyArray<Diagnostic> =>
+  rootsTrope(module)
+    ? []
+    : pipe(
+        Option.fromNullishOr(module.doc.frontmatter?.entries),
+        Option.flatMap(Array.head),
+        Option.match({
+          onNone: (): ReadonlyArray<Diagnostic> => [],
+          onSome: (name) => faulty(EntriesOffRoot(), name.position).diagnostics,
+        }),
+      )
+
+const entryFaults = (boundary: Boundary, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  isModule(module)(boundary.root)
+    ? Array.flatMap(
+        boundary.unknown,
+        ({ name, owner }) =>
+          faulty(
+            UnknownEntry({
+              name: name.value,
+              ...Option.match(owner, { onNone: () => ({}), onSome: (held) => ({ owner: held }) }),
+            }),
+            name.position,
+          ).diagnostics,
+      )
+    : []
+
+const memberFaults = (boundary: Boundary, module: LoomModule): ReadonlyArray<Diagnostic> => [
+  ...(Array.some(boundary.unreached, isModule(module))
+    ? faulty(UnreachedMember({ trope: boundary.trope }), tropeLineOf(module)).diagnostics
+    : []),
+  ...(Array.some(boundary.unsettled, isModule(module))
+    ? faulty(UnsettledMember({ trope: boundary.trope }), titleLineOf(module)).diagnostics
+    : []),
+]
+
+export const boundaryFaults = (
+  boundaries: Boundaries,
+  book: Book,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> => [
+  ...unrootedFaults(boundaries, module),
+  ...entriesOffRoot(module),
+  ...Array.flatMap(boundaries.bounded, (boundary) => [
+    ...entryFaults(boundary, module),
+    ...memberFaults(boundary, module),
+  ]),
+  ...reachingInside(boundaries, book, module),
+]
+
+~
+
+`reachingInside` judges each reach the loom makes across a boundary. It considers only the tropes that guard a chapter and that the loom does not belong to. A reach that lands on one of their guarded chapters carries the `ReachingInside` fault at its anchor or box, and the fault names the chapter and the entries the trope offers instead. Most books guard nothing, so Loom lists a loom's reaches only when some trope guards a chapter from it.
+
+=>
+
+const reachingInside = (
+  boundaries: Boundaries,
+  book: Book,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> => {
+  const guarding = Array.filter(
+    boundaries.bounded,
+    (boundary) =>
+      Array.isReadonlyArrayNonEmpty(boundary.guarded) && !boundary.insiders.has(module.path),
+  )
+  return Array.isReadonlyArrayNonEmpty(guarding)
+    ? Array.flatMap(reachesOf(book, module), (each) =>
+        Array.flatMap(guarding, (boundary) =>
+          Option.match(
+            Array.findFirst(boundary.guarded, (guarded) => guarded.path === each.target),
+            {
+              onNone: (): ReadonlyArray<Diagnostic> => [],
+              onSome: (guarded) =>
+                faulty(
+                  ReachingInside({
+                    trope: boundary.trope,
+                    chapter: titleOf(guarded),
+                    entries: Array.map(boundary.entries, titleOf),
+                  }),
+                  each.at,
+                ).diagnostics,
+            },
+          ),
+        ),
+      )
+    : []
+}
+
+## What the boundaries draw on
+
+From `effect` come the array, option, and result combinators and `pipe`. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, and the `FrontmatterEntryToken` each name of an `Entries:` line is. The corpus lends the `Book`, the modules, `tropeEntryModuleOf`, which resolves an entry's name, `reachesOf`, which lists a loom's reaches, and `reach`, which walks them. The fault catalog lends `faulty` with the six faults of a boundary. The registry of the chapter "The kinds tropes declare" lends the `Trope` it gathers, `tropeOf` and `tropeLineOf`, which read and find the line a chapter names its trope on, `rootsTrope`, which tells a root, and `titleOf`, which reads a chapter's title.
+
+=>
+
+import { Array, Option, pipe, Result } from 'effect'
+import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
+import type { FrontmatterEntryToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  type Book,
+  tropeEntryModuleOf,
+  type Location,
+  type LoomModule,
+  reach,
+  reachesOf,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  EntriesOffRoot,
+  faulty,
+  ReachingInside,
+  UnknownEntry,
+  UnreachedMember,
+  UnrootedTrope,
+  UnsettledMember,
+} from './LoomFault'
+import { rootsTrope, titleOf, type Trope, tropeLineOf, tropeOf } from './DeclaredKinds'
+
+## The module [src/ast/TropeBoundaries.ts]
+
+=>
+
+::[What the boundaries draw on]
+
+::[A trope's boundary]
+
+::[Reading the entries]
+
+::[Walking what the trope reaches]
+
+::[Judging a loom against the boundaries]
+
+## Testing the boundaries
+
+The cases compile a small book about a shop, whose payments form a trope. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
+
+`layerOf` gives the compiler a book held in memory, and `diagnosed` gives the diagnostics one loom raises, each as its line and its message. `chapter` writes a chapter of Part I: its number, its title, the frontmatter lines it adds, and the code of its opening section. `faultsOf` keeps the messages of the faults a boundary raises.
+
+The shop's payments are the trope `Payments`, which `payments` writes with the given entries on its root's `Entries:` line, and with no such line when it is given none. The root, `Payments`, composes `Charging`, and `Charging`, a member, composes `Ledger`, another. `withShop` adds the chapter `Shop`, outside every trope, with the given lines of code, to payments whose entry is `Charging`. `root`, `charging`, `ledger`, and `shop` are the paths of the four looms.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Layer, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  Effect.runPromise(
+    LoomCompiler.pipe(
+      Effect.flatMap((compiler) => compiler.diagnose(entry)),
+      Effect.provide(layerOf(files)),
+    ),
+  ).then((found) => found.map((d) => ({ line: d.position.start.line, message: d.message })))
+
+const chapter = (
+  number: number,
+  title: string,
+  fields: ReadonlyArray<string>,
+  code: ReadonlyArray<string>,
+) =>
+  lines(
+    '---',
+    `Part I, Chapter ${number}: ${title}`,
+    ...fields,
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    '=>',
+    '',
+    ...code,
+  )
+
+const faultsOf = (found: ReadonlyArray<{ readonly message: string }>) =>
+  found
+    .map((d) => d.message)
+    .filter((message) =>
+      [
+        'Reaching inside',
+        'Unknown entry',
+        'Entries off the root',
+        'Unreached member',
+        'To be settled: the trope',
+        'To be settled: no chapter roots',
+      ].some((prefix) => message.startsWith(prefix)),
+    )
+
+const root = '/corpus/payments.loom'
+const charging = '/corpus/charging.loom'
+const ledger = '/corpus/ledger.loom'
+const shop = '/corpus/shop.loom'
+
+const payments = (...entries: ReadonlyArray<string>): Record<string, string> => ({
+  [root]: chapter(
+    1,
+    'Payments',
+    ['Trope: Payments', ...(entries.length > 0 ? [`Entries: ${entries.join(', ')}`] : [])],
+    [anchor('Charging')],
+  ),
+  [charging]: chapter(
+    2,
+    'Charging',
+    ['Rooted in: Payments'],
+    [anchor('Ledger'), 'const charge = 1'],
+  ),
+  [ledger]: chapter(3, 'Ledger', ['Rooted in: Payments'], ['const ledger = 1']),
+})
+
+const withShop = (...code: ReadonlyArray<string>): Record<string, string> => ({
+  ...payments('Charging'),
+  [shop]: chapter(4, 'Shop', [], code),
+})
+
+## A trope that draws no line
+
+A trope of one chapter is its own root and its only entry, so any chapter may reach it and nothing is faulted. A trope whose chapters are all members has no root yet. Each member carries a note on its `Rooted in:` line, and Loom faults no reach into the trope.
+
+=>
+
+describe('a trope that draws no line', () => {
+  it('lets every chapter reach a trope of one chapter', async () => {
+    const files = {
+      [ledger]: chapter(1, 'Ledger', ['Trope: Books'], ['const ledger = 1']),
+      [shop]: chapter(2, 'Shop', [], [anchor('Ledger')]),
+    }
+    expect(faultsOf(await diagnosed(files, ledger))).toEqual([])
+    expect(faultsOf(await diagnosed(files, shop))).toEqual([])
+  })
+
+  it('notes each member of a trope with no root', async () => {
+    const files = {
+      [charging]: chapter(1, 'Charging', ['Rooted in: Payments'], ['const charge = 1']),
+      [ledger]: chapter(2, 'Ledger', ['Rooted in: Payments'], ['const ledger = 1']),
+      [shop]: chapter(3, 'Shop', [], [anchor('Ledger')]),
+    }
+    const unrooted =
+      'To be settled: no chapter roots the trope `Payments` yet, so Loom draws no boundary around it. Name the trope with a `Trope:` line in the chapter that roots it.'
+    expect(await diagnosed(files, ledger)).toContainEqual({ line: 3, message: unrooted })
+    expect(faultsOf(await diagnosed(files, charging))).toEqual([unrooted])
+    expect(faultsOf(await diagnosed(files, shop))).toEqual([])
+  })
+})
+
+## The entries a root lists
+
+Each name on the `Entries:` line leads to a chapter the trope offers. A name that leads to no chapter is faulted on the line, and so is a name that leads to a chapter of another trope. An `Entries:` line on a member is faulted too, since only the root lists the trope's entries.
+
+=>
+
+describe('the entries a root lists', () => {
+  it('raises nothing when each leads to a member', async () => {
+    expect(faultsOf(await diagnosed(payments('Charging'), root))).toEqual([])
+  })
+
+  it('faults a name that leads to no chapter', async () => {
+    expect(faultsOf(await diagnosed(payments('Charging', 'Billing'), root))).toEqual([
+      'Unknown entry: `Billing` leads to no one chapter of the book, so the trope has no entry by that name.',
+    ])
+  })
+
+  it("faults a name that leads to another trope's chapter", async () => {
+    const files = {
+      ...payments('Charging', 'Diagrams'),
+      '/corpus/diagrams.loom': chapter(5, 'Diagrams', ['Trope: Diagrams'], ['const d = 1']),
+    }
+    expect(faultsOf(await diagnosed(files, root))).toEqual([
+      'Unknown entry: `Diagrams` is a chapter of the trope `Diagrams`, and only that trope can make it an entry.',
+    ])
+  })
+
+  it('faults an Entries line on a member', async () => {
+    const files = {
+      ...payments('Charging'),
+      [ledger]: chapter(3, 'Ledger', ['Rooted in: Payments', 'Entries: Ledger'], ['const l = 1']),
+    }
+    expect(faultsOf(await diagnosed(files, ledger))).toEqual([
+      "Entries off the root: only a trope's root, the chapter that names the trope with a `Trope:` line, lists the trope's entries, so Loom reads nothing from this line. Move it to the root.",
+    ])
+  })
+})
+
+## Reaching across the boundary
+
+A chapter outside the trope reaches an entry freely, and the members reach one another freely. A reach from outside to any other member is faulted where it is written: at an anchor, or at the `anchors` value of a trope box. The root is no entry unless it lists itself, and a root with no `Entries:` line is the trope's only entry.
+
+=>
+
+describe('reaching across the boundary', () => {
+  const inside =
+    'Reaching inside: `Ledger` lies inside the trope `Payments`, and a chapter outside the trope reaches only its entries: `Charging`.'
+
+  it('lets a chapter outside reach an entry', async () => {
+    expect(faultsOf(await diagnosed(withShop(anchor('Charging')), shop))).toEqual([])
+  })
+
+  it('lets members reach one another', async () => {
+    expect(faultsOf(await diagnosed(withShop(), charging))).toEqual([])
+  })
+
+  it('faults an anchor that reaches inside', async () => {
+    const found = await diagnosed(withShop(anchor('Charging'), anchor('Ledger')), shop)
+    expect(faultsOf(found)).toEqual([inside])
+    expect(found).toContainEqual({ line: 10, message: inside })
+  })
+
+  it('faults a trope box whose anchors name a chapter inside', async () => {
+    const files = {
+      ...payments('Charging'),
+      [shop]: lines(
+        '---',
+        'Part I, Chapter 4: Shop',
+        '---',
+        '',
+        '# Shop',
+        '',
+        '::: Books {kind=Trope anchors=Ledger}',
+        ':::',
+      ),
+    }
+    expect(faultsOf(await diagnosed(files, shop))).toEqual([inside])
+  })
+
+  it('guards the root unless it lists itself as an entry', async () => {
+    const guarded = withShop(anchor('Payments'))
+    expect(faultsOf(await diagnosed(guarded, shop))).toEqual([
+      'Reaching inside: `Payments` lies inside the trope `Payments`, and a chapter outside the trope reaches only its entries: `Charging`.',
+    ])
+    const entered = { ...guarded, ...payments('Payments', 'Charging') }
+    expect(faultsOf(await diagnosed(entered, shop))).toEqual([])
+  })
+
+  it('makes a root with no Entries line the only entry', async () => {
+    const files = { ...payments(), [shop]: chapter(4, 'Shop', [], [anchor('Charging')]) }
+    expect(faultsOf(await diagnosed(files, shop))).toEqual([
+      'Reaching inside: `Charging` lies inside the trope `Payments`, and a chapter outside the trope reaches only its entries: `Payments`.',
+    ])
+  })
+})
+
+## Chapters out of step with the trope
+
+A member that neither the root nor an entry reaches carries a warning on its `Rooted in:` line. A chapter the trope reaches that names no trope carries a note on its title, until its frontmatter names the trope.
+
+=>
+
+describe('chapters out of step with the trope', () => {
+  it('warns of a member nothing reaches', async () => {
+    const refunds = '/corpus/refunds.loom'
+    const files = {
+      ...payments('Charging'),
+      [refunds]: chapter(5, 'Refunds', ['Rooted in: Payments'], ['const refund = 1']),
+    }
+    const unreached =
+      "Unreached member: this chapter names the trope `Payments`, but neither the trope's root nor its entries reach it, so it is a missing link or dead code. Reach it from the trope, or take its `Rooted in:` line off."
+    expect(await diagnosed(files, refunds)).toContainEqual({ line: 3, message: unreached })
+    expect(faultsOf(await diagnosed(files, ledger))).toEqual([])
+  })
+
+  it('notes a chapter the trope reaches by use alone', async () => {
+    const rates = '/corpus/rates.loom'
+    const files = {
+      ...payments('Charging'),
+      [ledger]: chapter(3, 'Ledger', ['Rooted in: Payments'], [anchor('Rates')]),
+      [rates]: chapter(5, 'Rates', [], ['const rate = 1']),
+    }
+    const unsettled =
+      'To be settled: the trope `Payments` reaches this chapter, which names no trope, so it belongs to `Payments` by use alone. Add `Rooted in: Payments` to its frontmatter to settle it.'
+    expect(await diagnosed(files, rates)).toContainEqual({ line: 2, message: unsettled })
+  })
+})
+
+## The test file [test/TropeBoundaries.test.ts]
+
+=>
+
+::[Testing the boundaries]
+
+::[A trope that draws no line]
+
+::[The entries a root lists]
+
+::[Reaching across the boundary]
+
+::[Chapters out of step with the trope]

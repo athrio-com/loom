@@ -67,6 +67,24 @@ describe("a chapter's trope", () => {
       '1',
     ])
   })
+
+  it("reads a member's line apart from a root's", () => {
+    const fm = parse(
+      lines(
+        '---',
+        'Part I, Chapter 2: Shapes',
+        'Rooted in: Mermaid diagrams',
+        '---',
+        '',
+        '# Shapes',
+      ),
+    ).frontmatter
+    expect([fm?.trope?.value, fm?.rootedIn?.value, fm?.title?.value]).toEqual([
+      undefined,
+      'Mermaid diagrams',
+      'Shapes',
+    ])
+  })
 })
 
 describe('a manifest section', () => {

@@ -499,14 +499,15 @@ const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
 
 ~
 
-A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a chapter that names its trope with a `Trope:` line, so a manifest in a loom that names no trope belongs to nothing. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells the specifier, and `isTrope` tells a loom that names its trope.
+A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a chapter that names its trope with a `Trope:` line, and the trope's other chapters name it with a `Rooted in:` line, so a manifest in a loom that names no trope on either line belongs to nothing. A manifest on a member is the registry's to judge, as the chapter "The kinds tropes declare" describes. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells the specifier, and `isTrope` tells a loom that names its trope.
 
 =>
 
 export const isManifest = (specifier: SpecifierToken): boolean =>
   specifier.label.value.toLowerCase() === 'manifest'
 
-const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
+const isTrope = (doc: LoomDocument): boolean =>
+  doc.frontmatter?.trope !== undefined || doc.frontmatter?.rootedIn !== undefined
 
 const manifestOutsideTrope = (section: LoomSection): Health =>
   Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {

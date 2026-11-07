@@ -2538,6 +2538,67 @@ describe('LoomServer — a trope box', () => {
   }, 30_000)
 })
 
+## Testing a trope's entries
+
+A trope's root lists its entries, the chapters that a chapter outside the trope may reach, on its `Entries:` line, as Part XIII, Chapter 4, "The boundaries of a trope", describes. Each name there leads to a chapter as an anchor's name does, so the editor follows it and a rename rewrites it. The root `Payments` lists `Billing` as its entry and composes it, and `lineOf` finds the line of a loom that holds some text. Going to the definition of the entry reaches the title of `Billing`. A rename of `Billing` rewrites the entry and the anchor with the title.
+
+=>
+
+describe("LoomServer — a trope's entries", () => {
+  const paymentsText = lines(
+    '---',
+    'Language: TypeScript',
+    'Trope: Payments',
+    'Entries: Billing',
+    '---',
+    '',
+    '# Payments',
+    '',
+    '=>',
+    anchor('Billing'),
+  )
+  const billingText = lines(
+    '---',
+    'Language: TypeScript',
+    'Rooted in: Payments',
+    '---',
+    '',
+    '# Billing',
+    '',
+    '=>',
+    'const charge = 1',
+  )
+  const lineOf = (text: string, part: string) =>
+    text.split('\n').findIndex((row) => row.includes(part))
+
+  it('follows an entry to its chapter, and renames the chapter with its entry', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const payments = chapterAt(root, 'payments.loom', paymentsText)
+    const billing = chapterAt(root, 'billing.loom', billingText)
+    const editor = await editorAt(root)
+    try {
+      await editor.open(payments)
+      await editor.open(billing)
+      const entry = lineOf(paymentsText, 'Entries:')
+      const title = lineOf(billingText, '# Billing')
+      expect(await editor.definition(payments, entry, 11)).toEqual([
+        { uri: pathToFileURL(billing).href, line: title },
+      ])
+      const renamed = await editor.rename(billing, title, 3, 'Invoicing')
+      expect(renamed.map((one) => [one.uri, one.line, one.newText]).sort()).toEqual(
+        [
+          [pathToFileURL(billing).href, title, 'Invoicing'],
+          [pathToFileURL(payments).href, entry, 'Invoicing'],
+          [pathToFileURL(payments).href, lineOf(paymentsText, anchor('Billing')), 'Invoicing'],
+        ].sort(),
+      )
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## What the cases draw on
 
 The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns, and `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
@@ -2619,5 +2680,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a name that waits]
 
 ::[Testing a trope box]
+
+::[Testing a trope's entries]
 
 ::[Testing the pass piece by piece]

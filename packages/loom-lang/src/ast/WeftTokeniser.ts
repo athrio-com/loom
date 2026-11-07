@@ -12,6 +12,7 @@ import {
   FrontmatterDiscussionTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterTropeTokenSchema,
+  FrontmatterEntryTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
@@ -257,6 +258,22 @@ const buildFrontmatterField = (
       health: okHealth,
       trope: fieldToken(FrontmatterTropeTokenSchema, line, value),
     })
+  if (key.value === 'Rooted in')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      rootedIn: fieldToken(FrontmatterTropeTokenSchema, line, value),
+    })
+  if (key.value === 'Entries')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      entries: Array.map(listSpans(value), (name) =>
+        fieldToken(FrontmatterEntryTokenSchema, line, name),
+      ),
+    })
   if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -332,6 +349,15 @@ const fieldToken = <T>(schema: Scannable<T>, line: number, seg: TrimmedSpan): T 
     health: okHealth,
     value: seg.value,
   })
+
+const listSpans = (value: TrimmedSpan): ReadonlyArray<TrimmedSpan> =>
+  Array.filter(
+    Array.mapAccum(value.value.split(','), value.start, (at, part) => [
+      at + part.length + 1,
+      trimSpan(part, at),
+    ])[1],
+    (name) => name.value !== '',
+  )
 
 const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
   FrontmatterWeftSchema.make({

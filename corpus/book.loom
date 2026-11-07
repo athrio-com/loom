@@ -170,11 +170,12 @@ A reader searching the site rarely knows the words the book uses. This part lets
 
 ### Part XIII — Tropes
 
-A trope adds to Loom what its small core leaves out, such as a kind of box that draws a diagram, and a book takes it up the way an author takes up a familiar turn of phrase. A trope is a cluster of chapters that keeps a contract, and its root tells Loom what the trope adds through its manifest, which Loom reads as data and never runs. This part holds the contract every trope keeps: the chapters of a trope, the root and its manifest, and the registry that gathers the kinds tropes declare and judges every box of the book against it.
+A trope adds to Loom what its small core leaves out, such as a kind of box that draws a diagram, and a book takes it up the way an author takes up a familiar turn of phrase. A trope is a cluster of chapters that keeps a contract, and its root tells Loom what the trope adds through its manifest, which Loom reads as data and never runs. This part holds the contract every trope keeps: the chapters of a trope, the root and its manifest, the registry that gathers the kinds tropes declare and judges every box of the book against it, and the boundary a trope draws, which lets a chapter outside the trope reach only the trope's entries.
 
 1. The trope contract
 2. The kinds tropes declare
 3. A trope in the text
+4. The boundaries of a trope
 
 ### Part XIV — Mermaid diagrams
 

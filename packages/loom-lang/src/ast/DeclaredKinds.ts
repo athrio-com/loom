@@ -4,6 +4,7 @@ import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
   boxKind,
   boxKinds,
+  type FrontmatterTropeToken,
   type ParameterToken,
   type ParametersToken,
   type SpecifierToken,
@@ -17,13 +18,13 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
 import { fromCode } from './LoomVirtualCodeBuilder'
-import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
+import { faulty, KeyOutsideTrope, ManifestOffRoot, TropeRefused, UnknownKind } from './LoomFault'
 import { type BoxKindDeclaration, readManifest, type TropeManifest } from './TropeManifest'
 
-export type TropeRoot = {
-  readonly trope: string
-  readonly module: Location
-  readonly title: string
+export type Trope = {
+  readonly name: string
+  readonly chapters: ReadonlyArray<LoomModule>
+  readonly root: Option.Option<LoomModule>
 }
 
 export type DeclaredKind = {
@@ -35,35 +36,49 @@ export type DeclaredKind = {
 
 export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
 
+export type Misplaced = { readonly module: Location; readonly trope: string; readonly at: Position }
+
 export type DeclaredKinds = {
-  readonly roots: ReadonlyArray<TropeRoot>
+  readonly tropes: ReadonlyArray<Trope>
   readonly box: ReadonlyArray<DeclaredKind>
   readonly refusals: ReadonlyArray<Refusal>
+  readonly misplaced: ReadonlyArray<Misplaced>
 }
 
-const noKinds: DeclaredKinds = { roots: [], box: [], refusals: [] }
+const noKinds: DeclaredKinds = { tropes: [], box: [], refusals: [], misplaced: [] }
 
-type Root = {
-  readonly module: LoomModule
-  readonly manifests: Array.NonEmptyReadonlyArray<LoomSection>
+const tropeLine = (module: LoomModule): Option.Option<FrontmatterTropeToken> =>
+  Option.orElse(Option.fromNullishOr(module.doc.frontmatter?.trope), () =>
+    Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
+  )
+
+export const tropeOf = (module: LoomModule): Option.Option<string> =>
+  Option.map(tropeLine(module), (line) => line.value)
+
+export const tropeLineOf = (module: LoomModule): Position =>
+  Option.getOrElse(
+    Option.map(tropeLine(module), (line) => line.position),
+    () => module.doc.position,
+  )
+
+export const rootsTrope = (module: LoomModule): boolean =>
+  module.doc.frontmatter?.trope !== undefined
+
+export const tropesOf = (modules: ReadonlyMap<Location, LoomModule>): ReadonlyArray<Trope> => {
+  const named = pipe(
+    Array.fromIterable(modules.values()),
+    Array.filter((module) => Option.isSome(tropeOf(module))),
+    Array.sort(Order.mapInput(Order.String, (module: LoomModule) => module.path)),
+  )
+  return Array.map(Array.dedupe(Array.getSomes(Array.map(named, tropeOf))), (name): Trope => {
+    const chapters = Array.filter(named, (module) => Option.contains(tropeOf(module), name))
+    return { name, chapters, root: Array.findFirst(chapters, rootsTrope) }
+  })
 }
-
-const tropeOf = (module: LoomModule): string => module.doc.frontmatter?.trope?.value ?? ''
 
 const manifestSectionsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
   Array.filter(module.doc.sections, (section) =>
     Option.exists(Option.fromNullishOr(section.heading.specifier), isManifest),
-  )
-
-const rootsOf = (modules: ReadonlyMap<Location, LoomModule>): ReadonlyArray<Root> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.filter((module) => module.doc.frontmatter?.trope !== undefined),
-    Array.sort(Order.mapInput(Order.String, (module: LoomModule) => module.path)),
-    Array.flatMap((module): ReadonlyArray<Root> => {
-      const manifests = manifestSectionsOf(module)
-      return Array.isReadonlyArrayNonEmpty(manifests) ? [{ module, manifests }] : []
-    }),
   )
 
 type Read = { readonly manifest: TropeManifest; readonly at: Position }
@@ -71,23 +86,17 @@ type Read = { readonly manifest: TropeManifest; readonly at: Position }
 const manifestOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   book: Book,
-  root: Root,
+  root: LoomModule,
+  manifests: Array.NonEmptyReadonlyArray<LoomSection>,
 ): Result.Result<Read, Refusal> => {
-  const [section, ...others] = root.manifests
-  const refusal = (reason: string, at: Position): Refusal => ({
-    module: root.module.path,
-    reason,
-    at,
-  })
+  const [section, ...others] = manifests
+  const refusal = (reason: string, at: Position): Refusal => ({ module: root.path, reason, at })
   return Array.match(others, {
     onNonEmpty: ([second]) =>
       Result.fail(refusal('it holds more than one manifest', second.heading.position)),
     onEmpty: () =>
       pipe(
-        Array.findFirst(
-          root.module.product.code,
-          (code) => code.origin.name === sectionNameOf(section),
-        ),
+        Array.findFirst(root.product.code, (code) => code.origin.name === sectionNameOf(section)),
         Option.map((code) => fromCode(modules, code, book).code),
         Option.getOrElse(() => ''),
         readManifest,
@@ -125,24 +134,22 @@ const clashOf = (
     )
   })
 
-const rootOf = (root: Root): TropeRoot => ({
-  trope: tropeOf(root.module),
-  module: root.module.path,
-  title: root.module.doc.frontmatter?.title?.value ?? root.module.path,
-})
-
-const tropeLineOf = (module: LoomModule): Position =>
+export const titleOf = (module: LoomModule): string =>
   Option.getOrElse(
-    Option.map(Option.fromNullishOr(module.doc.frontmatter?.trope), (line) => line.position),
-    () => module.doc.position,
+    Option.map(Option.fromNullishOr(module.doc.frontmatter?.title), (title) => title.value),
+    () => module.path,
   )
 
-const kindsOf = (root: Root, manifest: TropeManifest): ReadonlyArray<DeclaredKind> =>
+const kindsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredKind> =>
   Array.map(manifest.contributes.kinds.box, (declaration): DeclaredKind => ({
     kind: declaration.kind,
     body: declaration.body,
-    trope: tropeOf(root.module),
-    module: root.module.path,
+    trope,
+    module: root.path,
   }))
 
 const refused = (kinds: DeclaredKinds, refusal: Refusal): DeclaredKinds => ({
@@ -154,36 +161,72 @@ const withRoot = (
   modules: ReadonlyMap<Location, LoomModule>,
   book: Book,
   kinds: DeclaredKinds,
-  root: Root,
+  trope: string,
+  root: LoomModule,
 ): DeclaredKinds =>
-  Result.match(manifestOf(modules, book, root), {
-    onFailure: (refusal) => refused(kinds, refusal),
-    onSuccess: ({ manifest, at }) =>
-      Option.match(clashOf(manifest.contributes.kinds.box, kinds.box), {
-        onSome: (reason) => refused(kinds, { module: root.module.path, reason, at }),
-        onNone: () => ({ ...kinds, box: [...kinds.box, ...kindsOf(root, manifest)] }),
+  Array.match(manifestSectionsOf(root), {
+    onEmpty: () => kinds,
+    onNonEmpty: (manifests) =>
+      Result.match(manifestOf(modules, book, root, manifests), {
+        onFailure: (refusal) => refused(kinds, refusal),
+        onSuccess: ({ manifest, at }) =>
+          Option.match(clashOf(manifest.contributes.kinds.box, kinds.box), {
+            onSome: (reason) => refused(kinds, { module: root.path, reason, at }),
+            onNone: () => ({ ...kinds, box: [...kinds.box, ...kindsOf(trope, root, manifest)] }),
+          }),
       }),
   })
+
+const withTrope = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  kinds: DeclaredKinds,
+  trope: Trope,
+): DeclaredKinds => {
+  const others = Array.filter(
+    trope.chapters,
+    (chapter) => !Option.exists(trope.root, (root) => root.path === chapter.path),
+  )
+  const duplicates = Option.match(trope.root, {
+    onNone: (): ReadonlyArray<Refusal> => [],
+    onSome: (root) =>
+      Array.map(Array.filter(others, rootsTrope), (chapter): Refusal => ({
+        module: chapter.path,
+        reason: `the trope \`${trope.name}\` already has its root in the chapter \`${titleOf(root)}\``,
+        at: tropeLineOf(chapter),
+      })),
+  })
+  const misplaced = pipe(
+    others,
+    Array.filter((chapter) => !rootsTrope(chapter)),
+    Array.flatMap((member) =>
+      Array.map(manifestSectionsOf(member), (section): Misplaced => ({
+        module: member.path,
+        trope: trope.name,
+        at: section.heading.position,
+      })),
+    ),
+  )
+  const settled: DeclaredKinds = {
+    ...kinds,
+    refusals: [...kinds.refusals, ...duplicates],
+    misplaced: [...kinds.misplaced, ...misplaced],
+  }
+  return Option.match(trope.root, {
+    onNone: () => settled,
+    onSome: (root) => withRoot(modules, book, settled, trope.name, root),
+  })
+}
 
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   book: Book,
-): DeclaredKinds =>
-  Array.reduce(rootsOf(modules), noKinds, (kinds, root): DeclaredKinds =>
-    Option.match(
-      Array.findFirst(kinds.roots, (other) => other.trope === tropeOf(root.module)),
-      {
-        onSome: (other) =>
-          refused(kinds, {
-            module: root.module.path,
-            reason: `the trope \`${other.trope}\` already has its root in the chapter \`${other.title}\``,
-            at: tropeLineOf(root.module),
-          }),
-        onNone: () =>
-          withRoot(modules, book, { ...kinds, roots: [...kinds.roots, rootOf(root)] }, root),
-      },
-    ),
+): DeclaredKinds => {
+  const tropes = tropesOf(modules)
+  return Array.reduce(tropes, { ...noKinds, tropes }, (kinds, trope) =>
+    withTrope(modules, book, kinds, trope),
   )
+}
 
 const writtenKind = (
   specifier: SpecifierToken | ParametersToken,
@@ -213,6 +256,13 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       (refusal) => faulty(TropeRefused({ reason: refusal.reason }), refusal.at).diagnostics,
     ),
   )
+  const misplaced = pipe(
+    kinds.misplaced,
+    Array.filter((manifest) => manifest.module === module.path),
+    Array.flatMap(
+      (manifest) => faulty(ManifestOffRoot({ trope: manifest.trope }), manifest.at).diagnostics,
+    ),
+  )
   const unknown = pipe(
     openedBoxesOf(module.doc),
     Array.flatMap((opened) => Option.toArray(Option.fromNullishOr(opened.box.specifier))),
@@ -222,7 +272,7 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       ({ kind, at }) => faulty(UnknownKind({ kind, kinds: known, on: 'box' }), at).diagnostics,
     ),
   )
-  return [...refused, ...unknown, ...keysOutsideTrope(module)]
+  return [...refused, ...misplaced, ...unknown, ...keysOutsideTrope(module)]
 }
 
 const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>

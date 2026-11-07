@@ -1095,6 +1095,61 @@ describe('LoomServer — a trope box', () => {
   }, 30_000)
 })
 
+describe("LoomServer — a trope's entries", () => {
+  const paymentsText = lines(
+    '---',
+    'Language: TypeScript',
+    'Trope: Payments',
+    'Entries: Billing',
+    '---',
+    '',
+    '# Payments',
+    '',
+    '=>',
+    anchor('Billing'),
+  )
+  const billingText = lines(
+    '---',
+    'Language: TypeScript',
+    'Rooted in: Payments',
+    '---',
+    '',
+    '# Billing',
+    '',
+    '=>',
+    'const charge = 1',
+  )
+  const lineOf = (text: string, part: string) =>
+    text.split('\n').findIndex((row) => row.includes(part))
+
+  it('follows an entry to its chapter, and renames the chapter with its entry', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const payments = chapterAt(root, 'payments.loom', paymentsText)
+    const billing = chapterAt(root, 'billing.loom', billingText)
+    const editor = await editorAt(root)
+    try {
+      await editor.open(payments)
+      await editor.open(billing)
+      const entry = lineOf(paymentsText, 'Entries:')
+      const title = lineOf(billingText, '# Billing')
+      expect(await editor.definition(payments, entry, 11)).toEqual([
+        { uri: pathToFileURL(billing).href, line: title },
+      ])
+      const renamed = await editor.rename(billing, title, 3, 'Invoicing')
+      expect(renamed.map((one) => [one.uri, one.line, one.newText]).sort()).toEqual(
+        [
+          [pathToFileURL(billing).href, title, 'Invoicing'],
+          [pathToFileURL(payments).href, entry, 'Invoicing'],
+          [pathToFileURL(payments).href, lineOf(paymentsText, anchor('Billing')), 'Invoicing'],
+        ].sort(),
+      )
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 const recording = () => {
   const scripts = new Map<string, { isAssociationDirty?: boolean }>()
   const deleted: Array<string> = []

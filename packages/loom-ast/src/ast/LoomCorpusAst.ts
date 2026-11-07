@@ -7,6 +7,7 @@ import {
   chapterKind,
   conclusionKind,
   discussionKind,
+  type FrontmatterEntryToken,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,
@@ -333,12 +334,14 @@ const nothingFound: ReadonlyArray<Trail> = []
 const nearest = (lookups: ReadonlyArray<() => ReadonlyArray<Trail>>): ReadonlyArray<Trail> =>
   Array.reduce(lookups, nothingFound, (found, lookup) => (found.length > 0 ? found : lookup()))
 
+const chapterTrails = (book: Book, name: string): ReadonlyArray<Trail> =>
+  nearest([() => walk(book, [], [whole(name)]), () => walk(book, [], segmentsOf(name))])
+
 export const trailsOf = (book: Book, from: Location, name: string): ReadonlyArray<Trail> =>
   nearest([
     () => sectionTrail(book, from, name),
     () => boxTrail(book, from, name),
-    () => walk(book, [], [whole(name)]),
-    () => walk(book, [], segmentsOf(name)),
+    () => chapterTrails(book, name),
   ])
 
 export const anchorTrails = (
@@ -376,6 +379,18 @@ export const resolveAnchor = (
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
   Option.flatMap(soleTrail(anchorTrails(book, from, anchor)), sectionOf)
+
+const tropeEntryChapterOf = (book: Book, name: string): Option.Option<Chapter> =>
+  pipe(
+    soleTrail(chapterTrails(book, name)),
+    Option.map((trail) => Array.lastNonEmpty(trail).place),
+    Option.flatMap((place) =>
+      place._tag === 'Chapter' ? Option.some(place.chapter) : Option.none(),
+    ),
+  )
+
+export const tropeEntryModuleOf = (book: Book, name: string): Option.Option<LoomModule> =>
+  Option.map(tropeEntryChapterOf(book, name), (chapter) => chapter.module)
 
 const chapterOf = (book: Book, module: Location): Option.Option<Chapter> =>
   Array.findFirst(book.chapters, (chapter) => chapter.module.path === module)
@@ -684,7 +699,7 @@ const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation
   ...tropeValuesNaming(book, (place) => namesChapter(chapter)(place)),
 ]
 
-const reach = (
+export const reach = (
   seeds: ReadonlyArray<Location>,
   step: (module: Location) => ReadonlyArray<Location>,
 ): ReadonlySet<Location> => {
@@ -712,33 +727,42 @@ const placeModuleOf = (place: Place): Option.Option<Location> =>
 const moduleOf = (trail: Trail): Option.Option<Location> =>
   placeModuleOf(Array.lastNonEmpty(trail).place)
 
+export type Reach = { readonly target: Location; readonly at: Position }
+
+const boxReachAt = (ref: BoxRef): Position =>
+  Option.getOrElse(
+    Option.map(ref.anchors, (value) => value.position),
+    () => ref.name.position,
+  )
+
+export const reachesOf = (book: Book, module: LoomModule): ReadonlyArray<Reach> => [
+  ...pipe(
+    module.doc.sections,
+    Array.flatMap(anchorsOf),
+    Array.flatMap((anchor) =>
+      Array.getSomes(
+        Array.map(anchorTrails(book, module.path, anchor), (trail) =>
+          Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
+        ),
+      ),
+    ),
+  ),
+  ...Array.getSomes(
+    Array.map(boxesIn(book, module.path), (ref) =>
+      Option.map(placeModuleOf(boxPlace(book, ref)), (target): Reach => ({
+        target,
+        at: boxReachAt(ref),
+      })),
+    ),
+  ),
+]
+
 const anchorEdges = (
   modules: Modules,
 ): ReadonlyArray<{ readonly owner: Location; readonly target: Location }> => {
   const book = bookOf(modules)
-  return pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) => [
-      ...pipe(
-        m.doc.sections,
-        Array.flatMap(anchorsOf),
-        Array.flatMap((anchor) =>
-          Array.getSomes(
-            Array.map(anchorTrails(book, m.path, anchor), (trail) =>
-              Option.map(moduleOf(trail), (target) => ({ owner: m.path, target })),
-            ),
-          ),
-        ),
-      ),
-      ...Array.getSomes(
-        Array.map(boxesIn(book, m.path), (ref) =>
-          Option.map(placeModuleOf(boxPlace(book, ref)), (target) => ({
-            owner: m.path,
-            target,
-          })),
-        ),
-      ),
-    ]),
+  return Array.flatMap(Array.fromIterable(modules.values()), (m) =>
+    Array.map(reachesOf(book, m), ({ target }) => ({ owner: m.path, target })),
   )
 }
 
@@ -964,6 +988,7 @@ const sectionNames = (
     onSome: (chapter) => [
       ...entriesNaming(book, modules, chapter),
       ...boxesNaming(book, chapter),
+      ...tropeEntriesNaming(book, modules, chapter),
       ...anchorsNaming(
         book,
         modules,
@@ -1209,26 +1234,35 @@ const chapterAt = (
   offset: number,
 ): Option.Option<Chapter> =>
   Option.flatMap(Option.fromNullishOr(modules.get(path)), (module) =>
-    Option.orElse(
+    pipe(
       Option.flatMap(
         Array.findFirst(placedEntriesOf(module), (placed) => covers(placed.title.position, offset)),
         (placed) => entryChapter(book, placed),
       ),
-      () =>
-        Option.orElse(
-          Option.flatMap(
-            Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
-            (ref) => boxTarget(book, ref),
-          ),
-          () =>
-            pipe(
-              Option.fromNullishOr(module.doc.frontmatter?.title),
-              Option.filter((title) => covers(title.position, offset)),
-              Option.flatMap(() => chapterOf(book, path)),
-            ),
+      Option.orElse(() =>
+        Option.flatMap(
+          Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
+          (ref) => boxTarget(book, ref),
         ),
+      ),
+      Option.orElse(() =>
+        Option.flatMap(
+          Array.findFirst(tropeEntriesOf(module), (name) => covers(name.position, offset)),
+          (name) => tropeEntryChapterOf(book, name.value),
+        ),
+      ),
+      Option.orElse(() =>
+        pipe(
+          Option.fromNullishOr(module.doc.frontmatter?.title),
+          Option.filter((title) => covers(title.position, offset)),
+          Option.flatMap(() => chapterOf(book, path)),
+        ),
+      ),
     ),
   )
+
+const tropeEntriesOf = (module: LoomModule): ReadonlyArray<FrontmatterEntryToken> =>
+  Option.getOrElse(Option.fromNullishOr(module.doc.frontmatter?.entries), () => [])
 
 const chapterDefinitionAt = (
   corpus: LoomCorpusAst,
@@ -1258,6 +1292,26 @@ const entriesNaming = (
     ),
   )
 
+const tropeEntriesNaming = (
+  book: Book,
+  modules: Modules,
+  chapter: Chapter,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      tropeEntriesOf(module),
+      Array.filter(
+        (name) =>
+          name.value === chapter.title &&
+          Option.exists(
+            tropeEntryChapterOf(book, name.value),
+            (found) => found.module.path === chapter.module.path,
+          ),
+      ),
+      Array.map((name): CorpusLocation => ({ path: module.path, position: name.position })),
+    ),
+  )
+
 const chapterNames = (
   book: Book,
   modules: Modules,
@@ -1267,6 +1321,7 @@ const chapterNames = (
   ...Option.toArray(chapterLocation(chapter)),
   ...entriesNaming(book, modules, chapter),
   ...boxesNaming(book, chapter),
+  ...tropeEntriesNaming(book, modules, chapter),
   ...anchorsNaming(
     book,
     modules,
@@ -1491,7 +1546,7 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
@@ -1526,7 +1581,7 @@ export const referencesAt = (
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
@@ -1561,7 +1616,7 @@ export const renameAt = (
             placeNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>

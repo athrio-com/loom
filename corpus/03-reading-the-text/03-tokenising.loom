@@ -83,7 +83,7 @@ const tokeniseWeft = (
 
 ## Frontmatter fields
 
-A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a numbered part, a `Chapter <n>` line a numbered chapter — each carrying an ordinal past its keyword and a name beside it. Drop the ordinal and the membership is numberless: a bare `Part` names a part with no number, a bare `Chapter` a chapter with no number, for a section a reader orders by hand rather than by position. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. A discussion reads the same way, with `Discussion` in place of `Chapter`, and a bare `Discussion` gives a discussion with no number. A `Trope` line names the trope the loom belongs to, and its value becomes a `FrontmatterTrope`. `Target`, `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
+A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a numbered part, a `Chapter <n>` line a numbered chapter — each carrying an ordinal past its keyword and a name beside it. Drop the ordinal and the membership is numberless: a bare `Part` names a part with no number, a bare `Chapter` a chapter with no number, for a section a reader orders by hand rather than by position. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. A discussion reads the same way, with `Discussion` in place of `Chapter`, and a bare `Discussion` gives a discussion with no number. A `Trope` line names the trope the loom roots, and a `Rooted in` line the trope the loom belongs to. Either value becomes a `FrontmatterTrope`. An `Entries` line lists chapters, and `listSpans` cuts its value at each comma, so each name becomes a `FrontmatterEntry` with a span of its own, and a rename can rewrite one name alone. `Target`, `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
 
 =>
 
@@ -155,6 +155,22 @@ const buildFrontmatterField = (
       source: weft.source,
       health: okHealth,
       trope: fieldToken(FrontmatterTropeTokenSchema, line, value),
+    })
+  if (key.value === 'Rooted in')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      rootedIn: fieldToken(FrontmatterTropeTokenSchema, line, value),
+    })
+  if (key.value === 'Entries')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      entries: Array.map(listSpans(value), (name) =>
+        fieldToken(FrontmatterEntryTokenSchema, line, name),
+      ),
     })
   if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
@@ -237,6 +253,15 @@ const fieldToken = <T>(schema: Scannable<T>, line: number, seg: TrimmedSpan): T 
     health: okHealth,
     value: seg.value,
   })
+
+const listSpans = (value: TrimmedSpan): ReadonlyArray<TrimmedSpan> =>
+  Array.filter(
+    Array.mapAccum(value.value.split(','), value.start, (at, part) => [
+      at + part.length + 1,
+      trimSpan(part, at),
+    ])[1],
+    (name) => name.value !== '',
+  )
 
 const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
   FrontmatterWeftSchema.make({
@@ -2012,6 +2037,7 @@ import {
   FrontmatterDiscussionTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterTropeTokenSchema,
+  FrontmatterEntryTokenSchema,
   FrontmatterPartTokenSchema,
   FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,

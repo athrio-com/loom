@@ -70,6 +70,7 @@ import {
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import { declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
 import {
   contractsIn,
   fromCode,
@@ -148,11 +149,13 @@ const corpusDiagnostics = (modules: Modules) => {
   const book = bookOf(modules)
   const landing = landingOf(book, modules)
   const kinds = declaredKindsOf(modules, book)
+  const boundaries = boundariesOf(modules, book, kinds.tropes)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(book, modules, module, landing),
     ...namesakeFaults(book, module),
     ...kindFaults(kinds, module),
+    ...boundaryFaults(boundaries, book, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
       (notice) => boxNoticeHealth(notice).diagnostics,
