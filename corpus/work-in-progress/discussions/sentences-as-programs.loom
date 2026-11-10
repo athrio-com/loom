@@ -5,9 +5,9 @@ Discussion: Sentences as programs
 
 # Sentences as programs
 
-Can a sentence be a program? This discussion follows one long exploration of that question, from the trope contract to a hello world written as a single paragraph.
+Can a sentence be a program? This discussion follows one long exploration of that question, from the trope contract, through a hello world written as a single paragraph, to a working model of the reader that answers it.
 
-It starts from tropes. A trope lets a book apply a solution that already exists, but a trope with one fixed realisation rarely fits a codebase without work. Concepts promise the adaptivity a trope lacks, and the argument climbs from there: to contracts, to a graph of meaning, to lexical forms, and at last to sentences that compile.
+It starts from tropes. A trope lets a book apply a solution that already exists, but a trope with one fixed realisation rarely fits a codebase without work. Concepts promise the adaptivity a trope lacks, and the argument climbs from there: to contracts, to a graph of meaning, to lexical forms, and to sentences that compile. A model then builds the reader those sentences need, and its runs show how far lexical forms reach and where they stop.
 
 The thread is condensed. Each message keeps the point it made and drops the rest. The paths the discussion abandoned stay in it, because they show why the conclusions hold.
 
@@ -247,3 +247,86 @@ These questions have no answer yet:
 - Whether "the latest thing of that kind" settles every "it".
 - How a sentence trope assembles data, handlers, and tests into one product.
 - The exact syntax of the `Realises:` line and of variants, which waits on the chapter "Parameters in braces".
+
+A model of the reader
+---
+
+~ Yegor
+I want to see whether the assumed design works in general and is feasible. For now it only looks as if it does. I want a real model of its implementation, not in every detail, but enough to see how lexical forms compose in sentences.
+
+~ Claude
+In the model, each lexical form is a typed constructor of its concept. A word in a form is a slot when it is the name of another concept. A slot takes a name, a number, quoted text, or another form of the slot's concept, which the model reads in turn. That recursion is how forms compose. In "Transfer 100 EUR from Alice's account to Bob's account", the form `number currency` reads "100 EUR" as money, and the form `customer's account` reads each account.
+
+~ Claude
+The model read the John paragraph, a second character, and a small bank. The code it wrote typechecked and ran: two transfers moved money, a restated balance held, and a false one failed. Four rules came out of the runs:
+
+- Only a concept's name marks a slot, never one of its other forms.
+- All forms of one concept take the same slots.
+- A concept's own name inside its own form is a plain word. So no concept is built from itself, and nothing says that a sum counts as money.
+- When two slots take one concept, each slot takes its name from the word before it, as `from` and `to` do.
+
+::: {Conclusion}
+Lexical forms compose. Each form is a typed constructor of its concept, and a slot takes another concept's form in turn. Each new shape of sentence costs about one form. Reading stays fast: the model read 3,000 sentences against 400 concepts in about two seconds.
+:::
+
+Write first, teach after
+---
+
+~ Yegor
+I still do not see how authoring would work. It needs a mechanism that recognises expressions, where the author writes a sentence first and defines its meaning after.
+
+~ Claude
+When no form reads a sentence, the reader still recognises the things in it: names, numbers, quoted text, and phrases another form builds, like "Bob's account". It puts each thing's concept in the thing's place, so "He has white hair" becomes the wording `character has colour hair`. The author teaches that wording in one of two ways. When code realises the concept, the wording joins the concept's `Lexical forms:` list. When other sentences give the meaning, the author writes an example with `means`:
+
+```
+Alice pays Bob 30 EUR means transfer 30 EUR from Alice's account to Bob's account.
+```
+
+The reader finds the example's things inside the meaning, and they become the slots of a new form. Each slot takes its name from its role in the meaning: `from`, `to`, and `money`. After that, "Bob pays Alice 5 EUR" reads without help. In the model, John's paragraph needed two rounds of teaching against concepts that started with no forms, and Mary's paragraph needed two new wordings.
+
+::: {Conclusion}
+The reader recognises the things it knows in a sentence it cannot read, and it proposes a wording for the rest. The author gives the wording to a concept, or teaches a new concept by example with `means`. Either answer is written into the book as text. Teaching works for the words that name things and the relations between them.
+:::
+
+The words that carry the logic
+---
+
+~ Yegor
+Assume a backtick marks a cursor selection, made one at a time:
+
+```
+If `John` has `money` then he can get a ``.
+```
+
+Pressing the quick-fix key, cmd+., on a selection would suggest actions for it. But this is still imperfect, and it assumes something about what programming in a natural language means. Again and again, something is missing.
+
+~ Claude
+No selection can hold the meaning of "can". Nouns, verbs, and adjectives form an open class of words, and speakers coin new ones all the time. Words like "if", "then", "can", "must", "not", "a", and "every" form a small closed class, and they carry the program: a condition, a permission, a negation. The model took "If" for a misspelling of "is". With that check switched off, it proposed the whole sentence, "if" and "can" included, as one wording of one concept. To give the closed class a meaning, Loom would need a fixed table of those words and a model of the states and actions they act on.
+
+~ Yegor
+All of this is impractical. It would work only if TypeScript, or any target language, could be expressed in natural language, so that general programs are valid prose.
+
+~ Claude
+Every system that took this road became a formal language with English keywords: COBOL, AppleScript, and Inform 7. William Cook, one of AppleScript's designers, later judged it easy to read and hard to write, because its author must know the exact forms it accepts. The model hit the same wall. It read John's paragraph in one pass, and writing that paragraph took two rounds of teaching. Dijkstra made the general case in his note "On the foolishness of natural language programming". The narrowness of a formal notation, he argued, is what makes it useful.
+
+::: {Conclusion}
+Sentences are not programs. A program's logic lives in the small closed class of words, and giving those words a meaning turns a dialect into a formal language with English keywords. Loom keeps Knuth's division of labour: prose explains to a person, code instructs the machine, and a loom keeps the two side by side.
+:::
+
+What the exploration leaves
+---
+
+~ Yegor
+Overall, this exploration produced some good ideas. Lexical forms can let a trope recognise its concepts automatically, within its scope. Fingerprints track stale references. A trope's scope is a good boundary for vocabulary. Concepts replace terms. Concepts are immutable, with optional contracts. A trope could still implement parts of category theory, to allow symbolic programming. Some tropes could allow expressions in boxes, such as a concept box with expressions in it, though that is only an experiment.
+
+::: {Conclusion}
+The exploration leaves five results:
+
+- Lexical forms let a trope recognise its concepts in prose, within the trope's scope, by the recognition the model built.
+- A fingerprint on every reference reports when the referenced section changes.
+- A trope's boundary is the scope of its vocabulary.
+- The `{Concept}` section replaces the Glossary trope's `{Term}`.
+- Concepts are immutable. A contract is optional: inside a book it is the code's type, and where a trope is published it is the manifest.
+
+Two experiments remain open to tropes. A trope may implement parts of category theory, so that a book can program symbolically. A trope may also allow expressions inside a box, such as a concept box that holds them.
+:::
