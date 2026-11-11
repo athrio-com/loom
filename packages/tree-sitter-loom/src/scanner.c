@@ -36,6 +36,7 @@ typedef struct {
   uint8_t quote_length;
   uint8_t quote_column;
   bool in_box;
+  bool discussion;
   uint8_t fenced_length;
   uint8_t fenced_column;
   bool awaiting_fence;
@@ -185,6 +186,35 @@ static uint32_t name_reach_of(const Line *line, uint32_t column) {
   return end < after ? 0 : (uint32_t)(end - after + 1);
 }
 
+static uint32_t skip_spaces(const Line *line, uint32_t at) {
+  while (at < line->head_length && is_space(line->head[at])) at++;
+  return at;
+}
+
+static uint32_t after_part(const Line *line, uint32_t at) {
+  if (!head_has(line, at, "Part") || at + 4 >= line->head_length ||
+      !is_space(line->head[at + 4]))
+    return at;
+  uint32_t name = skip_spaces(line, at + 4);
+  uint32_t end = name;
+  while (end < line->head_length && line->head[end] != ',' &&
+         line->head[end] != ':')
+    end++;
+  if (end == name || end >= line->head_length || line->head[end] != ',')
+    return at;
+  return skip_spaces(line, end + 1);
+}
+
+static bool names_discussion(const Line *line) {
+  uint32_t at = after_part(line, indent_of(line));
+  if (!head_has(line, at, "Discussion")) return false;
+  uint32_t end = at + 10;
+  if (end < line->head_length && line->head[end] == ':') return true;
+  if (end >= line->head_length || !is_space(line->head[end])) return false;
+  while (end < line->head_length && line->head[end] != ':') end++;
+  return end < line->head_length;
+}
+
 static enum TokenType prose_kind(Scanner *s, const Line *line,
                                  enum TokenType kind, enum Mode mode) {
   uint32_t column;
@@ -218,6 +248,7 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
       s->in_frontmatter = false;
       return FENCE_LINE;
     }
+    if (names_discussion(line)) s->discussion = true;
     return FIELD_LINE;
   }
 
@@ -276,6 +307,11 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
   if (is_divider(line)) {
     s->mode = PREAMBLE;
     return DIVIDER_LINE;
+  }
+
+  if (s->discussion) {
+    if (is_tilde(line)) return prose_kind(s, line, TILDE_LINE, PROSE);
+    return prose_kind(s, line, PROSE_LINE, s->mode == PREAMBLE ? PREAMBLE : PROSE);
   }
 
   switch (s->mode) {
@@ -376,8 +412,9 @@ unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
   buffer[9] = (char)s->fenced_column;
   buffer[10] = (char)s->awaiting_fence;
   buffer[11] = (char)s->mode;
-  memcpy(buffer + 12, &s->name_reach, sizeof(s->name_reach));
-  return 16;
+  buffer[12] = (char)s->discussion;
+  memcpy(buffer + 13, &s->name_reach, sizeof(s->name_reach));
+  return 17;
 }
 
 void tree_sitter_loom_external_scanner_deserialize(void *payload,
@@ -386,7 +423,7 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   Scanner *s = payload;
   memset(s, 0, sizeof(Scanner));
   s->at_line_start = true;
-  if (length < 16) return;
+  if (length < 17) return;
   s->at_line_start = buffer[0];
   s->started = buffer[1];
   s->seen_heading = buffer[2];
@@ -399,7 +436,8 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   s->fenced_column = (uint8_t)buffer[9];
   s->awaiting_fence = buffer[10];
   s->mode = (uint8_t)buffer[11];
-  memcpy(&s->name_reach, buffer + 12, sizeof(s->name_reach));
+  s->discussion = buffer[12];
+  memcpy(&s->name_reach, buffer + 13, sizeof(s->name_reach));
 }
 
 bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,

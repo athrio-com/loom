@@ -38,7 +38,7 @@ enum TokenType {
 
 ## What the scanner remembers
 
-The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, and whether the line sits in the frontmatter, a table of contents, or a box. A quote and fenced code each keep the length and column of the fence that opened them, as the classifier keeps a `Fence`, and a length of zero means none is open. `awaiting_fence` is the classifier's wait for a fence after an arrow. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
+The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, whether the line sits in the frontmatter, a table of contents, or a box, and whether the loom is a discussion. A quote and fenced code each keep the length and column of the fence that opened them, as the classifier keeps a `Fence`, and a length of zero means none is open. `awaiting_fence` is the classifier's wait for a fence after an arrow. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
 
 Two values are the scanner's own. `at_line_start` records that the last token ended a line, so the next token names the next line's kind. It keeps the scanner from naming the same line twice, because a zero-width token leaves the parser where it was. `name_reach` remembers where a box's name ends, from the moment the scanner classifies the line that opens the box until it reads the name. It counts the characters from the end of the colons to the name's last character, and zero means no name waits to be read.
 
@@ -55,6 +55,7 @@ typedef struct {
   uint8_t quote_length;
   uint8_t quote_column;
   bool in_box;
+  bool discussion;
   uint8_t fenced_length;
   uint8_t fenced_column;
   bool awaiting_fence;
@@ -236,11 +237,46 @@ static uint32_t name_reach_of(const Line *line, uint32_t column) {
   return end < after ? 0 : (uint32_t)(end - after + 1);
 }
 
+~
+
+A frontmatter field names a discussion the way the classifier's `namesDiscussion` reads it: the word `Discussion` after any indent, or after a part and a comma, as in `Part III, Discussion 2:`, then a colon, either straight after the word or after a number or a title. `names_discussion` reads that much off the line's head, which holds the start of any identity line a loom writes.
+
+=>
+
+static uint32_t skip_spaces(const Line *line, uint32_t at) {
+  while (at < line->head_length && is_space(line->head[at])) at++;
+  return at;
+}
+
+static uint32_t after_part(const Line *line, uint32_t at) {
+  if (!head_has(line, at, "Part") || at + 4 >= line->head_length ||
+      !is_space(line->head[at + 4]))
+    return at;
+  uint32_t name = skip_spaces(line, at + 4);
+  uint32_t end = name;
+  while (end < line->head_length && line->head[end] != ',' &&
+         line->head[end] != ':')
+    end++;
+  if (end == name || end >= line->head_length || line->head[end] != ',')
+    return at;
+  return skip_spaces(line, end + 1);
+}
+
+static bool names_discussion(const Line *line) {
+  uint32_t at = after_part(line, indent_of(line));
+  if (!head_has(line, at, "Discussion")) return false;
+  uint32_t end = at + 10;
+  if (end < line->head_length && line->head[end] == ':') return true;
+  if (end >= line->head_length || !is_space(line->head[end])) return false;
+  while (end < line->head_length && line->head[end] != ':') end++;
+  return end < line->head_length;
+}
+
 ## Classifying one line
 
 `classify_line` is the decision table of `probeWeft`, rule for rule. It returns the line's kind and leaves the state as the classifier's next state would be.
 
-The frontmatter comes first: a `---` on the first line opens it, and every line through the closing `---` is a field. A quote and a box come next. No line inside them opens anything until the quote or the box closes, and the mode follows what the classifier would record for such a line, prose after the first heading and preamble before it. Only the line `closes_box` accepts closes a box, so three colons with a name, or four colons, stay in its body, as the classifier keeps such a stray inside the box.
+The frontmatter comes first: a `---` on the first line opens it, and every line through the closing `---` is a field. A field that names a discussion marks the loom as one, for every line that follows. A quote and a box come next. No line inside them opens anything until the quote or the box closes, and the mode follows what the classifier would record for such a line, prose after the first heading and preamble before it. Only the line `closes_box` accepts closes a box, so three colons with a name, or four colons, stay in its body, as the classifier keeps such a stray inside the box.
 
 Every line starts with no box name to read. Only a line that opens a box gives `name_reach` a value.
 
@@ -263,6 +299,7 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
       s->in_frontmatter = false;
       return FENCE_LINE;
     }
+    if (names_discussion(line)) s->discussion = true;
     return FIELD_LINE;
   }
 
@@ -283,6 +320,8 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
   s->awaiting_fence = false;
 
   ::[Fenced code and the headings]
+
+  ::[The lines of a discussion]
 
   ::[The three modes]
 }
@@ -332,6 +371,17 @@ if (!s->seen_heading) return prose_kind(s, line, PROSE_LINE, PREAMBLE);
 if (is_divider(line)) {
   s->mode = PREAMBLE;
   return DIVIDER_LINE;
+}
+
+## The lines of a discussion
+
+A discussion holds no code, as the chapter "Discussions" describes, so the scanner reads its lines by the rules the classifier keeps for one, once the heading and the divider have had their turn. A tilde opens a message wherever it stands, since there is no code for it to close, so a tilde line is a tilde line in every mode, and the lines after it are prose. An arrow opens nothing, so its line is prose. Every line that is not a tilde line is prose, or preamble before the first message, and it may still open a quote or a box, as any line of prose may.
+
+=>
+
+if (s->discussion) {
+  if (is_tilde(line)) return prose_kind(s, line, TILDE_LINE, PROSE);
+  return prose_kind(s, line, PROSE_LINE, s->mode == PREAMBLE ? PREAMBLE : PROSE);
 }
 
 ## The three modes
@@ -454,7 +504,7 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
 
 ## Saving and restoring the state
 
-Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. Twelve of the state's values are small, so each takes one byte, and the reach of a box's name takes the four bytes after them. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
+Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. Thirteen of the state's values are small, so each takes one byte, and the reach of a box's name takes the four bytes after them. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
 
 =>
 
@@ -483,8 +533,9 @@ unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
   buffer[9] = (char)s->fenced_column;
   buffer[10] = (char)s->awaiting_fence;
   buffer[11] = (char)s->mode;
-  memcpy(buffer + 12, &s->name_reach, sizeof(s->name_reach));
-  return 16;
+  buffer[12] = (char)s->discussion;
+  memcpy(buffer + 13, &s->name_reach, sizeof(s->name_reach));
+  return 17;
 }
 
 void tree_sitter_loom_external_scanner_deserialize(void *payload,
@@ -493,7 +544,7 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   Scanner *s = payload;
   memset(s, 0, sizeof(Scanner));
   s->at_line_start = true;
-  if (length < 16) return;
+  if (length < 17) return;
   s->at_line_start = buffer[0];
   s->started = buffer[1];
   s->seen_heading = buffer[2];
@@ -506,7 +557,8 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   s->fenced_column = (uint8_t)buffer[9];
   s->awaiting_fence = buffer[10];
   s->mode = (uint8_t)buffer[11];
-  memcpy(&s->name_reach, buffer + 12, sizeof(s->name_reach));
+  s->discussion = buffer[12];
+  memcpy(&s->name_reach, buffer + 13, sizeof(s->name_reach));
 }
 
 bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,
