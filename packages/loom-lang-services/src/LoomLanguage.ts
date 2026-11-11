@@ -5,6 +5,7 @@ import type {
   DocumentSymbol,
   Diagnostic as LspDiagnostic,
   FoldingRange,
+  Hover,
   InlayHint,
   LanguageServicePlugin,
   LocationLink,
@@ -17,6 +18,7 @@ import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { SemanticTokenSchema } from '@athrio/loom-ast/LoomSymbol'
 import {
   defineLanguageService,
+  type FrameEdit,
   type FrameLocation,
   FrameQuery,
   type FrameQueryApi,
@@ -233,13 +235,16 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 const groupEdits = (
   frame: FrameQueryApi,
-  locations: ReadonlyArray<FrameLocation>,
+  locations: ReadonlyArray<FrameEdit>,
   newName: string,
 ): Record<string, TextEdit[]> =>
   Object.fromEntries(
-    Object.entries(Array.groupBy(locations, (location) => frame.uriOf(location.path).toString())).map(
-      ([uri, locs]) => [uri, locs.map((location) => ({ range: location.range, newText: newName }))],
-    ),
+    Object.entries(
+      Array.groupBy(locations, (location) => frame.uriOf(location.path).toString()),
+    ).map(([uri, locs]) => [
+      uri,
+      locs.map((location) => ({ range: location.range, newText: location.text ?? newName })),
+    ]),
   )
 
 const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
@@ -257,6 +262,21 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
       if (!decoded || decoded[1] !== 'root') return undefined
       const edits = frame.rename(frame.locationOf(decoded[0]), document.offsetAt(position))
       return edits.length === 0 ? undefined : { changes: groupEdits(frame, edits, newName) }
+    },
+  }),
+})
+
+const loomHover = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-hover',
+  capabilities: { hoverProvider: true },
+  create: (context) => ({
+    provideHover: (document, position): Hover | undefined => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const card = frame.hover(frame.locationOf(decoded[0]), document.offsetAt(position))
+      return card === undefined
+        ? undefined
+        : { contents: { kind: 'markdown', value: card.markdown }, range: card.range }
     },
   }),
 })
@@ -372,6 +392,7 @@ export const LoomLanguage = defineLanguageService({
         loomFixes(frame),
         loomDefinition(frame),
         loomReferences(frame),
+        loomHover(frame),
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),

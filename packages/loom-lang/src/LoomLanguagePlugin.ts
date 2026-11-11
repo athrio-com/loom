@@ -141,6 +141,8 @@ const frameQueryOver = (
     runtime.runSync(
       LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.references(path, offset))),
     ),
+  hover: (path, offset) =>
+    runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.hover(path, offset)))),
   rename: (path, offset) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.rename(path, offset)))),
   renameRange: (path, offset) =>

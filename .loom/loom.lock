@@ -70,6 +70,7 @@
     "packages/loom-lang/test/Box.test.ts",
     "packages/loom-lang/test/CapabilityTable.test.ts",
     "packages/loom-lang/test/ChapterBox.test.ts",
+    "packages/loom-lang/test/Concepts.test.ts",
     "packages/loom-lang/test/CrossFileAnchor.test.ts",
     "packages/loom-lang/test/DeclaredKinds.test.ts",
     "packages/loom-lang/test/Discussion.test.ts",

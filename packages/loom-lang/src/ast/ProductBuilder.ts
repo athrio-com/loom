@@ -14,6 +14,7 @@ import {
 } from '@athrio/loom-ast/LoomNode'
 import {
   type Catalogue,
+  conceptsCalled,
   type Location,
   type LoomModule,
   pathsTo,
@@ -59,8 +60,10 @@ import {
 import {
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CodeInConcept,
   CodeInProse,
   CompositionCycle,
+  ConceptWithoutCode,
   CrossLanguageAnchor,
   type Declaration,
   DuplicateName,
@@ -314,6 +317,7 @@ const buildSection =
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
+        codeInConcept(section, languageId),
       ],
       okHealth,
       withHealth,
@@ -419,6 +423,17 @@ const manifestOutsideTrope = (section: LoomSection): Health =>
   })
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
+
+const isConceptLanguage = (languageId: string): boolean => languageId === 'concept'
+
+const codeInConcept = (section: LoomSection, languageId: string): Health =>
+  isConceptLanguage(languageId)
+    ? pipe(
+        Array.filter(section.code, isArrow),
+        Array.map((weft) => faulty(CodeInConcept(), weft.arrow.position)),
+        Array.reduce(okHealth, withHealth),
+      )
+    : okHealth
 
 const codeInProse = (section: LoomSection, languageId: string): Health =>
   languageId === 'prose'
@@ -682,7 +697,12 @@ const localHealth = (
   host: string,
   label: Option.Option<Position>,
 ): Health =>
-  Match.value({ written: entry.written, sameLanguage: entry.language === host }).pipe(
+  Match.value({
+    concept: isConceptLanguage(entry.language),
+    written: entry.written,
+    sameLanguage: entry.language === host,
+  }).pipe(
+    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
     Match.orElse(() => settledHealth(name, at, label)),
@@ -776,9 +796,13 @@ const nameHealth = (
   const trails = trailsOf(catalogue, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
-      isMeant(ref)
-        ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
-        : unresolvedHealth(module, host, ref.name, ref.anchor),
+      Option.match(Array.head(conceptsCalled(catalogue, ref.name)), {
+        onSome: (concept) => faulty(ConceptWithoutCode({ name: concept.name.source }), ref.anchor),
+        onNone: () =>
+          isMeant(ref)
+            ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
+            : unresolvedHealth(module, host, ref.name, ref.anchor),
+      }),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(catalogue, module.path, trails))
@@ -841,10 +865,12 @@ const reachedHealth = (
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
+    concept: isConceptLanguage(code.languageId),
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
   }).pipe(
+    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
     Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),

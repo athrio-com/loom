@@ -8,6 +8,7 @@ import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorp
 import {
   catalogueOf,
   type Catalogue,
+  anchorTrails,
   bookTwinsOf,
   BoxNotice,
   boxNoticesIn,
@@ -17,8 +18,11 @@ import {
   corpusErrors,
   definitionAt,
   dependentsOf,
+  conceptRenameAt,
   hintsAt,
+  hoverAt,
   labelSlotAt,
+  linksOf,
   moduleDiagnostics,
   namesakesOf,
   reachable,
@@ -26,6 +30,7 @@ import {
   renameAt,
   renameRangeAt,
   navigationRangeAt,
+  pathsTo,
   refreshedSummaries,
   syncedSummaries,
   transitiveDependents,
@@ -35,6 +40,7 @@ import {
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  AmbiguousAnchor,
   DuplicateName,
   faultAt,
   faulty,
@@ -42,6 +48,7 @@ import {
   SpecifierUnknown,
   StaleSummary,
   UnopenedBook,
+  UnresolvedLink,
   UnwrittenLoom,
   UnsettledTrope,
   UnsettledModule,
@@ -65,7 +72,9 @@ import {
   type FrameCompletion,
   type FrameContract,
   type FrameBox,
+  type FrameEdit,
   type FrameHint,
+  type FrameHover,
   type FrameLocation,
   type FrameToken,
   type PromisedName,
@@ -133,6 +142,26 @@ const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray
       ).diagnostics,
   })
 
+const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Array.flatMap(linksOf(module), (link) => {
+    const trails = anchorTrails(catalogue, module.path, link)
+    return Array.match(trails, {
+      onEmpty: () =>
+        faulty(UnresolvedLink({ name: link.name.value }), link.name.position).diagnostics,
+      onNonEmpty: (all) =>
+        all.length === 1
+          ? []
+          : faulty(
+              AmbiguousAnchor({
+                name: link.name.value,
+                count: all.length,
+                paths: pathsTo(catalogue, module.path, all),
+              }),
+              link.name.position,
+            ).diagnostics,
+    })
+  })
+
 const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
   ...Option.match(bookTwinsOf(catalogue, module), {
     onNone: (): ReadonlyArray<Diagnostic> => [],
@@ -181,6 +210,7 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
     ...unusedSections(used, module),
     ...namesakeFaults(catalogue, module),
     ...bookFaults(catalogue, module),
+    ...linkFaults(catalogue, module),
     ...kindFaults(kinds, module),
     ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
@@ -969,15 +999,37 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+      hover: (path: Location, offset: number): Effect.Effect<FrameHover | undefined> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
-            Array.getSomes(
+            Option.getOrUndefined(
+              Option.flatMap(hoverAt({ modules }, path, offset), (card) =>
+                Option.map(
+                  frameLocationOf(modules, { path, position: card.position }),
+                  (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameEdit>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) => [
+            ...Array.getSomes(
               Array.map(renameAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
               ),
             ),
-          ),
+            ...Option.toArray(
+              Option.flatMap(conceptRenameAt({ modules }, path, offset), (rename) =>
+                Option.map(
+                  frameLocationOf(modules, { path: rename.kept.path, position: rename.kept.at }),
+                  (location): FrameEdit => ({ ...location, text: rename.kept.text }),
+                ),
+              ),
+            ),
+          ]),
         ),
 
       renameRange: (path: Location, offset: number): Effect.Effect<FrameLocation | undefined> =>

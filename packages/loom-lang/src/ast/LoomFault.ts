@@ -90,6 +90,9 @@ export type LoomFault = Data.TaggedEnum<{
   DividerAgainstCode: {}
   FileInDiscussion: {}
   CodeInProse: {}
+  CodeInConcept: {}
+  ConceptWithoutCode: { readonly name: string }
+  UnresolvedLink: { readonly name: string }
   ManifestOutsideTrope: {}
   TropeRefused: { readonly reason: string }
   UnrootedTrope: { readonly trope: string }
@@ -153,6 +156,9 @@ export const {
   DividerAgainstCode,
   FileInDiscussion,
   CodeInProse,
+  CodeInConcept,
+  ConceptWithoutCode,
+  UnresolvedLink,
   ManifestOutsideTrope,
   TropeRefused,
   UnrootedTrope,
@@ -422,6 +428,18 @@ export const describe = (fault: LoomFault): Note =>
     CodeInProse: () =>
       error(
         'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.',
+      ),
+    CodeInConcept: () =>
+      error(
+        'A concept holds no code. Quote this code in a fence, or move it to a section that realises the concept.',
+      ),
+    ConceptWithoutCode: ({ name }) =>
+      error(
+        `\`${name}\` is a concept, and a concept holds no code. Name the section whose code you mean.`,
+      ),
+    UnresolvedLink: ({ name }) =>
+      warning(
+        `Nothing is called \`${name}\`, so this link leads nowhere. Name a section, a chapter, or a form of a concept.`,
       ),
     ConclusionOutsideTopic: () =>
       error(

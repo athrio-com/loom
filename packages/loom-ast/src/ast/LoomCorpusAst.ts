@@ -19,7 +19,7 @@ import {
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
-import { boxOf, type LoomWeft } from '#ast/Weft'
+import { boxOf, type LoomWeft, type PreambleWeft, type ProseWeft, type TildeWeft } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
@@ -176,6 +176,8 @@ export type Catalogue = {
   readonly titles: TitleIndexes
   readonly chapters: ReadonlyArray<Chapter>
   readonly boxes: ReadonlyMap<Location, ReadonlyArray<BoxRef>>
+  readonly concepts: ReadonlyArray<ConceptRef>
+  readonly links: ReadonlySet<string>
 }
 
 export const catalogueOf = (modules: Modules): Catalogue => ({
@@ -187,6 +189,12 @@ export const catalogueOf = (modules: Modules): Catalogue => ({
       module.path,
       pointingBoxesOf(module),
     ]),
+  ),
+  concepts: Array.flatMap(Array.fromIterable(modules.values()), conceptsOf),
+  links: new Set(
+    Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+      Array.map(linksOf(module), (anchor) => linkKey(module.path, anchor)),
+    ),
   ),
 })
 
@@ -426,7 +434,10 @@ export const anchorTrails = (
   catalogue: Catalogue,
   from: Location,
   anchor: WarpAnchorToken,
-): ReadonlyArray<Trail> => trailsOf(catalogue, from, anchor.name.value)
+): ReadonlyArray<Trail> =>
+  catalogue.links.has(linkKey(from, anchor))
+    ? linkTrailsOf(catalogue, from, anchor.name.value)
+    : trailsOf(catalogue, from, anchor.name.value)
 
 export const sectionOf = (trail: Trail): Option.Option<SectionRef> =>
   placeSectionOf(Array.lastNonEmpty(trail).place)
@@ -815,6 +826,124 @@ const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<Corp
   ...Array.map(boxesPointingTo(catalogue, chapter), boxLocation),
   ...tropeValuesNaming(catalogue, (place) => namesChapter(chapter)(place)),
 ]
+
+export type ConceptForm = { readonly value: string; readonly position: Position }
+
+export type ConceptRef = {
+  readonly module: Location
+  readonly section: LoomSection
+  readonly name: { readonly source: string; readonly position: Position }
+  readonly forms: ReadonlyArray<ConceptForm>
+  readonly definition: string
+}
+
+export const isConceptSection = (section: LoomSection): boolean =>
+  section.heading.specifier?.label.value.toLowerCase() === 'concept'
+
+const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line.source.trim())
+
+const formItem = /^[-*]\s+(\S.*?)\s*$/
+
+const formsLineOf = (section: LoomSection): Option.Option<LoomWeft> =>
+  Array.findFirst(section.preamble, isFormsLine)
+
+const definitionLinesOf = (section: LoomSection): ReadonlyArray<LoomWeft> =>
+  pipe(
+    outsideBoxes(section.preamble),
+    Array.dropWhile((line) => line.source.trim() === ''),
+    Array.takeWhile((line) => line.source.trim() !== '' && !isFormsLine(line)),
+  )
+
+const definitionOf = (section: LoomSection): string => textOf(definitionLinesOf(section))
+
+const formOf = (line: LoomWeft): Option.Option<ConceptForm> =>
+  Option.map(Option.fromNullishOr(formItem.exec(line.source.trim())?.[1]), (value) => {
+    const start = line.position.start.offset + line.source.indexOf(value)
+    return {
+      value,
+      position: {
+        start: { line: line.position.start.line, offset: start },
+        end: { line: line.position.start.line, offset: start + value.length },
+      },
+    }
+  })
+
+const formsOf = (section: LoomSection): ReadonlyArray<ConceptForm> =>
+  pipe(
+    Array.findFirstIndex(section.preamble, isFormsLine),
+    Option.map((at) =>
+      Array.getSomes(
+        Array.map(
+          Array.takeWhile(Array.drop(section.preamble, at + 1), (line) =>
+            formItem.test(line.source.trim()),
+          ),
+          formOf,
+        ),
+      ),
+    ),
+    Option.getOrElse((): ReadonlyArray<ConceptForm> => []),
+  )
+
+const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
+  Array.getSomes(
+    Array.map(module.doc.sections, (section) =>
+      isConceptSection(section)
+        ? Option.map(Option.fromNullishOr(section.heading.title), (title): ConceptRef => ({
+            module: module.path,
+            section,
+            name: title,
+            forms: formsOf(section),
+            definition: definitionOf(section),
+          }))
+        : Option.none(),
+    ),
+  )
+
+const isProseLine = (weft: LoomWeft): weft is PreambleWeft | TildeWeft | ProseWeft =>
+  weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
+
+export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> =>
+  pipe(
+    [
+      ...module.doc.preamble,
+      ...Array.flatMap(module.doc.sections, (section): ReadonlyArray<LoomWeft> => [
+        ...section.preamble,
+        ...section.code,
+      ]),
+    ],
+    Array.filter(isProseLine),
+    Array.flatMap((weft) => weft.anchors),
+  )
+
+const linkKey = (path: Location, anchor: WarpAnchorToken): string =>
+  `${path}#${anchor.name.position.start.offset}`
+
+const conceptNames = (concept: ConceptRef): ReadonlyArray<string> => [
+  concept.name.source,
+  ...Array.map(concept.forms, (form) => form.value),
+]
+
+export const conceptsCalled = (catalogue: Catalogue, name: string): ReadonlyArray<ConceptRef> =>
+  Array.filter(catalogue.concepts, (concept) => Array.contains(conceptNames(concept), name))
+
+const conceptTrails = (catalogue: Catalogue, name: string): ReadonlyArray<Trail> =>
+  Array.map(conceptsCalled(catalogue, name), (concept): Trail => [
+    {
+      segment: whole(name),
+      place: Place.Section({ ref: { module: concept.module, section: concept.section } }),
+      numbered: false,
+      through: Option.none(),
+    },
+  ])
+
+const linkTrailsOf = (catalogue: Catalogue, from: Location, name: string): ReadonlyArray<Trail> =>
+  nearest([() => conceptTrails(catalogue, name), () => trailsOf(catalogue, from, name)])
+
+const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<ConceptRef> =>
+  Array.findFirst(
+    catalogue.concepts,
+    (concept) => concept.module === ref.module && concept.section === ref.section,
+  )
 
 export const reach = (
   seeds: ReadonlyArray<Location>,
@@ -1709,7 +1838,10 @@ export const renameAt = (
             warpReferences(module, path, offset, (anchor) => anchor.name.position),
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
-            placeNamesAt(corpus, path, offset, segmentPosition),
+            Option.match(conceptRenameAt(corpus, path, offset), {
+              onSome: (rename): ReadonlyArray<CorpusLocation> => [rename.heading],
+              onNone: () => placeNamesAt(corpus, path, offset, segmentPosition),
+            }),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
           Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
@@ -1745,6 +1877,81 @@ export const renameRangeAt = (
     navigationRangeAt(corpus, path, offset),
     () => renameAt(corpus, path, offset).length > 0,
   )
+
+export type CorpusHover = { readonly position: Position; readonly markdown: string }
+
+export type ConceptRename = { readonly heading: CorpusLocation; readonly kept: CorpusEdit }
+
+const conceptMentionedAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<ConceptRef> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.flatMap(mentionAt(catalogue, corpus.modules, path, offset), (mention) =>
+    mention.place._tag === 'Section' ? conceptAt(catalogue, mention.place.ref) : Option.none(),
+  )
+}
+
+const cardOf = (concept: ConceptRef): string =>
+  Array.join(
+    [
+      `**${concept.name.source}**`,
+      ...(concept.definition === '' ? [] : [concept.definition]),
+      ...(concept.forms.length === 0
+        ? []
+        : [
+            `Also: ${Array.join(
+              Array.map(concept.forms, (form) => form.value),
+              ', ',
+            )}`,
+          ]),
+    ],
+    '\n\n',
+  )
+
+export const hoverAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusHover> =>
+  Option.flatMap(conceptMentionedAt(corpus, path, offset), (concept) =>
+    Option.map(navigationRangeAt(corpus, path, offset), (range) => ({
+      position: range.position,
+      markdown: cardOf(concept),
+    })),
+  )
+
+const pointSpan = (point: Point): Position => ({ start: point, end: point })
+
+const keptNameOf = (concept: ConceptRef): CorpusEdit =>
+  Option.match(formsLineOf(concept.section), {
+    onSome: (line) => ({
+      path: concept.module,
+      at: pointSpan(contentEnd(line)),
+      text: `\n- ${concept.name.source}`,
+    }),
+    onNone: () => ({
+      path: concept.module,
+      at: pointSpan(
+        Option.getOrElse(
+          Option.map(Array.last(definitionLinesOf(concept.section)), contentEnd),
+          () => concept.section.heading.position.end,
+        ),
+      ),
+      text: `\n\nLexical forms:\n- ${concept.name.source}`,
+    }),
+  })
+
+export const conceptRenameAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<ConceptRename> =>
+  Option.map(conceptMentionedAt(corpus, path, offset), (concept) => ({
+    heading: { path: concept.module, position: concept.name.position },
+    kept: keptNameOf(concept),
+  }))
 
 export type CorpusHint = { readonly offset: number; readonly label: string }
 
