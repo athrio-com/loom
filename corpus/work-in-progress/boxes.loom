@@ -35,7 +35,7 @@ The loom may not exist yet. The box then leaves its loom to be settled: a refere
 
 Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the text of the discussion's conclusions. Each conclusion arrives as plain prose, without its box, because a box never holds another. The loom holds the summary's source, and the box holds a copy.
 
-A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost. The warning's fix copies the source into the box, and `loom refresh` refreshes every copy at once, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. Both kinds of box work this way already.
+A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost. The warning's fix copies the source into the box, and `loom refresh` refreshes every copy at once. Both kinds of box work this way already.
 
 The editor goes further and keeps a copy in step as the author types, through the language server, as the chapter "The language server" describes. An edit to a loom's summary reaches every box that copies it. An edit to a chapter box reaches its chapter's opening too. An edit to a discussion box goes nowhere, since the box's paragraphs come from several topics of the discussion, so the box stays a warning until its fix copies the summary back. The author can also open the box in a side panel, to edit the loom's opening without leaving the section, in an editor that can show one.
 

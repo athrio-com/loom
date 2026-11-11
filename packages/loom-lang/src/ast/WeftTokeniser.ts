@@ -39,10 +39,6 @@ import {
   boxKeys,
   type BoxNameToken,
   type BoxToken,
-  TocChapterTokenSchema,
-  TocDiscussionTokenSchema,
-  TocPartTokenSchema,
-  TocTitleTokenSchema,
   AnchorCloseTokenSchema,
   AnchorOpenTokenSchema,
   defaultAnchorDelims,
@@ -119,8 +115,6 @@ import {
   ProseWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
-  type TocWeft,
-  TocWeftSchema,
   nextBox,
 } from '@athrio/loom-ast/Weft'
 
@@ -184,7 +178,6 @@ const tokeniseWeft = (
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
     Match.when({ type: 'FenceWeft' }, (w) => tokeniseFence(w)),
     Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
-    Match.when({ type: 'TocWeft' }, (w) => tokeniseToc(w)),
     Match.when({ type: 'DividerWeft' }, (w) => w),
     Match.exhaustive,
   )
@@ -397,62 +390,6 @@ const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
     source: weft.source,
     health: okHealth,
   })
-
-const tocPartMarker = /^(#{1,6}\s+)(\S.*)$/
-const tocChapterMarker = /^(\s*)(\d+)(\.\s+)(\S.*)$/
-const tocDiscussionMarker = /^(\s*[-*]\s+)(.+?,\s*Discussion(?:\s+\S+)?)(:\s*)(\S.*)$/
-
-const tokeniseToc = (weft: TocWeft): LoomWeft => {
-  const line = weft.position.start.line
-  const base = weft.position.start.offset
-  const content = weft.source.replace(/\r?\n$/, '')
-
-  const part = tocPartMarker.exec(content)
-  if (part) {
-    const partSpan = trimSpan(part[2], base + part[1].length)
-    return TocWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      part: fieldToken(TocPartTokenSchema, line, partSpan),
-    })
-  }
-
-  const chapter = tocChapterMarker.exec(content)
-  if (chapter) {
-    const numStart = base + chapter[1].length
-    const numSpan = trimSpan(chapter[2], numStart)
-    const titleStart = numStart + chapter[2].length + chapter[3].length
-    const titleSpan = trimSpan(chapter[4], titleStart)
-    return TocWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      chapter: fieldToken(TocChapterTokenSchema, line, numSpan),
-      title: fieldToken(TocTitleTokenSchema, line, titleSpan),
-    })
-  }
-
-  const discussion = tocDiscussionMarker.exec(content)
-  if (discussion) {
-    const placeStart = base + discussion[1].length
-    const placeSpan = trimSpan(discussion[2], placeStart)
-    const titleStart = placeStart + discussion[2].length + discussion[3].length
-    return TocWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      discussion: fieldToken(TocDiscussionTokenSchema, line, placeSpan),
-      title: fieldToken(TocTitleTokenSchema, line, trimSpan(discussion[4], titleStart)),
-    })
-  }
-
-  return TocWeftSchema.make({
-    position: weft.position,
-    source: weft.source,
-    health: okHealth,
-  })
-}
 
 const codeProbe = Option.getOrThrow(getProbe(CodeTokenSchema))
 const proseProbe = Option.getOrThrow(getProbe(ProseTokenSchema))

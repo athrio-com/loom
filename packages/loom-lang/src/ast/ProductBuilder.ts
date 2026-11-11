@@ -158,7 +158,6 @@ const specifierLanguage = (
       onNone: () => defaultLang,
       onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
     })
-  if (id === 'toc') return 'prose'
   if (id === 'manifest') return 'json'
   return id
 }

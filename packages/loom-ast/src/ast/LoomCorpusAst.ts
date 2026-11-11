@@ -15,12 +15,10 @@ import {
   type ParameterValueToken,
   type PointingKind,
   tropeKind,
-  type TocPartToken,
-  type TocTitleToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
-import { boxOf, type LoomWeft, type TocWeft } from '#ast/Weft'
+import { boxOf, type LoomWeft } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
@@ -986,7 +984,6 @@ const sectionNames = (
   ...Option.match(chapterTitledBy(book, ref), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (chapter) => [
-      ...entriesNaming(book, modules, chapter),
       ...boxesNaming(book, chapter),
       ...tropeEntriesNaming(book, modules, chapter),
       ...rootedInNaming(book, modules, chapter),
@@ -1146,88 +1143,6 @@ const chapterTitleToken = (
     firstHeadingTitleOf(module),
   )
 
-const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
-  Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
-
-type PlacedEntry = {
-  readonly title: TocTitleToken
-  readonly part: Option.Option<PartRef>
-  readonly discussion: Option.Option<string>
-}
-
-const isBackMatter = (part: TocPartToken): boolean => part.value.trim() === 'Back matter'
-
-const discussionPlace = /^(?:Part\s+(\S+)|(.+?)),\s*Discussion(?:\s+(\S+))?$/
-
-const discussionAt = (book: Book, place: string, title: string): Option.Option<Chapter> =>
-  Option.flatMap(Option.fromNullishOr(discussionPlace.exec(place)), (match) => {
-    const [, numeral, partName, number] = match
-    return Array.findFirst(
-      book.chapters,
-      (chapter) =>
-        chapter.discussion &&
-        chapter.title === title &&
-        Option.match(Option.fromNullishOr(numeral), {
-          onSome: (wanted) => Option.contains(chapter.part.number, wanted),
-          onNone: () => Option.contains(chapter.part.name, partName ?? ''),
-        }) &&
-        Option.match(Option.fromNullishOr(number), {
-          onSome: (wanted) => Option.contains(chapter.number, wanted),
-          onNone: () => true,
-        }),
-    )
-  })
-
-const tocPartRef = (part: TocPartToken): PartRef =>
-  Option.match(Option.fromNullishOr(partNumberMarker.exec(part.value)), {
-    onNone: () => ({ number: Option.none(), name: Option.some(part.value.trim()) }),
-    onSome: (match) => ({
-      number: Option.fromNullishOr(match[1]),
-      name: Option.fromNullishOr(/[—–-]\s*(.+)$/.exec(part.value)?.[1]?.trim()),
-    }),
-  })
-
-const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
-  Array.flatMap(module.doc.sections, (section) =>
-    Array.getSomes(
-      Array.mapAccum(
-        section.entries ?? [],
-        Option.none<PartRef>(),
-        (part, entry): readonly [Option.Option<PartRef>, Option.Option<PlacedEntry>] =>
-          Option.match(Option.fromNullishOr(entry.part), {
-            onSome: (token) => [
-              isBackMatter(token) ? Option.none() : Option.some(tocPartRef(token)),
-              Option.none(),
-            ],
-            onNone: () => [
-              part,
-              Option.map(Option.fromNullishOr(entry.title), (title) => ({
-                title,
-                part,
-                discussion: Option.map(Option.fromNullishOr(entry.discussion), (d) => d.value),
-              })),
-            ],
-          }),
-      )[1],
-    ),
-  )
-
-const entryChapter = (book: Book, placed: PlacedEntry): Option.Option<Chapter> =>
-  Option.match(placed.discussion, {
-    onSome: (place) => discussionAt(book, place, placed.title.value),
-    onNone: () =>
-      Array.findFirst(
-        book.chapters,
-        (chapter) =>
-          !chapter.discussion &&
-          chapter.title === placed.title.value &&
-          Option.match(placed.part, {
-            onNone: () => true,
-            onSome: (part) => samePart(chapter.part, part),
-          }),
-      ),
-  })
-
 const chapterAt = (
   book: Book,
   modules: Modules,
@@ -1237,14 +1152,8 @@ const chapterAt = (
   Option.flatMap(Option.fromNullishOr(modules.get(path)), (module) =>
     pipe(
       Option.flatMap(
-        Array.findFirst(placedEntriesOf(module), (placed) => covers(placed.title.position, offset)),
-        (placed) => entryChapter(book, placed),
-      ),
-      Option.orElse(() =>
-        Option.flatMap(
-          Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
-          (ref) => boxTarget(book, ref),
-        ),
+        Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
+        (ref) => boxTarget(book, ref),
       ),
       Option.orElse(() =>
         Option.flatMap(
@@ -1286,27 +1195,6 @@ const chapterDefinitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   Option.flatMap(chapterAt(bookOf(corpus.modules), corpus.modules, path, offset), chapterLocation)
-
-const entriesNaming = (
-  book: Book,
-  modules: Modules,
-  chapter: Chapter,
-): ReadonlyArray<CorpusLocation> =>
-  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
-    pipe(
-      placedEntriesOf(module),
-      Array.filter((placed) =>
-        Option.exists(
-          entryChapter(book, placed),
-          (found) => found.module.path === chapter.module.path,
-        ),
-      ),
-      Array.map((placed): CorpusLocation => ({
-        path: module.path,
-        position: placed.title.position,
-      })),
-    ),
-  )
 
 const tropeEntriesNaming = (
   book: Book,
@@ -1354,7 +1242,6 @@ const chapterNames = (
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(chapterLocation(chapter)),
-  ...entriesNaming(book, modules, chapter),
   ...boxesNaming(book, chapter),
   ...tropeEntriesNaming(book, modules, chapter),
   ...rootedInNaming(book, modules, chapter),
@@ -1452,20 +1339,6 @@ const chapterNumbersAt = (
   })
 }
 
-export type UnresolvedEntry = { readonly title: TocTitleToken; readonly discussion: boolean }
-
-export const unresolvedTocEntriesIn = (
-  corpus: LoomCorpusAst,
-  module: LoomModule,
-): ReadonlyArray<UnresolvedEntry> => {
-  const book = bookOf(corpus.modules)
-  return pipe(
-    placedEntriesOf(module),
-    Array.filter((placed) => Option.isNone(entryChapter(book, placed))),
-    Array.map((placed) => ({ title: placed.title, discussion: Option.isSome(placed.discussion) })),
-  )
-}
-
 const partOpenerIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
   pipe(
     Array.fromIterable(modules.values()),
@@ -1504,23 +1377,10 @@ const frontmatterPartNumberAt = (module: LoomModule, offset: number): Option.Opt
     Option.map((part) => part.value),
   )
 
-const tocPartsOf = (module: LoomModule): ReadonlyArray<TocPartToken> =>
-  Array.getSomes(Array.map(tocEntriesOf(module), (entry) => Option.fromNullishOr(entry.part)))
-
-const partNumberMarker = /^Part\s+(\S+)/
-
-const tocPartNumberAt = (module: LoomModule, offset: number): Option.Option<string> =>
-  pipe(
-    Array.findFirst(tocPartsOf(module), (part) => covers(part.position, offset)),
-    Option.flatMap((part) => Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1])),
-  )
-
 const partNumberAt = (modules: Modules, path: Location, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
-    Option.flatMap((module) =>
-      Option.orElse(frontmatterPartNumberAt(module, offset), () => tocPartNumberAt(module, offset)),
-    ),
+    Option.flatMap((module) => frontmatterPartNumberAt(module, offset)),
   )
 
 const partDefinitionAt = (
@@ -1540,22 +1400,10 @@ const frontmatterPartLocations = (module: LoomModule, num: string): ReadonlyArra
     Option.toArray,
   )
 
-const tocPartLocations = (module: LoomModule, num: string): ReadonlyArray<CorpusLocation> =>
-  Array.getSomes(
-    Array.map(tocPartsOf(module), (part) =>
-      pipe(
-        Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1]),
-        Option.filter((n) => n === num),
-        Option.map(() => ({ path: module.path, position: part.position })),
-      ),
-    ),
-  )
-
 const partGroup = (modules: Modules, num: string): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(Option.fromNullishOr(partOpenerIndex(modules).get(num))),
   ...Array.flatMap(Array.fromIterable(modules.values()), (module) => [
     ...frontmatterPartLocations(module, num),
-    ...tocPartLocations(module, num),
   ]),
 ]
 
@@ -1582,10 +1430,10 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
+          Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
-          Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
+          Match.whenOr('frontmatterPart', 'frontmatterPartName', () =>
             partDefinitionAt(corpus, path, offset),
           ),
           Match.orElse(() => Option.none<CorpusLocation>()),
@@ -1617,11 +1465,11 @@ export const referencesAt = (
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
+          Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
-          Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
+          Match.whenOr('frontmatterPart', 'frontmatterPartName', () =>
             partGroupAt(corpus, path, offset),
           ),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
@@ -1652,7 +1500,7 @@ export const renameAt = (
             placeNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
+          Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>

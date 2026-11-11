@@ -13,7 +13,7 @@ Some questions take more than a paragraph to settle. An author argues them out w
 
 A discussion is a kind of loom, as a chapter is. A chapter explains code and composes it. A discussion holds no code. It is where a thought runs freely before any of it becomes a chapter, or where a question goes when a chapter raises more than its own prose can hold.
 
-Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". A box of the `Discussion` kind points to a discussion from a chapter, as the chapter "The multi-file AST" describes. The book lists its discussions in its back matter, and the weave gives each one a page, as the chapters "Generating the table of contents", "The woven corpus", and "The weave pass" describe. The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
+Loom already reads a discussion. Its identity line, its messages, its arrows read as prose, the fault for a mark that would write a file, and its topics with their conclusions are in the chapters "The leaf tokens", "The classifier stage", "The document builder", "The product pass", and "The multi-file AST". A box of the `Discussion` kind points to a discussion from a chapter, as the chapter "The multi-file AST" describes. The book lists its discussions in its back matter, and the weave gives each one a page, as the chapters "The contents of a book", "The woven corpus", and "The weave pass" describe. The author commits a discussion's changes, as for any loom. This chapter describes where a discussion sits in the book and on the woven page, and how a chapter points to one.
 
 ## Where a discussion sits
 
@@ -29,15 +29,7 @@ Discussions are numbered within their part, apart from its chapters, so opening 
 
 A discussion's file lives in a `discussions` folder inside its part's folder, as in `01-the-room/discussions/waking.loom`.
 
-A discussion belongs to the back matter of its book, which the chapter "Books" describes. The table of contents lists the back matter after the parts, under a heading of its own, and names each discussion by its place and its title:
-
-```
-### Back matter
-
-- Part I, Discussion 1: Waking
-```
-
-The place keeps two discussions with one title in two parts apart. The woven menu ends on the back matter, so each discussion opens a page of its own, as each chapter does.
+A discussion belongs to the back matter of its book, which the chapter "Books" describes. The book's contents list the back matter after the parts, as a part of its own, with the discussions ordered by their parts and their numbers. The woven menu ends on the back matter, so each discussion opens a page of its own, as each chapter does.
 
 In the tree of the book's names, a discussion sits under its part. A name finds a discussion wherever it would find a chapter.
 
@@ -414,28 +406,14 @@ describe('a topic and its conclusion', () => {
 
 ## The book's back matter
 
-The contents list a book's discussions after its parts, under a `Back matter` heading that names no part. Each entry names its discussion's place before the colon, and the parse reads the place and the title apart. The place and the title together find the discussion, so an entry whose place names no such discussion stays unresolved. An ordinary chapter entry never finds a discussion, even one with its title.
+The contents list a book's discussions after its parts, as a part of its own called `Back matter`, which names no part of the book. A book with no discussions has no back matter. The weave ends the menu on the back matter, and on a discussion's page each message opens with a byline that names its author, followed by the message's words.
 
-`loom toc` writes the back matter after the parts and keeps the paragraph the author wrote under its heading. A book with no discussions has no back matter. The weave ends the menu on the back matter, and on a discussion's page each message opens with a byline that names its author, followed by the message's words.
-
-The book here holds one part with one chapter, and one discussion with a signed message and an unsigned one. `unresolved` keeps only the faults of entries that find nothing.
+The book here opens on a front loom with no frontmatter, and holds one part with one chapter, and one discussion with a signed message and an unsigned one.
 
 =>
 
 describe("the book's back matter", () => {
-  const book = lines(
-    '# Contents {TOC}',
-    '',
-    '### Part I — Rooms',
-    '',
-    '1. Walls',
-    '',
-    '### Back matter',
-    '',
-    'What the book leaves open.',
-    '',
-    '- Part I, Discussion 1: Waking',
-  )
+  const book = lines('# Rooms', '', 'A book about rooms, and what wakes in them.')
   const walls = lines(
     '---',
     'Part I: Rooms',
@@ -463,66 +441,10 @@ describe("the book's back matter", () => {
   )
   const root = '/corpus/book.loom'
   const files = { [root]: book, '/corpus/walls.loom': walls, '/corpus/waking.loom': waking }
-  const unresolved = (sources: Record<string, string>) =>
-    diagnosed(sources, root).then((found) =>
-      found.filter((message) =>
-        message.endsWith('Run `loom toc` to bring the contents up to date.'),
-      ),
-    )
-
-  it("reads an entry's place and title apart", () => {
-    const entries = parse(book).sections.flatMap((section) => section.entries ?? [])
-    const entry = entries.find((one) => one.discussion !== undefined)
-    expect([entry?.discussion?.value, entry?.title?.value]).toEqual([
-      'Part I, Discussion 1',
-      'Waking',
-    ])
-  })
-
-  it('resolves an entry to the discussion its place and title name', async () => {
-    expect(await unresolved(files)).toEqual([])
-    const at = book.indexOf('Waking') + 1
-    const found = await compiled(files, (compiler) => compiler.definition(root, at))
-    expect(found?.path).toBe('/corpus/waking.loom')
-  })
-
-  it('leaves an entry unresolved when its place names no such discussion', async () => {
-    const wrong = { ...files, [root]: book.replace('Discussion 1', 'Discussion 2') }
-    expect(await unresolved(wrong)).toEqual([
-      'No discussion is titled `Waking`. Run `loom toc` to bring the contents up to date.',
-    ])
-  })
-
-  it('never resolves a chapter entry to a discussion', async () => {
-    const listed = { ...files, [root]: book.replace('1. Walls', '1. Walls\n2. Waking') }
-    expect(await unresolved(listed)).toEqual([
-      'No chapter is titled `Waking`. Run `loom toc` to bring the contents up to date.',
-    ])
-  })
-
-  it('writes the back matter after the parts, keeping its description', async () => {
-    expect(await compiled(files, (compiler) => compiler.contents(root))).toBe(book)
-    const bare = { ...files, [root]: lines('# Contents {TOC}', '', '1. Walls') }
-    expect(await compiled(bare, (compiler) => compiler.contents(root))).toBe(
-      lines(
-        '# Contents {TOC}',
-        '',
-        '### Part I — Rooms',
-        '',
-        '1. Walls',
-        '',
-        '### Back matter',
-        '',
-        '- Part I, Discussion 1: Waking',
-      ),
-    )
-  })
-
   it('writes no back matter for a book without discussions', async () => {
     const quiet = { [root]: book, '/corpus/walls.loom': walls }
-    expect(await compiled(quiet, (compiler) => compiler.contents(root))).toBe(
-      lines('# Contents {TOC}', '', '### Part I — Rooms', '', '1. Walls'),
-    )
+    const site = await compiled(quiet, (compiler) => compiler.weave(root))
+    expect(site.nav.map((part) => part.name)).toEqual(['Rooms'])
   })
 
   it('weaves the back matter as the last part of the menu', async () => {

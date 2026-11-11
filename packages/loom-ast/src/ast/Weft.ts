@@ -24,10 +24,6 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
-  TocChapterTokenSchema,
-  TocDiscussionTokenSchema,
-  TocPartTokenSchema,
-  TocTitleTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
 } from './LoomTokens'
@@ -95,14 +91,6 @@ export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
 })
 export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
 
-export const TocWeftSchema = loomNode('TocWeft', {
-  part: Schema.optional(TocPartTokenSchema),
-  chapter: Schema.optional(TocChapterTokenSchema),
-  discussion: Schema.optional(TocDiscussionTokenSchema),
-  title: Schema.optional(TocTitleTokenSchema),
-})
-export type TocWeft = typeof TocWeftSchema.Type
-
 export const DividerWeftSchema = loomNode('DividerWeft', {
   dashes: DividerTokenSchema,
 })
@@ -117,7 +105,6 @@ export const LoomWeftSchema = Schema.Union([
   CodeWeftSchema,
   FenceWeftSchema,
   FrontmatterWeftSchema,
-  TocWeftSchema,
   DividerWeftSchema,
 ])
 export type LoomWeft = typeof LoomWeftSchema.Type

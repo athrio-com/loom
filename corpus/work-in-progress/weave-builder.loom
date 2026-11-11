@@ -13,7 +13,7 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `bookOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The table-of-contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters and the back matter that lists the discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `bookOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters and the back matter that lists the discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
 
 =>
 
@@ -71,9 +71,9 @@ import { sectionLanguage } from '../ast/ProductBuilder'
 
 ## The builder and its spine
 
-`WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildCorpus` in an Effect so callers compose it like any other pass.
+`WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildCorpus` in an Effect so callers compose it like any other pass. It may name the loom the weave starts from, the root, which the section "A chapter's title" describes.
 
-`buildCorpus` is the spine. It reads the corpus once for the `Weaving` its pages draw on, projects the table of contents into the navigation tree, its back matter last, and its loose chapters, maps each chapter to its page, and pairs them into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
+`buildCorpus` is the spine. It reads the corpus once for the `Weaving` its pages draw on, projects the book's contents into the navigation tree, its back matter last, and its loose chapters, maps each chapter to its page, and pairs them into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
 
 Then it sorts. A corpus is a map, and a map hands back its values in the order they were put in — which is the order the loader finished reading them, not an order anyone chose. Left alone, the pages come out in whatever sequence the filesystem answered that morning, and a loader running alongside other work answers differently from one running by itself. The navigation is already in reading order, so the pages take theirs from it. A woven corpus is committed to a repository and read by a site that opens on its first page; it has to come out the same way twice.
 
@@ -81,22 +81,22 @@ Then it sorts. A corpus is a map, and a map hands back its values in the order t
 
 export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder', {
   make: Effect.succeed({
-    build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
-      Effect.sync(() => buildCorpus(corpus)),
+    build: (corpus: LoomCorpusAst, root?: Location): Effect.Effect<WovenCorpus> =>
+      Effect.sync(() => buildCorpus(corpus, root)),
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
-export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
+export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const weaving = weavingOf(corpus.modules)
-  const toc = buildContents(corpus)
-  const nav = [...Array.map(toc.parts, wovenPart), ...backMatterPart(toc.backMatter)]
-  const loose = Array.map(toc.loose, wovenEntry)
+  const contents = buildContents(corpus)
+  const nav = [...Array.map(contents.parts, wovenPart), ...backMatterPart(contents.backMatter)]
+  const loose = Array.map(contents.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
-    Array.getSomes(Array.map(modules, (module) => buildPage(module, weaving, partOfSlug))),
+    Array.getSomes(Array.map(modules, (module) => buildPage(module, weaving, partOfSlug, root))),
     Array.sort(inReadingOrder(navOrder(nav))),
   )
   return WovenCorpusSchema.make({ nav, loose, pages })
@@ -167,7 +167,7 @@ const sliceContent = (text: string, span: Span): string =>
 
 ## The navigation tree
 
-The navigation is the table of contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, the status and priority a board reads, and its language. `backMatterPart` turns the back matter into one more part, named `Back matter`, and `wovenDiscussion` gives each discussion an entry with its title and the slug its path opens. A book with no discussions has no back matter, so the tree ends on its last part. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows, and `navOrder` inverts it again into the position each slug holds. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
+The navigation is the book's contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, the status and priority a board reads, and its language. `backMatterPart` turns the back matter into one more part, named `Back matter`, and `wovenDiscussion` gives each discussion an entry with its title and the slug its path opens. A book with no discussions has no back matter, so the tree ends on its last part. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows, and `navOrder` inverts it again into the position each slug holds. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
 
 =>
 
@@ -231,12 +231,12 @@ const inReadingOrder = (order: ReadonlyMap<string, number>): Order.Order<WovenPa
 
 ## A chapter's title
 
-A page is titled from its loom. `chapterTitleOf` reads that title from the frontmatter, or from the first heading when the frontmatter declares none, so a work-in-progress loom with no membership still names its page. `firstHeadingTitle` finds that heading. `isBookRoot` marks the one module that carries the `{TOC}`, the contents itself, which is no chapter and so yields no page.
+A page is titled from its loom. `chapterTitleOf` reads that title from the frontmatter, or from the first heading when the frontmatter declares none, so a work-in-progress loom with no membership still names its page. `firstHeadingTitle` finds that heading. `isBookRoot` marks the root, the loom the weave starts from, when it declares no frontmatter. Such a loom opens the book with its title and its preface, as `book.loom` does, and it is no chapter, so it yields no page. A chapter handed to the weave declares its place in its frontmatter, so it still yields its page, and a weave that names no root yields a page for every loom.
 
 =>
 
-const isBookRoot = (module: LoomModule): boolean =>
-  Array.some(module.doc.sections, (section) => section.entries !== undefined)
+const isBookRoot = (module: LoomModule, root: Location | undefined): boolean =>
+  module.path === root && module.doc.frontmatter === undefined
 
 const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
   pipe(
@@ -253,7 +253,7 @@ const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
 
 ## A page and its blocks
 
-`buildPage` builds a chapter's page. Every module is a chapter except the book root, so a loom with no frontmatter title still yields a page, its title read from the first heading instead. The page takes its slug from its path, its title from `chapterTitleOf`, its part from the navigation tree — absent for a loose chapter — its frontmatter from the source text the frontmatter node covers, and its blocks from its sections.
+`buildPage` builds a chapter's page. Every module is a chapter except the root, so a loom with no frontmatter title still yields a page, its title read from the first heading instead. The page takes its slug from its path, its title from `chapterTitleOf`, its part from the navigation tree — absent for a loose chapter — its frontmatter from the source text the frontmatter node covers, and its blocks from its sections.
 
 `buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. Every block a section yields shares one `source` anchor, which `sectionSource` builds from the chapter's slug and the section's heading id — the pin back to the loom. `headingBlock` reads the heading's level from the count of its `#` marks, and a division's as the second, as Markdown reads a line underlined with dashes, and its title straight from the source. It marks the heading `unsettled` when the weaving holds its section among those to be settled, and a `divider` when a divider opened the section. Cutting the body into runs is the next section's work.
 
@@ -263,8 +263,9 @@ const buildPage = (
   module: LoomModule,
   weaving: Weaving,
   partOfSlug: ReadonlyMap<string, string>,
+  root: Location | undefined,
 ): Option.Option<WovenPage> =>
-  isBookRoot(module)
+  isBookRoot(module, root)
     ? Option.none()
     : Option.map(chapterTitleOf(module), (title): WovenPage => {
         const slug = slugFor(module.path)

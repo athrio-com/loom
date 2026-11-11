@@ -12,7 +12,7 @@ This mirrors how Volar already models the question. Volar's `CodeInformation` ma
 
 ## The kinds
 
-A `SymbolKind` names one class of token. A section's `headingTitle` is the name anchors resolve to. A `sectionAnchor` is a `::[Title]` reference to a section; a `warpAnchor` is a `::[name]` reference to a value warp declared in the same section. A `warpDef` is a `{{name = value}}` declaration. A `specifier` is a heading's `{Language}`, a `sink` its `[file]`. An `arrow` opens a code block and a `tilde` closes it. A `frontmatterTitle` is a chapter's name, the identity a table-of-contents entry resolves to. A `frontmatterPart` is the `Part N` a chapter belongs to — a reference to the part — and a `frontmatterPartName` is the part's name, announced once in the part's opening chapter. The chapter number, or a discussion's, is a `frontmatterMembership`, which an anchor may name in place of the title, so renumbering a chapter starts from it, and a `frontmatterValue` is the `Package` or `Language` a field binds. A `frontmatterEntry` is one name on a trope root's `Entries:` line, which navigates to the chapter that entry names, as a contents entry does, and a `frontmatterRootedIn` is the value of a `Rooted in:` line, which navigates to the trope chapter it names. In the table of contents, a `tocPart` is a part's heading, which navigates to where the part is announced, and a `tocEntry` is a chapter's line, which navigates to the chapter it names. A `divider` is the run of dashes that opens a division, and it colours as an arrow and a tilde do, since all three turn the loom from one stretch to the next. A `boxName` is the name a box carries after its colons, and a chapter box's name navigates to the chapter it points to, as a contents entry does. Everything else a person reads is `prose`.
+A `SymbolKind` names one class of token. A section's `headingTitle` is the name anchors resolve to. A `sectionAnchor` is a `::[Title]` reference to a section; a `warpAnchor` is a `::[name]` reference to a value warp declared in the same section. A `warpDef` is a `{{name = value}}` declaration. A `specifier` is a heading's `{Language}`, a `sink` its `[file]`. An `arrow` opens a code block and a `tilde` closes it. A `frontmatterTitle` is a chapter's name, the identity an anchor, a box or a trope's entry resolves to. A `frontmatterPart` is the `Part N` a chapter belongs to — a reference to the part — and a `frontmatterPartName` is the part's name, announced once in the part's opening chapter. The chapter number, or a discussion's, is a `frontmatterMembership`, which an anchor may name in place of the title, so renumbering a chapter starts from it, and a `frontmatterValue` is the `Package` or `Language` a field binds. A `frontmatterEntry` is one name on a trope root's `Entries:` line, which navigates to the chapter that entry names, and a `frontmatterRootedIn` is the value of a `Rooted in:` line, which navigates to the trope chapter it names. A `divider` is the run of dashes that opens a division, and it colours as an arrow and a tilde do, since all three turn the loom from one stretch to the next. A `boxName` is the name a box carries after its colons, and a chapter box's name navigates to the chapter it points to. Everything else a person reads is `prose`.
 
 =>
 
@@ -33,8 +33,6 @@ export const SymbolKindSchema = Schema.Literals([
   'frontmatterRootedIn',
   'frontmatterPart',
   'frontmatterPartName',
-  'tocPart',
-  'tocEntry',
   'boxName',
   'divider',
 ])
@@ -116,16 +114,6 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('frontmatterPartName', () =>
       profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
-    Match.when('tocPart', () =>
-      profile(Option.some('namespace'), { navigation: true, structure: true }),
-    ),
-    Match.when('tocEntry', () =>
-      profile(Option.some('namespace'), {
-        navigation: true,
-        structure: true,
-        verification: true,
-      }),
-    ),
     Match.when('divider', () => profile(Option.some('operator'), {})),
     Match.when('boxName', () =>
       profile(Option.some('namespace'), {
@@ -150,7 +138,7 @@ export interface Symbol {
 
 ## Classifying a document
 
-`symbolsOf` reads every symbol a document declares, in one pass. Every warp is a `warpDef`. An anchor is a `warpAnchor` when its name matches a warp in scope — the warps its section and the document preamble declare — and a `sectionAnchor` otherwise, since only a warp resolves within the section while a title resolves across the corpus. A heading contributes its title, specifier, and sink, and a division its dashes as well; a code block its arrow or tilde. The frontmatter contributes its title, its part, its field values, the names its `Entries:` line lists, and its `Rooted in:` value, a `{TOC}` section its parts and chapter entries, and a line that opens a box the box's name, which `boxSymbols` reads. `symbolAt` finds the symbol a cursor rests in, so navigation asks the table which kind it is before resolving.
+`symbolsOf` reads every symbol a document declares, in one pass. Every warp is a `warpDef`. An anchor is a `warpAnchor` when its name matches a warp in scope — the warps its section and the document preamble declare — and a `sectionAnchor` otherwise, since only a warp resolves within the section while a title resolves across the corpus. A heading contributes its title, specifier, and sink, and a division its dashes as well; a code block its arrow or tilde. The frontmatter contributes its title, its part, its field values, the names its `Entries:` line lists, and its `Rooted in:` value, and a line that opens a box the box's name, which `boxSymbols` reads. `symbolAt` finds the symbol a cursor rests in, so navigation asks the table which kind it is before resolving.
 
 =>
 
@@ -181,11 +169,6 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
     (name) => at('frontmatterEntry', name.position),
   ),
   ...optSymbol('frontmatterRootedIn', fm.rootedIn),
-]
-
-const tocSymbols = (weft: TocWeft): ReadonlyArray<Symbol> => [
-  ...optSymbol('tocPart', weft.part),
-  ...optSymbol('tocEntry', weft.title),
 ]
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
@@ -229,7 +212,6 @@ const sectionSymbols = (
     ...Array.map(anchors, (anchor) => at(anchorKind(scope, anchor), anchor.name.position)),
     ...Array.flatMap(section.code, delimiterOf),
     ...Array.flatMap([...section.preamble, ...section.code], boxSymbols),
-    ...Array.flatMap(section.entries ?? [], tocSymbols),
   ]
 }
 
@@ -256,7 +238,7 @@ export const symbolAt = (doc: LoomDocument, offset: number): Option.Option<Symbo
 
 ## What the module draws on
 
-From Effect come the composition combinators, `Match` for the exhaustive table and `Option` and `Array` for the classification pass. From the AST come the document, section, and frontmatter shapes the pass walks, and the token shapes it reads — the warp, the anchor, the heading's parts, and a toc weft — with `boxOf`, which reads the box a line carries. `Position` is a source span.
+From Effect come the composition combinators, `Match` for the exhaustive table and `Option` and `Array` for the classification pass. From the AST come the document, section, and frontmatter shapes the pass walks, and the token shapes it reads — the warp, the anchor, and the heading's parts — with `boxOf`, which reads the box a line carries. `Position` is a source span.
 
 =>
 
@@ -268,7 +250,7 @@ import {
   type LoomHeading,
   type LoomSection,
 } from '#ast/LoomAst'
-import { boxOf, type LoomWeft, type SectionBodyWeft, type TocWeft } from '#ast/Weft'
+import { boxOf, type LoomWeft, type SectionBodyWeft } from '#ast/Weft'
 import { type WarpAnchorToken, type WarpToken } from '#ast/LoomTokens'
 
 ## The module {Tangle}

@@ -52,22 +52,22 @@ import { sectionLanguage } from '../ast/ProductBuilder'
 
 export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder', {
   make: Effect.succeed({
-    build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
-      Effect.sync(() => buildCorpus(corpus)),
+    build: (corpus: LoomCorpusAst, root?: Location): Effect.Effect<WovenCorpus> =>
+      Effect.sync(() => buildCorpus(corpus, root)),
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
-export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
+export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const weaving = weavingOf(corpus.modules)
-  const toc = buildContents(corpus)
-  const nav = [...Array.map(toc.parts, wovenPart), ...backMatterPart(toc.backMatter)]
-  const loose = Array.map(toc.loose, wovenEntry)
+  const contents = buildContents(corpus)
+  const nav = [...Array.map(contents.parts, wovenPart), ...backMatterPart(contents.backMatter)]
+  const loose = Array.map(contents.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
-    Array.getSomes(Array.map(modules, (module) => buildPage(module, weaving, partOfSlug))),
+    Array.getSomes(Array.map(modules, (module) => buildPage(module, weaving, partOfSlug, root))),
     Array.sort(inReadingOrder(navOrder(nav))),
   )
   return WovenCorpusSchema.make({ nav, loose, pages })
@@ -180,8 +180,8 @@ const inReadingOrder = (order: ReadonlyMap<string, number>): Order.Order<WovenPa
     Order.mapInput(Order.String, (page: WovenPage) => page.slug),
   ])
 
-const isBookRoot = (module: LoomModule): boolean =>
-  Array.some(module.doc.sections, (section) => section.entries !== undefined)
+const isBookRoot = (module: LoomModule, root: Location | undefined): boolean =>
+  module.path === root && module.doc.frontmatter === undefined
 
 const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
   pipe(
@@ -200,8 +200,9 @@ const buildPage = (
   module: LoomModule,
   weaving: Weaving,
   partOfSlug: ReadonlyMap<string, string>,
+  root: Location | undefined,
 ): Option.Option<WovenPage> =>
-  isBookRoot(module)
+  isBookRoot(module, root)
     ? Option.none()
     : Option.map(chapterTitleOf(module), (title): WovenPage => {
         const slug = slugFor(module.path)

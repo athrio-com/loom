@@ -258,19 +258,7 @@ describe('a topic and its conclusion', () => {
 })
 
 describe("the book's back matter", () => {
-  const book = lines(
-    '# Contents {TOC}',
-    '',
-    '### Part I — Rooms',
-    '',
-    '1. Walls',
-    '',
-    '### Back matter',
-    '',
-    'What the book leaves open.',
-    '',
-    '- Part I, Discussion 1: Waking',
-  )
+  const book = lines('# Rooms', '', 'A book about rooms, and what wakes in them.')
   const walls = lines(
     '---',
     'Part I: Rooms',
@@ -298,66 +286,10 @@ describe("the book's back matter", () => {
   )
   const root = '/corpus/book.loom'
   const files = { [root]: book, '/corpus/walls.loom': walls, '/corpus/waking.loom': waking }
-  const unresolved = (sources: Record<string, string>) =>
-    diagnosed(sources, root).then((found) =>
-      found.filter((message) =>
-        message.endsWith('Run `loom toc` to bring the contents up to date.'),
-      ),
-    )
-
-  it("reads an entry's place and title apart", () => {
-    const entries = parse(book).sections.flatMap((section) => section.entries ?? [])
-    const entry = entries.find((one) => one.discussion !== undefined)
-    expect([entry?.discussion?.value, entry?.title?.value]).toEqual([
-      'Part I, Discussion 1',
-      'Waking',
-    ])
-  })
-
-  it('resolves an entry to the discussion its place and title name', async () => {
-    expect(await unresolved(files)).toEqual([])
-    const at = book.indexOf('Waking') + 1
-    const found = await compiled(files, (compiler) => compiler.definition(root, at))
-    expect(found?.path).toBe('/corpus/waking.loom')
-  })
-
-  it('leaves an entry unresolved when its place names no such discussion', async () => {
-    const wrong = { ...files, [root]: book.replace('Discussion 1', 'Discussion 2') }
-    expect(await unresolved(wrong)).toEqual([
-      'No discussion is titled `Waking`. Run `loom toc` to bring the contents up to date.',
-    ])
-  })
-
-  it('never resolves a chapter entry to a discussion', async () => {
-    const listed = { ...files, [root]: book.replace('1. Walls', '1. Walls\n2. Waking') }
-    expect(await unresolved(listed)).toEqual([
-      'No chapter is titled `Waking`. Run `loom toc` to bring the contents up to date.',
-    ])
-  })
-
-  it('writes the back matter after the parts, keeping its description', async () => {
-    expect(await compiled(files, (compiler) => compiler.contents(root))).toBe(book)
-    const bare = { ...files, [root]: lines('# Contents {TOC}', '', '1. Walls') }
-    expect(await compiled(bare, (compiler) => compiler.contents(root))).toBe(
-      lines(
-        '# Contents {TOC}',
-        '',
-        '### Part I — Rooms',
-        '',
-        '1. Walls',
-        '',
-        '### Back matter',
-        '',
-        '- Part I, Discussion 1: Waking',
-      ),
-    )
-  })
-
   it('writes no back matter for a book without discussions', async () => {
     const quiet = { [root]: book, '/corpus/walls.loom': walls }
-    expect(await compiled(quiet, (compiler) => compiler.contents(root))).toBe(
-      lines('# Contents {TOC}', '', '### Part I — Rooms', '', '1. Walls'),
-    )
+    const site = await compiled(quiet, (compiler) => compiler.weave(root))
+    expect(site.nav.map((part) => part.name)).toEqual(['Rooms'])
   })
 
   it('weaves the back matter as the last part of the menu', async () => {

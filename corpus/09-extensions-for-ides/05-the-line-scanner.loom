@@ -12,7 +12,7 @@ The scanner consumes nothing for a line's kind. Each kind is a zero-width token 
 
 ## The tokens it emits
 
-The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first fourteen name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A code fence line opens or closes fenced code. A verbatim line is inside a quote or opens one. A box line opens a box, a box body line sits inside it, and a box close line closes it. A divider line is a line of dashes that divides a chapter. The box name is the name on a line that opens a box. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
+The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first thirteen name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A code fence line opens or closes fenced code. A verbatim line is inside a quote or opens one. A box line opens a box, a box body line sits inside it, and a box close line closes it. A divider line is a line of dashes that divides a chapter. The box name is the name on a line that opens a box. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
 
 =>
 
@@ -25,7 +25,6 @@ enum TokenType {
   PROSE_LINE,
   CODE_LINE,
   CODE_FENCE_LINE,
-  TOC_LINE,
   VERBATIM_LINE,
   BOX_LINE,
   BOX_BODY_LINE,
@@ -38,7 +37,7 @@ enum TokenType {
 
 ## What the scanner remembers
 
-The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, whether the line sits in the frontmatter, a table of contents, or a box, and whether the loom is a discussion. A quote and fenced code each keep the length and column of the fence that opened them, as the classifier keeps a `Fence`, and a length of zero means none is open. `awaiting_fence` is the classifier's wait for a fence after an arrow. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
+The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, whether the line sits in the frontmatter or a box, and whether the loom is a discussion. A quote and fenced code each keep the length and column of the fence that opened them, as the classifier keeps a `Fence`, and a length of zero means none is open. `awaiting_fence` is the classifier's wait for a fence after an arrow. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
 
 Two values are the scanner's own. `at_line_start` records that the last token ended a line, so the next token names the next line's kind. It keeps the scanner from naming the same line twice, because a zero-width token leaves the parser where it was. `name_reach` remembers where a box's name ends, from the moment the scanner classifies the line that opens the box until it reads the name. It counts the characters from the end of the colons to the name's last character, and zero means no name waits to be read.
 
@@ -51,7 +50,6 @@ typedef struct {
   bool started;
   bool seen_heading;
   bool in_frontmatter;
-  bool in_toc;
   uint8_t quote_length;
   uint8_t quote_column;
   bool in_box;
@@ -65,9 +63,9 @@ typedef struct {
 
 ## Reading a line ahead
 
-The scanner must see a whole line to classify it. A `---` is a fence only when nothing but spaces follows it, a heading opens a contents section only when `{TOC}` appears somewhere along it, and a box's name stops short of braces only when the braces end the line. Tree-sitter lets a scanner read past the end of the token it returns, so the scanner marks the token's end where the line begins and then reads on to the line's end.
+The scanner must see a whole line to classify it. A `---` is a fence only when nothing but spaces follows it, and a box's name stops short of braces only when the braces end the line. Tree-sitter lets a scanner read past the end of the token it returns, so the scanner marks the token's end where the line begins and then reads on to the line's end.
 
-`peek_line` gathers what the markers need into a `Line`. It keeps the line's first characters in `head`, enough for every marker at the start of a line. It records the line's length, the index of its last character that is not a space, and whether `{TOC}` appeared, in any case. A character outside ASCII is stored as a placeholder no marker matches, and `\s` in the classifier's patterns becomes `is_space`.
+`peek_line` gathers what the markers need into a `Line`. It keeps the line's first characters in `head`, enough for every marker at the start of a line. It records the line's length and the index of its last character that is not a space. A character outside ASCII is stored as a placeholder no marker matches, and `\s` in the classifier's patterns becomes `is_space`.
 
 `peek_line` also follows the line's braces, the way the tokeniser's pattern `\{[^{}]*\}[ \t]*$` finds the braces that end a line. `brace_open` holds the last `{` that no other brace has followed yet. A `}` after it closes the pair, and `braces_close` records where. A `}` with no such `{` before it closes nothing, and `braces_close` drops back to -1. Beside them, `mark_before_open` and `mark_before_braces` keep the last character before each one's `{` that is not a space, so the scanner knows where a box's name ends when the braces end the line.
 
@@ -80,7 +78,6 @@ typedef struct {
   uint32_t head_length;
   uint32_t length;
   int32_t last_mark;
-  bool toc;
   int32_t brace_open;
   int32_t mark_before_open;
   int32_t braces_close;
@@ -91,13 +88,7 @@ static bool is_space(int32_t c) {
   return c == ' ' || c == '\t' || c == '\v' || c == '\f' || c == '\r';
 }
 
-static char lower(int32_t c) {
-  if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
-  return c < 128 ? (char)c : '\x01';
-}
-
 static void peek_line(TSLexer *lexer, Line *line) {
-  char window[5] = {0, 0, 0, 0, 0};
   memset(line, 0, sizeof(Line));
   line->last_mark = -1;
   line->brace_open = -1;
@@ -118,9 +109,6 @@ static void peek_line(TSLexer *lexer, Line *line) {
       line->brace_open = -1;
     }
     if (!is_space(c)) line->last_mark = at;
-    memmove(window, window + 1, 4);
-    window[4] = lower(c);
-    if (memcmp(window, "{toc}", 5) == 0) line->toc = true;
     line->length++;
     lexer->advance(lexer, false);
   }
@@ -328,7 +316,7 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
 
 ## Fenced code and the headings
 
-Fenced code outranks every rule after the inert regions. Inside it, the line that closes the fence is a code fence line that hands the next line to prose, and every other line is code, a `#` line included. A waiting arrow comes next: a fence on the first line after it that is not blank opens fenced code. A heading comes next. Inside a table of contents a deeper heading is a contents line, so only a top-level `#` closes the contents. Any other heading opens a section, and opens a table of contents when it bears `{TOC}`. Every line of a contents section is a contents line, and every line before the first heading is preamble. A divider comes last of these. Past the first heading, a line of dashes ends code or prose, as a heading does, and hands the next line to the preamble of its division.
+Fenced code outranks every rule after the inert regions. Inside it, the line that closes the fence is a code fence line that hands the next line to prose, and every other line is code, a `#` line included. A waiting arrow comes next: a fence on the first line after it that is not blank opens fenced code. A heading comes next, and it opens a section. Every line before the first heading is preamble. A divider comes last of these. Past the first heading, a line of dashes ends code or prose, as a heading does, and hands the next line to the preamble of its division.
 
 =>
 
@@ -355,15 +343,8 @@ if (awaiting) {
 
 if (is_heading(line)) {
   s->mode = PREAMBLE;
-  if (s->in_toc && hashes_of(line) > 1) return TOC_LINE;
   s->seen_heading = true;
-  s->in_toc = line->toc;
   return HEADING_LINE;
-}
-
-if (s->in_toc) {
-  s->mode = PREAMBLE;
-  return TOC_LINE;
 }
 
 if (!s->seen_heading) return prose_kind(s, line, PROSE_LINE, PREAMBLE);
@@ -504,7 +485,7 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
 
 ## Saving and restoring the state
 
-Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. Thirteen of the state's values are small, so each takes one byte, and the reach of a box's name takes the four bytes after them. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
+Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. Twelve of the state's values are small, so each takes one byte, and the reach of a box's name takes the four bytes after them. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
 
 =>
 
@@ -525,17 +506,16 @@ unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
   buffer[1] = (char)s->started;
   buffer[2] = (char)s->seen_heading;
   buffer[3] = (char)s->in_frontmatter;
-  buffer[4] = (char)s->in_toc;
-  buffer[5] = (char)s->quote_length;
-  buffer[6] = (char)s->quote_column;
-  buffer[7] = (char)s->in_box;
-  buffer[8] = (char)s->fenced_length;
-  buffer[9] = (char)s->fenced_column;
-  buffer[10] = (char)s->awaiting_fence;
-  buffer[11] = (char)s->mode;
-  buffer[12] = (char)s->discussion;
-  memcpy(buffer + 13, &s->name_reach, sizeof(s->name_reach));
-  return 17;
+  buffer[4] = (char)s->quote_length;
+  buffer[5] = (char)s->quote_column;
+  buffer[6] = (char)s->in_box;
+  buffer[7] = (char)s->fenced_length;
+  buffer[8] = (char)s->fenced_column;
+  buffer[9] = (char)s->awaiting_fence;
+  buffer[10] = (char)s->mode;
+  buffer[11] = (char)s->discussion;
+  memcpy(buffer + 12, &s->name_reach, sizeof(s->name_reach));
+  return 16;
 }
 
 void tree_sitter_loom_external_scanner_deserialize(void *payload,
@@ -544,21 +524,20 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   Scanner *s = payload;
   memset(s, 0, sizeof(Scanner));
   s->at_line_start = true;
-  if (length < 17) return;
+  if (length < 16) return;
   s->at_line_start = buffer[0];
   s->started = buffer[1];
   s->seen_heading = buffer[2];
   s->in_frontmatter = buffer[3];
-  s->in_toc = buffer[4];
-  s->quote_length = (uint8_t)buffer[5];
-  s->quote_column = (uint8_t)buffer[6];
-  s->in_box = buffer[7];
-  s->fenced_length = (uint8_t)buffer[8];
-  s->fenced_column = (uint8_t)buffer[9];
-  s->awaiting_fence = buffer[10];
-  s->mode = (uint8_t)buffer[11];
-  s->discussion = buffer[12];
-  memcpy(&s->name_reach, buffer + 13, sizeof(s->name_reach));
+  s->quote_length = (uint8_t)buffer[4];
+  s->quote_column = (uint8_t)buffer[5];
+  s->in_box = buffer[6];
+  s->fenced_length = (uint8_t)buffer[7];
+  s->fenced_column = (uint8_t)buffer[8];
+  s->awaiting_fence = buffer[9];
+  s->mode = (uint8_t)buffer[10];
+  s->discussion = buffer[11];
+  memcpy(&s->name_reach, buffer + 12, sizeof(s->name_reach));
 }
 
 bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,

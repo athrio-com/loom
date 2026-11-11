@@ -44,11 +44,11 @@
 
 ((specifier
   label: (label) @type)
-  (#not-any-of? @type "Tangle" "tangle" "TOC" "toc"))
+  (#not-any-of? @type "Tangle" "tangle"))
 
 ((specifier
   label: (label) @keyword)
-  (#any-of? @keyword "Tangle" "tangle" "TOC" "toc"))
+  (#any-of? @keyword "Tangle" "tangle"))
 
 (sink
   [

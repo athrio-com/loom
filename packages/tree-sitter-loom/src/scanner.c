@@ -14,7 +14,6 @@ enum TokenType {
   PROSE_LINE,
   CODE_LINE,
   CODE_FENCE_LINE,
-  TOC_LINE,
   VERBATIM_LINE,
   BOX_LINE,
   BOX_BODY_LINE,
@@ -32,7 +31,6 @@ typedef struct {
   bool started;
   bool seen_heading;
   bool in_frontmatter;
-  bool in_toc;
   uint8_t quote_length;
   uint8_t quote_column;
   bool in_box;
@@ -51,7 +49,6 @@ typedef struct {
   uint32_t head_length;
   uint32_t length;
   int32_t last_mark;
-  bool toc;
   int32_t brace_open;
   int32_t mark_before_open;
   int32_t braces_close;
@@ -62,13 +59,7 @@ static bool is_space(int32_t c) {
   return c == ' ' || c == '\t' || c == '\v' || c == '\f' || c == '\r';
 }
 
-static char lower(int32_t c) {
-  if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
-  return c < 128 ? (char)c : '\x01';
-}
-
 static void peek_line(TSLexer *lexer, Line *line) {
-  char window[5] = {0, 0, 0, 0, 0};
   memset(line, 0, sizeof(Line));
   line->last_mark = -1;
   line->brace_open = -1;
@@ -89,9 +80,6 @@ static void peek_line(TSLexer *lexer, Line *line) {
       line->brace_open = -1;
     }
     if (!is_space(c)) line->last_mark = at;
-    memmove(window, window + 1, 4);
-    window[4] = lower(c);
-    if (memcmp(window, "{toc}", 5) == 0) line->toc = true;
     line->length++;
     lexer->advance(lexer, false);
   }
@@ -291,15 +279,8 @@ static enum TokenType classify_line(Scanner *s, const Line *line) {
 
   if (is_heading(line)) {
     s->mode = PREAMBLE;
-    if (s->in_toc && hashes_of(line) > 1) return TOC_LINE;
     s->seen_heading = true;
-    s->in_toc = line->toc;
     return HEADING_LINE;
-  }
-
-  if (s->in_toc) {
-    s->mode = PREAMBLE;
-    return TOC_LINE;
   }
 
   if (!s->seen_heading) return prose_kind(s, line, PROSE_LINE, PREAMBLE);
@@ -404,17 +385,16 @@ unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
   buffer[1] = (char)s->started;
   buffer[2] = (char)s->seen_heading;
   buffer[3] = (char)s->in_frontmatter;
-  buffer[4] = (char)s->in_toc;
-  buffer[5] = (char)s->quote_length;
-  buffer[6] = (char)s->quote_column;
-  buffer[7] = (char)s->in_box;
-  buffer[8] = (char)s->fenced_length;
-  buffer[9] = (char)s->fenced_column;
-  buffer[10] = (char)s->awaiting_fence;
-  buffer[11] = (char)s->mode;
-  buffer[12] = (char)s->discussion;
-  memcpy(buffer + 13, &s->name_reach, sizeof(s->name_reach));
-  return 17;
+  buffer[4] = (char)s->quote_length;
+  buffer[5] = (char)s->quote_column;
+  buffer[6] = (char)s->in_box;
+  buffer[7] = (char)s->fenced_length;
+  buffer[8] = (char)s->fenced_column;
+  buffer[9] = (char)s->awaiting_fence;
+  buffer[10] = (char)s->mode;
+  buffer[11] = (char)s->discussion;
+  memcpy(buffer + 12, &s->name_reach, sizeof(s->name_reach));
+  return 16;
 }
 
 void tree_sitter_loom_external_scanner_deserialize(void *payload,
@@ -423,21 +403,20 @@ void tree_sitter_loom_external_scanner_deserialize(void *payload,
   Scanner *s = payload;
   memset(s, 0, sizeof(Scanner));
   s->at_line_start = true;
-  if (length < 17) return;
+  if (length < 16) return;
   s->at_line_start = buffer[0];
   s->started = buffer[1];
   s->seen_heading = buffer[2];
   s->in_frontmatter = buffer[3];
-  s->in_toc = buffer[4];
-  s->quote_length = (uint8_t)buffer[5];
-  s->quote_column = (uint8_t)buffer[6];
-  s->in_box = buffer[7];
-  s->fenced_length = (uint8_t)buffer[8];
-  s->fenced_column = (uint8_t)buffer[9];
-  s->awaiting_fence = buffer[10];
-  s->mode = (uint8_t)buffer[11];
-  s->discussion = buffer[12];
-  memcpy(&s->name_reach, buffer + 13, sizeof(s->name_reach));
+  s->quote_length = (uint8_t)buffer[4];
+  s->quote_column = (uint8_t)buffer[5];
+  s->in_box = buffer[6];
+  s->fenced_length = (uint8_t)buffer[7];
+  s->fenced_column = (uint8_t)buffer[8];
+  s->awaiting_fence = buffer[9];
+  s->mode = (uint8_t)buffer[10];
+  s->discussion = buffer[11];
+  memcpy(&s->name_reach, buffer + 12, sizeof(s->name_reach));
 }
 
 bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,

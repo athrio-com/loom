@@ -44,7 +44,7 @@ Language: TypeScript
 ---
 ```
 
-`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in. A chapter whose language is `Prose` holds prose and no code, so an arrow in it is an error, as it is in a section labelled `{Prose}`. These documentation pages are written that way.
+`Part` and `Chapter` place the chapter in the corpus, and they are what the navigation is built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in. A chapter whose language is `Prose` holds prose and no code, so an arrow in it is an error, as it is in a section labelled `{Prose}`. These documentation pages are written that way.
 
 ## Sections
 
@@ -75,12 +75,10 @@ A heading may also carry a label in braces, which says what Loom should make of 
 ```loom
 ## The module {Tangle}
 
-# Table of Contents {TOC}
-
 ## Installing it {Bash}
 ```
 
-`{Tangle}` marks the section that composes the one file its chapter names, so a chapter that writes a single file needs no bracket. A bracket alone is enough to name a file, and a heading never needs both. `{TOC}` marks the heading whose list of parts and chapters Loom keeps up to date. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document.
+`{Tangle}` marks the section that composes the one file its chapter names, so a chapter that writes a single file needs no bracket. A bracket alone is enough to name a file, and a heading never needs both. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document.
 
 ## Opening and closing code
 

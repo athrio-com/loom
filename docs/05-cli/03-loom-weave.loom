@@ -20,7 +20,7 @@ Because prose comes out as Markdown rather than as HTML, the site decides how to
 
 ## Point it at a file, not a directory
 
-Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or a spine — a file whose only job is to hold the table of contents — and it reads that file's directory and everything beneath it:
+Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or the loom that opens the book, and it reads that file's directory and everything beneath it:
 
 ```bash
 loom weave docs/index.loom docs.woven.json

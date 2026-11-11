@@ -61,7 +61,7 @@ Programs written to be read.
 Prose again.
 ````
 
-A heading can say where its code goes and what Loom should make of it. A file name in brackets is a sink, the file that section's code is written to. A word in braces is a specifier. `{Tangle}` writes a section to the file its chapter's `Package` line names, so a chapter that makes one file needs no sink. `{TOC}` marks the table of contents, and a language name such as `{Bash}` switches the section's language.
+A heading can say where its code goes and what Loom should make of it. A file name in brackets is a sink, the file that section's code is written to. A word in braces is a specifier. `{Tangle}` writes a section to the file its chapter's `Package` line names, so a chapter that makes one file needs no sink. A language name such as `{Bash}` switches the section's language.
 
 ```loom
 ## The module [greeting.ts]

@@ -215,18 +215,6 @@
           "members": [
             {
               "type": "SYMBOL",
-              "name": "toc"
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SYMBOL",
               "name": "preamble"
             },
             {
@@ -461,119 +449,6 @@
           }
         ]
       }
-    },
-    "toc": {
-      "type": "REPEAT1",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "SYMBOL",
-            "name": "_toc_line"
-          },
-          {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "CHOICE",
-                "members": [
-                  {
-                    "type": "SYMBOL",
-                    "name": "toc_part"
-                  },
-                  {
-                    "type": "SYMBOL",
-                    "name": "toc_chapter"
-                  },
-                  {
-                    "type": "SYMBOL",
-                    "name": "_toc_text"
-                  }
-                ]
-              },
-              {
-                "type": "BLANK"
-              }
-            ]
-          },
-          {
-            "type": "SYMBOL",
-            "name": "_newline"
-          }
-        ]
-      }
-    },
-    "toc_part": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "ALIAS",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_toc_part_marker"
-          },
-          "named": true,
-          "value": "heading_marker"
-        },
-        {
-          "type": "ALIAS",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_toc_text"
-          },
-          "named": true,
-          "value": "title"
-        }
-      ]
-    },
-    "toc_chapter": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "ALIAS",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_toc_number"
-          },
-          "named": true,
-          "value": "number"
-        },
-        {
-          "type": "ALIAS",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_toc_text"
-          },
-          "named": true,
-          "value": "title"
-        }
-      ]
-    },
-    "_toc_part_marker": {
-      "type": "TOKEN",
-      "content": {
-        "type": "PREC",
-        "value": 1,
-        "content": {
-          "type": "PATTERN",
-          "value": "#{1,6}[ \\t]+"
-        }
-      }
-    },
-    "_toc_number": {
-      "type": "TOKEN",
-      "content": {
-        "type": "PREC",
-        "value": 1,
-        "content": {
-          "type": "PATTERN",
-          "value": "[ \\t]*\\d+\\.[ \\t]+"
-        }
-      }
-    },
-    "_toc_text": {
-      "type": "PATTERN",
-      "value": "[^\\r\\n]+"
     },
     "preamble": {
       "type": "REPEAT1",
@@ -1578,10 +1453,6 @@
     {
       "type": "SYMBOL",
       "name": "_code_fence_line"
-    },
-    {
-      "type": "SYMBOL",
-      "name": "_toc_line"
     },
     {
       "type": "SYMBOL",

@@ -42,7 +42,6 @@ export type LoomFault = Data.TaggedEnum<{
     readonly host: string
     readonly found: string
   }
-  UnresolvedTocEntry: { readonly title: string; readonly discussion: boolean }
   UnclosedFence: { readonly fence: string }
   FenceLabelAgainstLanguage: { readonly label: string; readonly language: string }
   StrayFragment: { readonly value: string }
@@ -123,7 +122,6 @@ export const {
   SettledLabel,
   DuplicateName,
   CrossLanguageAnchor,
-  UnresolvedTocEntry,
   UnclosedFence,
   FenceLabelAgainstLanguage,
   StrayFragment,
@@ -313,10 +311,6 @@ export const describe = (fault: LoomFault): Note =>
     CrossLanguageAnchor: ({ name, host, found }) =>
       error(
         `\`${name}\` holds ${found} code, but this section holds ${host}. A section composes code of its own language only.`,
-      ),
-    UnresolvedTocEntry: ({ title, discussion }) =>
-      error(
-        `No ${discussion ? 'discussion' : 'chapter'} is titled \`${title}\`. Run \`loom toc\` to bring the contents up to date.`,
       ),
     StrayFragment: ({ value }) =>
       error(`This line has no place for \`${value}\`, so Loom would ignore it. Remove it.`),

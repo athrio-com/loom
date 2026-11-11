@@ -43,7 +43,7 @@ A canvas keeps its number and its title when it settles, so no reference changes
 ## What to work out
 
 - **A canvas's own files.** Whether `loom tangle` also warns when a canvas writes a file through a sink of its own, or warns only for anchors that reach it, is open.
-- **The table of contents.** How `book.loom` and the woven contents mark a canvas is open.
+- **The contents.** How the woven contents mark a canvas is open.
 - **The woven page.** Whether the woven book shows canvases to its readers, or keeps them for the authors, is open.
 - **Statuses beyond the canvas.** The work in progress uses `Status: Planned` today. Whether other statuses join `Canvas`, and what each one means, is open.
 
@@ -51,6 +51,6 @@ A canvas keeps its number and its title when it settles, so no reference changes
 
 1. `Status: Canvas` in the frontmatter of every chapter the editor opens from scratch, as a chapter opened from a box already carries it.
 2. The warning for an anchor that reaches a canvas from another chapter, in the editor and in `loom tangle`.
-3. The canvas's mark in the editor and in the table of contents.
+3. The canvas's mark in the editor and in the woven contents.
 
 When canvases warn in the editor and in the tangle, this chapter joins Part V, Tangling, and Part VI, In the editor.

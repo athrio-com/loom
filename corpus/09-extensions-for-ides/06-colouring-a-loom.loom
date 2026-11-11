@@ -111,7 +111,7 @@ A heading takes the heading colour of its level, from `@markup.heading.1` for a 
 
 ## Specifiers and sinks
 
-A specifier's label is a type, the language a section is written in. Two labels are not languages but instructions to Loom: `{Tangle}` writes the section to a file, and `{TOC}` makes the section a table of contents. Those two take the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets.
+A specifier's label is a type, the language a section is written in. One label is not a language but an instruction to Loom: `{Tangle}` writes the section to a file, so it takes the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets.
 
 =>
 
@@ -126,7 +126,7 @@ A specifier's label is a type, the language a section is written in. Two labels 
 
 ((specifier
   label: (label) @keyword.directive)
-  (#any-of? @keyword.directive "Tangle" "tangle" "TOC" "toc"))
+  (#any-of? @keyword.directive "Tangle" "tangle"))
 
 (sink
   [
@@ -239,7 +239,7 @@ A box's colons mark where the box opens and where it closes, as the frontmatter'
 
 ## Prose is Markdown
 
-Every run of prose is Markdown: a preamble, a prose block, the body of a box, and a table of contents. An editor leaves a node's children out of the text it injects. The children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see, and its boxes, whose lines of colons belong to Loom. A box's body is prose again, so it takes an injection of its own, and its anchors stay out of that one as well. A table of contents is the exception. Its part headings and chapter entries are nodes, but they are Markdown headings and list items as well, so the contents keep their children.
+Every run of prose is Markdown: a preamble, a prose block, and the body of a box. An editor leaves a node's children out of the text it injects. The children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see, and its boxes, whose lines of colons belong to Loom. A box's body is prose again, so it takes an injection of its own, and its anchors stay out of that one as well.
 
 =>
 
@@ -252,10 +252,6 @@ Every run of prose is Markdown: a preamble, a prose block, the body of a box, an
 ((box_body) @injection.content
   (#set! injection.language "markdown"))
 
-((toc) @injection.content
-  (#set! injection.language "markdown")
-  (#set! injection.include-children))
-
 ## A section's language
 
 Each code block is injected with its section's language, resolved by the rules of Part IV: the section's specifier, then its sink's extension, then the chapter's language. The sections below take the rules one at a time. Each pattern matches only where the rules before it do not apply, so a code block is injected once.
@@ -264,7 +260,7 @@ A pattern injects a block's `code_text` nodes, the text between its anchors, rat
 
 ## Named by a specifier
 
-A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case. Three labels are not languages: `{Tangle}` and `{TOC}` are instructions, and a `{Prose}` section is Markdown, which a pattern of its own injects. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
+A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case. Two labels are not languages: `{Tangle}` is an instruction, and a `{Prose}` section is Markdown, which a pattern of its own injects. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
 
 =>
 
@@ -381,7 +377,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     specifier: (specifier
       label: (label) @injection.language))
   (code [(code_text) @injection.content (anchor)]+)
-  (#not-match? @injection.language "^(Tangle|tangle|TOC|toc|Prose|prose)$")
+  (#not-match? @injection.language "^(Tangle|tangle|Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
 
 ((section

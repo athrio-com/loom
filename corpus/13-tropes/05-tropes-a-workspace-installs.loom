@@ -13,7 +13,7 @@ tropes:
   mermaid: {}
 ```
 
-The package gives each trope a folder named by its id, and the folder carries the trope's looms in a `looms` folder, the same looms the trope's own book holds. Loom reads only the tropes the configuration names, though the package holds them all. Loom reads them as it reads any loom, and gathers the kinds the trope's root declares. A book that installs the Mermaid trope may then write a `Mermaid` box in any of its looms. The trope's chapters stay outside the book's corpus all the same: they join no table of contents, no woven page, and no tangle of the book.
+The package gives each trope a folder named by its id, and the folder carries the trope's looms in a `looms` folder, the same looms the trope's own book holds. Loom reads only the tropes the configuration names, though the package holds them all. Loom reads them as it reads any loom, and gathers the kinds the trope's root declares. A book that installs the Mermaid trope may then write a `Mermaid` box in any of its looms. The trope's chapters stay outside the book's corpus all the same: they join neither the book's contents, nor its woven pages, nor its tangle.
 
 Reading a package waits on files, so Loom reads a workspace's installed tropes once, before the first judgement that needs them, and keeps what it read. Every later judgement looks the kinds up in memory, as it looks up the kinds the book's own tropes declare.
 

@@ -8,7 +8,7 @@ Language: TypeScript
 
 # Parameters in braces
 
-A specifier is the pair of braces after a heading's title, together with what they hold. Today a specifier holds one word, its label, such as `{Bash}` or `{TOC}`. The label names the language a section's code is written in, or the role the section plays, and the tokeniser reads it as one run of letters, digits, hyphens, and underscores.
+A specifier is the pair of braces after a heading's title, together with what they hold. Today a specifier holds one word, its label, such as `{Bash}` or `{Tangle}`. The label names the language a section's code is written in, or the role the section plays, and the tokeniser reads it as one run of letters, digits, hyphens, and underscores.
 
 Boxes and tropes ask a specifier to say more. A box names its kind and its parameters. A trope declares kinds of section and of anchor, each with parameters of its own, as the chapter "Tropes" describes. A trope for translations, say, marks the section a translation varies and the locale it is written for, and an anchor lists the names it expects its section to provide. This chapter gives specifiers one grammar, wherever they stand.
 

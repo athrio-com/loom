@@ -99,20 +99,6 @@ export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
 })
 export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
 
-## The table-of-contents weft
-
-A `TocWeft` is one line inside a `{TOC}` section: a part heading, a chapter entry, or a blank spacer. One weft kind covers them all, each filling the slots its line owns — a part line fills `part`; a chapter line fills `chapter` and `title`; a discussion's line in the back matter fills `discussion` and `title`; a blank line fills none. This mirrors the frontmatter weft, which carries its own line's parts in the same optional way. The classifier marks each line of the contents as a `TocWeft` so a part's `####` heading never opens a section and a chapter's list item never reads as prose, and the tokeniser settles the slots. The document builder gathers a `{TOC}` section's toc wefts as its entries.
-
-=>
-
-export const TocWeftSchema = loomNode('TocWeft', {
-  part: Schema.optional(TocPartTokenSchema),
-  chapter: Schema.optional(TocChapterTokenSchema),
-  discussion: Schema.optional(TocDiscussionTokenSchema),
-  title: Schema.optional(TocTitleTokenSchema),
-})
-export type TocWeft = typeof TocWeftSchema.Type
-
 ## The divider weft
 
 A `DividerWeft` is a line of dashes that divides a chapter, holding its `dashes`. A divider ends the section above it and opens a division, as a heading opens a section. The weft carries nothing from the line above it, because a weft spans one line. The document builder pairs a divider with its label, the line of prose directly above it, as the chapter "The document builder" describes.
@@ -139,7 +125,6 @@ export const LoomWeftSchema = Schema.Union([
   CodeWeftSchema,
   FenceWeftSchema,
   FrontmatterWeftSchema,
-  TocWeftSchema,
   DividerWeftSchema,
 ])
 export type LoomWeft = typeof LoomWeftSchema.Type
@@ -216,10 +201,6 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
-  TocChapterTokenSchema,
-  TocDiscussionTokenSchema,
-  TocPartTokenSchema,
-  TocTitleTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
 } from './LoomTokens'
@@ -235,8 +216,6 @@ import {
 ::[The body wefts]
 
 ::[The frontmatter weft]
-
-::[The table-of-contents weft]
 
 ::[The divider weft]
 

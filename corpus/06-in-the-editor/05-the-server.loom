@@ -566,7 +566,7 @@ One limit remains, and it concerns capabilities. The editor learns the server's 
 
 ## A chapter changes behind the editor's back
 
-The editor reports every change to a loom it has open, keystroke by keystroke. A chapter the editor has closed changes too, and nothing the editor does reports it. `git pull` and `git checkout` rewrite chapters, an agent edits them, and `loom toc` rewrites the book. An open loom still reads those chapters. Its anchors resolve against the sections a closed chapter holds, and its code imports the files a closed chapter tangles.
+The editor reports every change to a loom it has open, keystroke by keystroke. A chapter the editor has closed changes too, and nothing the editor does reports it. `git pull` and `git checkout` rewrite chapters, an agent edits them, and `loom refresh` rewrites the boxes that copy them. An open loom still reads those chapters. Its anchors resolve against the sections a closed chapter holds, and its code imports the files a closed chapter tangles.
 
 The compiler's build cache keeps every chapter the server has read, the closed ones included. Left alone, the server would answer from the text a closed chapter held when it first read it. An open loom's code would be checked against the types a closed chapter used to export, and go-to-definition would land where a section used to be.
 

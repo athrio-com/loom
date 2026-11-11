@@ -22,7 +22,6 @@ module.exports = grammar({
     $._prose_line,
     $._code_line,
     $._code_fence_line,
-    $._toc_line,
     $._verbatim_line,
     $._box_line,
     $._box_body_line,
@@ -61,7 +60,6 @@ module.exports = grammar({
     section: ($) =>
       seq(
         choice($.heading, $.divider),
-        optional($.toc),
         optional($.preamble),
         repeat(choice($.code, $.prose)),
       ),
@@ -95,23 +93,6 @@ module.exports = grammar({
 
     divider: ($) => seq($._divider_line, $.divider_marker, $._newline),
     divider_marker: (_) => token(seq(/---+/, /[ \t]*/)),
-
-    toc: ($) =>
-      repeat1(
-        seq(
-          $._toc_line,
-          optional(choice($.toc_part, $.toc_chapter, $._toc_text)),
-          $._newline,
-        ),
-      ),
-
-    toc_part: ($) =>
-      seq(alias($._toc_part_marker, $.heading_marker), alias($._toc_text, $.title)),
-    toc_chapter: ($) =>
-      seq(alias($._toc_number, $.number), alias($._toc_text, $.title)),
-    _toc_part_marker: (_) => token(prec(1, /#{1,6}[ \t]+/)),
-    _toc_number: (_) => token(prec(1, /[ \t]*\d+\.[ \t]+/)),
-    _toc_text: (_) => /[^\r\n]+/,
 
     preamble: ($) =>
       repeat1(

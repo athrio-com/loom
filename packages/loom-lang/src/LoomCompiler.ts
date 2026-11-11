@@ -28,7 +28,6 @@ import {
   refreshedSummaries,
   syncedSummaries,
   transitiveDependents,
-  unresolvedTocEntriesIn,
   type CorpusLocation,
   type LoomModule,
   type Location,
@@ -40,7 +39,6 @@ import {
   MissingSymbol,
   SpecifierUnknown,
   StaleSummary,
-  UnresolvedTocEntry,
   UnwrittenLoom,
   UnsettledTrope,
   UnsettledModule,
@@ -99,7 +97,6 @@ import { WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
-import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
 type Modules = ReadonlyMap<Location, LoomModule>
 
@@ -682,7 +679,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const disk = yield* LoomDiskCache
     const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
-    const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
     const packages = yield* Effect.serviceOption(LanguagePackages)
     const tropes = yield* Effect.serviceOption(TropePackages)
@@ -871,15 +867,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       weave: (path: Location): Effect.Effect<WovenCorpus> =>
-        buildCorpus(documents, path).pipe(Effect.flatMap((modules) => weaver.build({ modules }))),
-
-      contents: (path: Location): Effect.Effect<string> =>
         buildCorpus(documents, path).pipe(
-          Effect.flatMap((modules) =>
-            tocBuilder
-              .build({ modules })
-              .pipe(Effect.map((toc) => rewriteBook({ modules }, path, toc))),
-          ),
+          Effect.flatMap((modules) => weaver.build({ modules }, path)),
         ),
 
       summaries: (
@@ -931,20 +920,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
-                onSome: (module) => [
-                  ...corpusDiagnostics(modules, installed)(module),
-                  ...Array.flatMap(
-                    unresolvedTocEntriesIn({ modules }, module),
-                    (entry) =>
-                      faulty(
-                        UnresolvedTocEntry({
-                          title: entry.title.value,
-                          discussion: entry.discussion,
-                        }),
-                        entry.title.position,
-                      ).diagnostics,
-                  ),
-                ],
+                onSome: (module) => corpusDiagnostics(modules, installed)(module),
               }),
             ),
           ),
@@ -1170,13 +1146,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        LoomCorpusAstBuilder.layer,
-        LoomMemo.layer,
-        WeaveBuilder.layer,
-        TableOfContentsBuilder.layer,
-      ),
-    ),
+    Layer.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomMemo.layer, WeaveBuilder.layer)),
   )
 }

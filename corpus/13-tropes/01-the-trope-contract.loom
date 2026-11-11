@@ -17,7 +17,7 @@ A trope is a bounded cluster of chapters, or a single chapter. It may declare ki
 
 One chapter of the trope is its root, the home of the trope's contract. The root is a trope chapter, as `Part XIV, Trope Chapter 1: Mermaid` declares, and the trope takes the chapter's title for its name, so renaming the root renames the trope. A trope has one root. Every other chapter of the trope is a member, which names the trope with a `Rooted in:` line, as `Rooted in: Mermaid` would, and declares nothing to Loom. The chapters "The leaf tokens" and "The tokeniser stage" read both lines. The root may list the trope's entries on an `Entries:` line: the chapters that a chapter outside the trope may reach.
 
-The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` and `{TOC}` are. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. A manifest belongs on the trope's root, so a manifest in any loom that is no trope chapter belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
+The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` is. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. A manifest belongs on the trope's root, so a manifest in any loom that is no trope chapter belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
 
 ```
 ---

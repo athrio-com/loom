@@ -72,7 +72,7 @@
 
 ((specifier
   label: (label) @keyword.directive)
-  (#any-of? @keyword.directive "Tangle" "tangle" "TOC" "toc"))
+  (#any-of? @keyword.directive "Tangle" "tangle"))
 
 (sink
   [

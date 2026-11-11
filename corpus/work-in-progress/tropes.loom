@@ -200,7 +200,7 @@ A kind also follows rules from a fixed list:
 - **Contents.** A kind of loom names the kinds of section it holds.
 - **Data.** A kind may make its sections data.
 
-A data section stays in its loom and in the tree, and the editor shows and checks it. It opens no branch of the book, though. The sections after it nest as if it were not there, it takes no number and no line in the table of contents, and neither the tangle nor the weave reads it. A trope declares data for text that a program of its own reads from the loom later, such as the translations a website shows each reader in their locale.
+A data section stays in its loom and in the tree, and the editor shows and checks it. It opens no branch of the book, though. The sections after it nest as if it were not there, it takes no number and no place in the book's contents, and neither the tangle nor the weave reads it. A trope declares data for text that a program of its own reads from the loom later, such as the translations a website shows each reader in their locale.
 
 A kind of box also declares its body. A body holds prose, or text in a format the kind names: a diagram's source, a command, or data such as YAML or JSON. A data body comes with a schema, a JSON Schema file that the trope ships and the manifest names. A trope for research notebooks declares such a box for the datasets a notebook reads:
 
@@ -225,7 +225,7 @@ The kinds a trope declares form an edit of Loom's language: core Loom, plus thes
 
 Loom applies what tropes declare without running any trope. When a workspace opens, before the language server answers the editor's `initialize` request, Loom finds every `Trope` loom, in the corpus and in the packages of the workspace's store. It composes each one's manifest and decodes it. It gathers the declared kinds into the registry: a table of kinds for each of looms, sections, boxes, and anchors, beside a table of the parameters any heading may carry. Reading the packages' looms, and the schemas the manifests name, waits on files, so Loom reads them once, ahead of every request, as `DocumentSource` keeps each loom's text ahead of the editor's requests.
 
-Two tropes that declare one kind cannot both decide what it means. Loom refuses the second trope and reports it, as it reports a manifest that fails to decode. A trope that declares one of the core's own kinds, such as `Tangle` or `TOC`, is refused the same way.
+Two tropes that declare one kind cannot both decide what it means. Loom refuses the second trope and reports it, as it reports a manifest that fails to decode. A trope that declares one of the core's own kinds, such as `Tangle` or `Manifest`, is refused the same way.
 
 On every keystroke, Loom's own code applies the registry. It parses the loom, looks each kind up in the registry, and follows the kind's rules. Each step is a lookup in memory followed by code of Loom's own, and nothing in it waits on a file, the network, or a trope. So the step fits inside the hooks where Volar, the framework under Loom's editor support, builds a loom's embedded code. Those hooks, `createVirtualCode` and `updateVirtualCode`, must return at once and cannot wait for anything.
 
