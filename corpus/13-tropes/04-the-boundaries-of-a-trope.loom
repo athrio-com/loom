@@ -81,7 +81,7 @@ export type Boundaries = {
 
 ## Reading the tropes
 
-`nodeOf` builds a trope's node from its root, and `parentOf` reads the trope a root is rooted in. Each name on the root's `Entries:` line leads to a chapter through the corpus's own `tropeEntryModuleOf`, which resolves the name as an anchor's name resolves. A root with no `Entries:` line has itself for its only entry.
+`nodeOf` builds a trope's node from its root, and `parentOf` reads the trope a root is rooted in. Each name on the root's `Entries:` line leads to a chapter through the corpus's own `tropeEntryModuleOf`, which resolves the name as an anchor's name resolves in the root's loom. A root with no `Entries:` line has itself for its only entry.
 
 `chainOf` walks from a trope to the tropes it nests in, through each parent in turn. It stops at a trope it has already passed, so tropes rooted in each other in a loop give a chain that ends rather than one that runs forever.
 
@@ -94,7 +94,7 @@ const nodeOf = (catalogue: Catalogue, trope: Trope, root: LoomModule): TropeNode
   const names = Option.fromNullishOr(root.doc.frontmatter?.entries)
   const listed = Array.map(
     Option.getOrElse(names, () => []),
-    (name): Listed => ({ name, chapter: tropeEntryModuleOf(catalogue, name.value) }),
+    (name): Listed => ({ name, chapter: tropeEntryModuleOf(catalogue, root.path, name.value) }),
   )
   return {
     name: trope.name,

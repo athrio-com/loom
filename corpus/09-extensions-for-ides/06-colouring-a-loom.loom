@@ -14,9 +14,9 @@ The capture names follow the list nvim-treesitter keeps. Helix shares every name
 
 ## The frontmatter's colours
 
-The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Part` or `Chapter` line names a title, so its value is a heading, the way the headings below it are. A `Package` names a file or a folder, so its value is a path, as a sink's file is. A `Language` names a language, so its value is a type, as a specifier's label is. Any other field's value is a string.
+The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Part` or `Chapter` line names a title, so its value is a heading, the way the headings below it are. A `Book` line names a book, whose title is a heading too. A `Package` names a file or a folder, so its value is a path, as a sink's file is. A `Language` names a language, so its value is a type, as a specifier's label is. Any other field's value is a string.
 
-The patterns tell the fields apart by their keys. A `Part` key may carry a chapter as well, `Part III, Chapter 2`, so the two title keys match by the word they start with. The patterns use only a plain prefix and exact names, because Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and only the plainest patterns mean the same to both. The last pattern excludes the four keys the others claim, so no value takes two colours.
+The patterns tell the fields apart by their keys. A `Part` key may carry a chapter as well, `Part III, Chapter 2`, so the two title keys match by the word they start with. The patterns use only a plain prefix and exact names, because Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and only the plainest patterns mean the same to both. The last pattern excludes the five keys the others claim, so no value takes two colours.
 
 The key takes a colour of its own, in a section of its own, because the name of that colour is the one Helix spells differently.
 
@@ -39,6 +39,11 @@ The key takes a colour of its own, in a section of its own, because the name of 
 
 ((field
   key: (key) @_key
+  value: (value) @markup.heading)
+  (#eq? @_key "Book"))
+
+((field
+  key: (key) @_key
   value: (value) @string.special.path)
   (#eq? @_key "Package"))
 
@@ -52,6 +57,7 @@ The key takes a colour of its own, in a section of its own, because the name of 
   value: (value) @string)
   (#not-match? @_key "^Part")
   (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Book")
   (#not-eq? @_key "Package")
   (#not-eq? @_key "Language"))
 

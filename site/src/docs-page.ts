@@ -8,6 +8,7 @@ import {
   PickedRuntime,
   SelectedSection,
   type Block,
+  type Book,
   type Chapter,
   type CodeBlock,
   type CodeLink,
@@ -54,13 +55,33 @@ export const firstSlugOf = (corpus: Corpus): string =>
 const pageOf = (corpus: Corpus, slug: string): Option.Option<Page> =>
   Array.findFirst(corpus.pages, (page) => page.slug === slug)
 
-const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
-  Array.findFirst(corpus.nav, (part) =>
-    Array.some(part.chapters, (chapter) => chapter.slug === slug),
-  )
+const booksOf = (corpus: Corpus): ReadonlyArray<Book> =>
+  Option.getOrElse(Option.fromNullishOr(corpus.books), (): ReadonlyArray<Book> => [])
 
-const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> =>
-  Array.flatMap(corpus.nav, (part) => part.chapters)
+const partsOf = (corpus: Corpus): ReadonlyArray<Part> => [
+  ...corpus.nav,
+  ...Array.flatMap(booksOf(corpus), (book) => book.nav),
+]
+
+const holds = (parts: ReadonlyArray<Part>, slug: string): boolean =>
+  Array.some(parts, (part) => Array.some(part.chapters, (chapter) => chapter.slug === slug))
+
+const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
+  Array.findFirst(partsOf(corpus), (part) => holds([part], slug))
+
+const bookAt = (corpus: Corpus, slug: string): Option.Option<Book> =>
+  Array.findFirst(booksOf(corpus), (book) => book.slug === slug || holds(book.nav, slug))
+
+const openingOf = (book: Book): ReadonlyArray<Chapter> =>
+  book.slug === '' ? [] : [{ number: '', title: book.name, slug: book.slug }]
+
+const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
+  ...Array.flatMap(corpus.nav, (part) => part.chapters),
+  ...Array.flatMap(booksOf(corpus), (book) => [
+    ...openingOf(book),
+    ...Array.flatMap(book.nav, (part) => part.chapters),
+  ]),
+]
 
 const readable = (slug: string): string =>
   pipe(
@@ -82,7 +103,7 @@ export const docsChapterAt = (pathname: string): Option.Option<string> =>
 
 export const sliceOf = (corpus: Corpus, slug: string): Corpus => {
   const shown = slug === '' ? firstSlugOf(corpus) : slug
-  return { nav: corpus.nav, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
+  return { ...corpus, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
 }
 
 type Section = {
@@ -590,6 +611,17 @@ const breadcrumb = (
       crumbLink(root, base, firstSlugOf(corpus), h),
       h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
       ...pipe(
+        bookAt(corpus, page.slug),
+        Option.filter((book) => book.slug !== page.slug),
+        Option.map((book) => [
+          book.slug === ''
+            ? h.span([h.Class('crumb')], [book.name])
+            : crumbLink(book.name, chapterPath(base, book.slug), book.slug, h),
+          h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
+        ]),
+        Option.getOrElse((): ReadonlyArray<Html> => []),
+      ),
+      ...pipe(
         partOf(corpus, page.slug),
         Option.flatMap((part) =>
           Option.map(Array.head(part.chapters), (first) => [
@@ -942,8 +974,8 @@ const menuGroups = (
   base: string,
   markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  Array.map(corpus.nav, (part) =>
+): ReadonlyArray<Html> => {
+  const partGroup = (part: Part): Html =>
     h.div(
       [h.Class('menu-part')],
       [
@@ -952,8 +984,25 @@ const menuGroups = (
           chapterRows(chapter, page, cut, active, base, markFor, h),
         ),
       ],
+    )
+  const bookName = (book: Book): Html =>
+    book.slug === ''
+      ? h.span([h.Class('menu-book-name')], [book.name])
+      : h.a(
+          [
+            h.Class(book.slug === page.slug ? 'menu-book-name here' : 'menu-book-name'),
+            h.Href(chapterPath(base, book.slug)),
+            h.OnClick(OpenedChapter({ slug: book.slug })),
+          ],
+          [book.name],
+        )
+  return [
+    ...Array.map(corpus.nav, partGroup),
+    ...Array.map(booksOf(corpus), (book) =>
+      h.div([h.Class('menu-book')], [bookName(book), ...Array.map(book.nav, partGroup)]),
     ),
-  )
+  ]
+}
 
 const menu = (
   corpus: Corpus,

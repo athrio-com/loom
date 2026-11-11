@@ -1176,6 +1176,9 @@ const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, 
       ),
     ),
     Match.tag('Box', () => Result.fail(Referred.Unsettled({ declared: true }))),
+    Match.tag('Book', () =>
+      Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+    ),
     Match.tag('Part', () =>
       Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
     ),

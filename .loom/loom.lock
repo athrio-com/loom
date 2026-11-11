@@ -66,6 +66,7 @@
     "packages/loom-lang/src/weave/TableOfContentsBuilder.ts",
     "packages/loom-lang/src/weave/WeaveBuilder.ts",
     "packages/loom-lang/src/weave/WovenCorpus.ts",
+    "packages/loom-lang/test/Books.test.ts",
     "packages/loom-lang/test/Box.test.ts",
     "packages/loom-lang/test/CapabilityTable.test.ts",
     "packages/loom-lang/test/ChapterBox.test.ts",

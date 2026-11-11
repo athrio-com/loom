@@ -1,0 +1,492 @@
+---
+Part II, Chapter 7: Books
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# Books
+
+A corpus holds the looms of one workspace, and most corpora tell one story: the command line, the library, or the game the workspace builds. Loom's own corpus works this way, with `corpus/book.loom` opening its one book.
+
+A repository often holds more than one project, though. A game may share its repository with the website that sells it and the server that keeps its scores, and one corpus may hold all three. Each project then deserves a book of its own, with its own parts and its own contents. So the tree of the corpus runs from the corpus to its books, their parts, their chapters, and the chapters' sections.
+
+Each book has the three zones a printed book has. The front matter opens the book, the body holds its parts and chapters, and the back matter closes it.
+
+## A corpus of books
+
+A book is one project, written as a book: a command line, an application, a game. A loom names its book in a `Book` field of its frontmatter:
+
+```
+---
+Part I, Chapter 2: Sleeping monsters
+Book: The game
+Language: TypeScript
+---
+```
+
+A loom that names no book belongs to the corpus's default book. Every corpus written before books has the default book alone, so none of its looms change, and adding a second book changes no loom of the first.
+
+Every loom works wherever it stands. A loom without a book belongs to the default book, and a chapter without a part stands among the book's orphan chapters, as the section "Front, body, and back" describes. Loom faults no loom for a line it leaves out. Sorting a corpus into books and parts is the authors' work.
+
+A book loom opens a named book. Its frontmatter names the book and nothing else, so it names no part and no chapter, and its frontmatter alone tells Loom that the loom opens a book. Its first heading is the book's title, and its opening prose is the book's preface:
+
+```
+---
+Book: The game
+---
+
+# The game
+
+A game of rooms that wake one at a time.
+```
+
+The corpus loom opens the corpus and its default book. It has no frontmatter at all, as `corpus/book.loom` has none, and `loom weave` starts from it.
+
+The `Book` field places a loom in its book, and the loom's folder does not. On a disk, an author keeps each book in a folder of its own, such as `corpus/the-game/`. In remote storage, though, a loom's location is a name and not a path, as the chapter "Where a workspace is kept" describes. A folder therefore can never be what places a loom.
+
+Books take names and never numbers. The books of a corpus are separate projects with no reading order between them, so a number would rank what nothing ranks.
+
+A chapter may name a book that no book loom opens. The chapter still belongs to that book, which simply has no front matter, but the name may be a slip of the keyboard. So Loom warns on the name, and the warning says how to write the book loom. Two book looms that open the same book are a fault, as two chapters of one part that share a title are, since the book can take its title and its preface from only one of them.
+
+## Front, body, and back
+
+Printed books share one layout, which publishing style guides such as the Chicago Manual of Style describe. The front matter opens the book with its title page, its contents, and a foreword or a preface. The body holds the parts and the chapters. The back matter closes the book with its appendices, notes, glossary, bibliography, and index. DocBook and EPUB, two formats for digital books, keep the same three zones.
+
+A Loom book has the same three zones:
+
+- **Front matter:** the book loom, or the corpus loom for the default book. Its title opens the book, and its opening prose is the book's preface. The book's contents follow from the frontmatter of its looms, as the chapter "The contents of a book" describes.
+- **Body:** the numbered parts in their order, then the numberless parts by name, such as Work in progress, and last the orphan chapters, the chapters that name no part.
+- **Back matter:** the book's discussions.
+
+The orphan chapters sit in the body because they are chapters like any other, written to be read with the rest. The back matter holds what a reader consults rather than reads through, such as the discussions behind the decisions.
+
+## Numbers belong to the body
+
+Only the body numbers its chapters, so nothing added to the front or the back of a book renumbers a chapter.
+
+A printed book keeps this rule strictly. Its front matter numbers its pages in roman numerals, so the body's first page stays page 1 however long the preface grows. Its appendices take letters, a sequence of their own. Its index takes no number, since it is the only one of its kind.
+
+Loom follows the same rule. A chapter takes its number within its part, and a part takes its number within its book, so the game's Part I and the website's Part I are two parts. A discussion takes its number within its part too, in a sequence apart from the chapters, the way an appendix takes a letter.
+
+## The back of the book
+
+A discussion belongs to a part, and it still sits in the back matter of its book, listed under its part. A printed book treats its endnotes the same way, gathering them at the back under each chapter's name.
+
+The back matter lists the discussions part by part, and a discussion that names no part comes after them.
+
+## The contents of a book, and of a corpus
+
+A book's contents follow from the frontmatter of its looms, so nobody writes them down, as the chapter "The contents of a book" describes. They list the book's parts and their chapters, then its orphan chapters, then its back matter.
+
+A corpus's contents list its books: the default book first, then the named books by name. `loom weave` weaves the whole corpus into one site, and its menu gives each named book a level above the book's parts. A corpus with the default book alone has no such level, so its menu reads as it always has.
+
+## Names reach through books
+
+A name resolves nearest first, as the chapter "The multi-file AST" describes. It looks in its own loom, then among the chapters and discussions of its own book: the book its loom names, or the default book when the loom names none. A bare name never reaches a chapter in another book.
+
+A path reaches into another book by starting with the book's name. `::[The website, Part I, Chapter 2, Pricing]` names a section of the website from a chapter of the game. The default book has no name, so no path leads into it from a named book.
+
+A reference never leaves its corpus. Another corpus is another workspace, with names and a history of its own, so a loom that needs another corpus's text quotes it in a fence.
+
+## Testing books
+
+The cases parse looms alone, and compile small corpora of several books to see where a name leads. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted. `lines` joins them into the text a file holds, `anchor` writes an anchor without opening one here, and `chapter` writes a loom from its frontmatter lines and its body.
+
+`parse` reads a loom alone, through the layer the compiler parses with. `layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `tangled` tangles one loom over that layer, `refusal` expects the tangle to fail and gives back its message, and `diagnosed` gives the messages of the diagnostics one loom raises. The cases run on Bun's runner with `effectify`, so a case is an Effect.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+import { parseDocument, ParseLayer } from './parse'
+
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const chapter = (identity: ReadonlyArray<string>, ...body: ReadonlyArray<string>): string =>
+  lines('---', ...identity, '---', '', ...body)
+
+const parse = (src: string): LoomDocument =>
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const tangled = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.tangle(entry)),
+    Effect.provide(layerOf(files)),
+  )
+
+const refusal = (files: Record<string, string>, entry: string) =>
+  tangled(files, entry).pipe(
+    Effect.flip,
+    Effect.map((error) => error.message),
+  )
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.diagnose(entry)),
+    Effect.map((found) => found.map((diagnostic) => diagnostic.message)),
+    Effect.provide(layerOf(files)),
+  )
+
+## A loom names its book
+
+A chapter names its book on a line of its own, beside the line that names its place, and the parse reads the name into a token of its own. A book loom's frontmatter holds that line alone, so it names a book and no place in it.
+
+=>
+
+describe('a loom names its book', () => {
+  it('reads the book a chapter names beside its place', () => {
+    const fm = parse(
+      chapter(['Part I, Chapter 2: Sleeping monsters', 'Book: The game'], '# Sleeping monsters'),
+    ).frontmatter
+    expect([fm?.book?.value, fm?.part?.value, fm?.title?.value]).toEqual([
+      'The game',
+      'I',
+      'Sleeping monsters',
+    ])
+  })
+
+  it('reads a book loom as a book with no place', () => {
+    const fm = parse(chapter(['Book: The game'], '# The game')).frontmatter
+    expect([fm?.book?.value, fm?.part, fm?.title]).toEqual(['The game', undefined, undefined])
+  })
+})
+
+## A corpus of two books
+
+The cases that follow share one corpus of two books. The default book holds `Greetings`, the first chapter of its Part I, whose code greets with a hello. The game is a named book, opened by its book loom, and its own Part I opens with a chapter titled `Greetings` too, whose code greets with a welcome. A second chapter of the game, `Rooms`, has no namesake in the default book. `corpus` gathers these looms beside the ones a case adds.
+
+A program greets the world through whichever greeting its anchor finds. `program` writes one, under the frontmatter a case gives it, so the same program can stand in either book. `greeted` writes what its tangle holds: the greeting's code inlined above the call.
+
+=>
+
+const hello = 'const greet = (name: string): string => `Hello, ${name}!`'
+
+const welcome = 'const greet = (name: string): string => `Welcome, ${name}!`'
+
+const corpus = (looms: Record<string, string>): Record<string, string> => ({
+  '/corpus/greetings.loom': chapter(
+    ['Part I: Saying things', 'Chapter 1: Greetings'],
+    '# Greetings',
+    '',
+    'A greeting takes a name and returns a line of welcome.',
+    '',
+    '=>',
+    hello,
+  ),
+  '/corpus/game/book.loom': chapter(
+    ['Book: The game'],
+    '# The game',
+    '',
+    'A game of rooms that wake one at a time.',
+  ),
+  '/corpus/game/greetings.loom': chapter(
+    ['Part I: Waking', 'Chapter 1: Greetings', 'Book: The game'],
+    '# Greetings',
+    '',
+    'The game greets a player who wakes.',
+    '',
+    '=>',
+    welcome,
+  ),
+  '/corpus/game/rooms.loom': chapter(
+    ['Part I, Chapter 2: Rooms', 'Book: The game'],
+    '# Rooms',
+    '',
+    'A room waits for its player.',
+    '',
+    '=>',
+    'const rooms = 3',
+  ),
+  ...looms,
+})
+
+const program = (identity: ReadonlyArray<string>, line: string): string =>
+  chapter(
+    identity,
+    '# The program [hello.ts]',
+    '',
+    'The program greets the world.',
+    '',
+    '=>',
+    line,
+    "console.log(greet('world'))",
+  )
+
+const greeted = (greeting: string): string => `${greeting}\nconsole.log(greet('world'))\n`
+
+## Names stay within their book
+
+A bare name looks through the anchor's own book. So the same `::[Greetings]` composes the welcome in the game and the hello in the default book, and the two chapters titled `Greetings` never clash, since each stands in a part of its own book. A part's number counts within its book as well, so `Part I, Chapter 1` reaches a different chapter from each book.
+
+A path that starts with a book's name reaches into that book, and a bare name never does. So the default book reaches the game's greeting through `The game, Greetings`, and finds no `Rooms` by its bare name.
+
+=>
+
+describe('names stay within their book', () => {
+  it.effect('finds a chapter of its own book by a bare name', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        corpus({
+          '/corpus/game/hello.loom': program(
+            ['Part I, Chapter 3: The program', 'Book: The game'],
+            anchor('Greetings'),
+          ),
+        }),
+        '/corpus/game/hello.loom',
+      )
+      expect(files[0]!.content).toBe(greeted(welcome))
+    }),
+  )
+
+  it.effect('numbers the parts of each book on their own', () =>
+    Effect.gen(function* () {
+      const inGame = yield* tangled(
+        corpus({
+          '/corpus/game/hello.loom': program(
+            ['Part I, Chapter 3: The program', 'Book: The game'],
+            anchor('Part I, Chapter 1'),
+          ),
+        }),
+        '/corpus/game/hello.loom',
+      )
+      const inDefault = yield* tangled(
+        corpus({
+          '/corpus/hello.loom': program(
+            ['Part I, Chapter 2: The program'],
+            anchor('Part I, Chapter 1'),
+          ),
+        }),
+        '/corpus/hello.loom',
+      )
+      expect([inGame[0]!.content, inDefault[0]!.content]).toEqual([
+        greeted(welcome),
+        greeted(hello),
+      ])
+    }),
+  )
+
+  it.effect('reaches into another book by a path that starts with its name', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        corpus({
+          '/corpus/hello.loom': program(
+            ['Part I, Chapter 2: The program'],
+            anchor('The game, Greetings'),
+          ),
+        }),
+        '/corpus/hello.loom',
+      )
+      expect(files[0]!.content).toBe(greeted(welcome))
+    }),
+  )
+
+  it.effect('never reaches a chapter of another book by a bare name', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(
+        corpus({
+          '/corpus/hello.loom': program(['Part I, Chapter 2: The program'], anchor('Rooms')),
+        }),
+        '/corpus/hello.loom',
+      )
+      expect(message).toContain('No section or chapter is called `Rooms`.')
+    }),
+  )
+
+  it.effect('lets two books hold chapters of one title', () =>
+    Effect.gen(function* () {
+      const messages = yield* diagnosed(corpus({}), '/corpus/game/greetings.loom')
+      expect(messages.filter((message) => message.includes('too.'))).toEqual([])
+    }),
+  )
+})
+
+## Judging a book's name
+
+A `Book:` line that names a book no book loom opens raises a warning, since the name may be a slip. Two book looms that open one book raise a fault, since the book can take its title and its preface from only one of them.
+
+=>
+
+describe("judging a book's name", () => {
+  it.effect('warns of a book that no loom opens', () =>
+    Effect.gen(function* () {
+      const messages = yield* diagnosed(
+        corpus({
+          '/corpus/game/doors.loom': chapter(
+            ['Part I, Chapter 4: Doors', 'Book: The gmae'],
+            '# Doors',
+            '',
+            'A door opens onto the next room.',
+          ),
+        }),
+        '/corpus/game/doors.loom',
+      )
+      expect(messages).toContain(
+        'No loom opens the book `The gmae`. Write its book loom, a loom whose frontmatter holds only `Book: The gmae`.',
+      )
+    }),
+  )
+
+  it.effect('faults two looms that open one book', () =>
+    Effect.gen(function* () {
+      const messages = yield* diagnosed(
+        corpus({ '/corpus/game/again.loom': chapter(['Book: The game'], '# The game, again') }),
+        '/corpus/game/again.loom',
+      )
+      expect(messages).toContain(
+        'Another book loom, in book.loom, is called `The game` too. Rename one of them.',
+      )
+    }),
+  )
+})
+
+## Following a book's name in the editor
+
+A chapter's `Book:` line leads to the book loom that opens the book, the way a `Part R` leads to the chapter that announces the part. From any `Book:` line, the editor's references find every loom that names the book.
+
+=>
+
+describe("a book's name in the editor", () => {
+  const files = corpus({})
+  const rooms = files['/corpus/game/rooms.loom']!
+  const nameOffset = rooms.indexOf('The game') + 2
+
+  it.effect('leads from a Book line to the book loom', () =>
+    Effect.gen(function* () {
+      const target = yield* LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.definition('/corpus/game/rooms.loom', nameOffset)),
+        Effect.provide(layerOf(files)),
+      )
+      expect([target?.path, target?.range.start]).toEqual([
+        '/corpus/game/book.loom',
+        { line: 1, character: 6 },
+      ])
+    }),
+  )
+
+  it.effect('finds every loom that names the book', () =>
+    Effect.gen(function* () {
+      const found = yield* LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.references('/corpus/game/rooms.loom', nameOffset)),
+        Effect.provide(layerOf(files)),
+      )
+      expect(found.map((reference) => reference.path).sort()).toEqual([
+        '/corpus/game/book.loom',
+        '/corpus/game/greetings.loom',
+        '/corpus/game/rooms.loom',
+      ])
+    }),
+  )
+})
+
+## Weaving a corpus of books
+
+The weave starts from the corpus loom, which opens the corpus and yields no page of its own. The default book's contents become the menu, and its orphan chapters close the body under a part of their own. Each named book gets a menu of its own under its name, with the slug of the page its book loom opens. Every page names its book, and a named book's slugs start with the book's own, so the game's chapters stand apart from the default book's, and follow them in reading order.
+
+`woven` weaves a corpus held in memory from its root. The corpus here adds the corpus loom and an orphan chapter, `Notes`, to the two books.
+
+=>
+
+const woven = (files: Record<string, string>, root: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.weave(root)),
+    Effect.provide(layerOf(files)),
+  )
+
+describe('weaving a corpus of books', () => {
+  const root = '/corpus/book.loom'
+  const files = corpus({
+    [root]: lines(
+      '# Greetings everywhere',
+      '',
+      'A corpus of greetings, and a game that uses them.',
+    ),
+    '/corpus/notes.loom': chapter(['Chapter: Notes'], '# Notes', '', 'Loose thoughts on greeting.'),
+  })
+
+  it.effect('gives each named book a menu of its own', () =>
+    Effect.gen(function* () {
+      const site = yield* woven(files, root)
+      expect([
+        site.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)]),
+        site.books.map((book) => [
+          book.name,
+          book.slug,
+          book.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)]),
+        ]),
+      ]).toEqual([
+        [
+          ['Saying things', ['Greetings']],
+          ['Orphan chapters', ['Notes']],
+        ],
+        [['The game', 'the-game', [['Waking', ['Greetings', 'Rooms']]]]],
+      ])
+    }),
+  )
+
+  it.effect('keeps the books apart in their pages and their order', () =>
+    Effect.gen(function* () {
+      const site = yield* woven(files, root)
+      expect(site.pages.map((page) => [page.slug, page.book ?? ''])).toEqual([
+        ['corpus/greetings', ''],
+        ['corpus/notes', ''],
+        ['the-game', 'The game'],
+        ['the-game/game/greetings', 'The game'],
+        ['the-game/game/rooms', 'The game'],
+      ])
+    }),
+  )
+})
+
+## The books test file [test/Books.test.ts]
+
+=>
+
+::[Testing books]
+
+::[A loom names its book]
+
+::[A corpus of two books]
+
+::[Names stay within their book]
+
+::[Judging a book's name]
+
+::[Following a book's name in the editor]
+
+::[Weaving a corpus of books]

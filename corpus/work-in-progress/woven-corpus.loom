@@ -129,7 +129,7 @@ export type WovenBlock = typeof WovenBlockSchema.Type
 
 ## A page for each chapter
 
-Each chapter becomes one `WovenPage`: a `slug` for its URL, the chapter `title`, and its `blocks`. When the chapter belongs to a part, the page names that part, so the reader sees it above the title. When the chapter opens on frontmatter, the page also carries that block verbatim, its `---` fences included, so a reader can be shown the chapter's place in the book and the package and language it writes, the way its loom writes them.
+Each chapter becomes one `WovenPage`: a `slug` for its URL, the chapter `title`, and its `blocks`. When the chapter belongs to a part, the page names that part, so the reader sees it above the title, and when it stands in a named book, the page names that book too. When the chapter opens on frontmatter, the page also carries that block verbatim, its `---` fences included, so a reader can be shown the chapter's place in the book and the package and language it writes, the way its loom writes them.
 
 =>
 
@@ -137,6 +137,7 @@ export const WovenPageSchema = Schema.Struct({
   slug: Schema.String,
   title: Schema.String,
   part: Schema.optional(Schema.String),
+  book: Schema.optional(Schema.String),
   frontmatter: Schema.optional(Schema.String),
   blocks: Schema.Array(WovenBlockSchema),
 })
@@ -144,9 +145,11 @@ export type WovenPage = typeof WovenPageSchema.Type
 
 ## The navigation tree
 
-The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the book's contents set. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number` — empty when the chapter is numberless — its `title`, the `slug` that opens it, the optional `status` and `priority` a roadmap reads, and the optional `language` its frontmatter names, which a menu can mark the chapter by. A `WovenPart` groups the entries that share a part, under the part's `number` — empty for a numberless part — and its `name`. A chapter that belongs to no part is a loose entry, the same `WovenNavEntry`, which the corpus keeps apart from the parts, unordered, for a consumer to place as it sees fit.
+The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the book's contents set. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number` — empty when the chapter is numberless — its `title`, the `slug` that opens it, the optional `status` and `priority` a roadmap reads, and the optional `language` its frontmatter names, which a menu can mark the chapter by. A `WovenPart` groups the entries that share a part, under the part's `number` — empty for a numberless part — and its `name`. A chapter that belongs to no part is an orphan, and the orphans form one more numberless part after the others, named `Orphan chapters`, so the body ends on them.
 
 The book's discussions come last, as its back matter. They form one more `WovenPart`, numberless and named `Back matter`, and each of its entries opens a discussion, in the order the book's contents set.
+
+A corpus of several books gives each named book a tree of its own. A `WovenBook` carries the book's `name`, the `slug` of the page its book loom opens, empty when no loom opens it, and the book's own `nav`, built the same way as the default book's.
 
 =>
 
@@ -167,15 +170,22 @@ export const WovenPartSchema = Schema.Struct({
 })
 export type WovenPart = typeof WovenPartSchema.Type
 
+export const WovenBookSchema = Schema.Struct({
+  name: Schema.String,
+  slug: Schema.String,
+  nav: Schema.Array(WovenPartSchema),
+})
+export type WovenBook = typeof WovenBookSchema.Type
+
 ## The corpus
 
-A `WovenCorpus` is the corpus as data: the `nav` that groups chapters under their parts, the `loose` chapters that belong to no part, and the `pages` a reader reads.
+A `WovenCorpus` is the corpus as data: the `nav` of its default book, the named `books` with their own trees, and the `pages` a reader reads. A corpus of one book names no book, so its `books` list is empty and its menu reads as it always has.
 
 =>
 
 export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
-  loose: Schema.Array(WovenNavEntrySchema),
+  books: Schema.Array(WovenBookSchema),
   pages: Schema.Array(WovenPageSchema),
 })
 export type WovenCorpus = typeof WovenCorpusSchema.Type

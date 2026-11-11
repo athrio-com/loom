@@ -471,6 +471,7 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       trope: wefts.find((w) => w.trope !== undefined)?.trope,
       rootedIn: wefts.find((w) => w.rootedIn !== undefined)?.rootedIn,
       entries: wefts.find((w) => w.entries !== undefined)?.entries,
+      book: wefts.find((w) => w.book !== undefined)?.book,
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
       priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),

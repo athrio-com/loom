@@ -8,6 +8,7 @@ import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorp
 import {
   catalogueOf,
   type Catalogue,
+  bookTwinsOf,
   BoxNotice,
   boxNoticesIn,
   captionOf,
@@ -28,6 +29,7 @@ import {
   refreshedSummaries,
   syncedSummaries,
   transitiveDependents,
+  unopenedBookOf,
   type CorpusLocation,
   type LoomModule,
   type Location,
@@ -39,6 +41,7 @@ import {
   MissingSymbol,
   SpecifierUnknown,
   StaleSummary,
+  UnopenedBook,
   UnwrittenLoom,
   UnsettledTrope,
   UnsettledModule,
@@ -130,6 +133,25 @@ const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray
       ).diagnostics,
   })
 
+const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
+  ...Option.match(bookTwinsOf(catalogue, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: ({ title, looms }) =>
+      faulty(
+        DuplicateName({
+          name: title.source,
+          sibling: 'book',
+          where: Array.join(Array.map(looms, loomName), ', '),
+        }),
+        title.position,
+      ).diagnostics,
+  }),
+  ...Option.match(unopenedBookOf(catalogue, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: (line) => faulty(UnopenedBook({ name: line.value }), line.position).diagnostics,
+  }),
+]
+
 const boxNoticeHealth = (notice: BoxNotice): Health =>
   BoxNotice.$match(notice, {
     Unwritten: ({ name, kind, opening }) =>
@@ -158,6 +180,7 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
     ...compositionCycles(catalogue, modules, module),
     ...unusedSections(used, module),
     ...namesakeFaults(catalogue, module),
+    ...bookFaults(catalogue, module),
     ...kindFaults(kinds, module),
     ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(

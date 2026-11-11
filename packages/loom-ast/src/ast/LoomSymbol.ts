@@ -24,6 +24,7 @@ export const SymbolKindSchema = Schema.Literals([
   'frontmatterTitle',
   'frontmatterEntry',
   'frontmatterRootedIn',
+  'frontmatterBook',
   'frontmatterPart',
   'frontmatterPartName',
   'boxName',
@@ -83,7 +84,7 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
       profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
     Match.when('frontmatterValue', () => profile(Option.some('string'), { structure: true })),
-    Match.whenOr('frontmatterEntry', 'frontmatterRootedIn', () =>
+    Match.whenOr('frontmatterEntry', 'frontmatterRootedIn', 'frontmatterBook', () =>
       profile(Option.some('namespace'), {
         navigation: true,
         structure: true,
@@ -142,6 +143,7 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
     (name) => at('frontmatterEntry', name.position),
   ),
   ...optSymbol('frontmatterRootedIn', fm.rootedIn),
+  ...optSymbol('frontmatterBook', fm.book),
 ]
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [

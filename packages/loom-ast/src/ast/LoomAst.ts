@@ -2,6 +2,7 @@ import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
   DividerTokenSchema,
+  FrontmatterBookTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
   FrontmatterTropeTokenSchema,
@@ -40,6 +41,7 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   trope: Schema.optional(FrontmatterTropeTokenSchema),
   rootedIn: Schema.optional(FrontmatterTropeTokenSchema),
   entries: Schema.optional(Schema.Array(FrontmatterEntryTokenSchema)),
+  book: Schema.optional(FrontmatterBookTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),
   language: Schema.optional(FrontmatterValueTokenSchema),

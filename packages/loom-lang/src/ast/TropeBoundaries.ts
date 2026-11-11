@@ -48,7 +48,7 @@ const nodeOf = (catalogue: Catalogue, trope: Trope, root: LoomModule): TropeNode
   const names = Option.fromNullishOr(root.doc.frontmatter?.entries)
   const listed = Array.map(
     Option.getOrElse(names, () => []),
-    (name): Listed => ({ name, chapter: tropeEntryModuleOf(catalogue, name.value) }),
+    (name): Listed => ({ name, chapter: tropeEntryModuleOf(catalogue, root.path, name.value) }),
   )
   return {
     name: trope.name,

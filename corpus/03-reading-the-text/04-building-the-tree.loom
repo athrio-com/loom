@@ -469,7 +469,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `trope` of a trope chapter rides on its membership line, and the `Rooted in` field of the trope's other chapters is read on its own, since it sits beside the membership lines rather than in them, and so is the `Entries` field a trope's root lists. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `trope` of a trope chapter rides on its membership line, and the `Rooted in` field of the trope's other chapters is read on its own, since it sits beside the membership lines rather than in them. So is the `Entries` field a trope's root lists, and so is the `Book` field that names a loom's book. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
 
 =>
 
@@ -509,6 +509,7 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       trope: wefts.find((w) => w.trope !== undefined)?.trope,
       rootedIn: wefts.find((w) => w.rootedIn !== undefined)?.rootedIn,
       entries: wefts.find((w) => w.entries !== undefined)?.entries,
+      book: wefts.find((w) => w.book !== undefined)?.book,
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
       priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),

@@ -58,6 +58,21 @@ A part gathers chapters, and the frontmatter names it, not a heading. The chapte
 
 Headings never gather anything. A `##` heading opens a section just as a `#` heading does, and its depth only shows a reader how the chapter is laid out.
 
+## Books
+
+A corpus can hold more than one book: a game, say, beside the website that sells it. A chapter names its book in a `Book` field, beside the line that names its part:
+
+```loom
+---
+Part I, Chapter 2: Sleeping monsters
+Book: The game
+---
+```
+
+A loom whose frontmatter holds the `Book` field alone opens that book. Its first heading is the book's title, and its prose is the book's preface. Chapters that name no book belong to the corpus's default book, so a corpus of one book needs no `Book` field at all.
+
+Each book numbers its own parts. A bare name finds chapters in its own book only, and a path that starts with a book's name reaches into another, as `::[The game, Sleeping monsters]` does.
+
 ## Naming a file
 
 A heading may name the file its code belongs to, by putting the path in brackets:

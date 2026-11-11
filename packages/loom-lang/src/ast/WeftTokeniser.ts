@@ -8,6 +8,7 @@ import {
 } from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
+  FrontmatterBookTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
   FrontmatterKeyTokenSchema,
@@ -261,6 +262,13 @@ const buildFrontmatterField = (
       entries: Array.map(listSpans(value), (name) =>
         fieldToken(FrontmatterEntryTokenSchema, line, name),
       ),
+    })
+  if (key.value === 'Book')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      book: fieldToken(FrontmatterBookTokenSchema, line, value),
     })
   if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({

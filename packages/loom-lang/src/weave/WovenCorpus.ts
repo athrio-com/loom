@@ -84,6 +84,7 @@ export const WovenPageSchema = Schema.Struct({
   slug: Schema.String,
   title: Schema.String,
   part: Schema.optional(Schema.String),
+  book: Schema.optional(Schema.String),
   frontmatter: Schema.optional(Schema.String),
   blocks: Schema.Array(WovenBlockSchema),
 })
@@ -106,9 +107,16 @@ export const WovenPartSchema = Schema.Struct({
 })
 export type WovenPart = typeof WovenPartSchema.Type
 
+export const WovenBookSchema = Schema.Struct({
+  name: Schema.String,
+  slug: Schema.String,
+  nav: Schema.Array(WovenPartSchema),
+})
+export type WovenBook = typeof WovenBookSchema.Type
+
 export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
-  loose: Schema.Array(WovenNavEntrySchema),
+  books: Schema.Array(WovenBookSchema),
   pages: Schema.Array(WovenPageSchema),
 })
 export type WovenCorpus = typeof WovenCorpusSchema.Type

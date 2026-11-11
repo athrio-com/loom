@@ -7,7 +7,7 @@ export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName
 
 export type EmptyConstruct = MalformedConstruct | 'warpAnnotation' | 'warpDefault'
 
-export type Sibling = 'section' | 'chapter'
+export type Sibling = 'section' | 'chapter' | 'book'
 
 export type Declaration = { readonly at: Position; readonly text: string }
 
@@ -37,6 +37,7 @@ export type LoomFault = Data.TaggedEnum<{
   UnsettledSection: { readonly name: string; readonly declared: boolean }
   SettledLabel: { readonly name: string; readonly label: Position }
   DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
+  UnopenedBook: { readonly name: string }
   CrossLanguageAnchor: {
     readonly name: string
     readonly host: string
@@ -121,6 +122,7 @@ export const {
   UnsettledSection,
   SettledLabel,
   DuplicateName,
+  UnopenedBook,
   CrossLanguageAnchor,
   UnclosedFence,
   FenceLabelAgainstLanguage,
@@ -243,6 +245,7 @@ const knownList = (known: ReadonlyArray<string>): string => {
 const siblingPlace: Record<Sibling, (where: string) => string> = {
   section: (line) => `Another section of this loom, on line ${line},`,
   chapter: (looms) => `Another chapter of this part, in ${looms},`,
+  book: (looms) => `Another book loom, in ${looms},`,
 }
 
 const disambiguation = (paths: ReadonlyArray<string>): string =>
@@ -308,6 +311,10 @@ export const describe = (fault: LoomFault): Note =>
       information(`\`${name}\` holds code now. Remove the \`{To be settled}\` label.`),
     DuplicateName: ({ name, sibling, where }) =>
       error(`${siblingPlace[sibling](where)} is called \`${name}\` too. Rename one of them.`),
+    UnopenedBook: ({ name }) =>
+      warning(
+        `No loom opens the book \`${name}\`. Write its book loom, a loom whose frontmatter holds only \`Book: ${name}\`.`,
+      ),
     CrossLanguageAnchor: ({ name, host, found }) =>
       error(
         `\`${name}\` holds ${found} code, but this section holds ${host}. A section composes code of its own language only.`,

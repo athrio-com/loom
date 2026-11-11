@@ -18,6 +18,11 @@
 
 ((field
   key: (key) @_key
+  value: (value) @title)
+  (#eq? @_key "Book"))
+
+((field
+  key: (key) @_key
   value: (value) @link_uri)
   (#eq? @_key "Package"))
 
@@ -31,6 +36,7 @@
   value: (value) @string)
   (#not-match? @_key "^Part")
   (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Book")
   (#not-eq? @_key "Package")
   (#not-eq? @_key "Language"))
 

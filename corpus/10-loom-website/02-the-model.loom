@@ -81,7 +81,7 @@ export type Model = typeof Model.Type
 
 ## A woven book
 
-The docs and the source page both draw a woven corpus: the shape `loom weave` gives a book. Its table of contents is a list of parts, each with a number, a name, and its chapters. Each chapter has a number, a title, a slug, the path of its loom without the extension, and the language its frontmatter names, when it names one. Each chapter's page holds its slug, its title, its frontmatter as the loom writes it, when it has one, and its blocks, in the order the loom wrote them.
+The docs and the source page both draw a woven corpus: the shape `loom weave` gives a book. Its table of contents is a list of parts, each with a number, a name, and its chapters. A corpus of several books carries each named book's own table of contents as well, under the book's name and the slug of the page that opens it. A corpus woven by an older Loom carries no books, so the list is optional, and a corpus without it draws as one book. Each chapter has a number, a title, a slug, the path of its loom without the extension, and the language its frontmatter names, when it names one. Each chapter's page holds its slug, its title, its frontmatter as the loom writes it, when it has one, and its blocks, in the order the loom wrote them.
 
 A block is one of five things. A heading carries its level, its title, the id a link reaches it by, and whether its section is still to be settled, declared but holding no code yet. A heading a divider wrote is a divider, which draws as a rule. A run of prose is Markdown. A run of code carries its language, the code itself, its links and its colours. Its links are its `::[…]` anchors, each as the name, where it sits in the code, and the chapter and section it reaches. Its unsettled spans are the anchors in it that reach no code yet, each as where it sits. A note is a reader's annotation, in Markdown, with the caption its author named it by, when it has one. A message marks where a message of a discussion begins, with the name of its author when the author signed it. The docs hold headings and prose only, and the book holds all five.
 
@@ -177,6 +177,9 @@ export type Chapter = typeof Chapter.Type
 const Part = S.Struct({ number: S.String, name: S.String, chapters: S.Array(Chapter) })
 export type Part = typeof Part.Type
 
+const Book = S.Struct({ name: S.String, slug: S.String, nav: S.Array(Part) })
+export type Book = typeof Book.Type
+
 const Page = S.Struct({
   slug: S.String,
   title: S.String,
@@ -185,7 +188,11 @@ const Page = S.Struct({
 })
 export type Page = typeof Page.Type
 
-export const Corpus = S.Struct({ nav: S.Array(Part), pages: S.Array(Page) })
+export const Corpus = S.Struct({
+  nav: S.Array(Part),
+  books: S.optional(S.Array(Book)),
+  pages: S.Array(Page),
+})
 export type Corpus = typeof Corpus.Type
 
 ## What the player remembers
