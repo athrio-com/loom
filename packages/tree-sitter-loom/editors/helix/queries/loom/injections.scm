@@ -7,16 +7,12 @@
 ((box_body) @injection.content
   (#set! injection.language "markdown"))
 
-((toc) @injection.content
-  (#set! injection.language "markdown")
-  (#set! injection.include-children))
-
 (section
   (heading
     specifier: (specifier
       label: (label) @injection.language))
   (code [(code_text) @injection.content (anchor)]+)
-  (#not-match? @injection.language "^(Tangle|tangle|TOC|toc|Prose|prose)$")
+  (#not-match? @injection.language "^(Tangle|tangle|Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
 
 ((section

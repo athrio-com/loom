@@ -7,6 +7,8 @@ Language: TypeScript
 
 # Line ranges
 
+A loom arrives as plain text, and Loom reads it into the tree Part II describes. Four passes do the reading, a chapter each: line ranges split the text into lines, the classifier names each line's kind, the tokeniser reads the marks inside each line, and the document builder assembles the document. The fifth chapter builds one module from a loom, its document beside the product composed from it, and the last gathers how every pass reads fenced code.
+
 `LineRanges` is the parser's first pass. `LoomSourceRanges` turns a file's text into a stream of half-open `[start, end)` ranges, one per line — the offsets every later pass slices against and Volar maps from. It detects the file's line-terminator convention once and refuses a file that mixes conventions, the one failure the parse chain cannot pin to a node.
 
 ## Terminator conventions

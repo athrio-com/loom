@@ -8,16 +8,22 @@ const HeadingBlock = S.Struct({
 })
 export type HeadingBlock = typeof HeadingBlock.Type
 
-const ProseBlock = S.Struct({ type: S.Literal('prose'), markdown: S.String })
-
 const CodeLink = S.Struct({
   name: S.String,
   offset: S.Number,
   length: S.Number,
   targetSlug: S.String,
   targetId: S.String,
+  title: S.optional(S.String),
 })
 export type CodeLink = typeof CodeLink.Type
+
+const ProseBlock = S.Struct({
+  type: S.Literal('prose'),
+  markdown: S.String,
+  links: S.optional(S.Array(CodeLink)),
+})
+export type ProseBlock = typeof ProseBlock.Type
 
 export const TokenKind = S.Literals(['keyword', 'string', 'constant', 'comment', 'function', 'type'])
 export type TokenKind = typeof TokenKind.Type
@@ -74,6 +80,9 @@ export type Chapter = typeof Chapter.Type
 const Part = S.Struct({ number: S.String, name: S.String, chapters: S.Array(Chapter) })
 export type Part = typeof Part.Type
 
+const Book = S.Struct({ name: S.String, slug: S.String, nav: S.Array(Part) })
+export type Book = typeof Book.Type
+
 const Page = S.Struct({
   slug: S.String,
   title: S.String,
@@ -82,7 +91,11 @@ const Page = S.Struct({
 })
 export type Page = typeof Page.Type
 
-export const Corpus = S.Struct({ nav: S.Array(Part), pages: S.Array(Page) })
+export const Corpus = S.Struct({
+  nav: S.Array(Part),
+  books: S.optional(S.Array(Book)),
+  pages: S.Array(Page),
+})
 export type Corpus = typeof Corpus.Type
 
 export const PlayerOutput = S.Literals(['tangle', 'weave'])

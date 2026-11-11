@@ -1,0 +1,500 @@
+---
+Part II, Chapter 8: Concepts
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# Concepts
+
+A book coins words for its ideas, and it uses each word in many chapters. Loom's own book says anchor, sink, and trope on nearly every page. The people who build the product need each word to keep one meaning, so that no two chapters use it in two senses. A reader who first meets one of those words in Part VI needs its meaning there, without hunting for the chapter that introduced it.
+
+A concept is a section that defines one idea. It names the idea, defines it, and lists the other words the prose uses for it. Prose links to a concept from anywhere in the corpus, and the editor and the woven page show the definition wherever a link stands. An index that Loom derives from the corpus lists every concept, the words that name it, and where the book uses it.
+
+Concepts belong to the core, since every book names its ideas. Where a concept belongs, and how the editor recognises its words in prose that links nothing, the chapter "The scope of a concept" describes.
+
+## A concept is a section
+
+A concept is a section whose specifier is `{Concept}`. Its heading is the concept's preferred form, the word the book uses for the idea by default. Its first paragraph is the definition. A `Lexical forms:` list after the definition holds the other words that name the idea, and whatever follows holds notes and examples:
+
+```
+## Account {Concept}
+
+A ledger that holds one customer's balance, charges, and payments.
+
+Lexical forms:
+- accounts
+- account's
+
+Billing opens an account with a customer's first order, and never reuses one.
+```
+
+The definition is what a reader sees at every link to the concept. Terminology work tests a definition by substitution, as the standard ISO 704 sets out. A good definition can stand in a sentence in place of its word, and the sentence keeps its meaning.
+
+A concept holds prose and no code. It explains an idea and composes nothing, so an arrow in a concept is a fault, as it is in prose. The code that makes an idea real lives in the sections and tropes that realise the concept.
+
+A concept is immutable, which is not to say it can't be edited. The author edits a concept's section as freely as any other. Immutable means that no other section redefines the concept: nothing elsewhere overrides its definition, merges into it, or changes what its forms name. A concept therefore means the same in every chapter that links it.
+
+Other sections still say more about a concept, as the later chapters of any academic book say more about the ideas its early chapters define. An example in Part VI, or a consequence a later chapter draws, adds to what a reader knows about the concept without changing what it means. Such prose must never contradict the definition. A contradiction is the sign of a poor definition, and its fix belongs in the concept's own section.
+
+Loom can't judge what prose says, so it tracks where prose says it. Every link to a concept stands in the index beside the definition, as the section "The index" describes.
+
+A static relation to another concept, such as an account belonging to a customer, is part of the definition, and the definition links the other concept there.
+
+## Every form is a name
+
+A lexical form is a word or phrase the prose writes for a concept: a plural, a possessive, a case ending in Estonian, or an abbreviation. The heading and every entry of the `Lexical forms:` list are names of the concept, and each one finds it.
+
+Authors write the forms their prose uses. Loom knows no rules of inflection for any language, so it never derives `accounts` from `Account`. A form nobody writes is a form nobody needs.
+
+## Linking a concept
+
+Prose links a concept with an anchor that names any of its forms. The sentence shows the form the anchor names, so the prose reads naturally, and the link leads to the concept:
+
+```
+Billing keeps one ::[Account] per customer, and it closes ::[accounts] that stay empty for a year.
+```
+
+A link reaches a concept anywhere in the corpus. No trope, part, or book closes a concept to links from outside it, and a link looks among the concepts before it looks anywhere nearer. A link that names no concept resolves as any anchor does, and a link that names nothing at all warns, since a reader would follow it nowhere.
+
+Two concepts may share a form. The corpus can define Account in the chapter "Billing", as a ledger, and again in the chapter "Signing in", as the person who signs in. A link that names `Account` then names both, and Loom faults it rather than guess. The fault offers a path to each, the way it does for an anchor that names two sections:
+
+```
+::[Billing, Account]
+::[Signing in, Account]
+```
+
+No definition shadows another. A nearer concept never wins over a farther one, so every link says which concept it means.
+
+A code anchor composes code, and a concept holds none. So a code anchor that names a concept is a fault, whose message names the concept and says it holds no code. A code anchor still resolves nearest first, as the chapter "The multi-file AST" describes, so a concept never changes which section a code anchor composes.
+
+## A concept in the editor
+
+The editor treats every form as the concept itself:
+
+- **Hover** on a link shows the concept's definition.
+- **Go to definition** on a link lands on the concept's heading.
+- **Find references** on a concept, or on any link to it, lists every link, whichever form it names.
+- **Rename** never rewrites a sentence. Renaming a concept makes the new name its heading and moves the old name into its `Lexical forms:` list, so every link still finds the concept and every sentence still reads as its author wrote it.
+
+A new wording joins a concept as a new form, and the old forms stay. A rewrite that swapped one form for another across the book would change sentences no one had reread, and a typo in the new form would break every one of them at once. When an author removes a form that a link still names, that link faults. The change is then visible at every place it touches, and nothing breaks silently.
+
+## The index
+
+A printed book meets its definitions across its chapters, and its index is where a reader looks them up. Glossaries gathered apart from the text rarely help, since the text already defines each idea where it first needs it. Loom builds the index instead, from the concepts the corpus defines.
+
+The index lists every concept with its preferred form, its definition, its other forms, the chapter that defines it, and the sections that link it.
+
+Those uses are the concept's back links. They show a reader everything else the book says about a concept. They also let an author check that none of it contradicts the definition, since a book that grows adds to its concepts in chapters written long after the definition. In the editor, every concept is a workspace symbol, so the editor's symbol search finds a concept by any of its forms. The woven book gives each book's index a page at the end of its back matter, with a link to each concept and to each place that uses it.
+
+Nothing in the index is written by hand. Loom derives it again whenever the corpus changes.
+
+## Testing concepts
+
+The cases compile small corpora held in memory and ask the compiler what a reader and an editor see. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted. `lines` joins them into the text a file holds, `anchor` writes an anchor without opening one here, and `chapter` writes a loom from its frontmatter lines and its body.
+
+`layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `asked` runs one use of the compiler over such a corpus, `diagnosed` gives the messages of the diagnostics one loom raises, and `refusal` expects a tangle to fail and gives back its message. The cases run on Bun's runner with `effectify`, so a case is an Effect.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Match, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { WovenBlock } from '../src/weave/WovenCorpus'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const chapter = (identity: ReadonlyArray<string>, ...body: ReadonlyArray<string>): string =>
+  lines('---', ...identity, '---', '', ...body)
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const asked = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files)))
+
+const diagnosed = (files: Record<string, string>, entry: string) =>
+  asked(files, (compiler) => compiler.diagnose(entry)).pipe(
+    Effect.map((found) => found.map((diagnostic) => diagnostic.message)),
+  )
+
+const refusal = (files: Record<string, string>, entry: string) =>
+  asked(files, (compiler) => compiler.tangle(entry)).pipe(
+    Effect.flip,
+    Effect.map((error) => error.message),
+  )
+
+## A corpus with a concept
+
+The cases share one corpus. The chapter `Billing` defines the concept `Account`: a ledger, with two more forms, `accounts` and `account's`. The chapter `Orders` links the concept twice in its opening prose, once by a form and once by its heading. `corpus` gathers these looms beside the ones a case adds, and `ordersOf` writes the orders chapter around the two lines of prose a case gives it.
+
+=>
+
+const billing = chapter(
+  ['Part I: Money', 'Chapter 1: Billing'],
+  '# Billing',
+  '',
+  'Billing charges a customer for each order.',
+  '',
+  '## Account {Concept}',
+  '',
+  "A ledger that holds one customer's balance, charges, and payments.",
+  '',
+  'Lexical forms:',
+  '- accounts',
+  "- account's",
+  '',
+  "Billing opens an account with a customer's first order.",
+)
+
+const ordersOf = (first: string, second: string): string =>
+  chapter(['Part I, Chapter 2: Orders'], '# Orders', '', first, '', second)
+
+const orders = ordersOf(
+  `Every order lands on one of a customer's ${anchor('accounts')}.`,
+  `An ${anchor('Account')} stays open while it owes.`,
+)
+
+const corpus = (looms: Record<string, string>): Record<string, string> => ({
+  '/corpus/billing.loom': billing,
+  '/corpus/orders.loom': orders,
+  ...looms,
+})
+
+## Links by any form
+
+A link names the concept by any of its forms, and the editor follows it to the concept's heading. Resting on the link shows the concept's card: its name, its definition, and its other forms. A definition that links another concept shows that link as the plain name it gives. Neither link raises a fault.
+
+=>
+
+describe('a link names a concept by any of its forms', () => {
+  const formOffset = orders.indexOf(anchor('accounts')) + 4
+
+  it.effect('leads from a form to the heading of its concept', () =>
+    Effect.gen(function* () {
+      const target = yield* asked(corpus({}), (compiler) =>
+        compiler.definition('/corpus/orders.loom', formOffset),
+      )
+      expect([target?.path, target?.range.start]).toEqual([
+        '/corpus/billing.loom',
+        { line: 9, character: 3 },
+      ])
+    }),
+  )
+
+  it.effect("shows the concept's card where the link stands", () =>
+    Effect.gen(function* () {
+      const card = yield* asked(corpus({}), (compiler) =>
+        compiler.hover('/corpus/orders.loom', formOffset),
+      )
+      expect(card?.markdown).toBe(
+        "**Account**\n\nA ledger that holds one customer's balance, charges, and payments.\n\nAlso: accounts, account's",
+      )
+    }),
+  )
+
+  it.effect("writes a definition's links as plain words on the card", () =>
+    Effect.gen(function* () {
+      const linking = chapter(
+        ['Part I: Money', 'Chapter 1: Billing'],
+        '# Billing',
+        '',
+        '## Customer {Concept}',
+        '',
+        'A person who orders.',
+        '',
+        '## Account {Concept}',
+        '',
+        `A ledger that one ${anchor('Customer')} owns.`,
+      )
+      const card = yield* asked(corpus({ '/corpus/billing.loom': linking }), (compiler) =>
+        compiler.hover('/corpus/orders.loom', orders.indexOf(anchor('Account')) + 4),
+      )
+      expect(card?.markdown).toBe('**Account**\n\nA ledger that one Customer owns.')
+    }),
+  )
+
+  it.effect('raises no fault for a link that finds its concept', () =>
+    Effect.gen(function* () {
+      expect(yield* diagnosed(corpus({}), '/corpus/orders.loom')).toEqual([])
+    }),
+  )
+})
+
+## Faults a concept raises
+
+Two concepts may share a form, and a link that names it names both, so Loom faults the link and offers a path to each. A link whose form no concept carries any longer leads nowhere, and warns. A concept holds no code, so an arrow in one is a fault, and so is a code anchor that names one, whichever form it writes.
+
+=>
+
+describe('the faults a concept raises', () => {
+  const signingIn = chapter(
+    ['Part I, Chapter 3: Signing in'],
+    '# Signing in',
+    '',
+    'A person signs in before an order.',
+    '',
+    '## Account {Concept}',
+    '',
+    'The person who signs in.',
+    '',
+    'Lexical forms:',
+    '- accounts',
+  )
+
+  const program = (line: string): string =>
+    chapter(
+      ['Part I, Chapter 4: The program'],
+      '# The program [bill.ts]',
+      '',
+      'The program bills a customer.',
+      '',
+      '=>',
+      line,
+      'export const bill = 1',
+    )
+
+  it.effect('offers a path to each concept a shared form names', () =>
+    Effect.gen(function* () {
+      const messages = yield* diagnosed(
+        corpus({ '/corpus/signing-in.loom': signingIn }),
+        '/corpus/orders.loom',
+      )
+      expect(messages).toContain(
+        '`accounts` names 2 sections. Write the path to the one you mean: `Billing, Account` or `Signing in, Account`.',
+      )
+    }),
+  )
+
+  it.effect('warns of a link whose form no concept carries', () =>
+    Effect.gen(function* () {
+      const messages = yield* diagnosed(
+        corpus({
+          '/corpus/orders.loom': ordersOf(
+            `Every order lands on one of a customer's ${anchor('ledgers')}.`,
+            'Nothing else is linked.',
+          ),
+        }),
+        '/corpus/orders.loom',
+      )
+      expect(messages).toEqual([
+        'Nothing is called `ledgers`, so this link leads nowhere. Name a section, a chapter, or a form of a concept.',
+      ])
+    }),
+  )
+
+  it.effect('faults code in a concept', () =>
+    Effect.gen(function* () {
+      const messages = yield* diagnosed(
+        corpus({
+          '/corpus/billing.loom': chapter(
+            ['Part I: Money', 'Chapter 1: Billing'],
+            '# Billing',
+            '',
+            '## Account {Concept}',
+            '',
+            'A ledger.',
+            '',
+            '=>',
+            'const ledger = 1',
+          ),
+        }),
+        '/corpus/billing.loom',
+      )
+      expect(messages).toContain(
+        'A concept holds no code. Quote this code in a fence, or move it to a section that realises the concept.',
+      )
+    }),
+  )
+
+  it.effect('faults a code anchor that names a concept, by any form', () =>
+    Effect.gen(function* () {
+      const byHeading = yield* refusal(
+        corpus({ '/corpus/program.loom': program(anchor('Account')) }),
+        '/corpus/program.loom',
+      )
+      const byForm = yield* refusal(
+        corpus({ '/corpus/program.loom': program(anchor('accounts')) }),
+        '/corpus/program.loom',
+      )
+      const message =
+        '`Account` is a concept, and a concept holds no code. Name the section whose code you mean.'
+      expect([byHeading.includes(message), byForm.includes(message)]).toEqual([true, true])
+    }),
+  )
+})
+
+## Renaming a concept
+
+Find references on a concept's heading lists every link to it, whichever form the link writes. A rename never rewrites those sentences. It moves the heading to the new name, and writes the old name into the `Lexical forms:` list, so both links still find the concept.
+
+=>
+
+describe('a concept in the editor', () => {
+  const headingOffset = billing.indexOf('## Account') + 4
+
+  it.effect('finds every link to a concept, whichever form it names', () =>
+    Effect.gen(function* () {
+      const found = yield* asked(corpus({}), (compiler) =>
+        compiler.references('/corpus/billing.loom', headingOffset),
+      )
+      expect(found.map((reference) => [reference.path, reference.range.start.line])).toEqual([
+        ['/corpus/billing.loom', 9],
+        ['/corpus/orders.loom', 6],
+        ['/corpus/orders.loom', 8],
+      ])
+    }),
+  )
+
+  it.effect('keeps the old name as a form on a rename', () =>
+    Effect.gen(function* () {
+      const edits = yield* asked(corpus({}), (compiler) =>
+        compiler.rename('/corpus/billing.loom', headingOffset),
+      )
+      expect(edits.map((edit) => [edit.path, edit.range.start, edit.text])).toEqual([
+        ['/corpus/billing.loom', { line: 9, character: 3 }, undefined],
+        ['/corpus/billing.loom', { line: 13, character: 14 }, '\n- Account'],
+      ])
+    }),
+  )
+})
+
+## The index, and the links on the woven page
+
+The weave starts from a corpus loom, here a short one with no frontmatter. The book's back matter ends on its index, which lists the concept by name, with its definition, its other forms, and a line that links where the book defines it and where the book uses it. On the page of `Orders`, each link carries the concept's definition, which the website shows a reader who rests on it. `wordsOf` reads a block as the words it shows, a heading marked by a `#`.
+
+=>
+
+const wordsOf = (block: WovenBlock): string =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, (heading) => `# ${heading.title}`),
+    Match.when({ type: 'prose' }, (prose) => prose.markdown),
+    Match.orElse((other) => other.type),
+  )
+
+describe('the index of a book', () => {
+  const root = '/corpus/book.loom'
+  const files = corpus({ [root]: lines('# Money', '', 'A corpus about money.') })
+  const definition = "A ledger that holds one customer's balance, charges, and payments."
+
+  it.effect('closes the back matter on the index', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      expect(
+        site.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)]),
+      ).toEqual([
+        ['Money', ['Billing', 'Orders']],
+        ['Back matter', ['Index']],
+      ])
+    }),
+  )
+
+  it.effect('lists each concept with its definition, its forms, and its uses', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      const blocks = site.pages.find((page) => page.slug === 'index')?.blocks ?? []
+      const uses = blocks.flatMap((block) => (block.type === 'prose' ? block.links : []))
+      expect([
+        blocks.map(wordsOf),
+        uses.map((link) => [link.name, link.targetSlug, link.targetId]),
+      ]).toEqual([
+        [
+          '# Index',
+          '# Account',
+          definition,
+          "Also: accounts, account's.",
+          'Defined in Billing. Used in Orders.',
+        ],
+        [
+          ['Billing', 'corpus/billing', 'account'],
+          ['Orders', 'corpus/orders', 'orders'],
+        ],
+      ])
+    }),
+  )
+
+  it.effect('gives each link to a concept its definition on the woven page', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      const blocks = site.pages.find((page) => page.slug === 'corpus/orders')?.blocks ?? []
+      const links = blocks.flatMap((block) => (block.type === 'prose' ? block.links : []))
+      expect(links.map((link) => [link.name, link.targetSlug, link.targetId, link.title])).toEqual([
+        ['accounts', 'corpus/billing', 'account', definition],
+        ['Account', 'corpus/billing', 'account', definition],
+      ])
+    }),
+  )
+})
+
+## Concepts in the symbol search
+
+The editor's search for a symbol finds a concept by any of its forms, and names the chapter that defines it. A query that only the definition's words hold finds nothing, since a symbol is found by its names.
+
+=>
+
+describe('concepts in the symbol search', () => {
+  it.effect('finds a concept by any of its forms', () =>
+    Effect.gen(function* () {
+      const found = yield* asked(corpus({}), (compiler) =>
+        compiler.symbols('/corpus/workspace.loom', "account's"),
+      )
+      const none = yield* asked(corpus({}), (compiler) =>
+        compiler.symbols('/corpus/workspace.loom', 'ledger'),
+      )
+      expect([
+        found.map((symbol) => [symbol.name, symbol.container, symbol.location.path]),
+        none,
+      ]).toEqual([[['Account', 'Billing', '/corpus/billing.loom']], []])
+    }),
+  )
+})
+
+## The concepts test file [test/Concepts.test.ts]
+
+=>
+
+::[Testing concepts]
+
+::[A corpus with a concept]
+
+::[Links by any form]
+
+::[Faults a concept raises]
+
+::[Renaming a concept]
+
+::[The index, and the links on the woven page]
+
+::[Concepts in the symbol search]

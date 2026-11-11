@@ -8,12 +8,18 @@ import {
 } from '@athrio/loom-ast/Weft'
 import { boxKind, noteKind, type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
+  bookOf,
+  catalogueOf,
+  type Catalogue,
+  conceptAt,
+  type ConceptRef,
+  definitionLinesOf,
+  isBookLoom,
+  type Location,
   type LoomCorpusAst,
   type LoomModule,
   resolveAnchor,
-  bookOf,
-  type Book,
-  type Location,
+  sectionLinksOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { keyOf } from '@athrio/loom-ast/ProductAst'
@@ -31,6 +37,8 @@ import {
   SourceAnchorSchema,
   UnsettledSpanSchema,
   type WovenBlock,
+  type WovenBook,
+  WovenBookSchema,
   type WovenCorpus,
   WovenCorpusSchema,
   type WovenNavEntry,
@@ -43,7 +51,9 @@ import {
 import {
   backMatterHeading,
   buildContents,
+  orphansHeading,
   type TocBackMatter,
+  type TocBook,
   type TocChapter,
   type TocDiscussion,
   type TocPart,
@@ -52,29 +62,63 @@ import { sectionLanguage } from '../ast/ProductBuilder'
 
 export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder', {
   make: Effect.succeed({
-    build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
-      Effect.sync(() => buildCorpus(corpus)),
+    build: (corpus: LoomCorpusAst, root?: Location): Effect.Effect<WovenCorpus> =>
+      Effect.sync(() => buildCorpus(corpus, root)),
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
-export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
+export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const weaving = weavingOf(corpus.modules)
-  const toc = buildContents(corpus)
-  const nav = [...Array.map(toc.parts, wovenPart), ...backMatterPart(toc.backMatter)]
-  const loose = Array.map(toc.loose, wovenEntry)
-  const partOfSlug = partIndex(nav)
-  const pages = pipe(
-    Array.getSomes(Array.map(modules, (module) => buildPage(module, weaving, partOfSlug))),
-    Array.sort(inReadingOrder(navOrder(nav))),
+  const slugOf = (path: Location): string => pageSlug(weaving.catalogue, path)
+  const contents = buildContents(corpus, root)
+  const uses = usesByConcept(weaving, modules, root)
+  const indexes = Array.getSomes(
+    Array.map(contents.books, (book) => indexPageOf(weaving, modules, uses, book.name)),
   )
-  return WovenCorpusSchema.make({ nav, loose, pages })
+  const indexOf = (book: string): Option.Option<WovenNavEntry> =>
+    Option.map(
+      Array.findFirst(indexes, (page) => page.slug === indexSlug(book)),
+      (page) => WovenNavEntrySchema.make({ number: '', title: page.title, slug: page.slug }),
+    )
+  const nav = Option.getOrElse(
+    Option.map(
+      Array.findFirst(contents.books, (book) => book.name === ''),
+      (book) => bookNav(slugOf, book, indexOf(book.name)),
+    ),
+    (): ReadonlyArray<WovenPart> => [],
+  )
+  const books = Array.map(
+    Array.filter(contents.books, (book) => book.name !== ''),
+    wovenBook(slugOf, indexOf),
+  )
+  const partOfSlug = partIndex([...nav, ...Array.flatMap(books, (book) => book.nav)])
+  const pages = pipe(
+    [
+      ...Array.getSomes(
+        Array.map(modules, (module) => buildPage(module, weaving, partOfSlug, root)),
+      ),
+      ...indexes,
+    ],
+    Array.sort(inReadingOrder(readingOrderOf(nav, books))),
+  )
+  return WovenCorpusSchema.make({ nav, books: pagedBooks(books, pages), pages })
 }
 
+const pagedBooks = (
+  books: ReadonlyArray<WovenBook>,
+  pages: ReadonlyArray<WovenPage>,
+): ReadonlyArray<WovenBook> =>
+  Array.map(books, (book) =>
+    Array.some(pages, (page) => page.slug === book.slug)
+      ? book
+      : WovenBookSchema.make({ ...book, slug: '' }),
+  )
+
 type Weaving = {
-  readonly book: Book
+  readonly catalogue: Catalogue
   readonly anchors: ReadonlySet<string>
   readonly sections: ReadonlySet<string>
 }
@@ -82,7 +126,7 @@ type Weaving = {
 const anchorKey = (path: Location, at: Position): string => `${path}#${at.start.offset}`
 
 const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   const unsettled = pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((module) =>
@@ -90,7 +134,7 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
         Array.getSomes(
           Array.map(code.fragments, (part) =>
             part.type === 'NameRef'
-              ? unsettledRef(modules, book, module.path, part)
+              ? unsettledRef(modules, catalogue, module.path, part)
               : Option.none(),
           ),
         ),
@@ -98,7 +142,7 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
     ),
   )
   return {
-    book,
+    catalogue,
     anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
     sections: new Set(
       Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
@@ -117,45 +161,98 @@ const slugify = (text: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 
+const pageSlug = (catalogue: Catalogue, path: Location): string => {
+  const module = Option.fromNullishOr(catalogue.modules.get(path))
+  return Option.match(Option.flatMap(module, bookOf), {
+    onNone: () => slugFor(path),
+    onSome: (book) =>
+      Option.exists(module, isBookLoom) ? slugify(book) : `${slugify(book)}/${slugFor(path)}`,
+  })
+}
+
 const isBlankSource = (source: string): boolean => source.trim().length === 0
 
 const sliceContent = (text: string, span: Span): string =>
   text.slice(span.start, span.end).replace(/\s+$/, '')
 
-const wovenEntry = (chapter: TocChapter): WovenNavEntry =>
-  WovenNavEntrySchema.make({
-    number: chapter.number,
-    title: chapter.title,
-    slug: slugFor(chapter.path),
-    status: chapter.status,
-    priority: chapter.priority,
-    language: chapter.language,
-  })
+type SlugOf = (path: Location) => string
 
-const wovenPart = (part: TocPart): WovenPart =>
-  WovenPartSchema.make({
-    number: part.number,
-    name: part.name,
-    chapters: Array.map(part.chapters, wovenEntry),
-  })
+const wovenEntry =
+  (slugOf: SlugOf) =>
+  (chapter: TocChapter): WovenNavEntry =>
+    WovenNavEntrySchema.make({
+      number: chapter.number,
+      title: chapter.title,
+      slug: slugOf(chapter.path),
+      status: chapter.status,
+      priority: chapter.priority,
+      language: chapter.language,
+    })
 
-const wovenDiscussion = (discussion: TocDiscussion): WovenNavEntry =>
-  WovenNavEntrySchema.make({
-    number: '',
-    title: discussion.title,
-    slug: slugFor(discussion.path),
-  })
+const wovenPart =
+  (slugOf: SlugOf) =>
+  (part: TocPart): WovenPart =>
+    WovenPartSchema.make({
+      number: part.number,
+      name: part.name,
+      chapters: Array.map(part.chapters, wovenEntry(slugOf)),
+    })
 
-const backMatterPart = (backMatter: TocBackMatter): ReadonlyArray<WovenPart> =>
-  backMatter.discussions.length === 0
+const wovenDiscussion =
+  (slugOf: SlugOf) =>
+  (discussion: TocDiscussion): WovenNavEntry =>
+    WovenNavEntrySchema.make({
+      number: '',
+      title: discussion.title,
+      slug: slugOf(discussion.path),
+    })
+
+const orphansPart = (
+  slugOf: SlugOf,
+  orphans: ReadonlyArray<TocChapter>,
+): ReadonlyArray<WovenPart> =>
+  orphans.length === 0
     ? []
     : [
         WovenPartSchema.make({
           number: '',
-          name: backMatterHeading,
-          chapters: Array.map(backMatter.discussions, wovenDiscussion),
+          name: orphansHeading,
+          chapters: Array.map(orphans, wovenEntry(slugOf)),
         }),
       ]
+
+const backMatterPart = (
+  slugOf: SlugOf,
+  backMatter: TocBackMatter,
+  index: Option.Option<WovenNavEntry>,
+): ReadonlyArray<WovenPart> => {
+  const entries = [
+    ...Array.map(backMatter.discussions, wovenDiscussion(slugOf)),
+    ...Option.toArray(index),
+  ]
+  return entries.length === 0
+    ? []
+    : [WovenPartSchema.make({ number: '', name: backMatterHeading, chapters: entries })]
+}
+
+const bookNav = (
+  slugOf: SlugOf,
+  book: TocBook,
+  index: Option.Option<WovenNavEntry>,
+): ReadonlyArray<WovenPart> => [
+  ...Array.map(book.parts, wovenPart(slugOf)),
+  ...orphansPart(slugOf, book.orphans),
+  ...backMatterPart(slugOf, book.backMatter, index),
+]
+
+const wovenBook =
+  (slugOf: SlugOf, indexOf: (book: string) => Option.Option<WovenNavEntry>) =>
+  (book: TocBook): WovenBook =>
+    WovenBookSchema.make({
+      name: book.name,
+      slug: book.path === '' ? '' : slugOf(book.path),
+      nav: bookNav(slugOf, book, indexOf(book.name)),
+    })
 
 const partIndex = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, string> =>
   new Map(
@@ -164,10 +261,22 @@ const partIndex = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, string> =
     ),
   )
 
-const navOrder = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, number> =>
+const slugsOf = (nav: ReadonlyArray<WovenPart>): ReadonlyArray<string> =>
+  Array.flatMap(nav, (part) => Array.map(part.chapters, (chapter) => chapter.slug))
+
+const readingOrderOf = (
+  nav: ReadonlyArray<WovenPart>,
+  books: ReadonlyArray<WovenBook>,
+): ReadonlyMap<string, number> =>
   new Map(
     Array.map(
-      Array.flatMap(nav, (part) => Array.map(part.chapters, (chapter) => chapter.slug)),
+      [
+        ...slugsOf(nav),
+        ...Array.flatMap(books, (book) => [
+          ...(book.slug === '' ? [] : [book.slug]),
+          ...slugsOf(book.nav),
+        ]),
+      ],
       (slug, at) => [slug, at] as const,
     ),
   )
@@ -180,8 +289,8 @@ const inReadingOrder = (order: ReadonlyMap<string, number>): Order.Order<WovenPa
     Order.mapInput(Order.String, (page: WovenPage) => page.slug),
   ])
 
-const isBookRoot = (module: LoomModule): boolean =>
-  Array.some(module.doc.sections, (section) => section.entries !== undefined)
+const isCorpusLoom = (module: LoomModule, root: Location | undefined): boolean =>
+  module.path === root && module.doc.frontmatter === undefined
 
 const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
   pipe(
@@ -200,15 +309,17 @@ const buildPage = (
   module: LoomModule,
   weaving: Weaving,
   partOfSlug: ReadonlyMap<string, string>,
+  root: Location | undefined,
 ): Option.Option<WovenPage> =>
-  isBookRoot(module)
+  isCorpusLoom(module, root)
     ? Option.none()
     : Option.map(chapterTitleOf(module), (title): WovenPage => {
-        const slug = slugFor(module.path)
+        const slug = pageSlug(weaving.catalogue, module.path)
         return WovenPageSchema.make({
           slug,
           title,
           part: partOfSlug.get(slug),
+          book: Option.getOrUndefined(bookOf(module)),
           frontmatter: module.doc.frontmatter?.source,
           blocks: buildBlocks(module, weaving),
         })
@@ -217,16 +328,16 @@ const buildPage = (
 const buildBlocks = (module: LoomModule, weaving: Weaving): ReadonlyArray<WovenBlock> =>
   Array.flatMap(module.doc.sections, sectionBlocks(module, weaving))
 
-const sectionSource = (module: LoomModule, section: LoomSection): SourceAnchor =>
+const sectionSource = (module: LoomModule, weaving: Weaving, section: LoomSection): SourceAnchor =>
   SourceAnchorSchema.make({
-    chapter: slugFor(module.path),
+    chapter: pageSlug(weaving.catalogue, module.path),
     section: slugify(titleSource(section)),
   })
 
 const sectionBlocks =
   (module: LoomModule, weaving: Weaving) =>
   (section: LoomSection): ReadonlyArray<WovenBlock> => {
-    const source = sectionSource(module, section)
+    const source = sectionSource(module, weaving, section)
     const runs = splitRuns(sectionBody(section))
     return [
       headingBlock(module, weaving, section, source),
@@ -399,11 +510,37 @@ const textOf = (module: LoomModule, wefts: ReadonlyArray<BodyWeft>): string =>
     onSome: (span) => sliceContent(module.text, span).trim(),
   })
 
-const proseBlockOf = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> =>
-  markdown.length === 0 ? [] : [ProseBlockSchema.make({ source, markdown })]
+const proseBlockOf = (
+  module: LoomModule,
+  weaving: Weaving,
+  wefts: ReadonlyArray<BodyWeft>,
+  source: SourceAnchor,
+): ReadonlyArray<WovenBlock> =>
+  Option.match(runSpan(wefts), {
+    onNone: (): ReadonlyArray<WovenBlock> => [],
+    onSome: (span) => {
+      const raw = sliceContent(module.text, span)
+      const markdown = raw.trim()
+      const start = span.start + raw.length - raw.trimStart().length
+      return markdown.length === 0
+        ? []
+        : [
+            ProseBlockSchema.make({
+              source,
+              markdown,
+              links: Array.getSomes(
+                Array.map(anchorsWithin(wefts, span), (anchor) =>
+                  resolveLink(module, weaving, start, anchor),
+                ),
+              ),
+            }),
+          ]
+    },
+  })
 
 const proseBlocks = (
   module: LoomModule,
+  weaving: Weaving,
   run: ReadonlyArray<BodyWeft>,
   source: SourceAnchor,
 ): ReadonlyArray<WovenBlock> =>
@@ -416,7 +553,7 @@ const proseBlocks = (
             markdown: textOf(module, bodyOf(stretch.wefts)),
           }),
         ]
-      : proseBlockOf(textOf(module, stretch.wefts), source),
+      : proseBlockOf(module, weaving, stretch.wefts, source),
   )
 
 const codeBlock = (
@@ -477,7 +614,7 @@ const runBlocks =
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
       onNonEmpty: (first, rest) =>
         first.type === 'TildeWeft' && isDiscussion(module)
-          ? [messageBlock(first, source), ...proseBlocks(module, rest, source)]
+          ? [messageBlock(first, source), ...proseBlocks(module, weaving, rest, source)]
           : Option.match(runSpan(run), {
               onNone: (): ReadonlyArray<WovenBlock> => [],
               onSome: (span) =>
@@ -495,7 +632,7 @@ const runBlocks =
                       closed,
                     ),
                   ]),
-                  Match.orElse(() => proseBlocks(module, run, source)),
+                  Match.orElse(() => proseBlocks(module, weaving, run, source)),
                 ),
             }),
     })
@@ -507,16 +644,218 @@ const resolveLink = (
   anchor: WarpAnchorToken,
 ): Option.Option<AnchorLink> =>
   pipe(
-    resolveAnchor(weaving.book, module.path, anchor),
+    resolveAnchor(weaving.catalogue, module.path, anchor),
     Option.flatMap((ref) =>
       Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
         AnchorLinkSchema.make({
           name: anchor.name.value,
-          targetSlug: slugFor(ref.module),
+          targetSlug: pageSlug(weaving.catalogue, ref.module),
           targetId: slugify(title.source),
           offset: anchor.position.start.offset - blockStart,
           length: anchor.position.end.offset - anchor.position.start.offset,
+          title: Option.getOrUndefined(
+            pipe(
+              conceptAt(weaving.catalogue, ref),
+              Option.map((concept) => concept.definition),
+              Option.filter((definition) => definition !== ''),
+            ),
+          ),
         }),
       ),
     ),
   )
+
+export const indexHeading = 'Index'
+
+const indexSlug = (book: string): string => (book === '' ? 'index' : `${slugify(book)}/index`)
+
+const bookNameOf = (weaving: Weaving, path: Location): string =>
+  Option.getOrElse(
+    Option.flatMap(Option.fromNullishOr(weaving.catalogue.modules.get(path)), bookOf),
+    () => '',
+  )
+
+const byConceptName: Order.Order<ConceptRef> = Order.mapInput(Order.String, (concept: ConceptRef) =>
+  concept.name.source.toLowerCase(),
+)
+
+type Phrase = {
+  readonly text: string
+  readonly target: Option.Option<{ readonly slug: string; readonly id: string }>
+}
+
+const linkedBlock = (source: SourceAnchor, pieces: ReadonlyArray<Phrase>): WovenBlock =>
+  ProseBlockSchema.make({
+    source,
+    markdown: Array.join(
+      Array.map(pieces, (piece) => piece.text),
+      '',
+    ),
+    links: Array.getSomes(
+      Array.mapAccum(pieces, 0, (at, piece) => [
+        at + piece.text.length,
+        Option.map(piece.target, (target) =>
+          AnchorLinkSchema.make({
+            name: piece.text,
+            targetSlug: target.slug,
+            targetId: target.id,
+            offset: at,
+            length: piece.text.length,
+          }),
+        ),
+      ])[1],
+    ),
+  })
+
+type Use = { readonly module: LoomModule; readonly section: LoomSection }
+
+const conceptKey = (module: Location, section: LoomSection): string =>
+  `${module}#${section.position.start.offset}`
+
+const byUse = (weaving: Weaving): Order.Order<Use> =>
+  Order.combineAll([
+    Order.mapInput(Order.String, (use: Use) => pageSlug(weaving.catalogue, use.module.path)),
+    Order.mapInput(Order.Number, (use: Use) => use.section.position.start.offset),
+  ])
+
+const usesByConcept = (
+  weaving: Weaving,
+  modules: ReadonlyArray<LoomModule>,
+  root: Location | undefined,
+): ReadonlyMap<string, ReadonlyArray<Use>> => {
+  const pairs = pipe(
+    Array.filter(modules, (module) => module.path !== root),
+    Array.flatMap((module) =>
+      Array.flatMap(module.doc.sections, (section) =>
+        pipe(
+          sectionLinksOf(section),
+          Array.flatMap((link) =>
+            Option.toArray(
+              Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
+                conceptAt(weaving.catalogue, ref),
+              ),
+            ),
+          ),
+          Array.map((concept) => conceptKey(concept.module, concept.section)),
+          Array.dedupe,
+          Array.map((key) => ({ key, use: { module, section } })),
+        ),
+      ),
+    ),
+    Array.sort(Order.mapInput(byUse(weaving), (pair: { readonly use: Use }) => pair.use)),
+  )
+  return new Map(
+    Object.entries(Array.groupBy(pairs, (pair) => pair.key)).map(
+      ([key, found]) => [key, Array.map(found, (pair) => pair.use)] as const,
+    ),
+  )
+}
+
+const placeOf = (weaving: Weaving, use: Use): Phrase => ({
+  text: titleSource(use.section),
+  target: Option.some({
+    slug: pageSlug(weaving.catalogue, use.module.path),
+    id: slugify(titleSource(use.section)),
+  }),
+})
+
+const entryBlocks = (
+  weaving: Weaving,
+  modules: ReadonlyArray<LoomModule>,
+  usesOf: ReadonlyMap<string, ReadonlyArray<Use>>,
+  slug: string,
+  concept: ConceptRef,
+): ReadonlyArray<WovenBlock> => {
+  const id = slugify(concept.name.source)
+  const source = SourceAnchorSchema.make({ chapter: slug, section: id })
+  const forms = Array.map(concept.forms, (form) => form.value)
+  const home = Array.findFirst(modules, (module) => module.path === concept.module)
+  const uses = Option.getOrElse(
+    Option.fromNullishOr(usesOf.get(conceptKey(concept.module, concept.section))),
+    (): ReadonlyArray<Use> => [],
+  )
+  return [
+    HeadingBlockSchema.make({
+      source,
+      level: 2,
+      title: concept.name.source,
+      id,
+      unsettled: false,
+      divider: false,
+    }),
+    ...Option.match(home, {
+      onNone: (): ReadonlyArray<WovenBlock> => [],
+      onSome: (module) => proseBlockOf(module, weaving, definitionLinesOf(concept.section), source),
+    }),
+    ...(forms.length === 0
+      ? []
+      : [
+          ProseBlockSchema.make({
+            source,
+            markdown: `Also: ${Array.join(forms, ', ')}.`,
+            links: [],
+          }),
+        ]),
+    linkedBlock(source, [
+      { text: 'Defined in ', target: Option.none() },
+      ...Option.match(home, {
+        onNone: (): ReadonlyArray<Phrase> => [{ text: concept.name.source, target: Option.none() }],
+        onSome: (module): ReadonlyArray<Phrase> => [
+          {
+            text: Option.getOrElse(chapterTitleOf(module), () => concept.name.source),
+            target: Option.some({ slug: pageSlug(weaving.catalogue, module.path), id }),
+          },
+        ],
+      }),
+      { text: '.', target: Option.none() },
+      ...(uses.length === 0
+        ? []
+        : [
+            { text: ' Used in ', target: Option.none() },
+            ...Array.flatMap(uses, (use, at): ReadonlyArray<Phrase> => [
+              ...(at === 0 ? [] : [{ text: ', ', target: Option.none() }]),
+              placeOf(weaving, use),
+            ]),
+            { text: '.', target: Option.none() },
+          ]),
+    ]),
+  ]
+}
+
+const indexPageOf = (
+  weaving: Weaving,
+  modules: ReadonlyArray<LoomModule>,
+  usesOf: ReadonlyMap<string, ReadonlyArray<Use>>,
+  book: string,
+): Option.Option<WovenPage> => {
+  const slug = indexSlug(book)
+  return pipe(
+    Array.filter(
+      weaving.catalogue.concepts,
+      (concept) => bookNameOf(weaving, concept.module) === book,
+    ),
+    Array.sort(byConceptName),
+    Option.liftPredicate(Array.isReadonlyArrayNonEmpty),
+    Option.map((concepts) =>
+      WovenPageSchema.make({
+        slug,
+        title: indexHeading,
+        part: backMatterHeading,
+        book: book === '' ? undefined : book,
+        blocks: [
+          HeadingBlockSchema.make({
+            source: SourceAnchorSchema.make({ chapter: slug, section: 'index' }),
+            level: 1,
+            title: indexHeading,
+            id: 'index',
+            unsettled: false,
+            divider: false,
+          }),
+          ...Array.flatMap(concepts, (concept) =>
+            entryBlocks(weaving, modules, usesOf, slug, concept),
+          ),
+        ],
+      }),
+    ),
+  )
+}

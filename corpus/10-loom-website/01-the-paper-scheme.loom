@@ -2796,6 +2796,8 @@ The menu holds three levels of type, and each is set apart from the next. A part
 
 Only one thing in the menu is ever orange: the section the reader has reached. A small orange square stands in front of it, a pixel of the woven marks. A row the pointer is over only darkens, so hovering never puts a second orange row beside the reader's place.
 
+A corpus of several books sets each named book apart from the default book above it: a rule runs across the menu before the book, and the book's name stands in primary ink at the weight of the chapter on show, with the book's parts beneath it, spaced as the default book's are. The name of the book on show sets the same way and takes no pointer, as the chapter on show does.
+
 The drawer holds the same groups, so the rules below style both.
 
 A menu that scrolls within itself scrolls its top padding too, so the padding would show a sliver of whatever row has passed up under it. A chapter scrolled to the top would then never look like the menu's first line. So the top padding is a strip of the menu's own ground, pinned to the top while the rows scroll beneath it. The strip fades from the solid ground at the card's edge to clear at its foot. At rest it is simply the padding. Scrolled, the rows fade out as they pass under it, rather than ending at a cut line. The strip runs the full width of the menu, over the side padding, and a negative margin takes back the gap the list sets after it, so at rest every row stands where it would without the strip. The card's strip is its pale ground, twenty-two pixels tall, and the drawer's is the paper of the drawer, twenty pixels.
@@ -2847,6 +2849,25 @@ A menu that scrolls within itself scrolls its top padding too, so the padding wo
 
 .menu-part { display: flex; flex-direction: column; }
 .menu-part .eyebrow { margin-bottom: 10px; }
+
+.menu-book {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.menu-book-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.menu-book-name.here { cursor: default; }
 
 .menu-item,
 .menu-sub {

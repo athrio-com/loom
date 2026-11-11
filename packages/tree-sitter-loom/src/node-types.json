@@ -481,10 +481,6 @@
         {
           "type": "prose",
           "named": true
-        },
-        {
-          "type": "toc",
-          "named": true
         }
       ]
     }
@@ -519,68 +515,6 @@
           }
         ]
       }
-    }
-  },
-  {
-    "type": "title",
-    "named": true,
-    "fields": {}
-  },
-  {
-    "type": "toc",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "toc_chapter",
-          "named": true
-        },
-        {
-          "type": "toc_part",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "toc_chapter",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "number",
-          "named": true
-        },
-        {
-          "type": "title",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "toc_part",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "heading_marker",
-          "named": true
-        },
-        {
-          "type": "title",
-          "named": true
-        }
-      ]
     }
   },
   {
@@ -705,10 +639,6 @@
     "named": true
   },
   {
-    "type": "number",
-    "named": true
-  },
-  {
     "type": "parameter_key",
     "named": true
   },
@@ -718,6 +648,10 @@
   },
   {
     "type": "tilde",
+    "named": true
+  },
+  {
+    "type": "title",
     "named": true
   },
   {

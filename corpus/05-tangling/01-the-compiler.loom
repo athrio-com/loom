@@ -19,9 +19,9 @@ A module this process has never built may still be waiting on disk. `loadOne` ha
 
 The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's product as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the edited file alone, so the next projection rebuilds only what changed. A file that draws in the edited one keeps its build, because a cross-file anchor is inlined when a file is projected, not when it is built.
 
-The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it parses both, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. `completions` gives the labels an anchor takes while the cursor stands between its braces, each with the span it replaces, so the editor completes a label as the author types it. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `contents` reads each chapter's frontmatter and rewrites the book's own table of contents from it, returning the rewritten source. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `hover` gives the card of the concept a link or a heading under the cursor names, and `symbols` gives the concepts of a workspace whose names hold a query, for the editor's symbol search. It takes no loom, so it builds the corpus that the source lists from a place in the workspace. `rename` gathers the title and anchors a rename rewrites together, and for a concept the edit that keeps its old name as a form, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it parses both, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. `completions` gives the labels an anchor takes while the cursor stands between its braces, each with the span it replaces, so the editor completes a label as the author types it. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
 
-Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `completions`, `reach`, `weave`, `contents`, and `summaries` read the parse and the corpus graph, since Loom health, navigation, colour, completion, placement, the woven page, the table of contents, and the summaries that boxes copy need no product. `contracts` reads the product too, since a contract binds the anchor's edge to the section it reaches, and so does `promised`, since a promise rides on the edges a root's composition follows. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
+Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `hover`, `symbols`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `completions`, `reach`, `weave`, and `summaries` read the parse and the corpus graph, since Loom health, navigation, colour, completion, placement, the woven page, and the summaries that boxes copy need no product. `contracts` reads the product too, since a contract binds the anchor's edge to the section it reaches, and so does `promised`, since a promise rides on the edges a root's composition follows. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
 
 The build cache keys a module by its path alone, so it can hold a build of the entry from text the editor no longer shows. The corpus may have been built from disk before the editor projected a chapter it has open: by the language server warming the corpus at start, or by a composition the TypeScript service asked for. That build holds the saved text, while the editor's buffer may hold edits that were never saved. So `compile` first runs `matchEntry`, which compares the kept build of the entry with the text its source gives and evicts the build when the two differ. A source that cannot read the entry leaves the build alone, and the build reports the error as it always did. The entry is then built from the buffer, and the editor never answers from text it is not showing.
 
@@ -44,7 +44,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const disk = yield* LoomDiskCache
     const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
-    const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
     const packages = yield* Effect.serviceOption(LanguagePackages)
     const tropes = yield* Effect.serviceOption(TropePackages)
@@ -61,12 +60,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         onSome: (held) => held.moduleSpecifier(request),
       })
 
-    const writtenFor: WrittenFor = (modules, book, landing, root, from) =>
-      Effect.forEach(referencesIn(modules, root, book), (reference) =>
+    const writtenFor: WrittenFor = (modules, catalogue, landing, root, from) =>
+      Effect.forEach(referencesIn(modules, root, catalogue), (reference) =>
         pipe(
           Option.fromNullishOr(modules.get(reference.owner)),
           Option.map((module) =>
-            referredFileOf(book, modules, landing, module, reference.host, reference.ref),
+            referredFileOf(catalogue, modules, landing, module, reference.host, reference.ref),
           ),
           Option.filter(Referred.$is('Named')),
           Option.match({
@@ -109,11 +108,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       entry: LoomModule,
     ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
       if (!holdsReferences(modules)) return Effect.succeed(new Map())
-      const book = bookOf(modules)
-      const landing = landingOf(book, modules)
+      const catalogue = catalogueOf(modules)
+      const landing = landingOf(catalogue, modules)
       return Effect.forEach(entry.product.code, (root) =>
         fileOfRoot(entry, root).pipe(
-          Effect.flatMap((from) => writtenFor(modules, book, landing, root, from)),
+          Effect.flatMap((from) => writtenFor(modules, catalogue, landing, root, from)),
           Effect.map((written) => [root.origin.name, specifiersOf(written)] as const),
         ),
       ).pipe(Effect.map((pairs) => new Map(pairs)))
@@ -233,15 +232,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       weave: (path: Location): Effect.Effect<WovenCorpus> =>
-        buildCorpus(documents, path).pipe(Effect.flatMap((modules) => weaver.build({ modules }))),
-
-      contents: (path: Location): Effect.Effect<string> =>
         buildCorpus(documents, path).pipe(
-          Effect.flatMap((modules) =>
-            tocBuilder
-              .build({ modules })
-              .pipe(Effect.map((toc) => rewriteBook({ modules }, path, toc))),
-          ),
+          Effect.flatMap((modules) => weaver.build({ modules }, path)),
         ),
 
       summaries: (
@@ -293,20 +285,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
-                onSome: (module) => [
-                  ...corpusDiagnostics(modules, installed)(module),
-                  ...Array.flatMap(
-                    unresolvedTocEntriesIn({ modules }, module),
-                    (entry) =>
-                      faulty(
-                        UnresolvedTocEntry({
-                          title: entry.title.value,
-                          discussion: entry.discussion,
-                        }),
-                        entry.title.position,
-                      ).diagnostics,
-                  ),
-                ],
+                onSome: (module) => corpusDiagnostics(modules, installed)(module),
               }),
             ),
           ),
@@ -334,15 +313,61 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
-        buildCorpus(documents, path).pipe(
+      symbols: (within: Location, query: string): Effect.Effect<ReadonlyArray<FrameSymbol>> =>
+        Option.match(documents.list, {
+          onNone: () => Effect.succeed<ReadonlyArray<Location>>([]),
+          onSome: (list) => list(within),
+        }).pipe(
+          Effect.flatMap((paths) =>
+            Effect.forEach(paths, (path) =>
+              loadOne(documents, path).pipe(Effect.map((module) => [path, module] as const)),
+            ),
+          ),
+          Effect.map((pairs): Modules => new Map(pairs)),
           Effect.map((modules) =>
             Array.getSomes(
+              Array.map(conceptSymbolsIn({ modules }, query), (symbol) =>
+                Option.map(frameLocationOf(modules, symbol.location), (location): FrameSymbol => ({
+                  name: symbol.name,
+                  container: symbol.container,
+                  location,
+                })),
+              ),
+            ),
+          ),
+        ),
+
+      hover: (path: Location, offset: number): Effect.Effect<FrameHover | undefined> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.getOrUndefined(
+              Option.flatMap(hoverAt({ modules }, path, offset), (card) =>
+                Option.map(
+                  frameLocationOf(modules, { path, position: card.position }),
+                  (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameEdit>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) => [
+            ...Array.getSomes(
               Array.map(renameAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
               ),
             ),
-          ),
+            ...Option.toArray(
+              Option.flatMap(conceptRenameAt({ modules }, path, offset), (rename) =>
+                Option.map(
+                  frameLocationOf(modules, { path: rename.kept.path, position: rename.kept.at }),
+                  (location): FrameEdit => ({ ...location, text: rename.kept.text }),
+                ),
+              ),
+            ),
+          ]),
         ),
 
       renameRange: (path: Location, offset: number): Effect.Effect<FrameLocation | undefined> =>
@@ -532,14 +557,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        LoomCorpusAstBuilder.layer,
-        LoomMemo.layer,
-        WeaveBuilder.layer,
-        TableOfContentsBuilder.layer,
-      ),
-    ),
+    Layer.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomMemo.layer, WeaveBuilder.layer)),
   )
 }
 
@@ -579,9 +597,9 @@ const entryOf = (
 
 ## Judging a module against its corpus
 
-A module's diagnostics come from two places. Its own two tiers, the parse and the product, travel with the module in the memo, and `moduleDiagnostics` reads them. The rest are judged against the corpus, because the module alone cannot see them. An anchor that reaches beyond its loom goes to the product pass's `crossFileFaults`, which tells whether the section it names exists. Every composing anchor goes to `compositionCycles` as well, which faults an anchor whose section composes, however far down, the section the anchor stands in. Every section goes to `unusedSections`, which warns of code that no file includes, against the corpus's used sections, which `usedSections` gathers once. A chapter's title goes to `namesakeFaults`, which raises the `DuplicateName` fault when another chapter of its part carries the same title, and names those chapters by their looms through `loomName`.
+A module's diagnostics come from two places. Its own two tiers, the parse and the product, travel with the module in the memo, and `moduleDiagnostics` reads them. The rest are judged against the corpus, because the module alone cannot see them. An anchor that reaches beyond its loom goes to the product pass's `crossFileFaults`, which tells whether the section it names exists. Every composing anchor goes to `compositionCycles` as well, which faults an anchor whose section composes, however far down, the section the anchor stands in. Every section goes to `unusedSections`, which warns of code that no file includes, against the corpus's used sections, which `usedSections` gathers once. A chapter's title goes to `namesakeFaults`, which raises the `DuplicateName` fault when another chapter of its part carries the same title, and names those chapters by their looms through `loomName`. A `Book:` line goes to `bookFaults`, which raises the `DuplicateName` fault on a book loom when another book loom opens the same book, and warns with the `UnopenedBook` fault when no book loom opens the book a line names. A link in prose goes to `linkFaults`. A link that leads nowhere warns with the `UnresolvedLink` fault, since a reader would follow it to nothing, and a link that names several places raises the `AmbiguousAnchor` fault, with the path to each, as a code anchor does.
 
-`corpusDiagnostics` reads both for one module, against the corpus the module came from. It builds the corpus's `Book` once, so the judgement of every module resolves names through the same index, and the corpus's `Landing` once, which tells the file each section lands in, for a reference that names a section with no sink. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken. A box that points to a loom needs the corpus too, since that loom lives in another file. `boxNoticeHealth` turns each of its notices into a diagnostic at the box's name: a box whose loom nobody has written carries the `UnwrittenLoom` note, a trope box that points nowhere yet carries the `UnsettledTrope` note, and a box whose copy of the summary is out of step carries the `StaleSummary` warning. Neither is an error, so neither stops a tangle.
+`corpusDiagnostics` reads both for one module, against the corpus the module came from. It builds the corpus's `Catalogue` once, so the judgement of every module resolves names through the same index, and the corpus's `Landing` once, which tells the file each section lands in, for a reference that names a section with no sink. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken. A box that points to a loom needs the corpus too, since that loom lives in another file. `boxNoticeHealth` turns each of its notices into a diagnostic at the box's name: a box whose loom nobody has written carries the `UnwrittenLoom` note, a trope box that points nowhere yet carries the `UnsettledTrope` note, and a box whose copy of the summary is out of step carries the `StaleSummary` warning. Neither is an error, so neither stops a tangle.
 
 A box's kind needs the corpus as well, since a trope anywhere in the book may declare it. A trope the workspace installs may declare it too, and the `installed` kinds the compiler hands in carry those. `corpusDiagnostics` gathers the registry of declared kinds once, through `declaredKindsOf`, and `kindFaults` judges each module against it: a box whose kind nobody gives carries the `UnknownKind` fault, and a trope Loom refuses carries the `TropeRefused` fault, as Part XIII, Tropes, describes. Both are errors, so either stops a tangle, as an unknown kind did when the parse alone judged it.
 
@@ -591,8 +609,8 @@ A trope's boundary needs the corpus too, since the chapters that reach a trope m
 
 const loomName = (loom: Location): string => loom.slice(loom.lastIndexOf('/') + 1)
 
-const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  Option.match(namesakesOf(book, module), {
+const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Option.match(namesakesOf(catalogue, module), {
     onNone: (): ReadonlyArray<Diagnostic> => [],
     onSome: ({ title, looms }) =>
       faulty(
@@ -604,6 +622,45 @@ const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnosti
         title.position,
       ).diagnostics,
   })
+
+const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Array.flatMap(linksOf(module), (link) => {
+    const trails = anchorTrails(catalogue, module.path, link)
+    return Array.match(trails, {
+      onEmpty: () =>
+        faulty(UnresolvedLink({ name: link.name.value }), link.name.position).diagnostics,
+      onNonEmpty: (all) =>
+        all.length === 1
+          ? []
+          : faulty(
+              AmbiguousAnchor({
+                name: link.name.value,
+                count: all.length,
+                paths: pathsTo(catalogue, module.path, all),
+              }),
+              link.name.position,
+            ).diagnostics,
+    })
+  })
+
+const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
+  ...Option.match(bookTwinsOf(catalogue, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: ({ title, looms }) =>
+      faulty(
+        DuplicateName({
+          name: title.source,
+          sibling: 'book',
+          where: Array.join(Array.map(looms, loomName), ', '),
+        }),
+        title.position,
+      ).diagnostics,
+  }),
+  ...Option.match(unopenedBookOf(catalogue, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: (line) => faulty(UnopenedBook({ name: line.value }), line.position).diagnostics,
+  }),
+]
 
 const boxNoticeHealth = (notice: BoxNotice): Health =>
   BoxNotice.$match(notice, {
@@ -622,19 +679,21 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
   })
 
 const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
-  const book = bookOf(modules)
-  const landing = landingOf(book, modules)
-  const kinds = declaredKindsOf(modules, book, installed)
-  const boundaries = boundariesOf(modules, book, kinds.tropes)
-  const used = usedSections(book, modules)
+  const catalogue = catalogueOf(modules)
+  const landing = landingOf(catalogue, modules)
+  const kinds = declaredKindsOf(modules, catalogue, installed)
+  const boundaries = boundariesOf(modules, catalogue, kinds.tropes)
+  const used = usedSections(catalogue, modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
-    ...crossFileFaults(book, modules, module, landing),
-    ...compositionCycles(book, modules, module),
+    ...crossFileFaults(catalogue, modules, module, landing),
+    ...compositionCycles(catalogue, modules, module),
     ...unusedSections(used, module),
-    ...namesakeFaults(book, module),
+    ...namesakeFaults(catalogue, module),
+    ...bookFaults(catalogue, module),
+    ...linkFaults(catalogue, module),
     ...kindFaults(kinds, module),
-    ...boundaryFaults(boundaries, book, modules, module),
+    ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
       (notice) => boxNoticeHealth(notice).diagnostics,
@@ -648,7 +707,7 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it resolves where the file lands, writes the paths the file's references name from there through `writtenFor`, and flattens the composed code across the corpus with `fromCode`, over one `Book` built for the whole entry. It starts from the sink's own `Code` rather than finding the section again by its name, so a namesake can never stand in for the sink. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it resolves where the file lands, writes the paths the file's references name from there through `writtenFor`, and flattens the composed code across the corpus with `fromCode`, over one `Catalogue` built for the whole entry. It starts from the sink's own `Code` rather than finding the section again by its name, so a namesake can never stand in for the sink. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. Neither does a reference whose path its package could not write, which fails the tangle after the files are composed. The failure is loud, and names every file and line.
 
@@ -678,17 +737,17 @@ const resolveSinks = (
     Option.match({
       onNone: () => Effect.succeed<Resolved>({ files: [], unwritten: [] }),
       onSome: (module) => {
-        const book = bookOf(modules)
-        const landing = landingOf(book, modules)
+        const catalogue = catalogueOf(modules)
+        const landing = landingOf(catalogue, modules)
         return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.flatMap((path) =>
-              written(modules, book, landing, file.code, path).pipe(
+              written(modules, catalogue, landing, file.code, path).pipe(
                 Effect.map((paths) => ({
                   file: {
                     section: file.code.origin.name,
                     path,
-                    content: fromCode(modules, file.code, book, specifiersOf(paths)).code,
+                    content: fromCode(modules, file.code, catalogue, specifiersOf(paths)).code,
                   },
                   unwritten: paths.unwritten,
                 })),
@@ -709,13 +768,13 @@ const unsettledFailures = (
   modules: Modules,
   entry: Location,
 ): ReadonlyArray<{ readonly path: Location; readonly diagnostics: ReadonlyArray<Diagnostic> }> => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return pipe(
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
       onNone: (): ReadonlyArray<Unsettled> => [],
       onSome: (module) =>
-        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, book)),
+        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, catalogue)),
     }),
     Array.dedupeWith(
       (one, other) =>
@@ -777,7 +836,7 @@ interface Written {
 
 type WrittenFor = (
   modules: Modules,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   root: Code,
   from: Location,
@@ -884,7 +943,7 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
 
 ## What other files see of a module
 
-An edit to a file can leave every other file as it was. Most edits to a loom change its prose, and no other file reads a loom's prose. Another file reads a module's code, through an anchor or through the files the module tangles, and it finds the module's sections by their titles. Some of its frontmatter matters too. The part and the chapter, with their titles, are how the book's table of contents names the chapter. The package decides where its files land, and the language decides how its code is checked.
+An edit to a file can leave every other file as it was. Most edits to a loom change its prose, and no other file reads a loom's prose. Another file reads a module's code, through an anchor or through the files the module tangles, and it finds the module's sections by their titles. Some of its frontmatter matters too. The part and the chapter, with their titles, are how anchors and the woven contents name the chapter. The package decides where its files land, and the language decides how its code is checked.
 
 `faceOf` reduces a module to that face. It keeps those six frontmatter values, but not a chapter's status or priority, which no other file reads. It keeps the title of every section, the code of every section, and the file each sink tangles to. In the code, an anchor appears as the section it resolves to, or as the name it writes when the product pass left its target open. A reference appears the same way, marked as a module, with the file it names in parentheses. It leaves out the prose, and every position in the source, since an edit to the prose shifts the positions of the code below it without changing the code. Two builds of a module with the same face look the same to every other file.
 
@@ -958,7 +1017,7 @@ A `Composition` holds what the last call composed. Its `modules` are the corpus 
 
 A change also reaches the modules that anchor into the changed one, because their files inline its sections. `staleSince` adds them. It asks `dependentsOf` twice, once over the old corpus and once over the new. The old corpus finds a module that anchored a section the change removed. The new corpus finds a module whose anchor the change has just satisfied.
 
-`recompose` builds the next `Composition`. When nothing is stale, it keeps the last composition whole, over the corpus just built. Otherwise it keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had, with each reference's path written from the file it lands in. It builds the corpus's `Book` and `Landing` once for all of them, for the open edges `fromProduct` binds and the references it writes. `composition` reads the last composition, recomposes, and keeps the result for the next call. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
+`recompose` builds the next `Composition`. When nothing is stale, it keeps the last composition whole, over the corpus just built. Otherwise it keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had, with each reference's path written from the file it lands in. It builds the corpus's `Catalogue` and `Landing` once for all of them, for the open edges `fromProduct` binds and the references it writes. `composition` reads the last composition, recomposes, and keeps the result for the next call. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
 
 =>
 
@@ -972,23 +1031,21 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 
 const composedFilesOf = (
   modules: Modules,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   module: LoomModule,
   paths: ReadonlyArray<Location>,
   written: WrittenFor,
 ): Effect.Effect<ReadonlyArray<ComposedFile>> =>
   Effect.forEach(Array.zip(module.product.files, paths), ([file, path]) =>
-    written(modules, book, landing, file.code, path).pipe(
-      Effect.map(
-        (specifiers): ComposedFile => ({
-          path,
-          content: fromCode(modules, file.code, book, specifiersOf(specifiers)).code,
-          loomPath: module.path,
-          rootId: file.code.origin.name.toLowerCase(),
-          heading: headingLocationOf(modules, module, file.code.origin.name),
-        }),
-      ),
+    written(modules, catalogue, landing, file.code, path).pipe(
+      Effect.map((specifiers): ComposedFile => ({
+        path,
+        content: fromCode(modules, file.code, catalogue, specifiersOf(specifiers)).code,
+        loomPath: module.path,
+        rootId: file.code.origin.name.toLowerCase(),
+        heading: headingLocationOf(modules, module, file.code.origin.name),
+      })),
     ),
   )
 
@@ -1037,8 +1094,8 @@ const recompose = (
 ): Effect.Effect<Composition> => {
   const stale = staleSince(previous, modules, placed)
   if (stale.size === 0) return Effect.succeed({ ...previous, modules, placed })
-  const book = bookOf(modules)
-  const landing = landingOf(book, modules)
+  const catalogue = catalogueOf(modules)
+  const landing = landingOf(catalogue, modules)
   return Effect.forEach(Array.fromIterable(modules.values()), (module) =>
     pipe(
       Option.fromNullishOr(previous.files.get(module.path)),
@@ -1048,7 +1105,7 @@ const recompose = (
         onNone: () =>
           composedFilesOf(
             modules,
-            book,
+            catalogue,
             landing,
             module,
             placed.get(module.path) ?? [],
@@ -1100,7 +1157,7 @@ const promisedNamesIn = (
 
 ## Projecting a file's tree
 
-`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, over one `Book` for all the file's roots, so it treats a lone file and a whole corpus the same way. Each root writes its references' paths from the `Specifiers` that `rootSpecifiers` worked out for it.
+`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, over one `Catalogue` for all the file's roots, so it treats a lone file and a whole corpus the same way. Each root writes its references' paths from the `Specifiers` that `rootSpecifiers` worked out for it.
 
 =>
 
@@ -1123,7 +1180,7 @@ const projectTree = (
   entry: LoomModule,
   specifiers: ReadonlyMap<string, Specifiers>,
 ): LoomVirtualCode => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return rootVirtualCode(
     entry.text,
     [
@@ -1134,7 +1191,7 @@ const projectTree = (
           fromProduct(
             modules,
             { path: entry.path, name },
-            book,
+            catalogue,
             Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
           ),
         ),
@@ -1233,7 +1290,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, and `usedSections` and `unusedSections`, which find the code no file includes; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, each a `DeclaredKind`, and judge each module's boxes against it, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Catalogue` that a judgement and a projection resolve names through, with `catalogueOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `bookTwinsOf` and `unopenedBookOf`, which judge the book a `Book:` line names, `linksOf` and `anchorTrails`, which find the links in prose and resolve them, with `pathsTo`, which names each candidate of an ambiguous link, `hoverAt`, which gives a concept's card, `conceptSymbolsIn`, which gives the concepts a symbol search finds, and `conceptRenameAt`, which keeps a concept's old name as a form, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, and `usedSections` and `unusedSections`, which find the code no file includes; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `AmbiguousAnchor`, `DuplicateName`, `UnopenedBook`, `UnresolvedLink`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, each a `DeclaredKind`, and judge each module's boxes against it, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameEdit`, a range paired with the text a rename writes there when it is not the new name, `FrameHover`, a range paired with the card `hover` returns, `FrameSymbol`, a concept as `symbols` returns it, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 References add a few more. From the product pass comes what fits a reference to its file: `referredFileOf`, the `Referred` it answers, the `Landing` it reads, `landingOf`, which builds the landing, and `holdsReferences`, which tells whether a corpus refers at all. The projection gives `referencesIn`, which gathers a root's references as `Reference`s, and the `Specifiers` the projection writes them with, `noSpecifiers` among them. The product model gives the `Code` of a root, and `Position` keys a specifier by its anchor's place. The fault catalog gives `UnsettledModule` and `SpecifierUnknown`, and the language-service contract gives the `SpecifierRequest` a package answers and the `ServiceError` it fails with. `LanguagePackages` is the service that asks the packages, which the environment may provide.
 
@@ -1247,8 +1304,10 @@ import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/Lo
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
-  bookOf,
-  type Book,
+  catalogueOf,
+  type Catalogue,
+  anchorTrails,
+  bookTwinsOf,
   BoxNotice,
   boxNoticesIn,
   captionOf,
@@ -1257,8 +1316,12 @@ import {
   corpusErrors,
   definitionAt,
   dependentsOf,
+  conceptRenameAt,
+  conceptSymbolsIn,
   hintsAt,
+  hoverAt,
   labelSlotAt,
+  linksOf,
   moduleDiagnostics,
   namesakesOf,
   reachable,
@@ -1266,22 +1329,25 @@ import {
   renameAt,
   renameRangeAt,
   navigationRangeAt,
+  pathsTo,
   refreshedSummaries,
   syncedSummaries,
   transitiveDependents,
-  unresolvedTocEntriesIn,
+  unopenedBookOf,
   type CorpusLocation,
   type LoomModule,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  AmbiguousAnchor,
   DuplicateName,
   faultAt,
   faulty,
   MissingSymbol,
   SpecifierUnknown,
   StaleSummary,
-  UnresolvedTocEntry,
+  UnopenedBook,
+  UnresolvedLink,
   UnwrittenLoom,
   UnsettledTrope,
   UnsettledModule,
@@ -1305,8 +1371,11 @@ import {
   type FrameCompletion,
   type FrameContract,
   type FrameBox,
+  type FrameEdit,
   type FrameHint,
+  type FrameHover,
   type FrameLocation,
+  type FrameSymbol,
   type FrameToken,
   type PromisedName,
   type ServiceError,
@@ -1340,7 +1409,6 @@ import { WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
-import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
 ## The module [src/LoomCompiler.ts]
 
@@ -1376,7 +1444,7 @@ import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuil
 
 ## Refreshing the summaries [src/LoomSummaries.ts]
 
-`LoomSummaries` is the writer behind `loom refresh`, the command that brings every box back in step with the loom it points to. A chapter box holds a copy of its chapter's opening prose, a discussion box a copy of its discussion's summary, and the editor warns when a copy differs from its source, as the chapter "The multi-file AST" describes. The command fixes every such box at once, as `loom toc` rewrites a book's contents. `write` runs the compiler's `summaries` verb over the corpus of the loom at `entry`, writes each loom it rewrote, and reports their paths so the command can name them.
+`LoomSummaries` is the writer behind `loom refresh`, the command that brings every box back in step with the loom it points to. A chapter box holds a copy of its chapter's opening prose, a discussion box a copy of its discussion's summary, and the editor warns when a copy differs from its source, as the chapter "The multi-file AST" describes. The command fixes every such box at once. `write` runs the compiler's `summaries` verb over the corpus of the loom at `entry`, writes each loom it rewrote, and reports their paths so the command can name them.
 
 =>
 
@@ -2835,7 +2903,7 @@ Composing one section twice is no loop. `A` and `B` both compose `C`, and the ta
 
 ## Code that no file includes
 
-A section whose code no file includes is never used, and its heading carries a warning. A section an anchor composes is used, and so is one that writes a file. A corpus that writes no file at all is documentation, so its code raises nothing, and neither does the code of an unfinished chapter, one marked `Canvas` or `Planned`, nor a chapter written in prose. `unused` keeps the line and the message of each such warning.
+A section whose code no file includes is never used, and its heading carries a warning. A section an anchor composes is used, and so is one that writes a file. A corpus that writes no file at all is documentation, so its code raises nothing, and neither does the code of an unfinished chapter, one marked `Canvas` or `Planned`, nor a chapter written in prose, whose arrows carry a fault of their own. `unused` keeps the line and the message of each such warning.
 
 =>
 
@@ -2902,6 +2970,92 @@ describe('code that no file includes', () => {
   )
 })
 
+## Code in prose
+
+Prose holds no code, so an arrow in a section written in prose is a fault, and the fault stands on the arrow. A chapter whose `Language` is `Prose` writes its sections in prose, and so does a `{Prose}` section in a chapter of any language. A section of a prose chapter whose heading names another language holds code as usual, whether a specifier names the language or a sink's extension does. `inProse` keeps the line and the message of each fault for code in prose.
+
+=>
+
+const inProse = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(layerOf(files)),
+    Effect.map((found) =>
+      found
+        .filter((d) => d.message.startsWith('Prose holds no code'))
+        .map((d) => ({ line: d.position.start.line, message: d.message })),
+    ),
+  )
+
+const proseFault =
+  'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.'
+
+describe('code in prose', () => {
+  it.effect('faults an arrow in a chapter written in prose', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines(
+          '---',
+          'Language: Prose',
+          '---',
+          '',
+          '# Notes',
+          '',
+          '=>',
+          'const x = 1',
+        ),
+      }
+      expect(yield* inProse(files, '/corpus/notes.loom')).toEqual([
+        { line: 7, message: proseFault },
+      ])
+    }),
+  )
+
+  it.effect('faults an arrow in a {Prose} section of a TypeScript chapter', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines(
+          '# Main [main.ts]',
+          '',
+          '=>',
+          'const main = 1',
+          '',
+          '## An aside {Prose}',
+          '',
+          '=>',
+          'Words for a reader.',
+        ),
+      }
+      expect(yield* inProse(files, '/corpus/main.loom')).toEqual([{ line: 8, message: proseFault }])
+    }),
+  )
+
+  it.effect('leaves code alone where the heading names another language', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines(
+          '---',
+          'Language: Prose',
+          '---',
+          '',
+          '# Notes',
+          '',
+          '## Installing it {Bash}',
+          '',
+          '=>',
+          'bun install',
+          '',
+          '## The read-me [README.md]',
+          '',
+          '=>',
+          'Programs written to be read.',
+        ),
+      }
+      expect(yield* inProse(files, '/corpus/notes.loom')).toEqual([])
+    }),
+  )
+})
+
 ## The cross-file anchor test file [test/CrossFileAnchor.test.ts]
 
 =>
@@ -2931,6 +3085,8 @@ describe('code that no file includes', () => {
 ::[A section composed into itself]
 
 ::[Code that no file includes]
+
+::[Code in prose]
 
 ## Testing navigation within one loom
 
@@ -3522,19 +3678,15 @@ Only two tokens are operators, the arrow that opens the code and the tilde that 
 
 ::[Testing the colour of each token]
 
-## Testing the table of contents as it parses
+## Testing where a part is announced
 
-A heading marked `{TOC}` opens a section that holds a table of contents. Inside that section the parser reads every heading below the top level and every line of a list as an entry of the table, never as a section and never as prose. The next top-level `#` heading closes the section. A heading below the top level names a part. A numbered item names a chapter, its list number the chapter's number and its text the chapter's title.
-
-The first cases parse a loom and read its tree, with no compiler at all. The `parse` helper runs the four parse stages, from splitting the text into lines to building the tree, through `parseDocument`. The tests' shared `parse` module exports that function beside `ParseLayer`, the layer that provides the stages. A test is a boundary where an Effect may run, so the `parse` helper runs the stages with `Effect.runSync`. The `symbolsOf` function from `LoomSymbol` lists the symbols a parsed loom declares.
+The cases build the compiler over looms held in memory, with the stand-ins the chain's cases use. `makeCompilerLayer` serves a record of looms through `DocumentSource`, with the workspace's default settings and no disk cache. A loom written inside this loom's code would be read as part of it, so `lines` writes a fixture as a list of its lines.
 
 =>
 
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Effect, Layer, Option } from 'effect'
-import { parseDocument, ParseLayer } from './parse'
-import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
@@ -3544,123 +3696,7 @@ import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 const it = effectify(it_)
 
-~
-
-The `fixture` loom holds a table with two parts, Part III with two chapters and Part IV with one, and then an ordinary section of prose, `Afterword`. The fixture's headings would open sections of this loom, so the `lines` helper writes the fixture as a list of its lines.
-
-=>
-
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
-
-const fixture = lines(
-  '# Contents {TOC}',
-  '',
-  '#### Part III — The shape of a loom',
-  '',
-  '1. The node foundation',
-  '2. The leaf tokens',
-  '',
-  '#### Part IV — Reading the text',
-  '',
-  '1. Line ranges',
-  '',
-  '# Afterword',
-  '',
-  'Ordinary prose after the contents.',
-)
-
-const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
-
-~
-
-The whole listing stays in one section, which ends at the next top-level heading. Only two sections parse, the table and `Afterword`, since the part headings open no section of their own.
-
-=>
-
-describe('the table-of-contents section', () => {
-  it('keeps the whole listing in one section, exiting at the next H1', () => {
-    const doc = parse(fixture)
-    expect(doc.sections.map((s) => s.heading.title?.source)).toEqual(['Contents', 'Afterword'])
-  })
-
-~
-
-The table's entries collect the name of each part, and each chapter as its number and its title. The ordinary section has no entries at all.
-
-=>
-
-  it('collects the parts and chapters into the section entries', () => {
-    const doc = parse(fixture)
-    const entries = doc.sections[0].entries ?? []
-
-    const parts = entries.flatMap((e) => (e.part ? [e.part.value] : []))
-    expect(parts).toEqual(['Part III — The shape of a loom', 'Part IV — Reading the text'])
-
-    const chapters = entries.flatMap((e) =>
-      e.chapter && e.title ? [[e.chapter.value, e.title.value]] : [],
-    )
-    expect(chapters).toEqual([
-      ['1', 'The node foundation'],
-      ['2', 'The leaf tokens'],
-      ['1', 'Line ranges'],
-    ])
-  })
-
-  it('leaves an ordinary section with no entries', () => {
-    const doc = parse(fixture)
-    expect(doc.sections[1].entries).toBeUndefined()
-  })
-
-~
-
-Each part also gives a `tocPart` symbol and each chapter a `tocEntry` symbol, two and three of them here.
-
-=>
-
-  it('emits a tocPart and a tocEntry symbol for each part and chapter', () => {
-    const kinds = symbolsOf(parse(fixture)).map((s) => s.kind)
-    expect(kinds.filter((k) => k === 'tocPart')).toHaveLength(2)
-    expect(kinds.filter((k) => k === 'tocEntry')).toHaveLength(3)
-  })
-})
-
-## A table of contents in the editor
-
-The compiler resolves an entry of the table the way it resolves an anchor. Go-to-definition follows an entry to the chapter it names, and an entry that names no chapter is a diagnostic.
-
-The `book` loom lists two chapters under Part III. The chapter `The node foundation` exists, and the chapter `A chapter that is missing` does not. The `chapter` loom names itself in its frontmatter, `Part III, Chapter 1: The node foundation`, and opens with a heading of the same title. The frontmatter is the chapter's identity. So navigation lands on the title in the frontmatter, on line 1 counted from zero, and never on the heading, on line 6.
-
-The `makeCompilerLayer` function builds the compiler over a record of looms, with the stand-ins the chain's cases use. The `compilerLayer` layer serves the book and the chapter.
-
-=>
-
-const book = lines(
-  '# Contents {TOC}',
-  '',
-  '#### Part III — The shape of a loom',
-  '',
-  '1. The node foundation',
-  '2. A chapter that is missing',
-)
-
-const chapter = lines(
-  '---',
-  'Part III, Chapter 1: The node foundation',
-  'Package: pkg/LoomNode.ts',
-  'Language: TypeScript',
-  '---',
-  '',
-  '# The node foundation',
-  '',
-  '=>',
-  '',
-  'export const x = 1',
-)
-
-const corpus: Record<string, string> = {
-  '/book.loom': book,
-  '/node.loom': chapter,
-}
 
 const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
@@ -3687,165 +3723,13 @@ const makeCompilerLayer = (files: Record<string, string>) =>
     ),
   )
 
-const compilerLayer = makeCompilerLayer(corpus)
-
-~
-
-From the entry, the `definition` verb lands in the chapter, on the title in its frontmatter.
-
-=>
-
-describe('the table of contents in the editor', () => {
-  it.effect('a chapter entry navigates to the chapter it names', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const offset = book.indexOf('The node foundation') + 2
-      const target = yield* c.definition('/book.loom', offset)
-      expect(target?.path).toBe('/node.loom')
-      expect(target?.range.start.line).toBe(1)
-    }).pipe(Effect.provide(compilerLayer)),
-  )
-
-~
-
-The `diagnose` verb reports the entry that names no chapter and quotes the missing title. The entry that resolves raises nothing.
-
-=>
-
-  it.effect('an entry that names no chapter reports a diagnostic', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const messages = (yield* c.diagnose('/book.loom')).map((d) => d.message)
-      expect(messages.some((m) => m.includes('No chapter is titled'))).toBe(true)
-      expect(messages.join('\n')).toContain('A chapter that is missing')
-      expect(messages.some((m) => m.includes('The node foundation'))).toBe(false)
-    }).pipe(Effect.provide(compilerLayer)),
-  )
-
-~
-
-From the entry, the `references` verb gathers the entry itself, on line 4 of the book, and the title in the chapter's frontmatter, but not the chapter's heading. The `rename` verb rewrites the chapter's title and the entry together, so its edits reach both looms.
-
-=>
-
-  it.effect('references gathers the chapter and the entry that names it', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const offset = book.indexOf('The node foundation') + 2
-      const refs = yield* c.references('/book.loom', offset)
-      const at = (path: string, line: number) =>
-        refs.some((r) => r.path === path && r.range.start.line === line)
-      expect(at('/book.loom', 4)).toBe(true)
-      expect(at('/node.loom', 1)).toBe(true)
-      expect(at('/node.loom', 6)).toBe(false)
-    }).pipe(Effect.provide(compilerLayer)),
-  )
-
-  it.effect('rename rewrites the chapter title and the entry together', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const offset = book.indexOf('The node foundation') + 2
-      const edits = yield* c.rename('/book.loom', offset)
-      const paths = edits.map((e) => e.path).sort()
-      expect(paths).toEqual(['/book.loom', '/node.loom'])
-    }).pipe(Effect.provide(compilerLayer)),
-  )
-})
-
-## Two chapters of one title in the contents
-
-A contents entry finds its chapter within the part it is listed under. The `twoParts` book lists a chapter called `Setup` under Part I and another under Part II, and a third `Setup` under Part III, which holds no such chapter. Each `Setup` chapter names itself in its frontmatter on line 1 counted from zero, with the part's number in front.
-
-=>
-
-const twoParts = lines(
-  '# Contents {TOC}',
-  '',
-  '#### Part I — Saying things',
-  '',
-  '1. Setup',
-  '',
-  '#### Part II — Doing things',
-  '',
-  '1. Setup',
-  '',
-  '#### Part III — Leaving',
-  '',
-  '1. Setup',
-)
-
-const setupIn = (part: string): string =>
-  lines('---', `Part ${part}, Chapter 1: Setup`, '---', '', '# Setup', '', '=>', '', 'const x = 1')
-
-const partsLayer = makeCompilerLayer({
-  '/book.loom': twoParts,
-  '/setup-one.loom': setupIn('I'),
-  '/setup-two.loom': setupIn('II'),
-})
-
-const entryUnder = (part: string): number =>
-  twoParts.indexOf('1. Setup', twoParts.indexOf(`Part ${part} —`)) + 4
-
-~
-
-From the entry under Part II, the `definition` verb lands in the Part II chapter, not in the first `Setup` it meets.
-
-=>
-
-describe('the contents resolve an entry within its part', () => {
-  it.effect('an entry navigates to the chapter of its own part', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      expect((yield* c.definition('/book.loom', entryUnder('I')))?.path).toBe('/setup-one.loom')
-      expect((yield* c.definition('/book.loom', entryUnder('II')))?.path).toBe('/setup-two.loom')
-    }).pipe(Effect.provide(partsLayer)),
-  )
-
-~
-
-A rename that starts from the Part I chapter's title reaches that title and the one entry that names it, on line 4 of the book counted from zero, and leaves the Part II chapter and its entry alone. The entry under Part III resolves to no chapter, so the `diagnose` verb reports it on line 13, counted from one as a diagnostic counts.
-
-=>
-
-  it.effect('a rename moves one chapter and its own entry', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const titleOffset = setupIn('I').indexOf('Setup')
-      const edits = yield* c.rename('/setup-one.loom', titleOffset)
-      expect(edits.map((e) => `${e.path}:${e.range.start.line}`).sort()).toEqual([
-        '/book.loom:4',
-        '/setup-one.loom:1',
-      ])
-    }).pipe(Effect.provide(partsLayer)),
-  )
-
-  it.effect('an entry under a part that holds no such chapter is unresolved', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const diagnostics = yield* c.diagnose('/book.loom')
-      expect(diagnostics.map((d) => [d.position.start.line, d.message])).toEqual([
-        [13, 'No chapter is titled `Setup`. Run `loom toc` to bring the contents up to date.'],
-      ])
-    }).pipe(Effect.provide(partsLayer)),
-  )
-})
-
 ## Where a part is announced
 
-A part's opening chapter announces the part once, in its frontmatter, as in `Part I: Using Loom`. Every other mention of the part refers to that announcement by the part's number, whether a part heading in the table or the `Part I` in a later chapter's frontmatter. Each mention resolves to the opening chapter.
+A part's opening chapter announces the part once, in its frontmatter, as in `Part I: Using Loom`. Every later chapter of the part refers to that announcement by the part's number, in the `Part I` of its own frontmatter, and each such mention resolves to the opening chapter.
 
-The `partBook` loom lists Part I and its two chapters. The `opener` loom announces the part on line 1, and the `workspace` loom joins it as chapter 2. The `partLayer` layer serves all three.
+The `opener` loom announces the part on line 1, and the `workspace` loom joins it as chapter 2. The `partLayer` layer serves both.
 
 =>
-
-const partBook = lines(
-  '# Contents {TOC}',
-  '',
-  '### Part I — Using Loom',
-  '',
-  '1. A first loom',
-  '2. A workspace',
-)
 
 const opener = lines(
   '---',
@@ -3871,7 +3755,6 @@ const workspace = lines(
 )
 
 const partCorpus: Record<string, string> = {
-  '/book.loom': partBook,
   '/opener.loom': opener,
   '/workspace.loom': workspace,
 }
@@ -3880,21 +3763,11 @@ const partLayer = makeCompilerLayer(partCorpus)
 
 ~
 
-From the part heading in the table, and from the `Part I` in the second chapter, the `definition` verb lands on the announcement in the opening chapter, on line 1.
+From the `Part I` in the second chapter, the `definition` verb lands on the announcement in the opening chapter, on line 1.
 
 =>
 
 describe('parts navigate to where they are announced', () => {
-  it.effect('a contents part heading goes to the opening frontmatter', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const offset = partBook.indexOf('Part I — Using Loom') + 2
-      const target = yield* c.definition('/book.loom', offset)
-      expect(target?.path).toBe('/opener.loom')
-      expect(target?.range.start.line).toBe(1)
-    }).pipe(Effect.provide(partLayer)),
-  )
-
   it.effect("a chapter's `Part I` goes to the opening frontmatter", () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
@@ -3907,11 +3780,11 @@ describe('parts navigate to where they are announced', () => {
 
 ~
 
-From the part's name in the announcement, the `references` verb gathers the announcement itself, the second chapter's `Part I`, and the part heading on line 2 of the table.
+From the part's name in the announcement, the `references` verb gathers the announcement itself and the second chapter's `Part I`.
 
 =>
 
-  it.effect('references gather the announcement, the parts, and the heading', () =>
+  it.effect('references gather the announcement and the parts', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const offset = opener.indexOf('Using Loom') + 2
@@ -3920,79 +3793,33 @@ From the part's name in the announcement, the `references` verb gathers the anno
         refs.some((r) => r.path === path && r.range.start.line === line)
       expect(has('/opener.loom', 1)).toBe(true)
       expect(has('/workspace.loom', 1)).toBe(true)
-      expect(has('/book.loom', 2)).toBe(true)
     }).pipe(Effect.provide(partLayer)),
   )
 
 ~
 
-The editor can navigate from a part but cannot rename it. The `navigationRange` verb underlines the whole label under the cursor, wider than `Part I` alone. The `renameRange` verb gives nothing.
+The editor can navigate from a part but cannot rename it. The `navigationRange` verb underlines the part's whole name under the cursor. The `renameRange` verb gives nothing.
 
 =>
 
-  it.effect('a part underlines its whole span but offers no rename', () =>
+  it.effect('a part underlines its whole name but offers no rename', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      const offset = partBook.indexOf('Part I — Using Loom') + 2
-      const nav = yield* c.navigationRange('/book.loom', offset)
-      const ren = yield* c.renameRange('/book.loom', offset)
+      const offset = opener.indexOf('Using Loom') + 2
+      const nav = yield* c.navigationRange('/opener.loom', offset)
+      const ren = yield* c.renameRange('/opener.loom', offset)
       const width = (nav?.range.end.character ?? 0) - (nav?.range.start.character ?? 0)
       expect(nav).not.toBeUndefined()
-      expect(width).toBeGreaterThan('Part I'.length)
+      expect(width).toBe('Using Loom'.length)
       expect(ren).toBeUndefined()
     }).pipe(Effect.provide(partLayer)),
   )
 })
 
-## Regenerating the contents
-
-`loom toc` keeps a part's description as the author wrote it. A description of several paragraphs comes back with one blank line between each, run after run, so regenerating a book that is already up to date changes nothing. Blank lines that an older run left between the paragraphs close up to one.
+## The part test file [test/Parts.test.ts]
 
 =>
 
-describe('regenerating the contents', () => {
-  const described = lines(
-    '# Contents {TOC}',
-    '',
-    '### Part I — Rooms',
-    '',
-    'Rooms hold the world.',
-    '',
-    'Each room is a grid.',
-    '',
-    '1. Walls',
-  )
-  const walls = lines('---', 'Part I: Rooms', 'Chapter 1: Walls', '---', '', '# Walls')
-  const contentsOf = (book: string) =>
-    LoomCompiler.pipe(
-      Effect.flatMap((compiler) => compiler.contents('/book.loom')),
-      Effect.provide(makeCompilerLayer({ '/book.loom': book, '/walls.loom': walls })),
-    )
-
-  it.effect('keeps a description of several paragraphs as written', () =>
-    Effect.gen(function* () {
-      expect(yield* contentsOf(described)).toBe(described)
-    }),
-  )
-
-  it.effect('closes up the blank lines an older run left between paragraphs', () =>
-    Effect.gen(function* () {
-      const padded = described.replace('world.\n\n', 'world.\n\n\n\n\n\n\n')
-      expect(yield* contentsOf(padded)).toBe(described)
-    }),
-  )
-})
-
-## The contents test file [test/Toc.test.ts]
-
-=>
-
-::[Testing the table of contents as it parses]
-
-::[A table of contents in the editor]
-
-::[Two chapters of one title in the contents]
+::[Testing where a part is announced]
 
 ::[Where a part is announced]
-
-::[Regenerating the contents]

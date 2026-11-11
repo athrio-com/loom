@@ -4,16 +4,12 @@
 ((prose) @injection.content
   (#set! injection.language "markdown"))
 
-((toc) @injection.content
-  (#set! injection.language "markdown")
-  (#set! injection.include-children))
-
 (section
   (heading
     specifier: (specifier
       label: (label) @injection.language))
   (code [(code_text) @injection.content (anchor)]+)
-  (#not-any-of? @injection.language "Tangle" "tangle" "TOC" "toc" "Prose" "prose"))
+  (#not-any-of? @injection.language "Tangle" "tangle" "Prose" "prose"))
 
 ((section
   (heading

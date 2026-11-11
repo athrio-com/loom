@@ -375,7 +375,7 @@ The server never saves a loom. Rename and formatting return edits, and the edito
 
 Three things stay on disk.
 
-**What the command line writes.** The `loom` program builds on `FileSystemEnvironment`, because its commands find a workspace, its lock, and their output through folders. The `tangle` and `weave` commands write their output to a folder, and the lock sits beside that output, because it records what the tangle wrote. The `format`, `toc`, and `set` commands rewrite a workspace's own text.
+**What the command line writes.** The `loom` program builds on `FileSystemEnvironment`, because its commands find a workspace, its lock, and their output through folders. The `tangle` and `weave` commands write their output to a folder, and the lock sits beside that output, because it records what the tangle wrote. The `format`, `refresh`, and `set` commands rewrite a workspace's own text.
 
 **The programs Loom runs.** The `.loom/services` folder and the `~/.loom/typescript` folder hold language services and TypeScript 7. Neither holds a workspace's content, so both stay on the machine that runs the server. The `LOOM_HOME` variable already moves the services out of the workspace folder.
 

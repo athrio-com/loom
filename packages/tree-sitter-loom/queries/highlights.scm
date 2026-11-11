@@ -15,6 +15,11 @@
 
 ((field
   key: (key) @_key
+  value: (value) @markup.heading)
+  (#eq? @_key "Book"))
+
+((field
+  key: (key) @_key
   value: (value) @string.special.path)
   (#eq? @_key "Package"))
 
@@ -28,6 +33,7 @@
   value: (value) @string)
   (#not-match? @_key "^Part")
   (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Book")
   (#not-eq? @_key "Package")
   (#not-eq? @_key "Language"))
 
@@ -72,7 +78,7 @@
 
 ((specifier
   label: (label) @keyword.directive)
-  (#any-of? @keyword.directive "Tangle" "tangle" "TOC" "toc"))
+  (#any-of? @keyword.directive "Tangle" "tangle"))
 
 (sink
   [

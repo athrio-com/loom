@@ -18,7 +18,7 @@ Loom reads a loom one line at a time, and what a line means depends on the lines
 
 A tree-sitter grammar cannot express that state, because it describes its tokens with regular expressions, and a regular expression cannot see the lines before it. Tree-sitter lets a grammar hand some tokens to an external scanner, a C function the parser calls before its own lexer. Loom's external scanner is the next chapter. It runs the classifier's state machine, and at the start of every line it emits a token that names the line's kind and consumes nothing. The grammar takes that token as the line's first symbol and then reads the line's marks.
 
-The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first fourteen name a line's kind, from a frontmatter fence to a divider. `box_name` is the one token the scanner reads in the middle of a line, the name of a box, and the section "Boxes" says why. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
+The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first thirteen name a line's kind, from a frontmatter fence to a divider. `box_name` is the one token the scanner reads in the middle of a line, the name of a box, and the section "Boxes" says why. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
 
 =>
 
@@ -30,7 +30,6 @@ $._tilde_line,
 $._prose_line,
 $._code_line,
 $._code_fence_line,
-$._toc_line,
 $._verbatim_line,
 $._box_line,
 $._box_body_line,
@@ -82,14 +81,13 @@ _space: (_) => /[ \t]+/,
 
 ## Sections and their headings
 
-A section is a heading or a divider, and the body that follows it, up to the next heading or divider. The body opens with the section's preamble, the prose before any arrow or tilde. Code and prose blocks then alternate, each opened by its own arrow or tilde. A contents section takes a table of contents in place of a body.
+A section is a heading or a divider, and the body that follows it, up to the next heading or divider. The body opens with the section's preamble, the prose before any arrow or tilde. Code and prose blocks then alternate, each opened by its own arrow or tilde.
 
 =>
 
 section: ($) =>
   seq(
     choice($.heading, $.divider),
-    optional($.toc),
     optional($.preamble),
     repeat(choice($.code, $.prose)),
   ),
@@ -143,29 +141,6 @@ A divider opens a section too, as the chapter "The leaf tokens" describes: a lin
 
 divider: ($) => seq($._divider_line, $.divider_marker, $._newline),
 divider_marker: (_) => token(seq(/---+/, /[ \t]*/)),
-
-## The table of contents
-
-A `{TOC}` section lists the book's parts and chapters. The scanner marks every line of it as a contents line, up to the next top-level heading, so a part's `###` line never opens a section. A part line is a heading marker and the part's title. A chapter line is a number, a full stop, and the chapter's title. Any other line, a blank or a part's description, is plain text. The two markers take precedence over the plain text that would otherwise match the whole line.
-
-=>
-
-toc: ($) =>
-  repeat1(
-    seq(
-      $._toc_line,
-      optional(choice($.toc_part, $.toc_chapter, $._toc_text)),
-      $._newline,
-    ),
-  ),
-
-toc_part: ($) =>
-  seq(alias($._toc_part_marker, $.heading_marker), alias($._toc_text, $.title)),
-toc_chapter: ($) =>
-  seq(alias($._toc_number, $.number), alias($._toc_text, $.title)),
-_toc_part_marker: (_) => token(prec(1, /#{1,6}[ \t]+/)),
-_toc_number: (_) => token(prec(1, /[ \t]*\d+\.[ \t]+/)),
-_toc_text: (_) => /[^\r\n]+/,
 
 ## Prose
 
@@ -415,8 +390,6 @@ module.exports = grammar({
     ::[The frontmatter]
 
     ::[Sections and their headings]
-
-    ::[The table of contents]
 
     ::[Prose]
 

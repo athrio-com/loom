@@ -263,19 +263,22 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## Renaming a section
 
-A Loom section's name lives in its heading and in every anchor that composes it, so a rename must rewrite them all as one symbol. `loomRename` renames the section that way. `provideRenameRange` gives the editor the span its rename box covers — the title or anchor name under the cursor — so the box wraps the whole name. `provideRenameEdits` returns the edit: it asks `FrameQuery` for every span the rename touches, and `groupEdits` turns them into a workspace edit, each span set to the new name and keyed by its file's uri.
+A Loom section's name lives in its heading and in every anchor that composes it, so a rename must rewrite them all as one symbol. `loomRename` renames the section that way. `provideRenameRange` gives the editor the span its rename box covers — the title or anchor name under the cursor — so the box wraps the whole name. `provideRenameEdits` returns the edit: it asks `FrameQuery` for every span the rename touches, and `groupEdits` turns them into a workspace edit, keyed by each file's uri. Each span takes the new name, unless it carries a text of its own, as the old name a concept keeps among its forms does.
 
 =>
 
 const groupEdits = (
   frame: FrameQueryApi,
-  locations: ReadonlyArray<FrameLocation>,
+  locations: ReadonlyArray<FrameEdit>,
   newName: string,
 ): Record<string, TextEdit[]> =>
   Object.fromEntries(
-    Object.entries(Array.groupBy(locations, (location) => frame.uriOf(location.path).toString())).map(
-      ([uri, locs]) => [uri, locs.map((location) => ({ range: location.range, newText: newName }))],
-    ),
+    Object.entries(
+      Array.groupBy(locations, (location) => frame.uriOf(location.path).toString()),
+    ).map(([uri, locs]) => [
+      uri,
+      locs.map((location) => ({ range: location.range, newText: location.text ?? newName })),
+    ]),
   )
 
 const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
@@ -294,6 +297,50 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const edits = frame.rename(frame.locationOf(decoded[0]), document.offsetAt(position))
       return edits.length === 0 ? undefined : { changes: groupEdits(frame, edits, newName) }
     },
+  }),
+})
+
+## A concept's card
+
+A link in prose may name a concept, and a reader resting on the link wants the concept's meaning without leaving the sentence. `loomHover` shows it. It answers for the root alone, like the navigation, and asks `FrameQuery` for the card of the concept under the cursor. The card becomes Volar's `Hover`, its Markdown drawn over the whole link or heading the cursor rests on.
+
+=>
+
+const loomHover = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-hover',
+  capabilities: { hoverProvider: true },
+  create: (context) => ({
+    provideHover: (document, position): Hover | undefined => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const card = frame.hover(frame.locationOf(decoded[0]), document.offsetAt(position))
+      return card === undefined
+        ? undefined
+        : { contents: { kind: 'markdown', value: card.markdown }, range: card.range }
+    },
+  }),
+})
+
+## Concepts in the symbol search
+
+Every concept is a symbol of its workspace, so the editor's search for a symbol finds a concept by any of its forms. `loomSymbols` answers that search. It asks `FrameQuery` for the concepts whose names hold the query, and gives each as Volar's `WorkspaceSymbol`: the concept's name, the chapter that defines it as its container, and where its heading stands. Its kind is 14, the number the protocol gives a constant, since a concept means the same wherever the book uses it.
+
+=>
+
+const loomSymbols = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-symbols',
+  capabilities: { workspaceSymbolProvider: {} },
+  create: () => ({
+    provideWorkspaceSymbols: (query) =>
+      Array.map(frame.symbols(query), (symbol): WorkspaceSymbol => ({
+        name: symbol.name,
+        kind: 14,
+        containerName: symbol.container,
+        location: {
+          uri: frame.uriOf(symbol.location.path).toString(),
+          range: symbol.location.range,
+        },
+      })),
   }),
 })
 
@@ -430,7 +477,7 @@ const loomFolding = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## Composing the services
 
-`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
+`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomHover` for a concept's card, `loomSymbols` for the concepts a symbol search finds, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
 
 =>
 
@@ -446,6 +493,8 @@ export const LoomLanguage = defineLanguageService({
         loomFixes(frame),
         loomDefinition(frame),
         loomReferences(frame),
+        loomHover(frame),
+        loomSymbols(frame),
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),
@@ -458,7 +507,7 @@ export const LoomLanguage = defineLanguageService({
 
 ## What this module draws on
 
-From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `FoldingRange` a box folds into, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability and the `FrameLocation` navigation answers in.
+From Volar's language service come the `LanguageServicePlugin` contract, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `FoldingRange` a box folds into, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `Hover` a concept's card becomes, the `WorkspaceSymbol` a concept becomes in a symbol search, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability, the `FrameLocation` navigation answers in, and the `FrameEdit` a rename's span is.
 
 =>
 
@@ -469,18 +518,21 @@ import type {
   DocumentSymbol,
   Diagnostic as LspDiagnostic,
   FoldingRange,
+  Hover,
   InlayHint,
   LanguageServicePlugin,
   LocationLink,
   SemanticToken,
   TextEdit,
   WorkspaceEdit,
+  WorkspaceSymbol,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { SemanticTokenSchema } from '@athrio/loom-ast/LoomSymbol'
 import {
   defineLanguageService,
+  type FrameEdit,
   type FrameLocation,
   FrameQuery,
   type FrameQueryApi,
@@ -501,6 +553,10 @@ import {
 ::[Navigating the frame]
 
 ::[Renaming a section]
+
+::[A concept's card]
+
+::[Concepts in the symbol search]
 
 ::[Titles beside numbers]
 

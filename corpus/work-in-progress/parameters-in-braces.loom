@@ -8,51 +8,51 @@ Language: TypeScript
 
 # Parameters in braces
 
-A specifier is the pair of braces after a heading's title, together with what they hold. Today a specifier holds one word, its label, such as `{Bash}` or `{TOC}`. The label names the language a section's code is written in, or the role the section plays, and the tokeniser reads it as one run of letters, digits, hyphens, and underscores.
+A specifier is the pair of braces after a heading's title, together with what they hold. Today a specifier holds one word, its label, such as `{Bash}` or `{Tangle}`. The label names the language a section's code is written in, or the role the section plays, and the tokeniser reads it as one run of letters, digits, hyphens, and underscores.
 
-Boxes and tropes ask a specifier to say more. A box names its kind and its parameters. A trope declares kinds of section and of anchor, each with parameters of its own, as the chapter "Tropes" describes. A term of the Glossary trope takes an `override` parameter, and a reference to a term takes the words the sentence shows for it. This chapter gives specifiers one grammar, wherever they stand.
+Boxes and tropes ask a specifier to say more. A box names its kind and its parameters. A trope declares kinds of section and of anchor, each with parameters of its own, as the chapter "Tropes" describes. A trope for translations, say, marks the section a translation varies and the locale it is written for, and an anchor lists the names it expects its section to provide. This chapter gives specifiers one grammar, wherever they stand.
 
 ## Three places, one grammar
 
 A specifier stands in three places:
 
 ```
-## Account {kind=Term override=true}
+## Tere tulemast {translates=Welcome locale=et}
 
 ::: One turn of the game {Mermaid}
 
-Billing closes ::[Account]{kind=Term text=accounts} that stay empty for a year.
+::[Saying hello]{kind="To be settled" provides=greet}
 ```
 
-After a heading's title, a specifier describes the section, as `{Bash}` does today. After a box's name, it describes the box, as the chapter "Boxes" describes. After an anchor in prose, it describes what the anchor refers to, as the chapter "The Glossary trope" describes. In all three places a specifier follows the same grammar.
+After a heading's title, a specifier describes the section, as `{Bash}` does today. After a box's name, it describes the box, as the chapter "Boxes" describes. After an anchor, it describes what the anchor refers to, as the chapter "Names through the book" describes. In all three places a specifier follows the same grammar.
 
 ## A specifier holds parameters
 
-A specifier holds a list of parameters, separated by spaces, in any order. A parameter is a key, an equals sign, and a value, as in `override=true`.
+A specifier holds a list of parameters, separated by spaces, in any order. A parameter is a key, an equals sign, and a value, as in `locale=et`.
 
 A value takes one of three shapes, and the parser reads nothing but the shape:
 
 - **Bare:** letters, digits, hyphens, underscores, and full stops, as in `480`, `true`, or `et`.
-- **Quoted:** any text in double quotes, as in `text="open accounts"`. Inside the quotes, a backslash escapes a double quote or another backslash.
-- **A list:** values in square brackets, separated by commas, each bare or quoted, as in `aka=[ref, "anchor reference"]`.
+- **Quoted:** any text in double quotes, as in `caption="One turn of the game"`. Inside the quotes, a backslash escapes a double quote or another backslash.
+- **A list:** values in square brackets, separated by commas, each bare or quoted, as in `provides=[greet, farewell]`.
 
 Quotes carry no type. They only let a value hold characters that a bare value cannot.
 
-A key appears once in a specifier. A second `text=` in one specifier is a fault, since nothing could tell which of the two values the author meant.
+A key appears once in a specifier. A second `locale=` in one specifier is a fault, since nothing could tell which of the two values the author meant.
 
 ## One label is the short form
 
 A specifier that holds a single parameter may drop the key and the equals sign, and write the value alone. That lone value is the specifier's label. `{Bash}` on a heading is the short form of `{lang=Bash}`, and `{Mermaid}` on a box is the short form of `{kind=Mermaid}`.
 
-The short form serves one parameter and no more. A specifier with two or more parameters writes each of them in full, so a label beside a parameter is a fault. `{Term text=accounts}` is a fault, and `{kind=Term text=accounts}` is its correct form. A reader of a full specifier never has to guess which key a bare word stands for.
+The short form serves one parameter and no more. A specifier with two or more parameters writes each of them in full, so a label beside a parameter is a fault. `{Reference provides=greet}` is a fault, and `{kind=Reference provides=greet}` is its correct form. A reader of a full specifier never has to guess which key a bare word stands for.
 
 A label may run to several words, separated by single spaces, as `{To be settled}` does. A specifier with no equals sign in it holds one label, so its words never read as several parameters. In the full form the same value is quoted: `{kind="To be settled" provides=greet}`.
 
 The place where a specifier stands decides which key its label stands for:
 
 - **On a box,** a label is the box's `kind`.
-- **On an anchor,** a label is the `kind` of thing the anchor refers to. `To be settled` marks a section nobody has written yet, as the chapter "Names through the book" describes, and `Term` names a term of a glossary.
-- **On a heading,** a label is the section's `kind` when it names a kind of section, one of the core's, such as `Tangle` or `TOC`, or one a trope declares, such as `Term`. Any other label is the `lang` of the section's code, since every other label on a heading names a language.
+- **On an anchor,** a label is the `kind` of thing the anchor refers to. `To be settled` marks a section nobody has written yet, as the chapter "Names through the book" describes, and `Reference` marks an anchor that names a module, as the chapter "Referring to modules" describes.
+- **On a heading,** a label is the section's `kind` when it names a kind of section, one of the core's, such as `Tangle` or `Concept`, or one a trope declares. Any other label is the `lang` of the section's code, since every other label on a heading names a language.
 
 The `lang` key names the language that code is written in, the one meaning Loom gives the word language. A trope that needs the language its readers read names it a locale, under a key of its own, and never `lang`.
 
@@ -66,7 +66,7 @@ A specifier may name neither a kind nor a language. A trope may declare paramete
 
 The core defines the keys of each place. A heading takes `lang` and `kind`, a box takes `kind`, and an anchor takes `kind` and `provides`, the names it expects its target to provide, as the chapter "Names through the book" describes.
 
-A trope declares the further keys of each kind it contributes in its manifest, and any keys a heading may carry, as the chapter "Tropes" describes. The Glossary trope declares `override` for a term, and `text` for a reference to a term.
+A trope declares the further keys of each kind it contributes in its manifest, and any keys a heading may carry, as the chapter "Tropes" describes. A trope for translations, say, declares `translates` and `locale` for any heading.
 
 A key that nothing defines is a fault, so a misspelt key never passes in silence. On an anchor, a kind that nothing defines is a fault for the same reason. The chapter "Boxes" refuses a kind of box that neither the core nor an installed trope defines, for the same reason.
 
@@ -90,7 +90,7 @@ The type is known before the author finishes a value, so the editor completes th
 
 ## A specifier on an anchor
 
-A specifier on an anchor touches the anchor's closing bracket, or the file in parentheses after it, with no space between them: `::[Account]{Term}`, or `::[Room](room.py){provides=Room}`.
+A specifier on an anchor touches the anchor's closing bracket, or the file in parentheses after it, with no space between them: `::[Saying hello]{To be settled}`, or `::[Room](room.py){provides=Room}`.
 
 The anchor and the braces that touch it form one directive, `::[…]{…}`, in code as in prose. An anchor is never the code's own syntax, so the braces that touch it are never the code's either. What they hold must be a label or parameters an anchor takes, or it is a fault, so braces never leave the tangle without a word.
 

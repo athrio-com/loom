@@ -80,7 +80,9 @@ export type FenceWeft = typeof FenceWeftSchema.Type
 
 ## The frontmatter weft
 
-A `FrontmatterWeft` is one line of the frontmatter block — a fence, a `Part` or `Chapter` line, or a `key: value` field. One weft kind covers them all, each filling the slots its line owns: a fence line fills `fence`; a `Part` line fills `part` and `partName`; a `Chapter` line fills `chapter` and `title`; the joined `Part …, Chapter …` line fills `part`, `chapter`, and `title`; a `Discussion` line, alone or joined to its part, fills `discussion` in place of `chapter`; a trope chapter's line fills `trope` beside its chapter and title, and a `Rooted in` line fills `rootedIn`; an `Entries` line fills `entries`, one token for each chapter it names; a `Package` or `Language` line fills `key` and `value`. This mirrors the heading weft, which carries its title, specifier, and sink in the same optional way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
+A `FrontmatterWeft` is one line of the frontmatter block: a fence, a line that names the loom's place, or a `key: value` field. One weft kind covers them all, and each line fills the slots it owns. A fence line fills `fence`. A `Part` line fills `part` and `partName`, a `Chapter` line fills `chapter` and `title`, and the joined `Part …, Chapter …` line fills `part`, `chapter`, and `title`. A `Discussion` line, alone or joined to its part, fills `discussion` in place of `chapter`. A trope chapter's line fills `trope` beside its chapter and title, a `Rooted in` line fills `rootedIn`, and an `Entries` line fills `entries`, one token for each chapter it names. A `Book` line fills `book`. A `Package` or `Language` line fills `key` and `value`.
+
+One optional slot for each part of a line mirrors the heading weft, which carries its title, specifier, and sink the same way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
 
 =>
 
@@ -93,25 +95,12 @@ export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
   trope: Schema.optional(FrontmatterTropeTokenSchema),
   rootedIn: Schema.optional(FrontmatterTropeTokenSchema),
   entries: Schema.optional(Schema.Array(FrontmatterEntryTokenSchema)),
+  book: Schema.optional(FrontmatterBookTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   key: Schema.optional(FrontmatterKeyTokenSchema),
   value: Schema.optional(FrontmatterValueTokenSchema),
 })
 export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
-
-## The table-of-contents weft
-
-A `TocWeft` is one line inside a `{TOC}` section: a part heading, a chapter entry, or a blank spacer. One weft kind covers them all, each filling the slots its line owns — a part line fills `part`; a chapter line fills `chapter` and `title`; a discussion's line in the back matter fills `discussion` and `title`; a blank line fills none. This mirrors the frontmatter weft, which carries its own line's parts in the same optional way. The classifier marks each line of the contents as a `TocWeft` so a part's `####` heading never opens a section and a chapter's list item never reads as prose, and the tokeniser settles the slots. The document builder gathers a `{TOC}` section's toc wefts as its entries.
-
-=>
-
-export const TocWeftSchema = loomNode('TocWeft', {
-  part: Schema.optional(TocPartTokenSchema),
-  chapter: Schema.optional(TocChapterTokenSchema),
-  discussion: Schema.optional(TocDiscussionTokenSchema),
-  title: Schema.optional(TocTitleTokenSchema),
-})
-export type TocWeft = typeof TocWeftSchema.Type
 
 ## The divider weft
 
@@ -139,7 +128,6 @@ export const LoomWeftSchema = Schema.Union([
   CodeWeftSchema,
   FenceWeftSchema,
   FrontmatterWeftSchema,
-  TocWeftSchema,
   DividerWeftSchema,
 ])
 export type LoomWeft = typeof LoomWeftSchema.Type
@@ -200,6 +188,7 @@ import {
   CodeTokenSchema,
   DividerTokenSchema,
   FenceLabelTokenSchema,
+  FrontmatterBookTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
   FrontmatterTropeTokenSchema,
@@ -216,10 +205,6 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
-  TocChapterTokenSchema,
-  TocDiscussionTokenSchema,
-  TocPartTokenSchema,
-  TocTitleTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
 } from './LoomTokens'
@@ -235,8 +220,6 @@ import {
 ::[The body wefts]
 
 ::[The frontmatter weft]
-
-::[The table-of-contents weft]
 
 ::[The divider weft]
 

@@ -44,7 +44,6 @@ import {
   type PreambleWeft,
   type ProseWeft,
   type SectionBodyWeft,
-  type TocWeft,
 } from '@athrio/loom-ast/Weft'
 
 export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBuilder', {
@@ -231,8 +230,6 @@ const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
 
 const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
-const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
-
 const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
   w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
 
@@ -361,15 +358,13 @@ const buildSection = (
   const judged = judgeConclusions(judgeLoomBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
-  const entries = judged.filter(isToc)
   return LoomSectionSchema.make({
-    position: spanFrom(h.position, preamble, code, entries),
-    source: sourceOf(h, preamble, code, entries),
+    position: spanFrom(h.position, preamble, code),
+    source: sourceOf(h, preamble, code),
     health: okHealth,
     heading: h,
     preamble,
     code,
-    entries: entries.length > 0 ? entries : undefined,
   })
 }
 
@@ -476,6 +471,7 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       trope: wefts.find((w) => w.trope !== undefined)?.trope,
       rootedIn: wefts.find((w) => w.rootedIn !== undefined)?.rootedIn,
       entries: wefts.find((w) => w.entries !== undefined)?.entries,
+      book: wefts.find((w) => w.book !== undefined)?.book,
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
       priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),

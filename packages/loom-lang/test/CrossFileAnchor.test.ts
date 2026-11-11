@@ -859,3 +859,83 @@ describe('code that no file includes', () => {
     }),
   )
 })
+
+const inProse = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(layerOf(files)),
+    Effect.map((found) =>
+      found
+        .filter((d) => d.message.startsWith('Prose holds no code'))
+        .map((d) => ({ line: d.position.start.line, message: d.message })),
+    ),
+  )
+
+const proseFault =
+  'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.'
+
+describe('code in prose', () => {
+  it.effect('faults an arrow in a chapter written in prose', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines(
+          '---',
+          'Language: Prose',
+          '---',
+          '',
+          '# Notes',
+          '',
+          '=>',
+          'const x = 1',
+        ),
+      }
+      expect(yield* inProse(files, '/corpus/notes.loom')).toEqual([
+        { line: 7, message: proseFault },
+      ])
+    }),
+  )
+
+  it.effect('faults an arrow in a {Prose} section of a TypeScript chapter', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/main.loom': lines(
+          '# Main [main.ts]',
+          '',
+          '=>',
+          'const main = 1',
+          '',
+          '## An aside {Prose}',
+          '',
+          '=>',
+          'Words for a reader.',
+        ),
+      }
+      expect(yield* inProse(files, '/corpus/main.loom')).toEqual([{ line: 8, message: proseFault }])
+    }),
+  )
+
+  it.effect('leaves code alone where the heading names another language', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines(
+          '---',
+          'Language: Prose',
+          '---',
+          '',
+          '# Notes',
+          '',
+          '## Installing it {Bash}',
+          '',
+          '=>',
+          'bun install',
+          '',
+          '## The read-me [README.md]',
+          '',
+          '=>',
+          'Programs written to be read.',
+        ),
+      }
+      expect(yield* inProse(files, '/corpus/notes.loom')).toEqual([])
+    }),
+  )
+})

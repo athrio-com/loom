@@ -10,7 +10,7 @@ Language: TypeScript
 
 An editor shows more than a file's text. A word carries a wavy underline, a few muted words follow a line, a button sits above a block. None of these is part of the file. Saving the file saves none of them, and closing the editor loses nothing.
 
-A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a section not yet written is marked as unsettled, and a numbered reference shows its chapter's title. A term reference shows the term's definition, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
+A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a section not yet written is marked as unsettled, and a numbered reference shows its chapter's title. A link to a concept shows the concept's definition, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
 
 Editors draw such things in different ways, and some draw few of them. This chapter gives decorators one model. Loom's language server turns each decorator into what an editor can draw: standard features that every editor understands, and richer forms for the editors that ask for them.
 
@@ -28,9 +28,9 @@ Six kinds cover what the drafts ask for:
 
 - **Hint:** a few words drawn inside a line, such as the chapter's title beside `::[Part II, Chapter 6, Resolving names]`.
 - **Action:** a labelled button above a line, which runs a command, such as Run above a box of kind `Run`.
-- **Hover:** a passage shown while the pointer rests on a range, such as a term's definition.
+- **Hover:** a passage shown while the pointer rests on a range, such as a concept's definition.
 - **Badge:** a short state on a heading or a box, such as passed, failed, or to be settled.
-- **Style:** a colour or an underline over a range, such as the underline under a term reference.
+- **Style:** a colour or an underline over a range, such as the underline under a word the editor recognises as a concept.
 - **Widget:** content drawn in place of a range or between two lines, such as the diagram a Mermaid box describes.
 
 The list is fixed, and the tropes contract carries it in its schema. A trope that needs a kind the list lacks asks for the contract to grow, as the chapter "Tropes" describes for every contribution.
@@ -94,9 +94,9 @@ The core supplies the decorators that its own drafts call for: the mark on an un
 
 A language supplies decorators through its language service, as TypeScript's hover already does.
 
-A trope supplies decorators through a contribution, which the chapter "Tropes" describes. The Glossary trope draws a term's definition and the count of its uses this way, as the chapter "The Glossary trope" describes. Decorating is something a trope offers, so its manifest lists it under the `contributes` key. It is not a capability, since a capability is what the host lends a trope, such as the `Composition` service.
+A trope supplies decorators through a contribution, which the chapter "Tropes" describes. The Mermaid trope draws the diagram a box of kind `Mermaid` describes this way. Decorating is something a trope offers, so its manifest lists it under the `contributes` key. It is not a capability, since a capability is what the host lends a trope, such as the `Composition` service.
 
-A decorator trope extends Loom's language, in every editor, the way a language trope does. It decorates structures of the syntax, never particular things written in it. Its manifest names the structures it decorates and the kind of decorator it draws on each: a widget on every box of kind `Mermaid`, say, or a style on every term reference. A manifest never names one box or one term, so a trope decorates every loom of every book that installs it in the same way.
+A decorator trope extends Loom's language, in every editor, the way a language trope does. It decorates structures of the syntax, never particular things written in it. Its manifest names the structures it decorates and the kind of decorator it draws on each: a widget on every box of kind `Mermaid`, say, or a badge on every box of kind `Run`. A manifest never names one box or one heading, so a trope decorates every loom of every book that installs it in the same way.
 
 The structures a manifest can name form a fixed list in the contract's schema, as the six kinds of decorator do: a heading, a section of a kind, a box of a kind, an anchor of a kind, a value warp, a field of the frontmatter, and a mark of syntax that the trope itself contributes. The list names structures of Loom's syntax, not the classes of Loom's own tree, so Loom can reshape its tree without breaking any trope. A trope that needs a structure the list lacks asks for the contract to grow.
 
@@ -110,7 +110,7 @@ The language server merges the three lists for each loom, then turns the merged 
 
 - **How often to ask.** A trope's decorators cost a request on every change. Whether the editor asks only about the visible lines, as an inlay hint request does with its range, and how long it waits for a slow trope, is open.
 - **Two decorators in one place.** Two tropes may badge one heading or hover one word. How the editor orders the two, and whether one trope may hide another's decorator, is open.
-- **Decorators on the woven page.** The woven book shows a term's definition on hover. Whether it shows any other decorator, such as a test's result, is open.
+- **Decorators on the woven page.** The woven book shows a concept's definition on hover, as the chapter "Concepts" describes. Whether it shows any other decorator, such as a test's result, is open.
 - **The message's schema.** The exact shape of a decorator inside a `loom/decorators` message, and how it is versioned with the tropes contract, is open.
 
 ## What this chapter grows into

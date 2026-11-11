@@ -231,7 +231,7 @@ const warnDividerAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<L
 
 ## Grouping the wefts
 
-`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest one opener at a time: each `sectionChunk` takes an opener and the body wefts up to the next one, and `buildSection` turns them into a `LoomSection`. The `isHeading`, `isDivider`, `isSectionBody`, `isPreamble`, and `isToc` predicates classify each weft.
+`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest one opener at a time: each `sectionChunk` takes an opener and the body wefts up to the next one, and `buildSection` turns them into a `LoomSection`. The `isHeading`, `isDivider`, `isSectionBody`, and `isPreamble` predicates classify each weft.
 
 An opener is a heading or a division, and `Opener` names the two. A division opens with a divider. When the line directly above the divider is a line of prose, that line labels the division, so the label opens the chunk together with its divider and no longer counts as prose of the section above. `isLabelLine` tells such a line: a preamble or prose line with words on it, which is no box line and no fence. `labelsAt` tells a label from the divider below it, and `opensSection` tells where the next chunk begins. `openerOf` reads the opener at the head of a chunk, with the number of lines it spans, one for a heading or a bare divider and two for a labelled one. A chunk always begins where the previous one ended, at an opener, so `openerOf` finds one in a well-formed file. `namesDiscussion` tells from the frontmatter whether the loom is a discussion, which every chunk is told, since a division of a discussion is a topic.
 
@@ -249,8 +249,6 @@ const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
   w.type === 'ProseWeft'
 
 const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
-
-const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
 
 const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
   w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
@@ -378,7 +376,7 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
 
 ## Building a section
 
-`buildSection` turns an opener and its body chunk into a `LoomSection`: it judges the boxes that point to a loom and the conclusions in the body, the latter by whether the section is a topic of a discussion, partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts an opener to a `LoomHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+`buildSection` turns an opener and its body chunk into a `LoomSection`: it judges the boxes that point to a loom and the conclusions in the body, the latter by whether the section is a topic of a discussion, partitions the body into preamble and code wefts, then derives the section's source and span. `headingOf` lifts an opener to a `LoomHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
 
 =>
 
@@ -392,15 +390,13 @@ const buildSection = (
   const judged = judgeConclusions(judgeLoomBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
-  const entries = judged.filter(isToc)
   return LoomSectionSchema.make({
-    position: spanFrom(h.position, preamble, code, entries),
-    source: sourceOf(h, preamble, code, entries),
+    position: spanFrom(h.position, preamble, code),
+    source: sourceOf(h, preamble, code),
     health: okHealth,
     heading: h,
     preamble,
     code,
-    entries: entries.length > 0 ? entries : undefined,
   })
 }
 
@@ -473,7 +469,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `trope` of a trope chapter rides on its membership line, and the `Rooted in` field of the trope's other chapters is read on its own, since it sits beside the membership lines rather than in them, and so is the `Entries` field a trope's root lists. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `trope` of a trope chapter rides on its membership line, and the `Rooted in` field of the trope's other chapters is read on its own, since it sits beside the membership lines rather than in them. So is the `Entries` field a trope's root lists, and so is the `Book` field that names a loom's book. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
 
 =>
 
@@ -513,6 +509,7 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       trope: wefts.find((w) => w.trope !== undefined)?.trope,
       rootedIn: wefts.find((w) => w.rootedIn !== undefined)?.rootedIn,
       entries: wefts.find((w) => w.entries !== undefined)?.entries,
+      book: wefts.find((w) => w.book !== undefined)?.book,
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
       priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),
@@ -659,7 +656,6 @@ import {
   type PreambleWeft,
   type ProseWeft,
   type SectionBodyWeft,
-  type TocWeft,
 } from '@athrio/loom-ast/Weft'
 
 ## The module {Tangle}

@@ -5,34 +5,3 @@ Loom is a literate programming framework. You write a document — prose and cod
 These pages are the manual. They begin with a five-minute quick start, then cover the format itself and the commands that act on it. Read them in order the first time; after that, each page stands on its own.
 
 The manual is itself a Loom corpus. Every page you read here is a chapter of prose that `loom weave` rendered, which means the documentation cannot drift from the tool that builds it.
-
-# Table of Contents {TOC}
-
-### Part I — Getting started
-
-1. Quick start
-2. Installing Loom
-3. Loom projects
-
-### Part II — Writing looms
-
-1. Sections, prose and code
-
-### Part III — Loom in your IDE
-
-1. Supported editors
-
-### Part IV — The format
-
-1. Syntax
-
-### Part V — The command line
-
-1. loom init
-2. loom tangle
-3. loom weave
-4. loom eject
-5. loom format
-6. loom update
-7. loom upgrade
-8. loom doctor

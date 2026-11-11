@@ -12,7 +12,7 @@ Two smaller checks come first. The parser in `src/` must be the one `grammar.js`
 
 ## Two readings of a line
 
-A line's kind, for this comparison, is the block the line belongs to, or the mark it opens with. The frontmatter, a heading, and a table of contents are kinds of their own. A code block starts at its arrow and continues as code, and a prose block starts at its tilde. A fence around fenced code is a kind of its own, and so is a line that opens or closes a box. Every other line of prose is text, a box's body and a stray line of colons included. The classifier tells a preamble line from a prose line by the mode it is in, and the grammar folds both into its prose blocks, so the comparison names both text.
+A line's kind, for this comparison, is the block the line belongs to, or the mark it opens with. The frontmatter, a heading, and a divider are kinds of their own. A code block starts at its arrow and continues as code, and a prose block starts at its tilde. A fence around fenced code is a kind of its own, and so is a line that opens or closes a box. Every other line of prose is text, a box's body and a stray line of colons included. The classifier tells a preamble line from a prose line by the mode it is in, and the grammar folds both into its prose blocks, so the comparison names both text.
 
 `kindOfWeft` maps each weft the classifier emits to its kind. It is a record over every weft's type, so a new weft kind fails to compile here until the test decides what it is. A divider is a line of its own kind, as it is to the grammar. A box line is a preamble weft or a prose weft by its type, so `kindOf` first asks `boxOf` whether the weft carries a box that opens or closes, and asks the record only when it does not.
 
@@ -22,7 +22,6 @@ type LineKind =
   | 'frontmatter'
   | 'heading'
   | 'divider'
-  | 'toc'
   | 'arrow'
   | 'code'
   | 'fence'
@@ -34,7 +33,6 @@ type LineKind =
 const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   FrontmatterWeft: 'frontmatter',
   HeadingWeft: 'heading',
-  TocWeft: 'toc',
   ArrowWeft: 'arrow',
   CodeWeft: 'code',
   FenceWeft: 'fence',
@@ -133,20 +131,19 @@ The marks then name the rows they open. An arrow, a tilde, a code fence, and the
 
 =>
 
-type Block = 'frontmatter' | 'heading' | 'divider' | 'toc' | 'preamble' | 'code' | 'prose'
+type Block = 'frontmatter' | 'heading' | 'divider' | 'preamble' | 'code' | 'prose'
 
 const blockKind: Record<Block, LineKind> = {
   frontmatter: 'frontmatter',
   heading: 'heading',
   divider: 'divider',
-  toc: 'toc',
   preamble: 'text',
   code: 'code',
   prose: 'text',
 }
 
 const blockPattern =
-  /\((frontmatter|heading|divider|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
+  /\((frontmatter|heading|divider|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
 
 const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKind]> => {
   const [, block, startRow, endRow, endColumn] = match
@@ -269,7 +266,7 @@ describe('the grammar agrees with the classifier', () => {
 
 ## The corners the book does not reach
 
-A few forms are rare in the repository, or absent from it: fenced code that holds `#` lines and a shorter fence, Windows line endings, a last line with no line break, a tilde that follows a fenced block, braces that touch an anchor outside a code span, and boxes of every shape a box line takes. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
+A few forms are rare in the repository, or absent from it: fenced code that holds `#` lines and a shorter fence, Windows line endings, a last line with no line break, a tilde that follows a fenced block, braces that touch an anchor outside a code span, boxes of every shape a box line takes, and a discussion whose identity line joins its part. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
 
 =>
 
@@ -386,6 +383,35 @@ const boxLines = [
   '# Still the body',
 ]
 
+~
+
+A discussion reads its lines by rules of its own, as the chapter "Discussions" describes. A tilde opens a message wherever it stands, even straight after a line of prose, and an arrow opens nothing, so its line is prose. Its identity line may join its part, and the scanner reads it all the same. So the parse holds a tilde for each of the two messages and no arrow.
+
+=>
+
+const discussion = [
+  '---',
+  'Part I, Discussion 1: Waking',
+  '---',
+  '',
+  '# Waking',
+  '',
+  'Whether a monster wakes on its own.',
+  '',
+  'A monster that sleeps',
+  '---',
+  '',
+  '~ Yegor',
+  'It should wait for the player.',
+  '=> and this arrow is only words',
+  '~ Claude',
+  'Then no timer starts on its own.',
+  '',
+  '::: {Conclusion}',
+  'A monster waits for the player.',
+  ':::',
+]
+
 describe('the corners', () => {
   it.effect('fenced code holds headings, arrows and shorter fences as code', () =>
     checkLoom(fixture('fenced', fencedBlock)),
@@ -414,6 +440,15 @@ describe('the corners', () => {
       const tree = yield* parseTree(file)
       expect(tree.match(/\(anchor_specifier /g)).toHaveLength(3)
       expect(tree.match(/\(parameter /g)).toHaveLength(3)
+    }),
+  )
+  it.effect('a discussion reads a tilde as a message and an arrow as prose', () =>
+    Effect.gen(function* () {
+      const file = fixture('discussion', discussion)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(tilde /g)).toHaveLength(2)
+      expect(tree.match(/\(arrow /g)).toBeNull()
     }),
   )
   it.effect('a last line needs no line break', () =>

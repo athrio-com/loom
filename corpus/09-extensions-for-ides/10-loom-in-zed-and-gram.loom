@@ -115,9 +115,9 @@ soft_wrap = "bounded"
 
 ## Colours in Zed's names [languages/loom/highlights.scm]
 
-Zed colours a capture by the name its theme gives the colour, and its names differ from the ones Neovim and Helix use. A heading and a box's name are titles, and a file is a link. The rest follows the colours of the shared queries: the frontmatter's keys are properties, its values take the colour of what they name, the arrows and tildes are operators, and an anchor's name is a label. A `Part` or `Chapter` value is a title like a heading, a `Package` value a link like a sink's file, and a `Language` value a type like a specifier's label.
+Zed colours a capture by the name its theme gives the colour, and its names differ from the ones Neovim and Helix use. A heading and a box's name are titles, and a file is a link. The rest follows the colours of the shared queries: the frontmatter's keys are properties, its values take the colour of what they name, the arrows and tildes are operators, and an anchor's name is a label. A `Part`, `Chapter`, or `Book` value is a title like a heading, a `Package` value a link like a sink's file, and a `Language` value a type like a specifier's label.
 
-A specifier's label is a type, except for the two labels that instruct Loom, `{Tangle}` and `{TOC}`, which are keywords. The two patterns exclude each other, so a label never carries both colours and leaves the editor to choose.
+A specifier's label is a type, except for the one label that instructs Loom, `{Tangle}`, which is a keyword. The two patterns exclude each other, so a label never carries both colours and leaves the editor to choose.
 
 The braces that touch an anchor take the colour of the anchor's own delimiters. The anchor's kind is a keyword too, since it instructs Loom as `{Tangle}` does. A parameter's key is a property, as a frontmatter key is, and its value is a string. A box's colons and its braces take the same special punctuation as an anchor's delimiters, and a box's kind is a keyword, as an anchor's is.
 
@@ -143,6 +143,11 @@ The braces that touch an anchor take the colour of the anchor's own delimiters. 
 
 ((field
   key: (key) @_key
+  value: (value) @title)
+  (#eq? @_key "Book"))
+
+((field
+  key: (key) @_key
   value: (value) @link_uri)
   (#eq? @_key "Package"))
 
@@ -156,6 +161,7 @@ The braces that touch an anchor take the colour of the anchor's own delimiters. 
   value: (value) @string)
   (#not-match? @_key "^Part")
   (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Book")
   (#not-eq? @_key "Package")
   (#not-eq? @_key "Language"))
 
@@ -169,11 +175,11 @@ The braces that touch an anchor take the colour of the anchor's own delimiters. 
 
 ((specifier
   label: (label) @type)
-  (#not-any-of? @type "Tangle" "tangle" "TOC" "toc"))
+  (#not-any-of? @type "Tangle" "tangle"))
 
 ((specifier
   label: (label) @keyword)
-  (#any-of? @keyword "Tangle" "tangle" "TOC" "toc"))
+  (#any-of? @keyword "Tangle" "tangle"))
 
 (sink
   [
@@ -275,16 +281,12 @@ A `{Tangle}` section without a sink takes a rule of its own here. Such a section
 ((prose) @injection.content
   (#set! injection.language "markdown"))
 
-((toc) @injection.content
-  (#set! injection.language "markdown")
-  (#set! injection.include-children))
-
 (section
   (heading
     specifier: (specifier
       label: (label) @injection.language))
   (code [(code_text) @injection.content (anchor)]+)
-  (#not-any-of? @injection.language "Tangle" "tangle" "TOC" "toc" "Prose" "prose"))
+  (#not-any-of? @injection.language "Tangle" "tangle" "Prose" "prose"))
 
 ((section
   (heading

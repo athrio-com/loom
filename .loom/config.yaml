@@ -4,11 +4,11 @@ corpus: corpus
 primary: typescript
 ignore: []
 variables:
-  version: 0.0.19
+  version: 0.0.20
   effect: 4.0.5
   grammar: 0.0.12
-  zed: 0.0.16
-  grammarRevision: c668b7cbb9dd680cbb4594d4f196ceb0ad3e63ec
+  zed: 0.0.18
+  grammarRevision: d3f48ecf4d874084718ea5a01ff4f6f58f902138
   typescript: 7.0.2
 settings:
   typescript:

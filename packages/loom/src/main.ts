@@ -40,7 +40,6 @@ import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
-import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -142,13 +141,6 @@ const weave = (file: string, out: string) =>
       resolvePath(process.cwd(), out),
     )
     yield* Console.log(`loom: wove ${file} → ${written}`)
-  })
-
-const toc = (file: string) =>
-  Effect.gen(function* () {
-    const contents = yield* LoomContents
-    const written = yield* contents.write(resolvePath(process.cwd(), file))
-    yield* Console.log(`loom: wrote the table of contents into ${written}`)
   })
 
 const refresh = (file: string) =>
@@ -536,7 +528,7 @@ const installerUpgrade = Installation.$match({
     Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} @athrio/loom@latest`),
 })
 
-const loomVersion = '0.0.19'
+const loomVersion = '0.0.20'
 
 const releases = process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
 
@@ -1242,8 +1234,6 @@ const formatCommand = Command.make(
   ({ path, check }) => format(path, check),
 )
 
-const tocCommand = Command.make('toc', { path: Argument.String('path') }, ({ path }) => toc(path))
-
 const refreshCommand = Command.make('refresh', { path: Argument.String('path') }, ({ path }) =>
   refresh(path),
 )
@@ -1290,7 +1280,6 @@ const loom = Command.make('loom').pipe(
     tangleCommand,
     orphansCommand,
     weaveCommand,
-    tocCommand,
     refreshCommand,
     formatCommand,
     initCommand,
@@ -1309,7 +1298,6 @@ const loom = Command.make('loom').pipe(
 const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
-  Effect.provide(LoomContents.layer),
   Effect.provide(LoomSummaries.layer),
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),

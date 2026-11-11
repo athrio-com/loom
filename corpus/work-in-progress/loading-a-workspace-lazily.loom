@@ -14,7 +14,7 @@ This chapter loads a workspace as the editor needs it. The server holds an index
 
 ## What the editor needs from every loom
 
-Some requests reach across the whole corpus. Resolving a name, following a definition, finding references, renaming a section, reporting an anchor that names nothing, and reading the table of contents all look at every loom. None of them needs a loom's text. Each needs the names a loom declares, and where those names stand.
+Some requests reach across the whole corpus. Resolving a name, following a definition, finding references, renaming a section, reporting an anchor that names nothing, and reading the book's contents all look at every loom. None of them needs a loom's text. Each needs the names a loom declares, and where those names stand.
 
 The compiler already draws this line. Its `faceOf` function keeps the part of a module that other files can see: the frontmatter that names the chapter, the title of every section, the code, and the file each sink tangles to. Prose, which is most of a loom, is in no face.
 

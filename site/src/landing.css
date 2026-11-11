@@ -2344,6 +2344,25 @@ h2, .subhead {
 .menu-part { display: flex; flex-direction: column; }
 .menu-part .eyebrow { margin-bottom: 10px; }
 
+.menu-book {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.menu-book-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.menu-book-name.here { cursor: default; }
+
 .menu-item,
 .menu-sub {
   appearance: none;

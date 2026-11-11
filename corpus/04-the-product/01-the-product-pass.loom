@@ -19,11 +19,11 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array, option, and record combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, `Data` for the tagged answers a reference gets, `Result` for a step that may stop with one of them, and `pipe` for the spine.
 
-From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body weft a code run is made of. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
+From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body wefts a code run is made of, among them the `ArrowWeft` that opens each run. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
 
-The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
+The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, an arrow in a section written in prose raises `CodeInProse`, an arrow in a concept raises `CodeInConcept`, an anchor that reaches a concept raises `ConceptWithoutCode`, and a warp raises `UnknownVariable`.
 
-From the product side come the schema constructors for every node the pass builds: the `Code` of a section, its `Fragment`, `NameRef`, and `ModuleRef` leaves, and the `File` a section emits. With them come the `SectionId` that stamps each node and `keyOf`, which names it, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, the `Book` it resolves names in through `trailsOf`, `sectionOf`, and `resolveName`, the `Place` a trail ends at, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` the judgement returns.
+From the product side come the schema constructors for every node the pass builds: the `Code` of a section, its `Fragment`, `NameRef`, and `ModuleRef` leaves, and the `File` a section emits. With them come the `SectionId` that stamps each node and `keyOf`, which names it, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, the `Catalogue` it resolves names in through `trailsOf`, `sectionOf`, and `resolveName`, the `Place` a trail ends at, `pathsTo`, which names each candidate of an ambiguous name, and `conceptsCalled`, which finds the concepts a name is a form of, with the `Diagnostic` the judgement returns.
 
 =>
 
@@ -42,7 +42,8 @@ import {
   type Position,
 } from '@athrio/loom-ast/LoomNode'
 import {
-  type Book,
+  type Catalogue,
+  conceptsCalled,
   type Location,
   type LoomModule,
   pathsTo,
@@ -65,7 +66,7 @@ import {
   type WarpAnchorToken,
   type WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
-import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { ArrowWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
   CodeSchema,
@@ -88,7 +89,10 @@ import {
 import {
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CodeInConcept,
+  CodeInProse,
   CompositionCycle,
+  ConceptWithoutCode,
   CrossLanguageAnchor,
   type Declaration,
   DuplicateName,
@@ -186,7 +190,7 @@ A tangle sink resolves its language a fourth way: it carries no specifier, only 
 
 A file with no extension takes its whole name as its language, read from the last path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes `license`, and a `.gitignore`, whose one dot only marks it hidden, composes `gitignore`. A chapter that declares the same language can then anchor into it.
 
-Two of the core's own specifiers name no language. A `{TOC}` section composes as prose, and a `{Manifest}` section composes as JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes.
+One of the core's own specifiers names no language. A `{Manifest}` section composes as JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes.
 
 `sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled.
 
@@ -212,7 +216,6 @@ const specifierLanguage = (
       onNone: () => defaultLang,
       onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
     })
-  if (id === 'toc') return 'prose'
   if (id === 'manifest') return 'json'
   return id
 }
@@ -386,6 +389,8 @@ const buildSection =
         labelHealth(section, languageId),
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
+        codeInProse(section, languageId),
+        codeInConcept(section, languageId),
       ],
       okHealth,
       withHealth,
@@ -515,6 +520,38 @@ const manifestOutsideTrope = (section: LoomSection): Health =>
     onNone: () => okHealth,
     onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
   })
+
+## Prose holds no code
+
+A section written in prose holds words for a reader and no code. A section is written in prose when its heading carries the `{Prose}` specifier, or when its chapter's `Language` is `Prose` and its heading names no other language. An arrow in such a section opens code that no reader of prose expects and no file can take. So `codeInProse` gives each arrow in a prose section the `CodeInProse` fault, on the arrow itself. The section still composes what it holds, so the editor keeps serving that code until the author quotes it in a fence or names its language. A tangle refuses it, as it refuses every error. `isArrow` tells an arrow among a section's wefts.
+
+A Markdown file is no exception, because its section is not written in prose. A sink such as `[README.md]` gives its section the `markdown` language, so the section holds the file's text as code, as any other section holds its own.
+
+A concept holds no code either, as the chapter "Concepts" describes. Its `{Concept}` specifier gives its section the `concept` language, which `isConceptLanguage` tells, and `codeInConcept` gives each arrow in it the `CodeInConcept` fault. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
+
+=>
+
+const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
+
+const isConceptLanguage = (languageId: string): boolean => languageId === 'concept'
+
+const codeInConcept = (section: LoomSection, languageId: string): Health =>
+  isConceptLanguage(languageId)
+    ? pipe(
+        Array.filter(section.code, isArrow),
+        Array.map((weft) => faulty(CodeInConcept(), weft.arrow.position)),
+        Array.reduce(okHealth, withHealth),
+      )
+    : okHealth
+
+const codeInProse = (section: LoomSection, languageId: string): Health =>
+  languageId === 'prose'
+    ? pipe(
+        Array.filter(section.code, isArrow),
+        Array.map((weft) => faulty(CodeInProse(), weft.arrow.position)),
+        Array.reduce(okHealth, withHealth),
+      )
+    : okHealth
 
 ## Composing a section's code
 
@@ -803,7 +840,12 @@ const localHealth = (
   host: string,
   label: Option.Option<Position>,
 ): Health =>
-  Match.value({ written: entry.written, sameLanguage: entry.language === host }).pipe(
+  Match.value({
+    concept: isConceptLanguage(entry.language),
+    written: entry.written,
+    sameLanguage: entry.language === host,
+  }).pipe(
+    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
     Match.orElse(() => settledHealth(name, at, label)),
@@ -849,14 +891,14 @@ const stray = (target: WarpAnchorTargetToken): Health =>
 
 ## Judging an edge beyond the document
 
-The product pass cannot judge an edge that leaves the document. `crossFileFaults` judges it once the compiler holds the whole corpus. It reads one module's product with the `Book` beside it, and returns a diagnostic for each edge beyond the module that cannot compose. The compiler adds these to the module's own diagnostics. So the editor marks a broken anchor where the author wrote it, and the tangle refuses to write a file that would silently drop one.
+The product pass cannot judge an edge that leaves the document. `crossFileFaults` judges it once the compiler holds the whole corpus. It reads one module's product with the `Catalogue` beside it, and returns a diagnostic for each edge beyond the module that cannot compose. The compiler adds these to the module's own diagnostics. So the editor marks a broken anchor where the author wrote it, and the tangle refuses to write a file that would silently drop one.
 
 Two kinds of edge are worth judging. A composing edge whose target is open goes to `nameHealth`. Every reference goes to `referenceHealth`, whether its target is open or not, since even a section of its own loom must land in a file a path can name. `referenceHealth` turns the `Referred` that the section "Fitting a reference to its place" describes into health. A file found is healthy. A module nobody has written yet carries the `UnsettledModule` note, and a fault carries its own health. The compiler hands in the corpus's `Landing`, built once for every module it judges.
 
 =>
 
 export const crossFileFaults = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
   landing: Landing,
@@ -867,11 +909,13 @@ export const crossFileFaults = (
       Array.flatMap(host.fragments, (part) =>
         Match.value(part).pipe(
           Match.when({ type: 'NameRef' }, (ref) =>
-            Option.isNone(ref.target) ? nameHealth(book, modules, module, host, ref).diagnostics : [],
+            Option.isNone(ref.target)
+              ? nameHealth(catalogue, modules, module, host, ref).diagnostics
+              : [],
           ),
           Match.when(
             { type: 'ModuleRef' },
-            (ref) => referenceHealth(book, modules, landing, module, host, ref).diagnostics,
+            (ref) => referenceHealth(catalogue, modules, landing, module, host, ref).diagnostics,
           ),
           Match.orElse((): ReadonlyArray<Diagnostic> => []),
         ),
@@ -880,14 +924,14 @@ export const crossFileFaults = (
   )
 
 const referenceHealth = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   landing: Landing,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
 ): Health =>
-  Referred.$match(referredFileOf(book, modules, landing, module, host, ref), {
+  Referred.$match(referredFileOf(catalogue, modules, landing, module, host, ref), {
     Named: () => okHealth,
     Unsettled: ({ declared }) => faulty(UnsettledModule({ name: ref.name, declared }), ref.anchor),
     Faulted: ({ health }) => health,
@@ -895,30 +939,34 @@ const referenceHealth = (
 
 ~
 
-An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved, and `unresolvedHealth` raises the fault, for a composing edge and a reference alike. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
+An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. A name that is a form of a concept names that concept, which holds no code, so the anchor carries the `ConceptWithoutCode` fault, which names the concept by its heading. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved, and `unresolvedHealth` raises the fault, for a composing edge and a reference alike. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
-The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use.
+The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is a concept, whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use. A concept holds no code to compose, so an anchor that reaches one carries the `ConceptWithoutCode` fault, here and in the anchor's own loom alike.
 
 `declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. `headingMarkOf` gives that level's run of `#` marks, and a division, which a divider opens, counts as a heading of the second level, as Markdown reads a line underlined with dashes. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
 =>
 
 const nameHealth = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
   host: Code,
   ref: NameRef,
 ): Health => {
-  const trails = trailsOf(book, module.path, ref.name)
+  const trails = trailsOf(catalogue, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
-      isMeant(ref)
-        ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
-        : unresolvedHealth(module, host, ref.name, ref.anchor),
+      Option.match(Array.head(conceptsCalled(catalogue, ref.name)), {
+        onSome: (concept) => faulty(ConceptWithoutCode({ name: concept.name.source }), ref.anchor),
+        onNone: () =>
+          isMeant(ref)
+            ? faulty(UnsettledSection({ name: ref.name, declared: false }), ref.anchor)
+            : unresolvedHealth(module, host, ref.name, ref.anchor),
+      }),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
+        ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(catalogue, module.path, trails))
         : trailHealth(modules, host, ref, trail),
   })
 }
@@ -978,10 +1026,12 @@ const reachedHealth = (
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
+    concept: isConceptLanguage(code.languageId),
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
   }).pipe(
+    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
     Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),
@@ -1050,9 +1100,13 @@ The projection binds an open edge the same way the judgement resolves it. `targe
 
 =>
 
-export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Option<SectionId> =>
+export const targetOf = (
+  catalogue: Catalogue,
+  from: Location,
+  ref: NameRef,
+): Option.Option<SectionId> =>
   Option.orElse(ref.target, () =>
-    Option.map(resolveName(book, from, ref.name), (reached) => ({
+    Option.map(resolveName(catalogue, from, ref.name), (reached) => ({
       path: reached.module,
       name: sectionNameOf(reached.section),
     })),
@@ -1087,14 +1141,14 @@ type ReferredNode = Data.TaggedEnum<{
 const ReferredNode = Data.taggedEnum<ReferredNode>()
 
 export const referredFileOf = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   landing: Landing,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
 ): Referred =>
-  Result.match(referredNodeOf(book, module, host, ref), {
+  Result.match(referredNodeOf(catalogue, module, host, ref), {
     onFailure: (stopped) => stopped,
     onSuccess: (node) =>
       ReferredNode.$match(node, {
@@ -1104,7 +1158,7 @@ export const referredFileOf = (
   })
 
 const referredNodeOf = (
-  book: Book,
+  catalogue: Catalogue,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
@@ -1112,7 +1166,7 @@ const referredNodeOf = (
   Option.match(ref.target, {
     onSome: (id) => Result.succeed(ReferredNode.Section({ id })),
     onNone: () => {
-      const trails = trailsOf(book, module.path, ref.name)
+      const trails = trailsOf(catalogue, module.path, ref.name)
       return Array.matchLeft(trails, {
         onEmpty: () =>
           Result.fail(
@@ -1128,7 +1182,7 @@ const referredNodeOf = (
                     ref.name,
                     ref.anchor,
                     trails.length,
-                    pathsTo(book, module.path, trails),
+                    pathsTo(catalogue, module.path, trails),
                   ),
                 }),
               )
@@ -1150,6 +1204,9 @@ const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, 
       ),
     ),
     Match.tag('Box', () => Result.fail(Referred.Unsettled({ declared: true }))),
+    Match.tag('Book', () =>
+      Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+    ),
     Match.tag('Part', () =>
       Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
     ),
@@ -1299,7 +1356,7 @@ const codeAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): Option
   )
 
 const reachedFrom = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   root: Code,
 ): ReadonlyArray<string> => {
@@ -1308,7 +1365,7 @@ const reachedFrom = (
       part.type !== 'NameRef'
         ? reached
         : pipe(
-            targetOf(book, code.origin.path, part),
+            targetOf(catalogue, code.origin.path, part),
             Option.filter((target) => !reached.has(keyOf(target))),
             Option.flatMap((target) =>
               Option.map(codeAt(modules, target), (next) =>
@@ -1321,13 +1378,16 @@ const reachedFrom = (
   return Array.fromIterable(walk(new Set([keyOf(root.origin)]), root))
 }
 
-export const landingOf = (book: Book, modules: ReadonlyMap<string, LoomModule>): Landing =>
+export const landingOf = (
+  catalogue: Catalogue,
+  modules: ReadonlyMap<string, LoomModule>,
+): Landing =>
   holdsReferences(modules)
     ? pipe(
         Array.fromIterable(modules.values()),
         Array.flatMap(filesOf),
         Array.flatMap((landed) =>
-          Array.map(reachedFrom(book, modules, landed.file.code), (key) => ({ key, landed })),
+          Array.map(reachedFrom(catalogue, modules, landed.file.code), (key) => ({ key, landed })),
         ),
         Array.groupBy((entry) => entry.key),
         Record.map((entries) => Array.map(entries, (entry) => entry.landed)),
@@ -1349,21 +1409,21 @@ type Walked = {
   readonly path: Option.Option<ReadonlyArray<SectionId>>
 }
 
-const composedTargetsOf = (book: Book, code: Code): ReadonlyArray<SectionId> =>
+const composedTargetsOf = (catalogue: Catalogue, code: Code): ReadonlyArray<SectionId> =>
   Array.getSomes(
     Array.map(code.fragments, (part) =>
-      part.type === 'NameRef' ? targetOf(book, code.origin.path, part) : Option.none(),
+      part.type === 'NameRef' ? targetOf(catalogue, code.origin.path, part) : Option.none(),
     ),
   )
 
 const nextFrom = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   at: SectionId,
 ): ReadonlyArray<SectionId> =>
   Option.match(codeAt(modules, at), {
     onNone: (): ReadonlyArray<SectionId> => [],
-    onSome: (code) => composedTargetsOf(book, code),
+    onSome: (code) => composedTargetsOf(catalogue, code),
   })
 
 const unwalked = (visited: ReadonlySet<string>): Walked => ({ visited, path: Option.none() })
@@ -1373,11 +1433,15 @@ const prefixed = (at: SectionId, walked: Walked): Walked => ({
   path: Option.map(walked.path, (rest) => [at, ...rest]),
 })
 
-const pathBack = (book: Book, modules: ReadonlyMap<string, LoomModule>, goal: SectionId) => {
+const pathBack = (
+  catalogue: Catalogue,
+  modules: ReadonlyMap<string, LoomModule>,
+  goal: SectionId,
+) => {
   const walk = (visited: ReadonlySet<string>, at: SectionId): Walked =>
     keyOf(at) === keyOf(goal)
       ? { visited, path: Option.some([at]) }
-      : Array.reduce(nextFrom(book, modules, at), unwalked(visited), (walked, next) =>
+      : Array.reduce(nextFrom(catalogue, modules, at), unwalked(visited), (walked, next) =>
           Option.isSome(walked.path) || walked.visited.has(keyOf(next))
             ? walked
             : prefixed(at, walk(new Set([...walked.visited, keyOf(next)]), next)),
@@ -1386,14 +1450,14 @@ const pathBack = (book: Book, modules: ReadonlyMap<string, LoomModule>, goal: Se
 }
 
 const loopThrough = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   host: Code,
   ref: NameRef,
 ): Option.Option<ReadonlyArray<SectionId>> =>
-  Option.flatMap(targetOf(book, host.origin.path, ref), (target) =>
+  Option.flatMap(targetOf(catalogue, host.origin.path, ref), (target) =>
     Option.map(
-      pathBack(book, modules, host.origin)(new Set([keyOf(target)]), target).path,
+      pathBack(catalogue, modules, host.origin)(new Set([keyOf(target)]), target).path,
       (path) => [host.origin, ...path],
     ),
   )
@@ -1410,14 +1474,14 @@ const titleAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): strin
   )
 
 export const compositionCycles = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> =>
   Array.flatMap(module.product.code, (host) =>
     Array.flatMap(host.fragments, (part) =>
       part.type === 'NameRef'
-        ? Option.match(loopThrough(book, modules, host, part), {
+        ? Option.match(loopThrough(catalogue, modules, host, part), {
             onNone: (): ReadonlyArray<Diagnostic> => [],
             onSome: (loop) =>
               faulty(
@@ -1435,13 +1499,16 @@ A section's code is used when a file includes it: the section writes a file of i
 
 `usedSections` gathers a corpus's `Usage` once, so each loom's judgement only looks it up. Its `used` sections are the section behind every file a loom writes, and every section an anchor composes, through `composedTargetsOf`. It also says whether the corpus `writes` any file at all. A corpus that writes none is documentation rather than a program, as a book that only weaves is, so none of its code counts as unused. A manifest is read by Loom itself, so its section counts as used. A section that holds no code yet has nothing to use, and the note that it is to be settled covers it already.
 
-Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter marked `Canvas` or `Planned` is unfinished, as the chapter "Canvases" describes, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose, as every section of a chapter whose language is `Prose` is, holds words for a reader rather than code for a file, and `isProse` tells such a section.
+Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter marked `Canvas` or `Planned` is unfinished, as the chapter "Canvases" describes, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose holds no code, and any arrow in it already carries the `CodeInProse` fault, so `isProse` keeps the warning from saying the same thing twice.
 
 =>
 
 export type Usage = { readonly writes: boolean; readonly used: ReadonlySet<string> }
 
-export const usedSections = (book: Book, modules: ReadonlyMap<string, LoomModule>): Usage => {
+export const usedSections = (
+  catalogue: Catalogue,
+  modules: ReadonlyMap<string, LoomModule>,
+): Usage => {
   const all = Array.fromIterable(modules.values())
   const files = Array.flatMap(all, (module) => module.product.files)
   return {
@@ -1450,7 +1517,7 @@ export const usedSections = (book: Book, modules: ReadonlyMap<string, LoomModule
       ...Array.map(files, (file) => keyOf(file.code.origin)),
       ...Array.flatMap(all, (module) =>
         Array.flatMap(module.product.code, (code) =>
-          Array.map(composedTargetsOf(book, code), keyOf),
+          Array.map(composedTargetsOf(catalogue, code), keyOf),
         ),
       ),
     ]),
@@ -1610,6 +1677,8 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[Building one section]
 
 ::[One mark for one file]
+
+::[Prose holds no code]
 
 ::[Composing a section's code]
 

@@ -11,7 +11,7 @@ import {
   tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
 import {
-  type Book,
+  type Catalogue,
   type Location,
   type LoomModule,
   openedBoxesOf,
@@ -82,7 +82,7 @@ type Read = { readonly manifest: TropeManifest; readonly at: Position }
 
 const manifestOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   root: LoomModule,
   manifests: Array.NonEmptyReadonlyArray<LoomSection>,
 ): Result.Result<Read, Refusal> => {
@@ -94,7 +94,7 @@ const manifestOf = (
     onEmpty: () =>
       pipe(
         Array.findFirst(root.product.code, (code) => code.origin.name === sectionNameOf(section)),
-        Option.map((code) => fromCode(modules, code, book).code),
+        Option.map((code) => fromCode(modules, code, catalogue).code),
         Option.getOrElse(() => ''),
         readManifest,
         Result.map((manifest): Read => ({ manifest, at: section.heading.position })),
@@ -150,7 +150,7 @@ const refused = (kinds: DeclaredKinds, refusal: Refusal): DeclaredKinds => ({
 
 const withRoot = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   kinds: DeclaredKinds,
   trope: string,
   root: LoomModule,
@@ -158,7 +158,7 @@ const withRoot = (
   Array.match(manifestSectionsOf(root), {
     onEmpty: () => kinds,
     onNonEmpty: (manifests) =>
-      Result.match(manifestOf(modules, book, root, manifests), {
+      Result.match(manifestOf(modules, catalogue, root, manifests), {
         onFailure: (refusal) => refused(kinds, refusal),
         onSuccess: ({ manifest, at }) =>
           Option.match(clashOf(manifest.contributes.kinds.box, kinds.box), {
@@ -170,7 +170,7 @@ const withRoot = (
 
 const withTrope = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   kinds: DeclaredKinds,
   trope: Trope,
 ): DeclaredKinds => {
@@ -190,18 +190,18 @@ const withTrope = (
   const settled: DeclaredKinds = { ...kinds, refusals: [...kinds.refusals, ...duplicates] }
   return Option.match(trope.root, {
     onNone: () => settled,
-    onSome: (root) => withRoot(modules, book, settled, trope.name, root),
+    onSome: (root) => withRoot(modules, catalogue, settled, trope.name, root),
   })
 }
 
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   installed: ReadonlyArray<DeclaredKind> = [],
 ): DeclaredKinds => {
   const tropes = tropesOf(modules)
   return Array.reduce(tropes, { ...noKinds, tropes, box: installed }, (kinds, trope) =>
-    withTrope(modules, book, kinds, trope),
+    withTrope(modules, catalogue, kinds, trope),
   )
 }
 

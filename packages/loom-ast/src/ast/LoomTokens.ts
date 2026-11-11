@@ -153,6 +153,11 @@ export const FrontmatterEntryTokenSchema = loomNode('FrontmatterEntry', {
 })
 export type FrontmatterEntryToken = typeof FrontmatterEntryTokenSchema.Type
 
+export const FrontmatterBookTokenSchema = loomNode('FrontmatterBook', {
+  value: Schema.String,
+})
+export type FrontmatterBookToken = typeof FrontmatterBookTokenSchema.Type
+
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,
 })
@@ -167,26 +172,6 @@ export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
   value: Schema.String,
 })
 export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
-
-export const TocPartTokenSchema = loomNode('TocPart', {
-  value: Schema.String,
-})
-export type TocPartToken = typeof TocPartTokenSchema.Type
-
-export const TocChapterTokenSchema = loomNode('TocChapter', {
-  value: Schema.String,
-})
-export type TocChapterToken = typeof TocChapterTokenSchema.Type
-
-export const TocDiscussionTokenSchema = loomNode('TocDiscussion', {
-  value: Schema.String,
-})
-export type TocDiscussionToken = typeof TocDiscussionTokenSchema.Type
-
-export const TocTitleTokenSchema = loomNode('TocTitle', {
-  value: Schema.String,
-})
-export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
   [Probe]: /^\s*=>/,
@@ -486,9 +471,6 @@ export const LoomTokenSchema = Schema.Union([
   FrontmatterTitleTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterValueTokenSchema,
-  TocPartTokenSchema,
-  TocChapterTokenSchema,
-  TocTitleTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,

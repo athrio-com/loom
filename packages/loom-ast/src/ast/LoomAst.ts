@@ -2,6 +2,7 @@ import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
   DividerTokenSchema,
+  FrontmatterBookTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
   FrontmatterTropeTokenSchema,
@@ -15,7 +16,7 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
 } from './LoomTokens'
-import { PreambleWeftSchema, SectionBodyWeftSchema, TocWeftSchema } from './Weft'
+import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
@@ -29,7 +30,6 @@ export const LoomSectionSchema = loomNode('LoomSection', {
   heading: LoomHeadingSchema,
   preamble: Schema.Array(PreambleWeftSchema),
   code: Schema.Array(SectionBodyWeftSchema),
-  entries: Schema.optional(Schema.Array(TocWeftSchema)),
 })
 export type LoomSection = typeof LoomSectionSchema.Type
 
@@ -41,6 +41,7 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   trope: Schema.optional(FrontmatterTropeTokenSchema),
   rootedIn: Schema.optional(FrontmatterTropeTokenSchema),
   entries: Schema.optional(Schema.Array(FrontmatterEntryTokenSchema)),
+  book: Schema.optional(FrontmatterBookTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),
   language: Schema.optional(FrontmatterValueTokenSchema),

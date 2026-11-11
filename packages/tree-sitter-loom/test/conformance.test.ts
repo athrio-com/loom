@@ -17,7 +17,6 @@ type LineKind =
   | 'frontmatter'
   | 'heading'
   | 'divider'
-  | 'toc'
   | 'arrow'
   | 'code'
   | 'fence'
@@ -29,7 +28,6 @@ type LineKind =
 const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   FrontmatterWeft: 'frontmatter',
   HeadingWeft: 'heading',
-  TocWeft: 'toc',
   ArrowWeft: 'arrow',
   CodeWeft: 'code',
   FenceWeft: 'fence',
@@ -94,20 +92,19 @@ beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])), {
 const parseTree = (file: string): Effect.Effect<string> =>
   treeSitter(['parse', '--lib-path', library, '--lang-name', 'loom', file])
 
-type Block = 'frontmatter' | 'heading' | 'divider' | 'toc' | 'preamble' | 'code' | 'prose'
+type Block = 'frontmatter' | 'heading' | 'divider' | 'preamble' | 'code' | 'prose'
 
 const blockKind: Record<Block, LineKind> = {
   frontmatter: 'frontmatter',
   heading: 'heading',
   divider: 'divider',
-  toc: 'toc',
   preamble: 'text',
   code: 'code',
   prose: 'text',
 }
 
 const blockPattern =
-  /\((frontmatter|heading|divider|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
+  /\((frontmatter|heading|divider|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
 
 const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKind]> => {
   const [, block, startRow, endRow, endColumn] = match
@@ -293,6 +290,29 @@ const boxLines = [
   '# Still the body',
 ]
 
+const discussion = [
+  '---',
+  'Part I, Discussion 1: Waking',
+  '---',
+  '',
+  '# Waking',
+  '',
+  'Whether a monster wakes on its own.',
+  '',
+  'A monster that sleeps',
+  '---',
+  '',
+  '~ Yegor',
+  'It should wait for the player.',
+  '=> and this arrow is only words',
+  '~ Claude',
+  'Then no timer starts on its own.',
+  '',
+  '::: {Conclusion}',
+  'A monster waits for the player.',
+  ':::',
+]
+
 describe('the corners', () => {
   it.effect('fenced code holds headings, arrows and shorter fences as code', () =>
     checkLoom(fixture('fenced', fencedBlock)),
@@ -321,6 +341,15 @@ describe('the corners', () => {
       const tree = yield* parseTree(file)
       expect(tree.match(/\(anchor_specifier /g)).toHaveLength(3)
       expect(tree.match(/\(parameter /g)).toHaveLength(3)
+    }),
+  )
+  it.effect('a discussion reads a tilde as a message and an arrow as prose', () =>
+    Effect.gen(function* () {
+      const file = fixture('discussion', discussion)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(tilde /g)).toHaveLength(2)
+      expect(tree.match(/\(arrow /g)).toBeNull()
     }),
   )
   it.effect('a last line needs no line break', () =>

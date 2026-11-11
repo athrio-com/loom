@@ -9,7 +9,7 @@ import {
   type SearchGroup,
   type SearchHit,
 } from './model'
-import { chapterPath, docsCorpus } from './docs-page'
+import { chapterPath, docsCorpus, withLinks } from './docs-page'
 
 export type Entry = {
   readonly route: Route
@@ -67,7 +67,7 @@ const flattened = (text: string): string => text.replace(/\s+/g, ' ').trim()
 const blockWords = (block: Block): string =>
   Match.value(block).pipe(
     Match.when({ type: 'heading' }, (heading) => heading.title),
-    Match.when({ type: 'prose' }, (prose) => proseText(prose.markdown)),
+    Match.when({ type: 'prose' }, (prose) => proseText(withLinks(prose, (link) => link.name))),
     Match.when({ type: 'note' }, (note) =>
       Array.join(
         [...Option.toArray(Option.fromNullishOr(note.caption)), proseText(note.markdown)],

@@ -1,0 +1,48 @@
+---
+Part: Work in progress
+Chapter: The scope of a concept
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# The scope of a concept
+
+A link reaches a concept from anywhere in the corpus, as the chapter "Concepts" describes. Prose that links nothing names concepts too, though, and an editor that recognises those words gives a reader the concept's meaning without a link. Recognition needs a boundary that links do not: the words a chapter may mean as concepts. This chapter gives each concept the scope it belongs to, and each chapter the vocabulary it recognises.
+
+## Where a concept belongs
+
+Loom's scopes nest. The corpus holds books, a book holds parts, and a part holds chapters. The corpus is the outermost scope. It stands for the app the corpus builds, an implicit trope that holds every chapter, so every concept belongs to some scope.
+
+A concept belongs to a scope by where its section stands:
+
+- A concept in a chapter of a part belongs to that part.
+- A concept in a chapter that belongs to no part belongs to the chapter's book.
+- A concept in a book loom belongs to the book, and a concept in the corpus loom to the corpus, as the chapter "Books" describes those looms.
+- A concept in a chapter of a declared trope belongs to the trope, whichever parts the trope's chapters sit in.
+
+A concept that turns out to serve more than its scope moves up. A quick fix on the concept's heading offers each enclosing scope, and moves the section there, under a division the author picks. The concept's links keep working, since a link reaches a concept wherever it stands.
+
+## Recognising concepts in plain prose
+
+Most prose names a concept without linking it. The editor recognises those words as the concept's forms, and gives them the hover and the go to definition a link has. The index counts each recognised word as a use. Recognition never rewrites the text.
+
+Ordinary words make recognition risky. Box and mark are concepts in Loom's book, and they are also everyday English. So a chapter recognises only the forms of its vocabulary, the concepts its scope knows:
+
+1. the concepts that belong to the chapter's own scope, and to every scope that encloses it, up to the corpus;
+2. the concepts of the chapter's trope, and of every trope that encloses that trope;
+3. the concepts in the entry chapters of the tropes nested inside the chapter's trope;
+4. the concepts the chapter's trope realises;
+5. the concepts a link in the trope names.
+
+The last rule makes a link an import. An author links a concept at its first use, as Wikipedia's style guide asks of every link, and the rest of the trope then recognises the concept's forms without links. A chapter that belongs to no declared trope imports into its part.
+
+A word that two concepts of one vocabulary both claim is not recognised. The editor offers a link to each concept instead, and the author picks the one the sentence means.
+
+## What this chapter grows into
+
+1. The scope a concept belongs to, once the corpus is the implicit root trope, and recognition of plain prose with links as imports.
+2. The quick fix that moves a concept up to an enclosing scope.
+3. Variants of a concept in other natural languages, each with forms of its own and no code, once a heading's specifier takes parameters.
+
+When the editor recognises a concept's words within their scope, this chapter joins the chapter "Concepts".

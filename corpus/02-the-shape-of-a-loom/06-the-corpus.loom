@@ -41,9 +41,9 @@ type Modules = ReadonlyMap<Location, LoomModule>
 
 Names resolve here: the lookups that turn an `::[Name]` anchor into the section it reaches. A `SectionRef` locates that section by the module it lives in and the section itself.
 
-A name resolves nearest first, outward from the anchor. A bare `::[Name]` looks first among the sections of its own loom. When none of them carries the name, it looks among the chapters of the book, and a chapter it finds stands for the chapter's opening section. The book is the whole corpus. The rule holds wherever the anchor stands, in a section's code as in its prose.
+A name resolves nearest first, outward from the anchor. A bare `::[Name]` looks first among the sections of its own loom. When none of them carries the name, it looks among the chapters of the anchor's own book, and a chapter it finds stands for the chapter's opening section. A loom's book is the one its `Book:` line names, or the corpus's default book when it names none, as the chapter "Books" describes. A bare name never reaches a chapter of another book. The rule holds wherever the anchor stands, in a section's code as in its prose.
 
-An author names a section of another chapter with a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of this chapter from anywhere in the book, and `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A comma splits a name into a path only when the whole name matches nothing, so a title that holds a comma, such as `Once, as the site is built`, still resolves whole.
+An author names a section of another chapter with a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of this chapter from anywhere in its book, and `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A path that starts with a book's name reaches into that book, as `::[The website, Part I, Chapter 2, Pricing]` does from a chapter of another book. A comma splits a name into a path only when the whole name matches nothing, so a title that holds a comma, such as `Once, as the site is built`, still resolves whole.
 
 A name and a path of names are the only ways an anchor reaches a section. Loom reads no loom's path in an anchor, and the product pass faults an anchor that still writes one in parentheses after its name.
 
@@ -75,13 +75,18 @@ export const titleIndexes = (modules: Modules): TitleIndexes =>
 
 ~
 
-The book finds a chapter by the title the chapter declares, which `chapterTitleToken` reads here and in the navigation below. A `Chapter` pairs that title with the loom that declares it, its own number, and the number and the name of the part it belongs to. A chapter states its part in one of three ways. A part's opening chapter announces the part's number and name, as `Part IV: The product` does. Every other chapter of a numbered part gives only the number, as `Part IV, Chapter 2` does. A chapter outside the numbered parts gives the part's name alone, as `Part: Work in progress` does.
+A lookup finds a chapter by the title the chapter declares, which `chapterTitleToken` reads here and in the navigation below. A `Chapter` pairs that title with the loom that declares it, its own number, the book it belongs to, and the part it belongs to. A chapter states its part in one of three ways. A part's opening chapter announces the part's number and name, as `Part IV: The product` does. Every other chapter of a numbered part gives only the number, as `Part IV, Chapter 2` does. A chapter outside the numbered parts gives the part's name alone, as `Part: Work in progress` does.
 
-`partNamesIn` maps each part number to the name its opening chapter announces. `partOf` reads the part a chapter belongs to as a `PartRef`: the number the chapter gives, and the name it gives or its number maps to. `samePart` tells whether two parts are one, by number when both give one and by name otherwise. `chaptersIn` lists every chapter of the book, so two chapters that share a title both stay in reach. `openingSectionOf` gives a loom's first titled section, the section that stands for its chapter.
+`bookOf` reads the book a loom names, and gives nothing for a loom of the default book. `sameBook` tells whether two looms stand in one book, the default book included. A book numbers its parts on its own, so the game's Part I and the website's Part I are two parts, and `partKey` writes a part's number together with its book.
+
+`partNamesIn` maps each part, by that key, to the name its opening chapter announces. `partOf` reads the part a chapter belongs to as a `PartRef`: the chapter's book, the number the chapter gives, and the name it gives or its number maps to. `samePart` tells whether two parts are one. They stand in one book, and share a number when both give one, or a name otherwise.
+
+A book loom opens its book rather than standing in it, as the chapter "Books" describes. `isBookLoom` tells one: its frontmatter names a book and no part, and it declares no title, so it names no chapter or discussion either. `chaptersIn` lists every chapter of the corpus, the book looms aside, so two chapters that share a title both stay in reach. `openingSectionOf` gives a loom's first titled section, the section that stands for its chapter.
 
 =>
 
 type PartRef = {
+  readonly book: Option.Option<string>
   readonly number: Option.Option<string>
   readonly name: Option.Option<string>
 }
@@ -90,9 +95,19 @@ type Chapter = {
   readonly title: string
   readonly number: Option.Option<string>
   readonly discussion: boolean
+  readonly book: Option.Option<string>
   readonly part: PartRef
   readonly module: LoomModule
 }
+
+export const bookOf = (module: LoomModule): Option.Option<string> =>
+  Option.map(Option.fromNullishOr(module.doc.frontmatter?.book), (book) => book.value)
+
+const sameBook = (book: Option.Option<string>, other: Option.Option<string>): boolean =>
+  Option.getOrNull(book) === Option.getOrNull(other)
+
+const partKey = (book: Option.Option<string>, number: string): string =>
+  JSON.stringify([Option.getOrNull(book), number])
 
 const partNamesIn = (modules: Modules): ReadonlyMap<string, string> =>
   new Map(
@@ -103,13 +118,16 @@ const partNamesIn = (modules: Modules): ReadonlyMap<string, string> =>
           Option.flatMap((fm) =>
             Option.all([Option.fromNullishOr(fm.part), Option.fromNullishOr(fm.partName)]),
           ),
-          Option.map(([part, partName]) => [part.value, partName.value] as const),
+          Option.map(
+            ([part, partName]) => [partKey(bookOf(module), part.value), partName.value] as const,
+          ),
         ),
       ),
     ),
   )
 
 const partOf = (names: ReadonlyMap<string, string>, module: LoomModule): PartRef => {
+  const book = bookOf(module)
   const frontmatter = Option.fromNullishOr(module.doc.frontmatter)
   const number = pipe(
     frontmatter,
@@ -117,6 +135,7 @@ const partOf = (names: ReadonlyMap<string, string>, module: LoomModule): PartRef
     Option.map((part) => part.value),
   )
   return {
+    book,
     number,
     name: Option.orElse(
       pipe(
@@ -124,21 +143,34 @@ const partOf = (names: ReadonlyMap<string, string>, module: LoomModule): PartRef
         Option.flatMapNullishOr((fm) => fm.partName),
         Option.map((partName) => partName.value),
       ),
-      () => Option.flatMap(number, (n) => Option.fromNullishOr(names.get(n))),
+      () => Option.flatMap(number, (n) => Option.fromNullishOr(names.get(partKey(book, n)))),
     ),
   }
 }
 
 const samePart = (part: PartRef, other: PartRef): boolean =>
+  sameBook(part.book, other.book) &&
   Option.match(Option.all([part.number, other.number]), {
     onSome: ([number, otherNumber]) => number === otherNumber,
     onNone: () => Option.exists(part.name, (name) => Option.contains(other.name, name)),
   })
 
+export const isBookLoom = (module: LoomModule): boolean =>
+  Option.exists(
+    Option.fromNullishOr(module.doc.frontmatter),
+    (fm) =>
+      fm.book !== undefined &&
+      fm.title === undefined &&
+      fm.part === undefined &&
+      fm.partName === undefined,
+  )
+
 const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
   const names = partNamesIn(modules)
-  return Array.getSomes(
-    Array.map(Array.fromIterable(modules.values()), (module) =>
+  return pipe(
+    Array.fromIterable(modules.values()),
+    Array.filter((module) => !isBookLoom(module)),
+    Array.map((module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
         number: pipe(
@@ -149,10 +181,12 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
           Option.filter((ordinal) => ordinal !== ''),
         ),
         discussion: module.doc.frontmatter?.discussion !== undefined,
+        book: bookOf(module),
         part: partOf(names, module),
         module,
       })),
     ),
+    Array.getSomes,
   )
 }
 
@@ -161,17 +195,24 @@ const openingSectionOf = (module: LoomModule): Option.Option<LoomSection> =>
 
 ~
 
-A `Book` gathers what a lookup reads: each loom's titles, every chapter, and each loom's boxes that point to a chapter or a discussion, which the section "Boxes that point to looms" describes. `bookOf` builds it from the modules once, for a caller that resolves many names over the same corpus.
+A `Catalogue` gathers what a lookup reads: the corpus's looms, each loom's titles, every chapter of every book, and each loom's boxes that point to a chapter or a discussion, which the section "Boxes that point to looms" describes. It also holds every concept of the corpus, and the anchors that stand in prose, which link rather than compose, as the section "Concepts and the links that name them" describes. `catalogueOf` builds it from the modules once, for a caller that resolves many names over the same corpus.
+
+`bookAt` reads the book of the loom an anchor stands in, the book its bare names look through. The catalogue keeps the name of every book some loom names, once, and `isBook` tells whether a name is one of them, since a lookup asks it for every first name of every path.
 
 =>
 
-export type Book = {
+export type Catalogue = {
+  readonly modules: Modules
   readonly titles: TitleIndexes
   readonly chapters: ReadonlyArray<Chapter>
   readonly boxes: ReadonlyMap<Location, ReadonlyArray<BoxRef>>
+  readonly concepts: ReadonlyArray<ConceptRef>
+  readonly links: ReadonlySet<string>
+  readonly books: ReadonlySet<string>
 }
 
-export const bookOf = (modules: Modules): Book => ({
+export const catalogueOf = (modules: Modules): Catalogue => ({
+  modules,
   titles: titleIndexes(modules),
   chapters: chaptersIn(modules),
   boxes: new Map(
@@ -180,15 +221,28 @@ export const bookOf = (modules: Modules): Book => ({
       pointingBoxesOf(module),
     ]),
   ),
+  concepts: Array.flatMap(Array.fromIterable(modules.values()), conceptsOf),
+  links: new Set(
+    Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+      Array.map(linksOf(module), (anchor) => linkKey(module.path, anchor)),
+    ),
+  ),
+  books: new Set(Array.getSomes(Array.map(Array.fromIterable(modules.values()), bookOf))),
 })
+
+const bookAt = (catalogue: Catalogue, from: Location): Option.Option<string> =>
+  Option.flatMap(Option.fromNullishOr(catalogue.modules.get(from)), bookOf)
+
+const isBook = (catalogue: Catalogue, name: string): boolean => catalogue.books.has(name)
 
 ~
 
-A lookup walks the book from the outside in, and records where each name led. A `Place` is one stop on the way: a part, a chapter, a section, or a box that points nowhere yet: to a chapter or a discussion nobody has written, or a trope that names no section or chapter, which the section "Boxes that point to looms" describes. A `Segment` is one name of a path, with its offsets inside the anchor's name, so the editor can rewrite that one name in a rename. A `Step` pairs a segment with the place it named, and records whether the segment named it by number. It also records the trope box it passed `through`, when a segment named a trope and the step leads on to the trope's entry point, so a rename of that entry point leaves the trope's name alone. A `Trail` lists the steps of one resolution, from the outermost name to the place the anchor reaches, and a name that resolves whole leaves a trail of one step.
+A lookup walks the corpus from the outside in, and records where each name led. A `Place` is one stop on the way: a book, a part, a chapter, a section, or a box that points nowhere yet: to a chapter or a discussion nobody has written, or a trope that names no section or chapter, which the section "Boxes that point to looms" describes. A `Segment` is one name of a path, with its offsets inside the anchor's name, so the editor can rewrite that one name in a rename. A `Step` pairs a segment with the place it named, and records whether the segment named it by number. It also records the trope box it passed `through`, when a segment named a trope and the step leads on to the trope's entry point, so a rename of that entry point leaves the trope's name alone. A `Trail` lists the steps of one resolution, from the outermost name to the place the anchor reaches, and a name that resolves whole leaves a trail of one step.
 
 =>
 
 export type Place = Data.TaggedEnum<{
+  Book: { readonly book: string }
   Part: { readonly part: PartRef }
   Chapter: { readonly chapter: Chapter }
   Section: { readonly ref: SectionRef }
@@ -212,9 +266,9 @@ export type Trail = Array.NonEmptyReadonlyArray<Step>
 
 A name in a path is a title or a number. `Part II` names a part by its number, `Chapter 6` a chapter by its number, and `Discussion 1` a discussion by its number, the way a loom's identity line names them, and any other name is a title. A discussion is a loom of its own kind, which sits in its part beside the chapters, so a title finds a discussion wherever it finds a chapter. Chapters and discussions are numbered apart, so a number finds only its own kind, through `numberedSteps`. `numberIn` reads the number out of a name that opens with a keyword: `Part`, `Chapter`, or `Discussion`.
 
-`stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top of the book, a segment names a part or a chapter. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's boxes that point to a loom, by its name. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part by a test on its `PartRef` and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a scope that pass a test.
+`stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top, a segment names a book, or a part or a chapter of the anchor's own book. Inside a book, it names a part or a chapter of that book. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's boxes that point to a loom, by its name. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part of a book by a test on its `PartRef`, and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a book, or of one part of it, that pass a test.
 
-`walk` follows a path's segments through `stepsNamed`, one scope deeper for each. A trail is `finished` when it ends at a chapter or a section. A part stands for no section, so a trail that ends at a part resolves nothing, and a bare name never finds a part.
+`walk` follows a path's segments through `stepsNamed`, one scope deeper for each, starting from the anchor's own book. A book and a part each group chapters and stand for no section of their own, which `groupsChapters` tells. So a trail is `finished` anywhere else, a trail that ends at a book or a part resolves nothing, and a bare name never finds either.
 
 =>
 
@@ -222,33 +276,46 @@ const numberIn = (keyword: string, name: string): Option.Option<string> =>
   Option.fromNullishOr(new RegExp(`^${keyword}\\s+(\\S+)$`).exec(name)?.[1])
 
 const chaptersWithin = (
-  book: Book,
-  scope: Option.Option<PartRef>,
+  catalogue: Catalogue,
+  book: Option.Option<string>,
+  part: Option.Option<PartRef>,
   test: (chapter: Chapter) => boolean,
 ): ReadonlyArray<Chapter> =>
   Array.filter(
-    book.chapters,
+    catalogue.chapters,
     (chapter) =>
       test(chapter) &&
-      Option.match(scope, {
+      sameBook(chapter.book, book) &&
+      Option.match(part, {
         onNone: () => true,
         onSome: (part) => samePart(chapter.part, part),
       }),
   )
 
-const partsWhere = (book: Book, test: (part: PartRef) => boolean): ReadonlyArray<PartRef> =>
+const partsWhere = (
+  catalogue: Catalogue,
+  book: Option.Option<string>,
+  test: (part: PartRef) => boolean,
+): ReadonlyArray<PartRef> =>
   Option.toArray(
     Option.map(
-      Array.findFirst(book.chapters, (chapter) => test(chapter.part)),
+      Array.findFirst(
+        catalogue.chapters,
+        (chapter) => sameBook(chapter.book, book) && test(chapter.part),
+      ),
       (chapter) => chapter.part,
     ),
   )
 
-const sectionTitled = (book: Book, module: Location, title: string): Option.Option<SectionRef> =>
-  Option.fromNullishOr(book.titles.get(module)?.get(title))
+const sectionTitled = (
+  catalogue: Catalogue,
+  module: Location,
+  title: string,
+): Option.Option<SectionRef> => Option.fromNullishOr(catalogue.titles.get(module)?.get(title))
 
 const numberedSteps = (
-  book: Book,
+  catalogue: Catalogue,
+  book: Option.Option<string>,
   part: Option.Option<PartRef>,
   keyword: string,
   discussion: boolean,
@@ -260,6 +327,7 @@ const numberedSteps = (
     onSome: (number) =>
       Array.map(
         chaptersWithin(
+          catalogue,
           book,
           part,
           (chapter) => chapter.discussion === discussion && Option.contains(chapter.number, number),
@@ -269,49 +337,58 @@ const numberedSteps = (
   })
 
 const stepsNamed = (
-  book: Book,
+  catalogue: Catalogue,
+  own: Option.Option<string>,
   scope: Option.Option<Place>,
   segment: Segment,
 ): ReadonlyArray<Step> => {
   const step =
     (numbered: boolean) =>
     (place: Place): Step => ({ segment, place, numbered, through: Option.none() })
-  const chapterSteps = (part: Option.Option<PartRef>): ReadonlyArray<Step> => [
+  const chapterSteps = (
+    book: Option.Option<string>,
+    part: Option.Option<PartRef>,
+  ): ReadonlyArray<Step> => [
     ...Array.map(
-      chaptersWithin(book, part, (chapter) => chapter.title === segment.text),
+      chaptersWithin(catalogue, book, part, (chapter) => chapter.title === segment.text),
       (chapter) => step(false)(Place.Chapter({ chapter })),
     ),
-    ...numberedSteps(book, part, 'Chapter', false, step(true), segment),
-    ...numberedSteps(book, part, 'Discussion', true, step(true), segment),
+    ...numberedSteps(catalogue, book, part, 'Chapter', false, step(true), segment),
+    ...numberedSteps(catalogue, book, part, 'Discussion', true, step(true), segment),
+  ]
+  const bookSteps = (book: Option.Option<string>): ReadonlyArray<Step> => [
+    ...Array.map(
+      partsWhere(catalogue, book, (part) => Option.contains(part.name, segment.text)),
+      (part) => step(false)(Place.Part({ part })),
+    ),
+    ...Option.match(numberIn('Part', segment.text), {
+      onNone: (): ReadonlyArray<Step> => [],
+      onSome: (number) =>
+        Array.map(
+          partsWhere(catalogue, book, (part) => Option.contains(part.number, number)),
+          (part) => step(true)(Place.Part({ part })),
+        ),
+    }),
+    ...chapterSteps(book, Option.none()),
   ]
   return Option.match(scope, {
     onNone: () => [
-      ...Array.map(
-        partsWhere(book, (part) => Option.contains(part.name, segment.text)),
-        (part) => step(false)(Place.Part({ part })),
-      ),
-      ...Option.match(numberIn('Part', segment.text), {
-        onNone: (): ReadonlyArray<Step> => [],
-        onSome: (number) =>
-          Array.map(
-            partsWhere(book, (part) => Option.contains(part.number, number)),
-            (part) => step(true)(Place.Part({ part })),
-          ),
-      }),
-      ...chapterSteps(Option.none()),
+      ...(isBook(catalogue, segment.text) ? [step(false)(Place.Book({ book: segment.text }))] : []),
+      ...bookSteps(own),
     ],
     onSome: (place) =>
       Match.value(place).pipe(
-        Match.tag('Part', ({ part }) => chapterSteps(Option.some(part))),
+        Match.tag('Book', ({ book }) => bookSteps(Option.some(book))),
+        Match.tag('Part', ({ part }) => chapterSteps(part.book, Option.some(part))),
         Match.tag('Chapter', ({ chapter }) =>
           Option.toArray(
             Option.orElse(
-              Option.map(sectionTitled(book, chapter.module.path, segment.text), (ref) =>
+              Option.map(sectionTitled(catalogue, chapter.module.path, segment.text), (ref) =>
                 step(false)(Place.Section({ ref })),
               ),
               () =>
-                Option.map(boxNamed(book, chapter.module.path, segment.text), (ref) => ({
-                  ...step(false)(boxPlace(book, ref)),
+                Option.map(boxNamed(catalogue, chapter.module.path, segment.text), (ref) => ({
+                  ...step(false)(boxPlace(catalogue, ref)),
                   through: throughOf(ref),
                 })),
             ),
@@ -324,13 +401,16 @@ const stepsNamed = (
   })
 }
 
+const groupsChapters = (place: Place): boolean => place._tag === 'Book' || place._tag === 'Part'
+
 const finished = (trail: ReadonlyArray<Step>): ReadonlyArray<Trail> =>
-  Array.isReadonlyArrayNonEmpty(trail) && Array.lastNonEmpty(trail).place._tag !== 'Part'
+  Array.isReadonlyArrayNonEmpty(trail) && !groupsChapters(Array.lastNonEmpty(trail).place)
     ? [trail]
     : []
 
 const walk = (
-  book: Book,
+  catalogue: Catalogue,
+  own: Option.Option<string>,
   trail: ReadonlyArray<Step>,
   segments: ReadonlyArray<Segment>,
 ): ReadonlyArray<Trail> =>
@@ -339,19 +419,20 @@ const walk = (
     onNonEmpty: (segment, rest) =>
       Array.flatMap(
         stepsNamed(
-          book,
+          catalogue,
+          own,
           Option.map(Array.last(trail), (step) => step.place),
           segment,
         ),
-        (step) => walk(book, Array.append(trail, step), rest),
+        (step) => walk(catalogue, own, Array.append(trail, step), rest),
       ),
   })
 
 ~
 
-`trailsOf` puts the four steps in their order. It looks among the sections of the anchor's own loom, then among its boxes that point to a loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `chapterTrails` takes the last two steps alone, which look through the book and never in the anchor's own loom. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
+`trailsOf` puts the four steps in their order. It looks among the sections of the anchor's own loom, then among its boxes that point to a loom, then among the chapters, then along the name split into a path, and `nearest` keeps the first step that finds anything. `chapterTrails` takes the last two steps alone, which look through a book and never in the anchor's own loom. `trailsOf` hands it the book the anchor stands in. `whole` makes a name into one segment that spans all of it, and `segmentsOf` splits a name at its commas, trimming the spaces around each. Every trail `trailsOf` returns lies at the nearest scope where the name matches at all. More than one trail is an ambiguity, which the faults report and the navigation declines to guess through.
 
-`anchorTrails` resolves an anchor token by its name, through `trailsOf`. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. A box whose chapter is not written yet reaches no section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
+`anchorTrails` resolves an anchor token by its name. An anchor in code goes through `trailsOf`, and a link in prose through `linkTrailsOf`, which looks among the concepts first. `sectionOf` reads the section a trail reaches, which is either the section itself or a chapter's opening section. A box whose chapter is not written yet reaches no section. `resolveName` resolves a name to the one section it reaches, and to nothing when no trail or more than one is found. `resolveAnchor` does the same for an anchor token.
 
 =>
 
@@ -364,9 +445,9 @@ const segmentsOf = (name: string): ReadonlyArray<Segment> =>
     return { text, start, end: start + text.length }
   })
 
-const sectionTrail = (book: Book, module: Location, name: string): ReadonlyArray<Trail> =>
+const sectionTrail = (catalogue: Catalogue, module: Location, name: string): ReadonlyArray<Trail> =>
   Option.toArray(
-    Option.map(sectionTitled(book, module, name), (ref): Trail => [
+    Option.map(sectionTitled(catalogue, module, name), (ref): Trail => [
       {
         segment: whole(name),
         place: Place.Section({ ref }),
@@ -381,21 +462,35 @@ const nothingFound: ReadonlyArray<Trail> = []
 const nearest = (lookups: ReadonlyArray<() => ReadonlyArray<Trail>>): ReadonlyArray<Trail> =>
   Array.reduce(lookups, nothingFound, (found, lookup) => (found.length > 0 ? found : lookup()))
 
-const chapterTrails = (book: Book, name: string): ReadonlyArray<Trail> =>
-  nearest([() => walk(book, [], [whole(name)]), () => walk(book, [], segmentsOf(name))])
-
-export const trailsOf = (book: Book, from: Location, name: string): ReadonlyArray<Trail> =>
+const chapterTrails = (
+  catalogue: Catalogue,
+  own: Option.Option<string>,
+  name: string,
+): ReadonlyArray<Trail> =>
   nearest([
-    () => sectionTrail(book, from, name),
-    () => boxTrail(book, from, name),
-    () => chapterTrails(book, name),
+    () => walk(catalogue, own, [], [whole(name)]),
+    () => walk(catalogue, own, [], segmentsOf(name)),
+  ])
+
+export const trailsOf = (
+  catalogue: Catalogue,
+  from: Location,
+  name: string,
+): ReadonlyArray<Trail> =>
+  nearest([
+    () => sectionTrail(catalogue, from, name),
+    () => boxTrail(catalogue, from, name),
+    () => chapterTrails(catalogue, bookAt(catalogue, from), name),
   ])
 
 export const anchorTrails = (
-  book: Book,
+  catalogue: Catalogue,
   from: Location,
   anchor: WarpAnchorToken,
-): ReadonlyArray<Trail> => trailsOf(book, from, anchor.name.value)
+): ReadonlyArray<Trail> =>
+  catalogue.links.has(linkKey(from, anchor))
+    ? linkTrailsOf(catalogue, from, anchor.name.value)
+    : trailsOf(catalogue, from, anchor.name.value)
 
 export const sectionOf = (trail: Trail): Option.Option<SectionRef> =>
   placeSectionOf(Array.lastNonEmpty(trail).place)
@@ -409,6 +504,7 @@ const placeSectionOf = (place: Place): Option.Option<SectionRef> =>
         section,
       })),
     ),
+    Match.tag('Book', () => Option.none<SectionRef>()),
     Match.tag('Part', () => Option.none<SectionRef>()),
     Match.tag('Box', () => Option.none<SectionRef>()),
     Match.exhaustive,
@@ -417,44 +513,56 @@ const placeSectionOf = (place: Place): Option.Option<SectionRef> =>
 const soleTrail = (trails: ReadonlyArray<Trail>): Option.Option<Trail> =>
   trails.length === 1 ? Array.head(trails) : Option.none()
 
-export const resolveName = (book: Book, from: Location, name: string): Option.Option<SectionRef> =>
-  Option.flatMap(soleTrail(trailsOf(book, from, name)), sectionOf)
+export const resolveName = (
+  catalogue: Catalogue,
+  from: Location,
+  name: string,
+): Option.Option<SectionRef> =>
+  Option.flatMap(soleTrail(trailsOf(catalogue, from, name)), sectionOf)
 
 export const resolveAnchor = (
-  book: Book,
+  catalogue: Catalogue,
   from: Location,
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
-  Option.flatMap(soleTrail(anchorTrails(book, from, anchor)), sectionOf)
+  Option.flatMap(soleTrail(anchorTrails(catalogue, from, anchor)), sectionOf)
 
 ~
 
-A trope's root lists its entries, the chapters that a chapter outside the trope may reach, in an `Entries:` line, as Part XIII, Tropes, describes. Each name on that line resolves like an anchor's name, by title or by path, but always to a whole chapter of the book. A section of the root's own loom never stands in for one, so an entry reads only the chapter steps of `chapterTrails`. `tropeEntryChapterOf` gives the one chapter an entry's name leads to, and nothing when the name leads nowhere, to several places, or to a place that is not a chapter. `tropeEntryModuleOf` gives the loom of that chapter.
+A trope's root lists its entries, the chapters that a chapter outside the trope may reach, in an `Entries:` line, as Part XIII, Tropes, describes. Each name on that line resolves like an anchor's name in the root's loom, by title or by path, but always to a whole chapter. A section of the root's own loom never stands in for one, so an entry reads only the chapter steps of `chapterTrails`, through the root's book. `tropeEntryChapterOf` gives the one chapter an entry's name leads to, and nothing when the name leads nowhere, to several places, or to a place that is not a chapter. `tropeEntryModuleOf` gives the loom of that chapter.
 
 =>
 
-const tropeEntryChapterOf = (book: Book, name: string): Option.Option<Chapter> =>
+const tropeEntryChapterOf = (
+  catalogue: Catalogue,
+  from: Location,
+  name: string,
+): Option.Option<Chapter> =>
   pipe(
-    soleTrail(chapterTrails(book, name)),
+    soleTrail(chapterTrails(catalogue, bookAt(catalogue, from), name)),
     Option.map((trail) => Array.lastNonEmpty(trail).place),
     Option.flatMap((place) =>
       place._tag === 'Chapter' ? Option.some(place.chapter) : Option.none(),
     ),
   )
 
-export const tropeEntryModuleOf = (book: Book, name: string): Option.Option<LoomModule> =>
-  Option.map(tropeEntryChapterOf(book, name), (chapter) => chapter.module)
+export const tropeEntryModuleOf = (
+  catalogue: Catalogue,
+  from: Location,
+  name: string,
+): Option.Option<LoomModule> =>
+  Option.map(tropeEntryChapterOf(catalogue, from, name), (chapter) => chapter.module)
 
 ~
 
 An ambiguous name reaches several places, and a longer path can name each of them alone. `pathsTo` gives, for each trail of an ambiguous name, the shortest path that leads from the anchor's loom to that trail's place and to nothing else. The faults offer these paths as fixes.
 
-`namesFor` lists the paths that can name a place, shortest first. A path names a chapter by its title, or by its part and its title. A path names a section by its chapter and its title, or by the chapter's part, the chapter, and the title, and it names a box the same way, by the box's name. `chapterOf` finds the chapter a section's loom declares, and `throughPart` adds the longer path when the chapter belongs to a part. `samePlace` compares two places, and `leadsTo` resolves a path through `trailsOf` and accepts it when its one trail ends at the place. A place that no path names alone gets none, such as one of two sections that share a title in one loom.
+`namesFor` lists the paths that can name a place, shortest first. A path names a chapter by its title, or by its part and its title. A path names a section by its chapter and its title, or by the chapter's part, the chapter, and the title, and it names a box the same way, by the box's name. `chapterOf` finds the chapter a section's loom declares, and `throughPart` adds the longer path when the chapter belongs to a part. `throughBook` adds a path that starts with the chapter's book for each of those, when the chapter belongs to a named book, so an anchor in another book reaches it too. `samePlace` compares two places, and `leadsTo` resolves a path through `trailsOf` and accepts it when its one trail ends at the place. A place that no path names alone gets none, such as one of two sections that share a title in one loom.
 
 =>
 
-const chapterOf = (book: Book, module: Location): Option.Option<Chapter> =>
-  Array.findFirst(book.chapters, (chapter) => chapter.module.path === module)
+const chapterOf = (catalogue: Catalogue, module: Location): Option.Option<Chapter> =>
+  Array.findFirst(catalogue.chapters, (chapter) => chapter.module.path === module)
 
 const throughPart = (
   chapter: Chapter,
@@ -464,30 +572,50 @@ const throughPart = (
   ...Option.toArray(Option.map(chapter.part.name, (part) => [part, ...names])),
 ]
 
-const namesFor = (book: Book, place: Place): ReadonlyArray<ReadonlyArray<string>> =>
+const throughBook = (
+  chapter: Chapter,
+  paths: ReadonlyArray<ReadonlyArray<string>>,
+): ReadonlyArray<ReadonlyArray<string>> => [
+  ...paths,
+  ...Option.match(chapter.book, {
+    onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
+    onSome: (book) => Array.map(paths, (path) => [book, ...path]),
+  }),
+]
+
+const namesFor = (catalogue: Catalogue, place: Place): ReadonlyArray<ReadonlyArray<string>> =>
   Match.value(place).pipe(
-    Match.tag('Chapter', ({ chapter }) => throughPart(chapter, [chapter.title])),
+    Match.tag('Chapter', ({ chapter }) =>
+      throughBook(chapter, throughPart(chapter, [chapter.title])),
+    ),
     Match.tag('Section', ({ ref }) =>
       Option.match(
-        Option.all([chapterOf(book, ref.module), Option.fromNullishOr(ref.section.heading.title)]),
+        Option.all([
+          chapterOf(catalogue, ref.module),
+          Option.fromNullishOr(ref.section.heading.title),
+        ]),
         {
           onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
-          onSome: ([chapter, title]) => throughPart(chapter, [chapter.title, title.source]),
+          onSome: ([chapter, title]) =>
+            throughBook(chapter, throughPart(chapter, [chapter.title, title.source])),
         },
       ),
     ),
     Match.tag('Box', ({ ref }) =>
-      Option.match(chapterOf(book, ref.module), {
+      Option.match(chapterOf(catalogue, ref.module), {
         onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
-        onSome: (chapter) => throughPart(chapter, [chapter.title, ref.name.value]),
+        onSome: (chapter) =>
+          throughBook(chapter, throughPart(chapter, [chapter.title, ref.name.value])),
       }),
     ),
+    Match.tag('Book', (): ReadonlyArray<ReadonlyArray<string>> => []),
     Match.tag('Part', (): ReadonlyArray<ReadonlyArray<string>> => []),
     Match.exhaustive,
   )
 
 const samePlace = (place: Place, other: Place): boolean =>
   Match.value(place).pipe(
+    Match.tag('Book', ({ book }) => other._tag === 'Book' && other.book === book),
     Match.tag('Part', ({ part }) => other._tag === 'Part' && samePart(part, other.part)),
     Match.tag(
       'Chapter',
@@ -500,14 +628,14 @@ const samePlace = (place: Place, other: Place): boolean =>
   )
 
 const leadsTo =
-  (book: Book, from: Location, place: Place) =>
+  (catalogue: Catalogue, from: Location, place: Place) =>
   (path: string): boolean =>
-    Option.exists(soleTrail(trailsOf(book, from, path)), (trail) =>
+    Option.exists(soleTrail(trailsOf(catalogue, from, path)), (trail) =>
       samePlace(Array.lastNonEmpty(trail).place, place),
     )
 
 export const pathsTo = (
-  book: Book,
+  catalogue: Catalogue,
   from: Location,
   trails: ReadonlyArray<Trail>,
 ): ReadonlyArray<string> =>
@@ -515,8 +643,8 @@ export const pathsTo = (
     Array.map(trails, (trail) => {
       const place = Array.lastNonEmpty(trail).place
       return Array.findFirst(
-        Array.map(namesFor(book, place), (names) => Array.join(names, ', ')),
-        leadsTo(book, from, place),
+        Array.map(namesFor(catalogue, place), (names) => Array.join(names, ', ')),
+        leadsTo(catalogue, from, place),
       )
     }),
   )
@@ -543,7 +671,7 @@ An `OpenedBox` holds the lines of a loom that make up one box: the `opener`, the
 
 A box's name is also its caption, which the editor and the woven page show with it. `captionOf` reads it, and a box with no name takes its kind for a caption, so a folded note still says what it is.
 
-A `BoxRef` is an opened box that holds a place in the book: one of a kind that points somewhere, with a name, its kind, and the location of its own loom. A trope box also carries the value of its `anchors` key and the values of its `provides` key, which `parameterValues` reads from the box's braces. `pointingBoxesOf` reads every such box from a loom. The `Book` holds them by loom, which `boxesIn` reads.
+A `BoxRef` is an opened box that holds a place in the book: one of a kind that points somewhere, with a name, its kind, and the location of its own loom. A trope box also carries the value of its `anchors` key and the values of its `provides` key, which `parameterValues` reads from the box's braces. `pointingBoxesOf` reads every such box from a loom. The `Catalogue` holds them by loom, which `boxesIn` reads.
 
 =>
 
@@ -636,12 +764,12 @@ const pointingBoxesOf = (module: LoomModule): ReadonlyArray<BoxRef> =>
     }),
   )
 
-const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
-  Option.getOrElse(Option.fromNullishOr(book.boxes.get(module)), () => [])
+const boxesIn = (catalogue: Catalogue, module: Location): ReadonlyArray<BoxRef> =>
+  Option.getOrElse(Option.fromNullishOr(catalogue.boxes.get(module)), () => [])
 
 ~
 
-`boxTarget` finds the loom a box points to by its name. A chapter box finds a chapter and never a discussion of the same title, and a discussion box finds a discussion and never a chapter. It looks first among the looms of the box's own part, where the editor opens a new one, and then across the book. A trope box points by its `anchors` value instead, so `boxTarget` finds no loom for it.
+`boxTarget` finds the loom a box points to by its name. A chapter box finds a chapter and never a discussion of the same title, and a discussion box finds a discussion and never a chapter. It looks first among the looms of the box's own part, where the editor opens a new one, and then across the box's book. A trope box points by its `anchors` value instead, so `boxTarget` finds no loom for it.
 
 `tropePlaceOf` finds the place a trope box's `anchors` value names: one section or one chapter, found as an anchor's name is found from the box's loom. It looks through the book with its boxes set aside, so a trope never points to itself or through another trope, and a value that names nothing, or more than one place, leaves the trope unsettled.
 
@@ -649,50 +777,53 @@ const boxesIn = (book: Book, module: Location): ReadonlyArray<BoxRef> =>
 
 =>
 
-const boxTarget = (book: Book, ref: BoxRef): Option.Option<Chapter> => {
+const boxTarget = (catalogue: Catalogue, ref: BoxRef): Option.Option<Chapter> => {
   const titled = (chapter: Chapter): boolean =>
     chapter.discussion === (ref.kind === discussionKind) && chapter.title === ref.name.value
   return ref.kind === tropeKind
     ? Option.none()
     : Option.orElse(
-        Option.flatMap(chapterOf(book, ref.module), (own) =>
-          Array.head(chaptersWithin(book, Option.some(own.part), titled)),
+        Option.flatMap(chapterOf(catalogue, ref.module), (own) =>
+          Array.head(chaptersWithin(catalogue, own.book, Option.some(own.part), titled)),
         ),
-        () => Array.findFirst(book.chapters, titled),
+        () =>
+          Array.head(
+            chaptersWithin(catalogue, bookAt(catalogue, ref.module), Option.none(), titled),
+          ),
       )
 }
 
-const tropePlaceOf = (book: Book, ref: BoxRef): Option.Option<Place> =>
+const tropePlaceOf = (catalogue: Catalogue, ref: BoxRef): Option.Option<Place> =>
   pipe(
     ref.anchors,
     Option.flatMap((value) => {
-      const trails = trailsOf({ ...book, boxes: new Map() }, ref.module, value.value)
+      const trails = trailsOf({ ...catalogue, boxes: new Map() }, ref.module, value.value)
       return trails.length === 1 ? Array.head(trails) : Option.none()
     }),
     Option.map((trail) => Array.lastNonEmpty(trail).place),
     Option.filter((place) => place._tag === 'Section' || place._tag === 'Chapter'),
   )
 
-const boxNamed = (book: Book, module: Location, name: string): Option.Option<BoxRef> =>
-  Array.findFirst(boxesIn(book, module), (ref) => ref.name.value === name)
+const boxNamed = (catalogue: Catalogue, module: Location, name: string): Option.Option<BoxRef> =>
+  Array.findFirst(boxesIn(catalogue, module), (ref) => ref.name.value === name)
 
-const boxPlace = (book: Book, ref: BoxRef): Place =>
+const boxPlace = (catalogue: Catalogue, ref: BoxRef): Place =>
   Option.getOrElse(
     ref.kind === tropeKind
-      ? tropePlaceOf(book, ref)
-      : Option.map(boxTarget(book, ref), (chapter) => Place.Chapter({ chapter })),
+      ? tropePlaceOf(catalogue, ref)
+      : Option.map(boxTarget(catalogue, ref), (chapter) => Place.Chapter({ chapter })),
     () => Place.Box({ ref }),
   )
 
 const throughOf = (ref: BoxRef): Option.Option<BoxRef> =>
   ref.kind === tropeKind ? Option.some(ref) : Option.none()
 
-const boxTrail = (book: Book, from: Location, name: string): ReadonlyArray<Trail> =>
+const boxTrail = (catalogue: Catalogue, from: Location, name: string): ReadonlyArray<Trail> =>
   Option.toArray(
-    Option.map(boxNamed(book, from, name), (ref): Trail => [
+    Option.map(boxNamed(catalogue, from, name), (ref): Trail => [
       {
         segment: whole(name),
-        place: boxPlace(book, ref),
+        place: boxPlace(catalogue, ref),
         numbered: false,
         through: throughOf(ref),
       },
@@ -701,7 +832,7 @@ const boxTrail = (book: Book, from: Location, name: string): ReadonlyArray<Trail
 
 ~
 
-The navigation reads a box the way it reads a contents entry. `boxLocation` is where a box's name stands, and `namesBox` tests whether a place is one box. `boxesPointingTo` finds every chapter box and discussion box that points to one loom, and `boxesNaming` gives where each one's name stands, so a reference to the loom lists the boxes, and a rename of the loom renames them with it.
+The navigation reads a box by its name. `boxLocation` is where a box's name stands, and `namesBox` tests whether a place is one box. `boxesPointingTo` finds every chapter box and discussion box that points to one loom, and `boxesNaming` gives where each one's name stands, so a reference to the loom lists the boxes, and a rename of the loom renames them with it.
 
 A trope box promises what its `provides` key lists. While the trope points nowhere, `promisedThrough` gives an anchor that names it the trope's promised names, so the editor serves them in the code's place, as the chapter "Projecting to virtual code" describes. Once the trope has an entry point, `tropeContractsIn` gives each trope box of a loom as a `TropeContract`: the trope's name, its entry point's section, and the promised names, which the editor checks against the code there. `providedOf` reads each promised name with the place the box writes it.
 
@@ -744,12 +875,12 @@ const valueLocation = (ref: BoxRef): Option.Option<CorpusLocation> =>
   )
 
 export const promisedThrough = (
-  book: Book,
+  catalogue: Catalogue,
   from: Location,
   name: string,
 ): ReadonlyArray<Provided> =>
   pipe(
-    soleTrail(trailsOf(book, from, name)),
+    soleTrail(trailsOf(catalogue, from, name)),
     Option.map(Array.lastNonEmpty),
     Option.filter((step) => step.place._tag === 'Box'),
     Option.flatMap((step) => step.through),
@@ -763,14 +894,17 @@ export type TropeContract = {
   readonly provides: ReadonlyArray<Provided>
 }
 
-export const tropeContractsIn = (book: Book, path: Location): ReadonlyArray<TropeContract> =>
+export const tropeContractsIn = (
+  catalogue: Catalogue,
+  path: Location,
+): ReadonlyArray<TropeContract> =>
   pipe(
-    boxesIn(book, path),
+    boxesIn(catalogue, path),
     Array.filter((ref) => ref.kind === tropeKind && Array.isReadonlyArrayNonEmpty(ref.provides)),
     Array.flatMap((ref) =>
       Option.toArray(
         Option.map(
-          Option.flatMap(tropePlaceOf(book, ref), placeSectionOf),
+          Option.flatMap(tropePlaceOf(catalogue, ref), placeSectionOf),
           (entry): TropeContract => ({ trope: ref.name.value, entry, provides: providedOf(ref) }),
         ),
       ),
@@ -781,24 +915,172 @@ const providedOf = (ref: BoxRef): ReadonlyArray<Provided> =>
   Array.map(ref.provides, (value): Provided => ({ name: value.value, at: value.position }))
 
 const tropeValuesNaming = (
-  book: Book,
+  catalogue: Catalogue,
   names: (place: Place) => boolean,
 ): ReadonlyArray<CorpusLocation> =>
   pipe(
-    Array.flatten(Array.fromIterable(book.boxes.values())),
-    Array.filter((ref) => Option.exists(tropePlaceOf(book, ref), names)),
+    Array.flatten(Array.fromIterable(catalogue.boxes.values())),
+    Array.filter((ref) => Option.exists(tropePlaceOf(catalogue, ref), names)),
     Array.flatMap((ref) => Option.toArray(valueLocation(ref))),
   )
 
-const boxesPointingTo = (book: Book, chapter: Chapter): ReadonlyArray<BoxRef> =>
-  Array.filter(Array.flatten(Array.fromIterable(book.boxes.values())), (ref) =>
-    Option.exists(boxTarget(book, ref), (found) => found.module.path === chapter.module.path),
+const boxesPointingTo = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<BoxRef> =>
+  Array.filter(Array.flatten(Array.fromIterable(catalogue.boxes.values())), (ref) =>
+    Option.exists(boxTarget(catalogue, ref), (found) => found.module.path === chapter.module.path),
   )
 
-const boxesNaming = (book: Book, chapter: Chapter): ReadonlyArray<CorpusLocation> => [
-  ...Array.map(boxesPointingTo(book, chapter), boxLocation),
-  ...tropeValuesNaming(book, (place) => namesChapter(chapter)(place)),
+const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<CorpusLocation> => [
+  ...Array.map(boxesPointingTo(catalogue, chapter), boxLocation),
+  ...tropeValuesNaming(catalogue, (place) => namesChapter(chapter)(place)),
 ]
+
+## Concepts and the links that name them
+
+A concept is a section that defines one idea, and its heading carries the `{Concept}` specifier, as the chapter "Concepts" describes. Its heading is the concept's preferred form. Its first paragraph is its definition, the words a reader sees wherever a link names it. A `Lexical forms:` line, and the list of words under it, give the other forms the prose writes for the idea, such as a plural or a possessive. Each form is a name of the concept, and each one finds it.
+
+A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by its specifier, whatever its case, as the product pass reads a specifier's language. `conceptsOf` reads every concept of a loom.
+
+`definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. The definition is read as plain words, for an editor's card or a link's title, so `plainSource` writes each link in a line as the name it gives, without the anchor's marks. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line.
+
+=>
+
+export type ConceptForm = { readonly value: string; readonly position: Position }
+
+export type ConceptRef = {
+  readonly module: Location
+  readonly section: LoomSection
+  readonly name: { readonly source: string; readonly position: Position }
+  readonly forms: ReadonlyArray<ConceptForm>
+  readonly definition: string
+}
+
+export const isConceptSection = (section: LoomSection): boolean =>
+  section.heading.specifier?.label.value.toLowerCase() === 'concept'
+
+const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line.source.trim())
+
+const formItem = /^[-*]\s+(\S.*?)\s*$/
+
+const formsLineOf = (section: LoomSection): Option.Option<LoomWeft> =>
+  Array.findFirst(section.preamble, isFormsLine)
+
+export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
+  pipe(
+    outsideBoxes(section.preamble),
+    Array.dropWhile((line) => line.source.trim() === ''),
+    Array.takeWhile((line) => line.source.trim() !== '' && !isFormsLine(line)),
+  )
+
+const plainSource = (line: PreambleWeft): string =>
+  pipe(
+    line.anchors,
+    Array.sort(
+      Order.mapInput(Order.Number, (anchor: WarpAnchorToken) => -anchor.position.start.offset),
+    ),
+    Array.reduce(line.source, (text, anchor) => {
+      const from = anchor.position.start.offset - line.position.start.offset
+      const to = anchor.position.end.offset - line.position.start.offset
+      return text.slice(0, from) + anchor.name.value + text.slice(to)
+    }),
+  )
+
+const definitionOf = (section: LoomSection): string =>
+  tidy(Array.join(Array.map(definitionLinesOf(section), plainSource), ''))
+
+const formOf = (line: LoomWeft): Option.Option<ConceptForm> =>
+  Option.map(Option.fromNullishOr(formItem.exec(line.source.trim())?.[1]), (value) => {
+    const start = line.position.start.offset + line.source.indexOf(value)
+    return {
+      value,
+      position: {
+        start: { line: line.position.start.line, offset: start },
+        end: { line: line.position.start.line, offset: start + value.length },
+      },
+    }
+  })
+
+const formsOf = (section: LoomSection): ReadonlyArray<ConceptForm> =>
+  pipe(
+    Array.findFirstIndex(section.preamble, isFormsLine),
+    Option.map((at) =>
+      Array.getSomes(
+        Array.map(
+          Array.takeWhile(Array.drop(section.preamble, at + 1), (line) =>
+            formItem.test(line.source.trim()),
+          ),
+          formOf,
+        ),
+      ),
+    ),
+    Option.getOrElse((): ReadonlyArray<ConceptForm> => []),
+  )
+
+const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
+  Array.getSomes(
+    Array.map(module.doc.sections, (section) =>
+      isConceptSection(section)
+        ? Option.map(Option.fromNullishOr(section.heading.title), (title): ConceptRef => ({
+            module: module.path,
+            section,
+            name: title,
+            forms: formsOf(section),
+            definition: definitionOf(section),
+          }))
+        : Option.none(),
+    ),
+  )
+
+~
+
+An anchor in code composes the section it names, and an anchor in prose links to it. A link may name a concept by any of its forms, from anywhere in the corpus. No book, part, or chapter closes a concept to a link from outside it, and no concept shadows another. So a link looks among the corpus's concepts before it looks anywhere nearer, and a form that two concepts share names both, an ambiguity the faults report with a path to each. A link that names no concept resolves as any anchor does, nearest first.
+
+`linksOf` gives the anchors of a loom that stand in prose: in the loom's preamble, in a section's lines before its first arrow, and in the prose after a tilde. `sectionLinksOf` gives those of one section. `linkKey` names such an anchor by its loom and the offset of its name, and the `Catalogue` keeps the keys of them all, so `anchorTrails` tells a link from an anchor in code. `conceptNames` lists the names of a concept, its heading first. `conceptsCalled` finds every concept a name is a form of, and `conceptTrails` makes each into a trail that ends at the concept's section. `linkTrailsOf` is a link's lookup: the concepts first, then the nearest place. `conceptAt` finds the concept a section defines, for the editor's card and the woven index.
+
+=>
+
+const isProseLine = (weft: LoomWeft): weft is PreambleWeft | TildeWeft | ProseWeft =>
+  weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
+
+const proseAnchorsOf = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<WarpAnchorToken> =>
+  Array.flatMap(wefts, (weft) => (isProseLine(weft) ? weft.anchors : []))
+
+export const sectionLinksOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
+  proseAnchorsOf([...section.preamble, ...section.code])
+
+export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> => [
+  ...proseAnchorsOf(module.doc.preamble),
+  ...Array.flatMap(module.doc.sections, sectionLinksOf),
+]
+
+const linkKey = (path: Location, anchor: WarpAnchorToken): string =>
+  `${path}#${anchor.name.position.start.offset}`
+
+const conceptNames = (concept: ConceptRef): ReadonlyArray<string> => [
+  concept.name.source,
+  ...Array.map(concept.forms, (form) => form.value),
+]
+
+export const conceptsCalled = (catalogue: Catalogue, name: string): ReadonlyArray<ConceptRef> =>
+  Array.filter(catalogue.concepts, (concept) => Array.contains(conceptNames(concept), name))
+
+const conceptTrails = (catalogue: Catalogue, name: string): ReadonlyArray<Trail> =>
+  Array.map(conceptsCalled(catalogue, name), (concept): Trail => [
+    {
+      segment: whole(name),
+      place: Place.Section({ ref: { module: concept.module, section: concept.section } }),
+      numbered: false,
+      through: Option.none(),
+    },
+  ])
+
+const linkTrailsOf = (catalogue: Catalogue, from: Location, name: string): ReadonlyArray<Trail> =>
+  nearest([() => conceptTrails(catalogue, name), () => trailsOf(catalogue, from, name)])
+
+export const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<ConceptRef> =>
+  Array.findFirst(
+    catalogue.concepts,
+    (concept) => concept.module === ref.module && concept.section === ref.section,
+  )
 
 ## Reaching through the corpus
 
@@ -834,6 +1116,7 @@ const placeModuleOf = (place: Place): Option.Option<Location> =>
   Match.value(place).pipe(
     Match.tag('Section', ({ ref }) => Option.some(ref.module)),
     Match.tag('Chapter', ({ chapter }) => Option.some(chapter.module.path)),
+    Match.tag('Book', () => Option.none<Location>()),
     Match.tag('Part', () => Option.none<Location>()),
     Match.tag('Box', () => Option.none<Location>()),
     Match.exhaustive,
@@ -850,21 +1133,21 @@ const boxReachAt = (ref: BoxRef): Position =>
     () => ref.name.position,
   )
 
-export const reachesOf = (book: Book, module: LoomModule): ReadonlyArray<Reach> => [
+export const reachesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Reach> => [
   ...pipe(
     module.doc.sections,
     Array.flatMap(anchorsOf),
     Array.flatMap((anchor) =>
       Array.getSomes(
-        Array.map(anchorTrails(book, module.path, anchor), (trail) =>
+        Array.map(anchorTrails(catalogue, module.path, anchor), (trail) =>
           Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
         ),
       ),
     ),
   ),
   ...Array.getSomes(
-    Array.map(boxesIn(book, module.path), (ref) =>
-      Option.map(placeModuleOf(boxPlace(book, ref)), (target): Reach => ({
+    Array.map(boxesIn(catalogue, module.path), (ref) =>
+      Option.map(placeModuleOf(boxPlace(catalogue, ref)), (target): Reach => ({
         target,
         at: boxReachAt(ref),
       })),
@@ -875,9 +1158,9 @@ export const reachesOf = (book: Book, module: LoomModule): ReadonlyArray<Reach> 
 const anchorEdges = (
   modules: Modules,
 ): ReadonlyArray<{ readonly owner: Location; readonly target: Location }> => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return Array.flatMap(Array.fromIterable(modules.values()), (m) =>
-    Array.map(reachesOf(book, m), ({ target }) => ({ owner: m.path, target })),
+    Array.map(reachesOf(catalogue, m), ({ target }) => ({ owner: m.path, target })),
   )
 }
 
@@ -1011,13 +1294,13 @@ const stepAt = (trail: Trail, anchor: WarpAnchorToken, offset: number): Step =>
   )
 
 const anchorStepAt = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   path: Location,
   offset: number,
 ): Option.Option<Step> =>
   Option.flatMap(anchorAt(modules, path, offset), (anchor) =>
-    Option.map(soleTrail(anchorTrails(book, path, anchor)), (trail) =>
+    Option.map(soleTrail(anchorTrails(catalogue, path, anchor)), (trail) =>
       stepAt(trail, anchor, offset),
     ),
   )
@@ -1025,7 +1308,7 @@ const anchorStepAt = (
 type Mention = { readonly place: Place; readonly numbered: boolean }
 
 const mentionAt = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   path: Location,
   offset: number,
@@ -1035,17 +1318,21 @@ const mentionAt = (
       place: Place.Section({ ref }),
       numbered: false,
     })),
-    () => anchorStepAt(book, modules, path, offset),
+    () => anchorStepAt(catalogue, modules, path, offset),
   )
 
-const stepsOf = (book: Book, from: Location, anchor: WarpAnchorToken): ReadonlyArray<Step> =>
-  Option.match(soleTrail(anchorTrails(book, from, anchor)), {
+const stepsOf = (
+  catalogue: Catalogue,
+  from: Location,
+  anchor: WarpAnchorToken,
+): ReadonlyArray<Step> =>
+  Option.match(soleTrail(anchorTrails(catalogue, from, anchor)), {
     onNone: (): ReadonlyArray<Step> => [],
     onSome: (trail) => trail,
   })
 
 const anchorsNaming = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   names: (step: Step) => boolean,
   spanOf: SpanOf,
@@ -1056,7 +1343,7 @@ const anchorsNaming = (
       Array.flatMap(anchorsOf),
       Array.flatMap((anchor) =>
         pipe(
-          stepsOf(book, m.path, anchor),
+          stepsOf(catalogue, m.path, anchor),
           Array.filter(names),
           Array.map((step): CorpusLocation => ({
             path: m.path,
@@ -1081,7 +1368,7 @@ const namesChapter =
 
 ~
 
-`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, the title a chapter declares, or the name of a box that points nowhere yet. `placeLocation` gives where each of those stands. `sectionNames` gathers a section's heading beside every anchor that names it, and beside the `anchors` value of every trope box that points to it. An anchor that reached the section through a trope box named the trope rather than the section, so it stays out, and a rename of the section leaves the trope's name alone. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the contents entries that list the chapter, the boxes that point to it, the names on a trope root's `Entries:` line that make it an entry, the `Rooted in:` lines that name it, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the contents navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
+`sectionDefinitionAt` follows an anchor to what the segment under the cursor names: a section's heading, the title a chapter declares, the name of a box that points nowhere yet, or the line where a book loom names its book. `placeLocation` gives where each of those stands. `sectionNames` gathers a section's heading beside every anchor that names it, and beside the `anchors` value of every trope box that points to it. An anchor that reached the section through a trope box named the trope rather than the section, so it stays out, and a rename of the section leaves the trope's name alone. A chapter whose frontmatter declares no title takes its title from its first heading, and that heading then titles the chapter as well as the section. So its names take in the chapter's too: the boxes that point to it, the names on a trope root's `Entries:` line that make it an entry, the `Rooted in:` lines that name it, and the anchors that name the chapter by its title. `chapterTitledBy` finds the chapter a heading titles this way. `placeNames` gathers the names of a mention. A chapter named by its title goes to `chapterNames`, and a chapter named by its number goes to `chapterNumbers`, which the chapter navigation below defines. A book goes to `bookNames`, which the book navigation below defines. So a rename from a title rewrites titles, and a rename from a number renumbers. `placeNamesAt` reads the mention under a cursor and gathers its names. The exported verbs call these once `symbolAt` names the cursor a section.
 
 =>
 
@@ -1090,22 +1377,24 @@ const sectionDefinitionAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.flatMap(anchorStepAt(bookOf(corpus.modules), corpus.modules, path, offset), ({ place }) =>
-    placeLocation(place),
+  Option.flatMap(
+    anchorStepAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    ({ place }) => placeLocation(corpus.modules, place),
   )
 
-const placeLocation = (place: Place): Option.Option<CorpusLocation> =>
+const placeLocation = (modules: Modules, place: Place): Option.Option<CorpusLocation> =>
   Match.value(place).pipe(
     Match.tag('Section', ({ ref }) => titleLocation(ref)),
     Match.tag('Chapter', ({ chapter }) => chapterLocation(chapter)),
     Match.tag('Box', ({ ref }) => Option.some(boxLocation(ref))),
+    Match.tag('Book', ({ book }) => bookLoomLocation(modules, book)),
     Match.tag('Part', () => Option.none<CorpusLocation>()),
     Match.exhaustive,
   )
 
-const chapterTitledBy = (book: Book, ref: SectionRef): Option.Option<Chapter> =>
+const chapterTitledBy = (catalogue: Catalogue, ref: SectionRef): Option.Option<Chapter> =>
   Array.findFirst(
-    book.chapters,
+    catalogue.chapters,
     (chapter) =>
       chapter.module.path === ref.module &&
       chapter.module.doc.frontmatter?.title === undefined &&
@@ -1113,28 +1402,27 @@ const chapterTitledBy = (book: Book, ref: SectionRef): Option.Option<Chapter> =>
   )
 
 const sectionNames = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   ref: SectionRef,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(titleLocation(ref)),
   ...anchorsNaming(
-    book,
+    catalogue,
     modules,
     (step) => Option.isNone(step.through) && namesSection(ref)(step.place),
     spanOf,
   ),
-  ...tropeValuesNaming(book, (place) => namesSection(ref)(place)),
-  ...Option.match(chapterTitledBy(book, ref), {
+  ...tropeValuesNaming(catalogue, (place) => namesSection(ref)(place)),
+  ...Option.match(chapterTitledBy(catalogue, ref), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (chapter) => [
-      ...entriesNaming(book, modules, chapter),
-      ...boxesNaming(book, chapter),
-      ...tropeEntriesNaming(book, modules, chapter),
-      ...rootedInNaming(book, modules, chapter),
+      ...boxesNaming(catalogue, chapter),
+      ...tropeEntriesNaming(catalogue, modules, chapter),
+      ...rootedInNaming(catalogue, modules, chapter),
       ...anchorsNaming(
-        book,
+        catalogue,
         modules,
         (step) =>
           !step.numbered && Option.isNone(step.through) && namesChapter(chapter)(step.place),
@@ -1145,22 +1433,23 @@ const sectionNames = (
 ]
 
 const placeNames = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   mention: Mention,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
   Match.value(mention.place).pipe(
-    Match.tag('Section', ({ ref }) => sectionNames(book, modules, ref, spanOf)),
+    Match.tag('Section', ({ ref }) => sectionNames(catalogue, modules, ref, spanOf)),
     Match.tag('Chapter', ({ chapter }) =>
       mention.numbered
-        ? chapterNumbers(book, modules, chapter, spanOf)
-        : chapterNames(book, modules, chapter, spanOf),
+        ? chapterNumbers(catalogue, modules, chapter, spanOf)
+        : chapterNames(catalogue, modules, chapter, spanOf),
     ),
     Match.tag('Box', ({ ref }) => [
       boxLocation(ref),
-      ...anchorsNaming(book, modules, (step) => namesBox(ref)(step.place), spanOf),
+      ...anchorsNaming(catalogue, modules, (step) => namesBox(ref)(step.place), spanOf),
     ]),
+    Match.tag('Book', ({ book }) => bookNames(catalogue, modules, book, spanOf)),
     Match.tag('Part', (): ReadonlyArray<CorpusLocation> => []),
     Match.exhaustive,
   )
@@ -1171,10 +1460,10 @@ const placeNamesAt = (
   offset: number,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => {
-  const book = bookOf(corpus.modules)
-  return Option.match(mentionAt(book, corpus.modules, path, offset), {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(mentionAt(catalogue, corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (mention) => placeNames(book, corpus.modules, mention, spanOf),
+    onSome: (mention) => placeNames(catalogue, corpus.modules, mention, spanOf),
   })
 }
 
@@ -1287,21 +1576,19 @@ const warpReferences = (
 
 ~
 
-A table-of-contents entry names a chapter by its title, under the part line above it. A chapter's identity is the title it declares, not its heading, because a heading can differ from the title the book lists, or be missing. `chapterTitleToken` reads that identity: the frontmatter `title`, or the first heading for a loom that carries no frontmatter. `firstHeadingTitleOf` reads that heading from the loom's opening section.
+A chapter's identity is the title it declares, not its heading, because a heading can differ from that title, or be missing. `chapterTitleToken` reads that identity: the frontmatter `title`, or the first heading for a loom that carries no frontmatter. `firstHeadingTitleOf` reads that heading from the loom's opening section.
 
-A `PlacedEntry` is an entry together with the part it stands under. `placedEntriesOf` walks a contents section's lines in order and carries the last part line it passed, and `tocPartRef` reads that line's `Part R — name` label into the part's number and name. `entryChapter` resolves an entry to the chapter that carries its title within its part, so two chapters called `Setup` in two parts each answer to their own entry. An entry under no part line matches the title alone, and an entry never names a discussion by its title alone.
+`chapterAt` reads the chapter under a cursor: the loom a box's name points to, the chapter a name on an `Entries:` line leads to, the trope chapter a `Rooted in:` line names, which `tropeChapterOf` finds by its title, or the chapter whose frontmatter title the cursor sits on. `tropeEntriesOf` reads the names a loom's `Entries:` line lists. `chapterDefinitionAt` follows it to the title the chapter declares.
 
-The back matter lists the book's discussions under a heading of its own, `Back matter`. That heading names no part, so the entries under it stand under none, and `isBackMatter` recognises it. Each entry there names its discussion's place before the colon, as `Part I, Discussion 1: Waking` does. `discussionAt` finds the discussion that the place and the title name. It looks in the part the place gives, by the part's number or its name, and matches the discussion's own number when the place gives one.
-
-`chapterAt` reads the chapter under a cursor: the chapter a contents entry resolves to, the loom a box's name points to, the chapter a name on an `Entries:` line leads to, the trope chapter a `Rooted in:` line names, which `tropeChapterOf` finds by its title, or the chapter whose frontmatter title the cursor sits on. `tropeEntriesOf` reads the names a loom's `Entries:` line lists. `chapterDefinitionAt` follows it to the title the chapter declares. `unresolvedTocEntriesIn` is the other side: every entry that resolves to nothing, for the diagnostics to fault. An `UnresolvedEntry` holds the entry's title and whether the entry names a discussion, so the fault can say which of the two it looked for.
-
-`entriesNaming` finds every contents entry that resolves to one chapter, `boxesNaming` every box that points to it, `tropeEntriesNaming` every trope's entry that names it by its bare title, and `rootedInNaming` every `Rooted in:` line that names it, when it is a trope chapter. A rename rewrites an entry whole, so an entry written as a path, with the chapter's part before its title, is left as it stands. `chapterNames` gathers the chapter's declared title, those contents entries, boxes, trope entries and `Rooted in:` lines, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
+`boxesNaming` finds every box that points to a chapter, `tropeEntriesNaming` every trope's entry that names it by its bare title, and `rootedInNaming` every `Rooted in:` line that names it, when it is a trope chapter. `chapterNames` gathers the chapter's declared title, those boxes, trope entries and `Rooted in:` lines, and every anchor that names the chapter by its title, so a reference and a rename move the whole name together. `chapterNamesAt` reads the chapter under a cursor and gathers its names.
 
 A box's name leads where its kind says. `boxDefinitionAt` follows the name of a chapter box or a discussion box to its loom, and the name of a trope box to the trope's entry point, which `tropeBoxAt` finds under the cursor. `boxNamesAt` gathers a box's names. A trope's names are its box's name and every anchor that reached the entry point through the box, which `tropeNames` gathers, so a rename of the trope rewrites them and leaves the entry point alone. A chapter box's names are its chapter's.
 
-A chapter's number is a name of its own. `chapterNumbers` gathers the `Chapter N` the chapter's frontmatter declares and every anchor that names the chapter by that number, so renumbering a chapter rewrites each numbered reference in the same edit. A contents entry is listed by title, so its own ordinal is no reference, and the table of contents is generated anew from the frontmatter. `chapterNumbersAt` gathers them for the chapter whose frontmatter number the cursor sits on.
+A chapter's number is a name of its own. `chapterNumbers` gathers the `Chapter N` the chapter's frontmatter declares and every anchor that names the chapter by that number, so renumbering a chapter rewrites each numbered reference in the same edit. `chapterNumbersAt` gathers them for the chapter whose frontmatter number the cursor sits on.
 
-A part resolves the same way, keyed by its number rather than its title. A part is announced once, in its opening chapter's standalone `Part R: name`, whose `partName` is the part's identity; `partOpenerIndex` maps each part number to that announcement. The number under a cursor comes from a chapter's `Part R` through `frontmatterPartNumberAt`, or from a contents part heading through `tocPartNumberAt`, which reads it out of the `Part R — name` label; `partNumberAt` takes either. `partDefinitionAt` follows the number to the opener, and `partGroup` gathers the whole part — the announcement, every chapter's `Part R`, and every contents heading that names it — which `partGroupAt` reads from the cursor.
+A part resolves the same way, keyed by its book and its number rather than its title. A part is announced once, in its opening chapter's standalone `Part R: name`, whose `partName` is the part's identity. `partOpenerIndex` maps the key of each part, which `partKey` writes from the part's book and its number, to that announcement. The key under a cursor comes from a chapter's `Part R` and the chapter's book, which `frontmatterPartKeyAt` reads for `partKeyAt`. `partDefinitionAt` follows the key to the opener, and `partGroup` gathers the whole part, the announcement and every chapter's `Part R`, which `partGroupAt` reads from the cursor.
+
+A book is named on `Book:` lines. `bookLoomsOf` finds the book looms that open a book, and `bookLoomLocation` the line where the first of them names it, the book's definition. `bookLines` finds every `Book:` line that names a book, the book loom's and those of the looms that stand in the book. `bookNameAt` reads the book a `Book:` line names under a cursor, and `bookDefinitionAt` follows that name to its book loom. `bookNames` gathers the book's `Book:` lines beside every anchor whose path passes through the book, which `namesBook` tells, and `bookNamesAt` reads them from the cursor. So a rename of a book rewrites its name everywhere in one edit.
 
 =>
 
@@ -1315,90 +1602,8 @@ const chapterTitleToken = (
     firstHeadingTitleOf(module),
   )
 
-const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
-  Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
-
-type PlacedEntry = {
-  readonly title: TocTitleToken
-  readonly part: Option.Option<PartRef>
-  readonly discussion: Option.Option<string>
-}
-
-const isBackMatter = (part: TocPartToken): boolean => part.value.trim() === 'Back matter'
-
-const discussionPlace = /^(?:Part\s+(\S+)|(.+?)),\s*Discussion(?:\s+(\S+))?$/
-
-const discussionAt = (book: Book, place: string, title: string): Option.Option<Chapter> =>
-  Option.flatMap(Option.fromNullishOr(discussionPlace.exec(place)), (match) => {
-    const [, numeral, partName, number] = match
-    return Array.findFirst(
-      book.chapters,
-      (chapter) =>
-        chapter.discussion &&
-        chapter.title === title &&
-        Option.match(Option.fromNullishOr(numeral), {
-          onSome: (wanted) => Option.contains(chapter.part.number, wanted),
-          onNone: () => Option.contains(chapter.part.name, partName ?? ''),
-        }) &&
-        Option.match(Option.fromNullishOr(number), {
-          onSome: (wanted) => Option.contains(chapter.number, wanted),
-          onNone: () => true,
-        }),
-    )
-  })
-
-const tocPartRef = (part: TocPartToken): PartRef =>
-  Option.match(Option.fromNullishOr(partNumberMarker.exec(part.value)), {
-    onNone: () => ({ number: Option.none(), name: Option.some(part.value.trim()) }),
-    onSome: (match) => ({
-      number: Option.fromNullishOr(match[1]),
-      name: Option.fromNullishOr(/[—–-]\s*(.+)$/.exec(part.value)?.[1]?.trim()),
-    }),
-  })
-
-const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
-  Array.flatMap(module.doc.sections, (section) =>
-    Array.getSomes(
-      Array.mapAccum(
-        section.entries ?? [],
-        Option.none<PartRef>(),
-        (part, entry): readonly [Option.Option<PartRef>, Option.Option<PlacedEntry>] =>
-          Option.match(Option.fromNullishOr(entry.part), {
-            onSome: (token) => [
-              isBackMatter(token) ? Option.none() : Option.some(tocPartRef(token)),
-              Option.none(),
-            ],
-            onNone: () => [
-              part,
-              Option.map(Option.fromNullishOr(entry.title), (title) => ({
-                title,
-                part,
-                discussion: Option.map(Option.fromNullishOr(entry.discussion), (d) => d.value),
-              })),
-            ],
-          }),
-      )[1],
-    ),
-  )
-
-const entryChapter = (book: Book, placed: PlacedEntry): Option.Option<Chapter> =>
-  Option.match(placed.discussion, {
-    onSome: (place) => discussionAt(book, place, placed.title.value),
-    onNone: () =>
-      Array.findFirst(
-        book.chapters,
-        (chapter) =>
-          !chapter.discussion &&
-          chapter.title === placed.title.value &&
-          Option.match(placed.part, {
-            onNone: () => true,
-            onSome: (part) => samePart(chapter.part, part),
-          }),
-      ),
-  })
-
 const chapterAt = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   path: Location,
   offset: number,
@@ -1406,33 +1611,27 @@ const chapterAt = (
   Option.flatMap(Option.fromNullishOr(modules.get(path)), (module) =>
     pipe(
       Option.flatMap(
-        Array.findFirst(placedEntriesOf(module), (placed) => covers(placed.title.position, offset)),
-        (placed) => entryChapter(book, placed),
-      ),
-      Option.orElse(() =>
-        Option.flatMap(
-          Array.findFirst(boxesIn(book, path), (ref) => covers(ref.name.position, offset)),
-          (ref) => boxTarget(book, ref),
-        ),
+        Array.findFirst(boxesIn(catalogue, path), (ref) => covers(ref.name.position, offset)),
+        (ref) => boxTarget(catalogue, ref),
       ),
       Option.orElse(() =>
         Option.flatMap(
           Array.findFirst(tropeEntriesOf(module), (name) => covers(name.position, offset)),
-          (name) => tropeEntryChapterOf(book, name.value),
+          (name) => tropeEntryChapterOf(catalogue, path, name.value),
         ),
       ),
       Option.orElse(() =>
         pipe(
           Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
           Option.filter((line) => covers(line.position, offset)),
-          Option.flatMap((line) => tropeChapterOf(book, line.value)),
+          Option.flatMap((line) => tropeChapterOf(catalogue, line.value)),
         ),
       ),
       Option.orElse(() =>
         pipe(
           Option.fromNullishOr(module.doc.frontmatter?.title),
           Option.filter((title) => covers(title.position, offset)),
-          Option.flatMap(() => chapterOf(book, path)),
+          Option.flatMap(() => chapterOf(catalogue, path)),
         ),
       ),
     ),
@@ -1441,9 +1640,9 @@ const chapterAt = (
 const tropeEntriesOf = (module: LoomModule): ReadonlyArray<FrontmatterEntryToken> =>
   Option.getOrElse(Option.fromNullishOr(module.doc.frontmatter?.entries), () => [])
 
-const tropeChapterOf = (book: Book, name: string): Option.Option<Chapter> => {
+const tropeChapterOf = (catalogue: Catalogue, name: string): Option.Option<Chapter> => {
   const roots = Array.filter(
-    book.chapters,
+    catalogue.chapters,
     (chapter) => chapter.module.doc.frontmatter?.trope?.value === name,
   )
   return roots.length === 1 ? Array.head(roots) : Option.none()
@@ -1454,31 +1653,13 @@ const chapterDefinitionAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.flatMap(chapterAt(bookOf(corpus.modules), corpus.modules, path, offset), chapterLocation)
-
-const entriesNaming = (
-  book: Book,
-  modules: Modules,
-  chapter: Chapter,
-): ReadonlyArray<CorpusLocation> =>
-  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
-    pipe(
-      placedEntriesOf(module),
-      Array.filter((placed) =>
-        Option.exists(
-          entryChapter(book, placed),
-          (found) => found.module.path === chapter.module.path,
-        ),
-      ),
-      Array.map((placed): CorpusLocation => ({
-        path: module.path,
-        position: placed.title.position,
-      })),
-    ),
+  Option.flatMap(
+    chapterAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    chapterLocation,
   )
 
 const tropeEntriesNaming = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   chapter: Chapter,
 ): ReadonlyArray<CorpusLocation> =>
@@ -1489,7 +1670,7 @@ const tropeEntriesNaming = (
         (name) =>
           name.value === chapter.title &&
           Option.exists(
-            tropeEntryChapterOf(book, name.value),
+            tropeEntryChapterOf(catalogue, module.path, name.value),
             (found) => found.module.path === chapter.module.path,
           ),
       ),
@@ -1498,7 +1679,7 @@ const tropeEntriesNaming = (
   )
 
 const rootedInNaming = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   chapter: Chapter,
 ): ReadonlyArray<CorpusLocation> =>
@@ -1507,7 +1688,7 @@ const rootedInNaming = (
       Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
       Option.filter((line) =>
         Option.exists(
-          tropeChapterOf(book, line.value),
+          tropeChapterOf(catalogue, line.value),
           (found) => found.module.path === chapter.module.path,
         ),
       ),
@@ -1517,38 +1698,37 @@ const rootedInNaming = (
   )
 
 const chapterNames = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   chapter: Chapter,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(chapterLocation(chapter)),
-  ...entriesNaming(book, modules, chapter),
-  ...boxesNaming(book, chapter),
-  ...tropeEntriesNaming(book, modules, chapter),
-  ...rootedInNaming(book, modules, chapter),
+  ...boxesNaming(catalogue, chapter),
+  ...tropeEntriesNaming(catalogue, modules, chapter),
+  ...rootedInNaming(catalogue, modules, chapter),
   ...anchorsNaming(
-    book,
+    catalogue,
     modules,
     (step) => !step.numbered && Option.isNone(step.through) && namesChapter(chapter)(step.place),
     spanOf,
   ),
 ]
 
-const tropeBoxAt = (book: Book, path: Location, offset: number): Option.Option<BoxRef> =>
+const tropeBoxAt = (catalogue: Catalogue, path: Location, offset: number): Option.Option<BoxRef> =>
   Array.findFirst(
-    boxesIn(book, path),
+    boxesIn(catalogue, path),
     (ref) => ref.kind === tropeKind && covers(ref.name.position, offset),
   )
 
 const tropeNames = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   ref: BoxRef,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
   boxLocation(ref),
-  ...anchorsNaming(book, modules, (step) => Option.exists(step.through, sameBox(ref)), spanOf),
+  ...anchorsNaming(catalogue, modules, (step) => Option.exists(step.through, sameBox(ref)), spanOf),
 ]
 
 const boxDefinitionAt = (
@@ -1556,9 +1736,10 @@ const boxDefinitionAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusLocation> => {
-  const book = bookOf(corpus.modules)
-  return Option.match(tropeBoxAt(book, path, offset), {
-    onSome: (ref) => Option.flatMap(tropePlaceOf(book, ref), placeLocation),
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(tropeBoxAt(catalogue, path, offset), {
+    onSome: (ref) =>
+      Option.flatMap(tropePlaceOf(catalogue, ref), (place) => placeLocation(corpus.modules, place)),
     onNone: () => chapterDefinitionAt(corpus, path, offset),
   })
 }
@@ -1569,9 +1750,9 @@ const boxNamesAt = (
   offset: number,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => {
-  const book = bookOf(corpus.modules)
-  return Option.match(tropeBoxAt(book, path, offset), {
-    onSome: (ref) => tropeNames(book, corpus.modules, ref, spanOf),
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(tropeBoxAt(catalogue, path, offset), {
+    onSome: (ref) => tropeNames(catalogue, corpus.modules, ref, spanOf),
     onNone: () => chapterNamesAt(corpus, path, offset, spanOf),
   })
 }
@@ -1582,15 +1763,15 @@ const chapterNamesAt = (
   offset: number,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => {
-  const book = bookOf(corpus.modules)
-  return Option.match(chapterAt(book, corpus.modules, path, offset), {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(chapterAt(catalogue, corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (chapter) => chapterNames(book, corpus.modules, chapter, spanOf),
+    onSome: (chapter) => chapterNames(catalogue, corpus.modules, chapter, spanOf),
   })
 }
 
 const chapterNumbers = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   chapter: Chapter,
   spanOf: SpanOf,
@@ -1602,7 +1783,7 @@ const chapterNumbers = (
     ),
   ),
   ...anchorsNaming(
-    book,
+    catalogue,
     modules,
     (step) => step.numbered && namesChapter(chapter)(step.place),
     spanOf,
@@ -1614,25 +1795,11 @@ const chapterNumbersAt = (
   path: Location,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => {
-  const book = bookOf(corpus.modules)
-  return Option.match(chapterOf(book, path), {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(chapterOf(catalogue, path), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (chapter) => chapterNumbers(book, corpus.modules, chapter, spanOf),
+    onSome: (chapter) => chapterNumbers(catalogue, corpus.modules, chapter, spanOf),
   })
-}
-
-export type UnresolvedEntry = { readonly title: TocTitleToken; readonly discussion: boolean }
-
-export const unresolvedTocEntriesIn = (
-  corpus: LoomCorpusAst,
-  module: LoomModule,
-): ReadonlyArray<UnresolvedEntry> => {
-  const book = bookOf(corpus.modules)
-  return pipe(
-    placedEntriesOf(module),
-    Array.filter((placed) => Option.isNone(entryChapter(book, placed))),
-    Array.map((placed) => ({ title: placed.title, discussion: Option.isSome(placed.discussion) })),
-  )
 }
 
 const partOpenerIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
@@ -1649,13 +1816,16 @@ const partOpenerIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> 
         ),
         Option.map(
           ({ part, partName }) =>
-            [part.value, { path: module.path, position: partName.position }] as const,
+            [
+              partKey(bookOf(module), part.value),
+              { path: module.path, position: partName.position },
+            ] as const,
         ),
       ),
     ),
     Array.getSomes,
-    Array.reduce(new Map<string, CorpusLocation>(), (index, [num, location]) =>
-      index.has(num) ? index : new Map(index).set(num, location),
+    Array.reduce(new Map<string, CorpusLocation>(), (index, [key, location]) =>
+      index.has(key) ? index : new Map(index).set(key, location),
     ),
   )
 
@@ -1665,31 +1835,18 @@ const onToken = (token: { readonly position: Position } | undefined, offset: num
     onSome: (t) => covers(t.position, offset),
   })
 
-const frontmatterPartNumberAt = (module: LoomModule, offset: number): Option.Option<string> =>
+const frontmatterPartKeyAt = (module: LoomModule, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
     Option.filter((fm) => onToken(fm.part, offset) || onToken(fm.partName, offset)),
     Option.flatMap((fm) => Option.fromNullishOr(fm.part)),
-    Option.map((part) => part.value),
+    Option.map((part) => partKey(bookOf(module), part.value)),
   )
 
-const tocPartsOf = (module: LoomModule): ReadonlyArray<TocPartToken> =>
-  Array.getSomes(Array.map(tocEntriesOf(module), (entry) => Option.fromNullishOr(entry.part)))
-
-const partNumberMarker = /^Part\s+(\S+)/
-
-const tocPartNumberAt = (module: LoomModule, offset: number): Option.Option<string> =>
-  pipe(
-    Array.findFirst(tocPartsOf(module), (part) => covers(part.position, offset)),
-    Option.flatMap((part) => Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1])),
-  )
-
-const partNumberAt = (modules: Modules, path: Location, offset: number): Option.Option<string> =>
+const partKeyAt = (modules: Modules, path: Location, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
-    Option.flatMap((module) =>
-      Option.orElse(frontmatterPartNumberAt(module, offset), () => tocPartNumberAt(module, offset)),
-    ),
+    Option.flatMap((module) => frontmatterPartKeyAt(module, offset)),
   )
 
 const partDefinitionAt = (
@@ -1697,34 +1854,22 @@ const partDefinitionAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.flatMap(partNumberAt(corpus.modules, path, offset), (num) =>
-    Option.fromNullishOr(partOpenerIndex(corpus.modules).get(num)),
+  Option.flatMap(partKeyAt(corpus.modules, path, offset), (key) =>
+    Option.fromNullishOr(partOpenerIndex(corpus.modules).get(key)),
   )
 
-const frontmatterPartLocations = (module: LoomModule, num: string): ReadonlyArray<CorpusLocation> =>
+const frontmatterPartLocations = (module: LoomModule, key: string): ReadonlyArray<CorpusLocation> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter?.part),
-    Option.filter((part) => part.value === num),
+    Option.filter((part) => partKey(bookOf(module), part.value) === key),
     Option.map((part) => ({ path: module.path, position: part.position })),
     Option.toArray,
   )
 
-const tocPartLocations = (module: LoomModule, num: string): ReadonlyArray<CorpusLocation> =>
-  Array.getSomes(
-    Array.map(tocPartsOf(module), (part) =>
-      pipe(
-        Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1]),
-        Option.filter((n) => n === num),
-        Option.map(() => ({ path: module.path, position: part.position })),
-      ),
-    ),
-  )
-
-const partGroup = (modules: Modules, num: string): ReadonlyArray<CorpusLocation> => [
-  ...Option.toArray(Option.fromNullishOr(partOpenerIndex(modules).get(num))),
+const partGroup = (modules: Modules, key: string): ReadonlyArray<CorpusLocation> => [
+  ...Option.toArray(Option.fromNullishOr(partOpenerIndex(modules).get(key))),
   ...Array.flatMap(Array.fromIterable(modules.values()), (module) => [
-    ...frontmatterPartLocations(module, num),
-    ...tocPartLocations(module, num),
+    ...frontmatterPartLocations(module, key),
   ]),
 ]
 
@@ -1733,14 +1878,90 @@ const partGroupAt = (
   path: Location,
   offset: number,
 ): ReadonlyArray<CorpusLocation> =>
-  Option.match(partNumberAt(corpus.modules, path, offset), {
+  Option.match(partKeyAt(corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (num) => partGroup(corpus.modules, num),
+    onSome: (key) => partGroup(corpus.modules, key),
   })
+
+const bookLoomsOf = (modules: Modules, book: string): ReadonlyArray<LoomModule> =>
+  Array.filter(
+    Array.fromIterable(modules.values()),
+    (module) => isBookLoom(module) && Option.contains(bookOf(module), book),
+  )
+
+const bookLoomLocation = (modules: Modules, book: string): Option.Option<CorpusLocation> =>
+  pipe(
+    Array.head(bookLoomsOf(modules, book)),
+    Option.flatMap((module) =>
+      Option.map(Option.fromNullishOr(module.doc.frontmatter?.book), (line): CorpusLocation => ({
+        path: module.path,
+        position: line.position,
+      })),
+    ),
+  )
+
+const bookLines = (modules: Modules, book: string): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      Option.fromNullishOr(module.doc.frontmatter?.book),
+      Option.filter((line) => line.value === book),
+      Option.map((line): CorpusLocation => ({ path: module.path, position: line.position })),
+      Option.toArray,
+    ),
+  )
+
+const bookNameAt = (module: LoomModule, offset: number): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter?.book),
+    Option.filter((line) => covers(line.position, offset)),
+    Option.map((line) => line.value),
+  )
+
+const bookDefinitionAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  pipe(
+    Option.fromNullishOr(corpus.modules.get(path)),
+    Option.flatMap((module) => bookNameAt(module, offset)),
+    Option.flatMap((book) => bookLoomLocation(corpus.modules, book)),
+  )
+
+const namesBook =
+  (book: string) =>
+  (place: Place): boolean =>
+    place._tag === 'Book' && place.book === book
+
+const bookNames = (
+  catalogue: Catalogue,
+  modules: Modules,
+  book: string,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => [
+  ...bookLines(modules, book),
+  ...anchorsNaming(catalogue, modules, (step) => namesBook(book)(step.place), spanOf),
+]
+
+const bookNamesAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(
+    Option.flatMap(Option.fromNullishOr(corpus.modules.get(path)), (module) =>
+      bookNameAt(module, offset),
+    ),
+    {
+      onNone: (): ReadonlyArray<CorpusLocation> => [],
+      onSome: (book) => bookNames(catalogueOf(corpus.modules), corpus.modules, book, spanOf),
+    },
+  )
 
 ~
 
-`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a warp anchor to its warp, a contents entry, the name of a chapter box or a discussion box, or a chapter's own title to that chapter, the name of a trope box to the trope's entry point, and a `Part R` or a contents part heading to where the part is announced. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the entries, boxes, and anchors that name it, a trope's name with the anchors that name the trope, a chapter's number with the anchors that name it by number, or a part's announcement and every `Part R` and contents heading that names it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
+`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a warp anchor to its warp, the name of a chapter box or a discussion box, or a chapter's own title to that chapter, the name of a trope box to the trope's entry point, a `Part R` to where the part is announced, and a `Book:` line to the book loom that opens the book. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the boxes and anchors that name it, a trope's name with the anchors that name the trope, a chapter's number with the anchors that name it by number, a part's announcement and every `Part R` that names it, or a book's `Book:` lines and the anchors whose paths pass through it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
 
 =>
 
@@ -1757,12 +1978,13 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
+          Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
-          Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
+          Match.whenOr('frontmatterPart', 'frontmatterPartName', () =>
             partDefinitionAt(corpus, path, offset),
           ),
+          Match.when('frontmatterBook', () => bookDefinitionAt(corpus, path, offset)),
           Match.orElse(() => Option.none<CorpusLocation>()),
         ),
       ),
@@ -1792,13 +2014,14 @@ export const referencesAt = (
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
+          Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
-          Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
+          Match.whenOr('frontmatterPart', 'frontmatterPartName', () =>
             partGroupAt(corpus, path, offset),
           ),
+          Match.when('frontmatterBook', () => bookNamesAt(corpus, path, offset, wholeAnchor)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -1806,7 +2029,7 @@ export const referencesAt = (
 
 ## Renaming a section
 
-A rename is one edit across the scope a name spans, so the name and its references never drift. A section's title moves with every anchor that names the section. A warp's definition moves with every anchor that binds to it. A chapter's declared title moves with every contents entry and every anchor that names the chapter by title, and its number moves with every anchor that names it by number. The exported `renameAt` reads `symbolAt` and gathers these spans through the same functions the references use, with `segmentPosition` as the span. Each span is one name alone: a title, or one segment inside a `::[…]`. So the brackets, the other names of a path, and any `(path)` stay put. A part is not renamed: its name sits inside the contents label, and its chapters refer to it by a bare number.
+A rename is one edit across the scope a name spans, so the name and its references never drift. A section's title moves with every anchor that names the section, unless the section is a concept, which the section "A concept's card" describes. A warp's definition moves with every anchor that binds to it. A chapter's declared title moves with every anchor that names the chapter by title, and its number moves with every anchor that names it by number. A book's name moves with every `Book:` line and every anchor that names the book. The exported `renameAt` reads `symbolAt` and gathers these spans through the same functions the references use, with `segmentPosition` as the span. Each span is one name alone: a title, or one segment inside a `::[…]`. So the brackets, the other names of a path, and any `(path)` stay put. A part is not renamed, since its chapters refer to it by a bare number.
 
 =>
 
@@ -1830,15 +2053,22 @@ export const renameAt = (
             warpReferences(module, path, offset, (anchor) => anchor.name.position),
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
-            placeNamesAt(corpus, path, offset, segmentPosition),
+            Option.match(conceptRenameAt(corpus, path, offset), {
+              onSome: (rename): ReadonlyArray<CorpusLocation> => [
+                rename.heading,
+                ...rename.chapter,
+              ],
+              onNone: () => placeNamesAt(corpus, path, offset, segmentPosition),
+            }),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, segmentPosition)),
-          Match.whenOr('tocEntry', 'frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
+          Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
           Match.when('frontmatterMembership', () =>
             chapterNumbersAt(corpus, path, segmentPosition),
           ),
+          Match.when('frontmatterBook', () => bookNamesAt(corpus, path, offset, segmentPosition)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -1872,6 +2102,141 @@ export const renameRangeAt = (
     () => renameAt(corpus, path, offset).length > 0,
   )
 
+## A concept's card
+
+A link names a concept, and a reader who rests on the link wants the concept's meaning, without leaving the sentence. `hoverAt` gives the card the editor shows: the concept's name, its definition, and its other forms, which `cardOf` writes as Markdown. `conceptMentionedAt` reads the mention under the cursor, a heading or a step of an anchor, and finds the concept it names, so the card answers only for a concept. The card covers the whole symbol the cursor rests on, as the navigation range does.
+
+Every concept is a symbol of its workspace too, so the editor's symbol search finds it by any of its forms. `conceptSymbolsIn` gives a `CorpusSymbol` for each concept with a name that holds the query, whatever its case, which `matching` tells: the concept's heading as the symbol's name, its chapter's title as the symbol's container, and where the heading stands.
+
+A concept's rename never rewrites a sentence. A link writes the form its sentence needs, so `renameAt` moves a concept's heading alone, and `conceptRenameAt` keeps the old name as a form. Its `kept` edit, which `keptNameOf` writes, puts the old heading into the `Lexical forms:` list as the list's first item, at a point `pointSpan` makes into an empty span. A concept with no list gets one under its definition, or under its heading when it has no definition. So every link still finds the concept, and every sentence reads as its author wrote it. A concept's heading may also title its chapter, when the chapter's frontmatter names no title, and then the rename takes the chapter's own names along too: the boxes, entries and code anchors that name the chapter, which `chapterNames` gathers. Those name a chapter, not a concept, so they hold no form to keep.
+
+=>
+
+export type CorpusHover = { readonly position: Position; readonly markdown: string }
+
+export type ConceptRename = {
+  readonly heading: CorpusLocation
+  readonly kept: CorpusEdit
+  readonly chapter: ReadonlyArray<CorpusLocation>
+}
+
+const conceptMentionedAt = (
+  catalogue: Catalogue,
+  modules: Modules,
+  path: Location,
+  offset: number,
+): Option.Option<ConceptRef> =>
+  Option.flatMap(mentionAt(catalogue, modules, path, offset), (mention) =>
+    mention.place._tag === 'Section' ? conceptAt(catalogue, mention.place.ref) : Option.none(),
+  )
+
+const cardOf = (concept: ConceptRef): string =>
+  Array.join(
+    [
+      `**${concept.name.source}**`,
+      ...(concept.definition === '' ? [] : [concept.definition]),
+      ...(concept.forms.length === 0
+        ? []
+        : [
+            `Also: ${Array.join(
+              Array.map(concept.forms, (form) => form.value),
+              ', ',
+            )}`,
+          ]),
+    ],
+    '\n\n',
+  )
+
+export const hoverAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusHover> =>
+  Option.flatMap(
+    conceptMentionedAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    (concept) =>
+    Option.map(navigationRangeAt(corpus, path, offset), (range) => ({
+      position: range.position,
+      markdown: cardOf(concept),
+    })),
+  )
+
+const pointSpan = (point: Point): Position => ({ start: point, end: point })
+
+const keptNameOf = (concept: ConceptRef): CorpusEdit =>
+  Option.match(formsLineOf(concept.section), {
+    onSome: (line) => ({
+      path: concept.module,
+      at: pointSpan(contentEnd(line)),
+      text: `\n- ${concept.name.source}`,
+    }),
+    onNone: () => ({
+      path: concept.module,
+      at: pointSpan(
+        Option.getOrElse(
+          Option.map(Array.last(definitionLinesOf(concept.section)), contentEnd),
+          () => concept.section.heading.position.end,
+        ),
+      ),
+      text: `\n\nLexical forms:\n- ${concept.name.source}`,
+    }),
+  })
+
+export type CorpusSymbol = {
+  readonly name: string
+  readonly container: string
+  readonly location: CorpusLocation
+}
+
+const matching =
+  (query: string) =>
+  (name: string): boolean =>
+    name.toLowerCase().includes(query.toLowerCase())
+
+export const conceptSymbolsIn = (
+  corpus: LoomCorpusAst,
+  query: string,
+): ReadonlyArray<CorpusSymbol> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return pipe(
+    catalogue.concepts,
+    Array.filter((concept) => Array.some(conceptNames(concept), matching(query))),
+    Array.map((concept): CorpusSymbol => ({
+      name: concept.name.source,
+      container: Option.getOrElse(
+        Option.map(chapterOf(catalogue, concept.module), (chapter) => chapter.title),
+        () => concept.module,
+      ),
+      location: { path: concept.module, position: concept.name.position },
+    })),
+  )
+}
+
+export const conceptRenameAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<ConceptRename> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.map(conceptMentionedAt(catalogue, corpus.modules, path, offset), (concept) => ({
+    heading: { path: concept.module, position: concept.name.position },
+    kept: keptNameOf(concept),
+    chapter: Option.match(
+      chapterTitledBy(catalogue, { module: concept.module, section: concept.section }),
+      {
+        onNone: (): ReadonlyArray<CorpusLocation> => [],
+        onSome: (chapter) =>
+          Array.filter(
+            chapterNames(catalogue, corpus.modules, chapter, segmentPosition),
+            (location) =>
+              location.path !== concept.module ||
+              location.position.start.offset !== concept.name.position.start.offset,
+          ),
+      },
+    ),
+  }))
+}
+
 ## Titles beside numbers
 
 A number names a position, not a chapter. When a chapter moves, a numbered reference points at whichever chapter took the number, and it still resolves, so no fault reveals the change. So the editor shows, beside each segment that names a part or a chapter by number, the title it stands for, and a reader sees where the reference points.
@@ -1886,13 +2251,14 @@ const labelOf = (place: Place): Option.Option<string> =>
   Match.value(place).pipe(
     Match.tag('Chapter', ({ chapter }) => Option.some(chapter.title)),
     Match.tag('Part', ({ part }) => part.name),
+    Match.tag('Book', () => Option.none<string>()),
     Match.tag('Section', () => Option.none<string>()),
     Match.tag('Box', () => Option.none<string>()),
     Match.exhaustive,
   )
 
 export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<CorpusHint> => {
-  const book = bookOf(corpus.modules)
+  const catalogue = catalogueOf(corpus.modules)
   return Option.match(Option.fromNullishOr(corpus.modules.get(path)), {
     onNone: (): ReadonlyArray<CorpusHint> => [],
     onSome: (module) =>
@@ -1901,7 +2267,7 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
         Array.flatMap(anchorsOf),
         Array.flatMap((anchor) =>
           pipe(
-            stepsOf(book, path, anchor),
+            stepsOf(catalogue, path, anchor),
             Array.filter((step) => step.numbered),
             Array.map((step) =>
               Option.map(labelOf(step.place), (label) => ({
@@ -1996,9 +2362,9 @@ const stillInBox = (inBox: boolean, box: BoxToken): boolean =>
     Match.exhaustive,
   )
 
-const outsideBoxes = (lines: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+const outsideBoxes = <Line extends LoomWeft>(lines: ReadonlyArray<Line>): ReadonlyArray<Line> =>
   Array.getSomes(
-    Array.mapAccum(lines, false, (inBox, line): readonly [boolean, Option.Option<LoomWeft>] =>
+    Array.mapAccum(lines, false, (inBox, line): readonly [boolean, Option.Option<Line>] =>
       Option.match(boxOf(line), {
         onNone: () => [inBox, inBox ? Option.none() : Option.some(line)],
         onSome: (box) => [stillInBox(inBox, box), Option.none()],
@@ -2064,15 +2430,19 @@ const summaryOf = (module: LoomModule): string =>
 
 ~
 
-A box may point to a loom nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new loom belongs to the box's own part and takes the part's next number of its kind, which `nextNumber` finds, since chapters and discussions are numbered apart. A part without numbers names its looms by title alone, so there the new loom takes no number. `membership` writes the identity line in the form the part already uses, and names the new loom a `Chapter` or a `Discussion` in it. The new loom's opening prose is the box's body, so the copy and its source agree from the start.
+A box may point to a loom nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new loom belongs to the box's own book and part, and takes the part's next number of its kind, which `nextNumber` finds, since chapters and discussions are numbered apart. A box in a loom that stands in no part gives the new loom only the box's book, which `noPartIn` holds. A part without numbers names its looms by title alone, so there the new loom takes no number. `membership` writes the identity line in the form the part already uses, and names the new loom a `Chapter` or a `Discussion` in it. The new loom's opening prose is the box's body, so the copy and its source agree from the start.
 
-The two kinds differ in where the new loom stands and what its identity holds besides. `fileOf` places it. A new chapter stands beside the loom of the box, in a file named for its number and its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A new discussion stands in the `discussions` folder beside the loom of the box, which `discussionsFolderOf` finds, in a file named for its title alone, as `discussions/waking.loom`. `fieldsOf` adds the rest of the identity. A new chapter's status is `Canvas`, as the chapter "Canvases" describes, and it keeps the language of the box's chapter. A discussion holds no code, so it takes neither.
+The two kinds differ in where the new loom stands and what its identity holds besides. `fileOf` places it. A new chapter stands beside the loom of the box, in a file named for its number and its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A new discussion stands in the `discussions` folder beside the loom of the box, which `discussionsFolderOf` finds, in a file named for its title alone, as `discussions/waking.loom`. `fieldsOf` adds the rest of the identity. A new loom names the box's book, when the box stands in a named book, so it joins the same book. A new chapter's status is `Canvas`, as the chapter "Canvases" describes, and it keeps the language of the box's chapter. A discussion holds no code, so it takes neither.
 
 =>
 
 export type Opening = { readonly file: string; readonly text: string }
 
-const noPart: PartRef = { number: Option.none(), name: Option.none() }
+const noPartIn = (book: Option.Option<string>): PartRef => ({
+  book,
+  number: Option.none(),
+  name: Option.none(),
+})
 
 const slugOf = (title: string): string =>
   title
@@ -2094,7 +2464,7 @@ const numberOf = (chapter: Chapter): number =>
     () => 0,
   )
 
-const nextNumber = (book: Book, part: PartRef, kind: LoomKind): Option.Option<number> =>
+const nextNumber = (catalogue: Catalogue, part: PartRef, kind: LoomKind): Option.Option<number> =>
   Option.map(
     part.number,
     () =>
@@ -2103,7 +2473,8 @@ const nextNumber = (book: Book, part: PartRef, kind: LoomKind): Option.Option<nu
         0,
         ...Array.map(
           chaptersWithin(
-            book,
+            catalogue,
+            part.book,
             Option.some(part),
             (chapter) => chapter.discussion === (kind === discussionKind),
           ),
@@ -2142,8 +2513,13 @@ const fileOf = (ref: BoxRef, kind: LoomKind, number: Option.Option<number>): str
     Match.exhaustive,
   )
 
-const fieldsOf = (kind: LoomKind, own: Option.Option<Chapter>): ReadonlyArray<string> =>
-  Match.value(kind).pipe(
+const fieldsOf = (
+  kind: LoomKind,
+  book: Option.Option<string>,
+  own: Option.Option<Chapter>,
+): ReadonlyArray<string> => [
+  ...Option.toArray(Option.map(book, (name) => `Book: ${name}`)),
+  ...Match.value(kind).pipe(
     Match.when(chapterKind, () => [
       'Status: Canvas',
       ...Option.toArray(
@@ -2157,12 +2533,17 @@ const fieldsOf = (kind: LoomKind, own: Option.Option<Chapter>): ReadonlyArray<st
     ]),
     Match.when(discussionKind, (): ReadonlyArray<string> => []),
     Match.exhaustive,
-  )
+  ),
+]
 
-const openingOf = (book: Book, ref: BoxRef, kind: LoomKind): Opening => {
-  const own = chapterOf(book, ref.module)
-  const part = Option.match(own, { onNone: () => noPart, onSome: (chapter) => chapter.part })
-  const number = nextNumber(book, part, kind)
+const openingOf = (catalogue: Catalogue, ref: BoxRef, kind: LoomKind): Opening => {
+  const own = chapterOf(catalogue, ref.module)
+  const book = bookAt(catalogue, ref.module)
+  const part = Option.match(own, {
+    onNone: () => noPartIn(book),
+    onSome: (chapter) => chapter.part,
+  })
+  const number = nextNumber(catalogue, part, kind)
   const title = ref.name.value
   const body = textOf(ref.body)
   return {
@@ -2171,7 +2552,7 @@ const openingOf = (book: Book, ref: BoxRef, kind: LoomKind): Opening => {
       [
         '---',
         ...membership(part, number, title, kind),
-        ...fieldsOf(kind, own),
+        ...fieldsOf(kind, book, own),
         '---',
         '',
         `# ${title}`,
@@ -2255,17 +2636,21 @@ const staleOf = (ref: BoxRef, copied: Copied): Option.Option<BoxNotice> =>
     ),
   )
 
-const loomNoticeOf = (book: Book, ref: BoxRef, kind: LoomKind): Option.Option<BoxNotice> =>
-  Option.match(boxTarget(book, ref), {
+const loomNoticeOf = (
+  catalogue: Catalogue,
+  ref: BoxRef,
+  kind: LoomKind,
+): Option.Option<BoxNotice> =>
+  Option.match(boxTarget(catalogue, ref), {
     onNone: () =>
       Option.some(
-        BoxNotice.Unwritten({ name: ref.name, kind, opening: openingOf(book, ref, kind) }),
+        BoxNotice.Unwritten({ name: ref.name, kind, opening: openingOf(catalogue, ref, kind) }),
       ),
     onSome: (target) => staleOf(ref, copiedFromChapter(target)),
   })
 
-const tropeNoticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> =>
-  Option.match(Option.flatMap(tropePlaceOf(book, ref), copiedFromPlace), {
+const tropeNoticeOf = (catalogue: Catalogue, ref: BoxRef): Option.Option<BoxNotice> =>
+  Option.match(Option.flatMap(tropePlaceOf(catalogue, ref), copiedFromPlace), {
     onNone: () =>
       Option.some(
         BoxNotice.Unsettled({
@@ -2276,16 +2661,16 @@ const tropeNoticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> =>
     onSome: (copied) => staleOf(ref, copied),
   })
 
-const noticeOf = (book: Book, ref: BoxRef): Option.Option<BoxNotice> => {
+const noticeOf = (catalogue: Catalogue, ref: BoxRef): Option.Option<BoxNotice> => {
   const kind = ref.kind
-  return isLoomKind(kind) ? loomNoticeOf(book, ref, kind) : tropeNoticeOf(book, ref)
+  return isLoomKind(kind) ? loomNoticeOf(catalogue, ref, kind) : tropeNoticeOf(catalogue, ref)
 }
 
-const noticesOf = (book: Book, module: Location): ReadonlyArray<BoxNotice> =>
-  Array.getSomes(Array.map(boxesIn(book, module), (ref) => noticeOf(book, ref)))
+const noticesOf = (catalogue: Catalogue, module: Location): ReadonlyArray<BoxNotice> =>
+  Array.getSomes(Array.map(boxesIn(catalogue, module), (ref) => noticeOf(catalogue, ref)))
 
 export const boxNoticesIn = (corpus: LoomCorpusAst, module: LoomModule): ReadonlyArray<BoxNotice> =>
-  noticesOf(bookOf(corpus.modules), module.path)
+  noticesOf(catalogueOf(corpus.modules), module.path)
 
 const withSummaries = (text: string, stale: ReadonlyArray<StaleBox>): string =>
   Array.reduce(
@@ -2301,12 +2686,12 @@ const withSummaries = (text: string, stale: ReadonlyArray<StaleBox>): string =>
 export const refreshedSummaries = (
   corpus: LoomCorpusAst,
 ): ReadonlyArray<{ readonly path: Location; readonly text: string }> => {
-  const book = bookOf(corpus.modules)
+  const catalogue = catalogueOf(corpus.modules)
   return pipe(
     Array.fromIterable(corpus.modules.values()),
     Array.map((module) => ({
       module,
-      stale: Array.filter(noticesOf(book, module.path), BoxNotice.$is('Stale')),
+      stale: Array.filter(noticesOf(catalogue, module.path), BoxNotice.$is('Stale')),
     })),
     Array.filter(({ stale }) => stale.length > 0),
     Array.map(({ module, stale }) => ({
@@ -2363,12 +2748,12 @@ type Copy = { readonly module: LoomModule; readonly section: LoomSection }
 const chapterCopy = (chapter: Chapter): Option.Option<Copy> =>
   Option.map(openingSectionOf(chapter.module), (section) => ({ module: chapter.module, section }))
 
-const copyOf = (book: Book, modules: Modules, ref: BoxRef): Option.Option<Copy> =>
+const copyOf = (catalogue: Catalogue, modules: Modules, ref: BoxRef): Option.Option<Copy> =>
   Match.value(ref.kind).pipe(
-    Match.when(chapterKind, () => Option.flatMap(boxTarget(book, ref), chapterCopy)),
+    Match.when(chapterKind, () => Option.flatMap(boxTarget(catalogue, ref), chapterCopy)),
     Match.when(discussionKind, () => Option.none<Copy>()),
     Match.when(tropeKind, () =>
-      Option.flatMap(tropePlaceOf(book, ref), (place) =>
+      Option.flatMap(tropePlaceOf(catalogue, ref), (place) =>
         Match.value(place).pipe(
           Match.tag('Section', ({ ref: at }) =>
             Option.map(Option.fromNullishOr(modules.get(at.module)), (module) => ({
@@ -2387,14 +2772,17 @@ const copyOf = (book: Book, modules: Modules, ref: BoxRef): Option.Option<Copy> 
   )
 
 const boxToTarget = (
-  book: Book,
+  catalogue: Catalogue,
   modules: Modules,
   was: LoomModule,
   ref: BoxRef,
 ): Option.Option<CorpusEdit> =>
   pipe(
     Option.all({
-      copy: Option.filter(copyOf(book, modules, ref), (copy) => copy.module.path !== ref.module),
+      copy: Option.filter(
+        copyOf(catalogue, modules, ref),
+        (copy) => copy.module.path !== ref.module,
+      ),
       before: Array.findFirst(
         pointingBoxesOf(was),
         (old) => old.kind === ref.kind && old.name.value === ref.name.value,
@@ -2417,14 +2805,18 @@ const boxToTarget = (
     ),
   )
 
-const loomToBoxes = (book: Book, was: LoomModule, now: LoomModule): ReadonlyArray<CorpusEdit> => {
+const loomToBoxes = (
+  catalogue: Catalogue,
+  was: LoomModule,
+  now: LoomModule,
+): ReadonlyArray<CorpusEdit> => {
   const before = summaryOf(was)
   const after = summaryOf(now)
   return before === after
     ? []
     : pipe(
-        Option.toArray(chapterOf(book, now.path)),
-        Array.flatMap((chapter) => boxesPointingTo(book, chapter)),
+        Option.toArray(chapterOf(catalogue, now.path)),
+        Array.flatMap((chapter) => boxesPointingTo(catalogue, chapter)),
         Array.filter((ref) => ref.module !== now.path && textOf(ref.body) === before),
         Array.map((ref) =>
           Option.map(ref.closer, (closer) => ({
@@ -2457,13 +2849,17 @@ const openingsOf = (
     Match.orElse(() => Option.none()),
   )
 
-const tropesToBoxes = (book: Book, was: LoomModule, now: LoomModule): ReadonlyArray<CorpusEdit> =>
+const tropesToBoxes = (
+  catalogue: Catalogue,
+  was: LoomModule,
+  now: LoomModule,
+): ReadonlyArray<CorpusEdit> =>
   pipe(
-    Array.flatten(Array.fromIterable(book.boxes.values())),
+    Array.flatten(Array.fromIterable(catalogue.boxes.values())),
     Array.filter((ref) => ref.kind === tropeKind && ref.module !== now.path),
     Array.flatMap((ref) =>
       pipe(
-        tropePlaceOf(book, ref),
+        tropePlaceOf(catalogue, ref),
         Option.filter((place) => Option.contains(placeModuleOf(place), now.path)),
         Option.flatMap((place) => openingsOf(place, was)),
         Option.filter(({ before, after }) => before !== after && textOf(ref.body) === before),
@@ -2485,13 +2881,13 @@ export const syncedSummaries = (
   now: LoomModule,
 ): ReadonlyArray<CorpusEdit> => {
   const modules = new Map(corpus.modules).set(now.path, now)
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return [
     ...Array.getSomes(
-      Array.map(boxesIn(book, now.path), (ref) => boxToTarget(book, modules, was, ref)),
+      Array.map(boxesIn(catalogue, now.path), (ref) => boxToTarget(catalogue, modules, was, ref)),
     ),
-    ...loomToBoxes(book, was, now),
-    ...tropesToBoxes(book, was, now),
+    ...loomToBoxes(catalogue, was, now),
+    ...tropesToBoxes(catalogue, was, now),
   ]
 }
 
@@ -2503,7 +2899,9 @@ Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is 
 
 An anchor that reaches beyond its loom is the one anchor no single module can judge. Its edge names a section the product pass never saw, so the compiler judges it against the whole corpus. The compiler adds what it finds to the module's own diagnostics, both for the open `.loom` in the editor and for the tangle.
 
-A chapter's title is no single module's to judge either, because it is a name among the chapters of its part. `namesakesOf` finds the other looms whose chapters share a module's title within its part, with the title they share, and the compiler raises the `DuplicateName` fault on that title. Two chapters stand in one part when `samePart` says their parts are one. A chapter that names no part has no siblings to clash with. Chapters with one title in two parts are no clash either, since a path through the part tells them apart.
+A chapter's title is no single module's to judge either, because it is a name among the chapters of its part. `namesakesOf` finds the other looms whose chapters share a module's title within its part, with the title they share, and the compiler raises the `DuplicateName` fault on that title. Two chapters stand in one part when `samePart` says their parts are one, which holds only within one book. A chapter that names no part has no siblings to clash with. Chapters with one title in two parts, or in two books, are no clash either, since a path through the part or the book tells them apart.
+
+A book's name is judged across the corpus too. `bookTwinsOf` finds the other book looms that open a book loom's book, and the compiler raises the `DuplicateName` fault on its `Book:` line, since a book takes its title and its preface from one loom alone. `unopenedBookOf` finds a `Book:` line that names a book no book loom opens. The loom still stands in that book, but the name may be a slip, so the compiler warns on it with the `UnopenedBook` fault.
 
 `corpusErrors` is the whole-corpus view the tangler takes, narrowed to errors. It reads each module's diagnostics through `diagnosticsOf`, keeps the error-severity ones, and returns every failing module with them. So the tangler refuses a broken build with one report rather than failing at the first bad file. `diagnosticsOf` defaults to `moduleDiagnostics`, and the compiler passes a reader that adds the cross-file judgement. A warning never blocks a tangle; only an error does.
 
@@ -2548,12 +2946,12 @@ export type Namesakes = {
   readonly looms: ReadonlyArray<Location>
 }
 
-export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Namesakes> =>
+export const namesakesOf = (catalogue: Catalogue, module: LoomModule): Option.Option<Namesakes> =>
   pipe(
-    Option.all({ chapter: chapterOf(book, module.path), title: chapterTitleToken(module) }),
+    Option.all({ chapter: chapterOf(catalogue, module.path), title: chapterTitleToken(module) }),
     Option.flatMap(({ chapter, title }) =>
       pipe(
-        book.chapters,
+        catalogue.chapters,
         Array.filter(
           (other) =>
             other.module.path !== module.path &&
@@ -2567,9 +2965,36 @@ export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Names
     ),
   )
 
+export const bookTwinsOf = (catalogue: Catalogue, module: LoomModule): Option.Option<Namesakes> =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter?.book),
+    Option.filter(() => isBookLoom(module)),
+    Option.flatMap((line) =>
+      pipe(
+        bookLoomsOf(catalogue.modules, line.value),
+        Array.filter((other) => other.path !== module.path),
+        Array.map((other) => other.path),
+        Option.liftPredicate(Array.isReadonlyArrayNonEmpty),
+        Option.map((looms): Namesakes => ({
+          title: { source: line.value, position: line.position },
+          looms,
+        })),
+      ),
+    ),
+  )
+
+export const unopenedBookOf = (
+  catalogue: Catalogue,
+  module: LoomModule,
+): Option.Option<FrontmatterBookToken> =>
+  Option.filter(
+    Option.fromNullishOr(module.doc.frontmatter?.book),
+    (line) => bookLoomsOf(catalogue.modules, line.value).length === 0,
+  )
+
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents line is — with the `TocTitleToken` it names a chapter and the `TocPartToken` it names a part — and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
 
 =>
 
@@ -2582,6 +3007,7 @@ import {
   chapterKind,
   conclusionKind,
   discussionKind,
+  type FrontmatterBookToken,
   type FrontmatterEntryToken,
   type HeadingTitleToken,
   isLoomKind,
@@ -2590,12 +3016,10 @@ import {
   type ParameterValueToken,
   type PointingKind,
   tropeKind,
-  type TocPartToken,
-  type TocTitleToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
-import { boxOf, type LoomWeft, type TocWeft } from '#ast/Weft'
+import { boxOf, type LoomWeft, type PreambleWeft, type ProseWeft, type TildeWeft } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
@@ -2614,11 +3038,15 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 ::[Boxes that point to looms]
 
+::[Concepts and the links that name them]
+
 ::[Reaching through the corpus]
 
 ::[Navigation over the corpus]
 
 ::[Renaming a section]
+
+::[A concept's card]
 
 ::[Titles beside numbers]
 

@@ -249,6 +249,78 @@ it('draws the source page through the docs shell, its anchors as links', () => {
 
 ~
 
+A corpus of several books draws each named book as a group of its own in the menu, under the book's name, which links to the page the book's loom opens. A page of that book names the book in its breadcrumb, between the site and the page's part.
+
+=>
+
+it('draws a named book of the source as a group of the menu, under its name', () => {
+  const waking = { number: '1', title: 'Waking', slug: 'the-game/01-rooms/01-waking' }
+  const book: Corpus = {
+    nav: [],
+    books: [
+      {
+        name: 'The game',
+        slug: 'the-game',
+        nav: [{ number: 'I', name: 'Rooms', chapters: [waking] }],
+      },
+    ],
+    pages: [
+      {
+        slug: waking.slug,
+        title: 'Waking',
+        blocks: [{ type: 'heading', level: 1, title: 'Waking', id: 'waking', unsettled: false }],
+      },
+    ],
+  }
+  const html = render(at('source', { book: Option.some(book) }))
+  expect(html).toContain(
+    '<div class="menu-book"><a class="menu-book-name" href="/source/the-game">The game</a>',
+  )
+  expect(html).toContain('<a class="crumb" href="/source/the-game">The game</a>')
+})
+
+~
+
+A link in prose draws as a Markdown link: the words the author wrote, pointing at the section the anchor reaches. A link that reaches a concept carries the concept's definition as its title, so a reader who rests on it sees what the word means.
+
+=>
+
+it('draws a link in prose, with the definition of the concept it reaches', () => {
+  const orders = { number: '2', title: 'Orders', slug: 'corpus/orders' }
+  const book: Corpus = {
+    nav: [{ number: 'I', name: 'Money', chapters: [orders] }],
+    pages: [
+      {
+        slug: orders.slug,
+        title: 'Orders',
+        blocks: [
+          { type: 'heading', level: 1, title: 'Orders', id: 'orders', unsettled: false },
+          {
+            type: 'prose',
+            markdown: `Every order lands on one of a customer's ${anchor('accounts')}.`,
+            links: [
+              {
+                name: 'accounts',
+                offset: 41,
+                length: 12,
+                targetSlug: 'corpus/billing',
+                targetId: 'account',
+                title: 'A ledger "of" money.',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  const html = render(at('source', { book: Option.some(book) }))
+  expect(html).toContain(
+    'one of a customer&#39;s <a href="/source/corpus/billing#account" title="A ledger &quot;of&quot; money.">accounts</a>.',
+  )
+})
+
+~
+
 The source page shows which sections are still to be settled. Here `The program` names `Greeting`, which is declared but holds no code, and `Farewell`, which only the `{To be settled}` label declares. The first anchor stays a link, marked as unsettled. The second has no link, so it draws as an unsettled mark of its own. The heading of `Greeting` carries the pill that says it is to be settled.
 
 =>

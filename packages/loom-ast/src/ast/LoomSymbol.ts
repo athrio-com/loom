@@ -6,7 +6,7 @@ import {
   type LoomHeading,
   type LoomSection,
 } from '#ast/LoomAst'
-import { boxOf, type LoomWeft, type SectionBodyWeft, type TocWeft } from '#ast/Weft'
+import { boxOf, type LoomWeft, type SectionBodyWeft } from '#ast/Weft'
 import { type WarpAnchorToken, type WarpToken } from '#ast/LoomTokens'
 
 export const SymbolKindSchema = Schema.Literals([
@@ -24,10 +24,9 @@ export const SymbolKindSchema = Schema.Literals([
   'frontmatterTitle',
   'frontmatterEntry',
   'frontmatterRootedIn',
+  'frontmatterBook',
   'frontmatterPart',
   'frontmatterPartName',
-  'tocPart',
-  'tocEntry',
   'boxName',
   'divider',
 ])
@@ -85,7 +84,7 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
       profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
     Match.when('frontmatterValue', () => profile(Option.some('string'), { structure: true })),
-    Match.whenOr('frontmatterEntry', 'frontmatterRootedIn', () =>
+    Match.whenOr('frontmatterEntry', 'frontmatterRootedIn', 'frontmatterBook', () =>
       profile(Option.some('namespace'), {
         navigation: true,
         structure: true,
@@ -100,16 +99,6 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     ),
     Match.when('frontmatterPartName', () =>
       profile(Option.some('namespace'), { navigation: true, structure: true }),
-    ),
-    Match.when('tocPart', () =>
-      profile(Option.some('namespace'), { navigation: true, structure: true }),
-    ),
-    Match.when('tocEntry', () =>
-      profile(Option.some('namespace'), {
-        navigation: true,
-        structure: true,
-        verification: true,
-      }),
     ),
     Match.when('divider', () => profile(Option.some('operator'), {})),
     Match.when('boxName', () =>
@@ -154,11 +143,7 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
     (name) => at('frontmatterEntry', name.position),
   ),
   ...optSymbol('frontmatterRootedIn', fm.rootedIn),
-]
-
-const tocSymbols = (weft: TocWeft): ReadonlyArray<Symbol> => [
-  ...optSymbol('tocPart', weft.part),
-  ...optSymbol('tocEntry', weft.title),
+  ...optSymbol('frontmatterBook', fm.book),
 ]
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
@@ -202,7 +187,6 @@ const sectionSymbols = (
     ...Array.map(anchors, (anchor) => at(anchorKind(scope, anchor), anchor.name.position)),
     ...Array.flatMap(section.code, delimiterOf),
     ...Array.flatMap([...section.preamble, ...section.code], boxSymbols),
-    ...Array.flatMap(section.entries ?? [], tocSymbols),
   ]
 }
 

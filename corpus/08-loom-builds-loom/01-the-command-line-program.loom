@@ -113,19 +113,6 @@ const weave = (file: string, out: string) =>
     yield* Console.log(`loom: wove ${file} → ${written}`)
   })
 
-## Writing the table of contents
-
-The `toc` command regenerates the book's own contents. It takes the book's path, resolves it against the working directory, hands it to the writer, and reports the file it rewrote. The writer asks the compiler to read every chapter's frontmatter and splice a fresh table of contents into the book, so the table never drifts from the corpus it describes.
-
-=>
-
-const toc = (file: string) =>
-  Effect.gen(function* () {
-    const contents = yield* LoomContents
-    const written = yield* contents.write(resolvePath(process.cwd(), file))
-    yield* Console.log(`loom: wrote the table of contents into ${written}`)
-  })
-
 ## Refreshing the summaries
 
 The `refresh` command brings every box of a corpus that points to a loom back in step with that loom. A chapter box holds a copy of its chapter's opening prose and a discussion box a copy of its discussion's summary, and a copy falls behind whenever its source changes. The command takes the path of any loom in the corpus, hands it to the writer, and names each loom it rewrote, or says that every box was already in step.
@@ -1517,7 +1504,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is fifteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is fifteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1546,8 +1533,6 @@ const formatCommand = Command.make(
   { path: Argument.String('path'), check: Flag.Boolean('check').pipe(Flag.withDefault(false)) },
   ({ path, check }) => format(path, check),
 )
-
-const tocCommand = Command.make('toc', { path: Argument.String('path') }, ({ path }) => toc(path))
 
 const refreshCommand = Command.make('refresh', { path: Argument.String('path') }, ({ path }) =>
   refresh(path),
@@ -1595,7 +1580,6 @@ const loom = Command.make('loom').pipe(
     tangleCommand,
     orphansCommand,
     weaveCommand,
-    tocCommand,
     refreshCommand,
     formatCommand,
     initCommand,
@@ -1614,7 +1598,6 @@ const loom = Command.make('loom').pipe(
 const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
-  Effect.provide(LoomContents.layer),
   Effect.provide(LoomSummaries.layer),
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
@@ -1641,7 +1624,7 @@ Node's `path` resolves a workspace directory for `init`. `node:fs` writes the co
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a reference names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes seven services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a reference names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
 From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
@@ -1689,7 +1672,6 @@ import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
-import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -1730,8 +1712,6 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 ::[Listing orphans]
 
 ::[Weaving a corpus]
-
-::[Writing the table of contents]
 
 ::[Refreshing the summaries]
 

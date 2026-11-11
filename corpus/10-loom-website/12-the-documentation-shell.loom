@@ -28,9 +28,11 @@ import {
   PickedRuntime,
   SelectedSection,
   type Block,
+  type Book,
   type Chapter,
   type CodeBlock,
   type CodeLink,
+  type ProseBlock,
   type Corpus,
   type HeadingBlock,
   type Message,
@@ -68,6 +70,8 @@ export const docsCorpus = wovenDocs as unknown as Corpus
 
 A few lookups serve the whole chapter. One finds the page a slug names, one finds the part that page belongs to, and one lists every chapter in reading order, parts and all. Each answers with an `Option` where a slug might name nothing, so a slug naming nothing stays a value rather than a crash.
 
+A corpus of several books lists its named books beside the default book's parts. `booksOf` reads them, and none from a corpus woven before books. `partsOf` gathers every part of every book, so a page finds its part whichever book it stands in, and `bookAt` finds the book a page stands in, or opens. Reading order runs through the default book first, then through each named book, from the page that opens it to its last chapter.
+
 Where no chapter is named the shell opens the first one in the corpus, which is what a reader arriving at the documentation root expects.
 
 =>
@@ -82,13 +86,33 @@ export const firstSlugOf = (corpus: Corpus): string =>
 const pageOf = (corpus: Corpus, slug: string): Option.Option<Page> =>
   Array.findFirst(corpus.pages, (page) => page.slug === slug)
 
-const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
-  Array.findFirst(corpus.nav, (part) =>
-    Array.some(part.chapters, (chapter) => chapter.slug === slug),
-  )
+const booksOf = (corpus: Corpus): ReadonlyArray<Book> =>
+  Option.getOrElse(Option.fromNullishOr(corpus.books), (): ReadonlyArray<Book> => [])
 
-const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> =>
-  Array.flatMap(corpus.nav, (part) => part.chapters)
+const partsOf = (corpus: Corpus): ReadonlyArray<Part> => [
+  ...corpus.nav,
+  ...Array.flatMap(booksOf(corpus), (book) => book.nav),
+]
+
+const holds = (parts: ReadonlyArray<Part>, slug: string): boolean =>
+  Array.some(parts, (part) => Array.some(part.chapters, (chapter) => chapter.slug === slug))
+
+const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
+  Array.findFirst(partsOf(corpus), (part) => holds([part], slug))
+
+const bookAt = (corpus: Corpus, slug: string): Option.Option<Book> =>
+  Array.findFirst(booksOf(corpus), (book) => book.slug === slug || holds(book.nav, slug))
+
+const openingOf = (book: Book): ReadonlyArray<Chapter> =>
+  book.slug === '' ? [] : [{ number: '', title: book.name, slug: book.slug }]
+
+const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
+  ...Array.flatMap(corpus.nav, (part) => part.chapters),
+  ...Array.flatMap(booksOf(corpus), (book) => [
+    ...openingOf(book),
+    ...Array.flatMap(book.nav, (part) => part.chapters),
+  ]),
+]
 
 ## The address of a chapter
 
@@ -118,13 +142,13 @@ export const docsChapterAt = (pathname: string): Option.Option<string> =>
 
 ~
 
-A corpus too large to send whole reaches its page as a slice. `sliceOf` keeps the corpus's whole table of contents and drops every page but the one a slug names. An empty slug names the corpus's first page, the one the shell opens at the corpus's base address. The server cuts the source page's slice with it, so the slice holds exactly what the shell draws.
+A corpus too large to send whole reaches its page as a slice. `sliceOf` keeps the corpus's whole table of contents, every book's included, and drops every page but the one a slug names. An empty slug names the corpus's first page, the one the shell opens at the corpus's base address. The server cuts the source page's slice with it, so the slice holds exactly what the shell draws.
 
 =>
 
 export const sliceOf = (corpus: Corpus, slug: string): Corpus => {
   const shown = slug === '' ? firstSlugOf(corpus) : slug
-  return { nav: corpus.nav, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
+  return { ...corpus, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
 }
 
 ## A chapter, cut into its parts
@@ -183,6 +207,8 @@ A run of prose is Markdown, and Markdown becomes HTML here rather than at weave 
 
 Not every fence in that Markdown is drawn as Markdown would draw it. A fenced command becomes a button that copies it, and a quoted loom becomes the landing's highlighted card. So `piecesOf` first cuts a run of prose into pieces: stretches of text, and the fences between them, each fence carrying the word after its opening backticks and the lines it holds. A stretch of text that is only blank space is dropped, so two fences in a row leave nothing between them.
 
+A run of prose may carry links, the anchors its author wrote in it. `withLinks` writes something in place of each link's span, from the last link to the first, so each link's offset still holds when its turn comes. `linkedMarkdown` writes each as a Markdown link before the run is cut into pieces: the words the author wrote, their Markdown marks escaped so they read as words, pointing at the address of the section the anchor reaches. A link to a concept keeps the concept's definition as its title, which a browser shows to a reader who rests on the link, on one line, its quotes escaped, as `markdownLink` writes it. The search writes each link's words alone, as the chapter "Searching the site" describes.
+
 A fence closes only on a line that matches it, by the rule Loom keeps: the same indent, then at least as many backticks. So a quote of four backticks can show a loom whose fenced code has three. `FENCE` captures the opening indent and backticks to hold the close against them, so the split hands back five pieces for each fence: the indent, the backticks, the word, the lines, and the text after.
 
 =>
@@ -192,6 +218,29 @@ type Piece =
   | { readonly type: 'fence'; readonly kind: string; readonly body: string }
 
 const FENCE = /^([ \t]*)(`{3,})([\w-]*)[ \t]*\r?\n([\s\S]*?)^\1\2`*[ \t]*$/m
+
+const markdownLink = (link: CodeLink, base: string): string => {
+  const title = Option.match(Option.fromNullishOr(link.title), {
+    onNone: () => '',
+    onSome: (text) => ` "${text.replace(/\s+/g, ' ').replace(/"/g, '\\"')}"`,
+  })
+  const words = link.name.replace(/[\\`*_[\]]/g, '\\$&')
+  return `[${words}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
+}
+
+export const withLinks = (prose: ProseBlock, write: (link: CodeLink) => string): string =>
+  pipe(
+    Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
+    Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
+    Array.reduce(
+      prose.markdown,
+      (markdown, link) =>
+        markdown.slice(0, link.offset) + write(link) + markdown.slice(link.offset + link.length),
+    ),
+  )
+
+const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+  withLinks(prose, (link) => markdownLink(link, base))
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
@@ -625,7 +674,7 @@ const blockOf = (
       h.h3([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
     ]),
     Match.when({ type: 'prose' }, (prose) =>
-      Array.map(piecesOf(prose.markdown), (piece) =>
+      Array.map(piecesOf(linkedMarkdown(prose, base)), (piece) =>
         piece.type === 'text'
           ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),
@@ -755,6 +804,17 @@ const breadcrumb = (
       crumbLink(root, base, firstSlugOf(corpus), h),
       h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
       ...pipe(
+        bookAt(corpus, page.slug),
+        Option.filter((book) => book.slug !== page.slug),
+        Option.map((book) => [
+          book.slug === ''
+            ? h.span([h.Class('crumb')], [book.name])
+            : crumbLink(book.name, chapterPath(base, book.slug), book.slug, h),
+          h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
+        ]),
+        Option.getOrElse((): ReadonlyArray<Html> => []),
+      ),
+      ...pipe(
         partOf(corpus, page.slug),
         Option.flatMap((part) =>
           Option.map(Array.head(part.chapters), (first) => [
@@ -778,8 +838,10 @@ The `openingPieces` function cuts the opening's prose into its text and its fenc
 
 =>
 
-const openingPieces = (cut: Cut): ReadonlyArray<Piece> =>
-  Array.flatMap(cut.opening, (block) => (block.type === 'prose' ? piecesOf(block.markdown) : []))
+const openingPieces = (cut: Cut, base: string): ReadonlyArray<Piece> =>
+  Array.flatMap(cut.opening, (block) =>
+    block.type === 'prose' ? piecesOf(linkedMarkdown(block, base)) : [],
+  )
 
 const textsOf = (pieces: ReadonlyArray<Piece>): ReadonlyArray<string> =>
   Array.flatMap(pieces, (piece) => (piece.type === 'text' ? [piece.markdown] : []))
@@ -826,7 +888,7 @@ const docHead = (
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const pieces = openingPieces(cut)
+  const pieces = openingPieces(cut, base)
   const [gist] = gistAndRest(textsOf(pieces))
   const heading = chapterHeading(page, cut)
   return h.div(
@@ -1094,6 +1156,8 @@ const menuEmblem =
 
 The menu is the corpus's own table of contents, drawn on a pale card like the cards on the site's other pages. Each part is a label in small capitals, and each chapter under it is a link to the chapter's address. The chapter on show sets in dark ink at a heavier weight, and its sections hang beneath it, smaller and indented.
 
+A corpus of several books draws its default book's parts first. Each named book follows in a group of its own: the book's name, linking to the page its book loom opens, and the book's parts beneath it, drawn as the default book's are.
+
 Only the section a reader has reached takes the accent. It turns orange and wears a small square in front, so the menu marks one place, never two. A section counts as reached once its heading has scrolled up to the top of the window. Before any has, the first is marked.
 
 The menu's groups come out of a function of their own, because the drawer draws exactly the same list on a narrow window. A reader who opens the drawer should find the menu they already know, current marker included, not a second navigation that merely resembles it.
@@ -1163,8 +1227,8 @@ const menuGroups = (
   base: string,
   markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  Array.map(corpus.nav, (part) =>
+): ReadonlyArray<Html> => {
+  const partGroup = (part: Part): Html =>
     h.div(
       [h.Class('menu-part')],
       [
@@ -1173,8 +1237,25 @@ const menuGroups = (
           chapterRows(chapter, page, cut, active, base, markFor, h),
         ),
       ],
+    )
+  const bookName = (book: Book): Html =>
+    book.slug === ''
+      ? h.span([h.Class('menu-book-name')], [book.name])
+      : h.a(
+          [
+            h.Class(book.slug === page.slug ? 'menu-book-name here' : 'menu-book-name'),
+            h.Href(chapterPath(base, book.slug)),
+            h.OnClick(OpenedChapter({ slug: book.slug })),
+          ],
+          [book.name],
+        )
+  return [
+    ...Array.map(corpus.nav, partGroup),
+    ...Array.map(booksOf(corpus), (book) =>
+      h.div([h.Class('menu-book')], [bookName(book), ...Array.map(book.nav, partGroup)]),
     ),
-  )
+  ]
+}
 
 const menu = (
   corpus: Corpus,
@@ -1358,7 +1439,7 @@ type OpeningOf = (
 ) => Opening
 
 export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
-  const [, rest] = gistAndRest(textsOf(openingPieces(cut)))
+  const [, rest] = gistAndRest(textsOf(openingPieces(cut, base)))
   const leading = [
     ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
     ...pipe(

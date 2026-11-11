@@ -6,8 +6,10 @@ import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/Lo
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
-  bookOf,
-  type Book,
+  catalogueOf,
+  type Catalogue,
+  anchorTrails,
+  bookTwinsOf,
   BoxNotice,
   boxNoticesIn,
   captionOf,
@@ -16,8 +18,12 @@ import {
   corpusErrors,
   definitionAt,
   dependentsOf,
+  conceptRenameAt,
+  conceptSymbolsIn,
   hintsAt,
+  hoverAt,
   labelSlotAt,
+  linksOf,
   moduleDiagnostics,
   namesakesOf,
   reachable,
@@ -25,22 +31,25 @@ import {
   renameAt,
   renameRangeAt,
   navigationRangeAt,
+  pathsTo,
   refreshedSummaries,
   syncedSummaries,
   transitiveDependents,
-  unresolvedTocEntriesIn,
+  unopenedBookOf,
   type CorpusLocation,
   type LoomModule,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  AmbiguousAnchor,
   DuplicateName,
   faultAt,
   faulty,
   MissingSymbol,
   SpecifierUnknown,
   StaleSummary,
-  UnresolvedTocEntry,
+  UnopenedBook,
+  UnresolvedLink,
   UnwrittenLoom,
   UnsettledTrope,
   UnsettledModule,
@@ -64,8 +73,11 @@ import {
   type FrameCompletion,
   type FrameContract,
   type FrameBox,
+  type FrameEdit,
   type FrameHint,
+  type FrameHover,
   type FrameLocation,
+  type FrameSymbol,
   type FrameToken,
   type PromisedName,
   type ServiceError,
@@ -99,7 +111,6 @@ import { WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
-import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
 type Modules = ReadonlyMap<Location, LoomModule>
 
@@ -119,8 +130,8 @@ const entryOf = (
 
 const loomName = (loom: Location): string => loom.slice(loom.lastIndexOf('/') + 1)
 
-const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  Option.match(namesakesOf(book, module), {
+const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Option.match(namesakesOf(catalogue, module), {
     onNone: (): ReadonlyArray<Diagnostic> => [],
     onSome: ({ title, looms }) =>
       faulty(
@@ -132,6 +143,45 @@ const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnosti
         title.position,
       ).diagnostics,
   })
+
+const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Array.flatMap(linksOf(module), (link) => {
+    const trails = anchorTrails(catalogue, module.path, link)
+    return Array.match(trails, {
+      onEmpty: () =>
+        faulty(UnresolvedLink({ name: link.name.value }), link.name.position).diagnostics,
+      onNonEmpty: (all) =>
+        all.length === 1
+          ? []
+          : faulty(
+              AmbiguousAnchor({
+                name: link.name.value,
+                count: all.length,
+                paths: pathsTo(catalogue, module.path, all),
+              }),
+              link.name.position,
+            ).diagnostics,
+    })
+  })
+
+const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
+  ...Option.match(bookTwinsOf(catalogue, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: ({ title, looms }) =>
+      faulty(
+        DuplicateName({
+          name: title.source,
+          sibling: 'book',
+          where: Array.join(Array.map(looms, loomName), ', '),
+        }),
+        title.position,
+      ).diagnostics,
+  }),
+  ...Option.match(unopenedBookOf(catalogue, module), {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: (line) => faulty(UnopenedBook({ name: line.value }), line.position).diagnostics,
+  }),
+]
 
 const boxNoticeHealth = (notice: BoxNotice): Health =>
   BoxNotice.$match(notice, {
@@ -150,19 +200,21 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
   })
 
 const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
-  const book = bookOf(modules)
-  const landing = landingOf(book, modules)
-  const kinds = declaredKindsOf(modules, book, installed)
-  const boundaries = boundariesOf(modules, book, kinds.tropes)
-  const used = usedSections(book, modules)
+  const catalogue = catalogueOf(modules)
+  const landing = landingOf(catalogue, modules)
+  const kinds = declaredKindsOf(modules, catalogue, installed)
+  const boundaries = boundariesOf(modules, catalogue, kinds.tropes)
+  const used = usedSections(catalogue, modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
-    ...crossFileFaults(book, modules, module, landing),
-    ...compositionCycles(book, modules, module),
+    ...crossFileFaults(catalogue, modules, module, landing),
+    ...compositionCycles(catalogue, modules, module),
     ...unusedSections(used, module),
-    ...namesakeFaults(book, module),
+    ...namesakeFaults(catalogue, module),
+    ...bookFaults(catalogue, module),
+    ...linkFaults(catalogue, module),
     ...kindFaults(kinds, module),
-    ...boundaryFaults(boundaries, book, modules, module),
+    ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
       (notice) => boxNoticeHealth(notice).diagnostics,
@@ -192,17 +244,17 @@ const resolveSinks = (
     Option.match({
       onNone: () => Effect.succeed<Resolved>({ files: [], unwritten: [] }),
       onSome: (module) => {
-        const book = bookOf(modules)
-        const landing = landingOf(book, modules)
+        const catalogue = catalogueOf(modules)
+        const landing = landingOf(catalogue, modules)
         return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.flatMap((path) =>
-              written(modules, book, landing, file.code, path).pipe(
+              written(modules, catalogue, landing, file.code, path).pipe(
                 Effect.map((paths) => ({
                   file: {
                     section: file.code.origin.name,
                     path,
-                    content: fromCode(modules, file.code, book, specifiersOf(paths)).code,
+                    content: fromCode(modules, file.code, catalogue, specifiersOf(paths)).code,
                   },
                   unwritten: paths.unwritten,
                 })),
@@ -223,13 +275,13 @@ const unsettledFailures = (
   modules: Modules,
   entry: Location,
 ): ReadonlyArray<{ readonly path: Location; readonly diagnostics: ReadonlyArray<Diagnostic> }> => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return pipe(
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
       onNone: (): ReadonlyArray<Unsettled> => [],
       onSome: (module) =>
-        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, book)),
+        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, catalogue)),
     }),
     Array.dedupeWith(
       (one, other) =>
@@ -281,7 +333,7 @@ interface Written {
 
 type WrittenFor = (
   modules: Modules,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   root: Code,
   from: Location,
@@ -446,23 +498,21 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 
 const composedFilesOf = (
   modules: Modules,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   module: LoomModule,
   paths: ReadonlyArray<Location>,
   written: WrittenFor,
 ): Effect.Effect<ReadonlyArray<ComposedFile>> =>
   Effect.forEach(Array.zip(module.product.files, paths), ([file, path]) =>
-    written(modules, book, landing, file.code, path).pipe(
-      Effect.map(
-        (specifiers): ComposedFile => ({
-          path,
-          content: fromCode(modules, file.code, book, specifiersOf(specifiers)).code,
-          loomPath: module.path,
-          rootId: file.code.origin.name.toLowerCase(),
-          heading: headingLocationOf(modules, module, file.code.origin.name),
-        }),
-      ),
+    written(modules, catalogue, landing, file.code, path).pipe(
+      Effect.map((specifiers): ComposedFile => ({
+        path,
+        content: fromCode(modules, file.code, catalogue, specifiersOf(specifiers)).code,
+        loomPath: module.path,
+        rootId: file.code.origin.name.toLowerCase(),
+        heading: headingLocationOf(modules, module, file.code.origin.name),
+      })),
     ),
   )
 
@@ -511,8 +561,8 @@ const recompose = (
 ): Effect.Effect<Composition> => {
   const stale = staleSince(previous, modules, placed)
   if (stale.size === 0) return Effect.succeed({ ...previous, modules, placed })
-  const book = bookOf(modules)
-  const landing = landingOf(book, modules)
+  const catalogue = catalogueOf(modules)
+  const landing = landingOf(catalogue, modules)
   return Effect.forEach(Array.fromIterable(modules.values()), (module) =>
     pipe(
       Option.fromNullishOr(previous.files.get(module.path)),
@@ -522,7 +572,7 @@ const recompose = (
         onNone: () =>
           composedFilesOf(
             modules,
-            book,
+            catalogue,
             landing,
             module,
             placed.get(module.path) ?? [],
@@ -583,7 +633,7 @@ const projectTree = (
   entry: LoomModule,
   specifiers: ReadonlyMap<string, Specifiers>,
 ): LoomVirtualCode => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return rootVirtualCode(
     entry.text,
     [
@@ -594,7 +644,7 @@ const projectTree = (
           fromProduct(
             modules,
             { path: entry.path, name },
-            book,
+            catalogue,
             Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
           ),
         ),
@@ -682,7 +732,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const disk = yield* LoomDiskCache
     const config = yield* WorkspaceSettings
     const weaver = yield* WeaveBuilder
-    const tocBuilder = yield* TableOfContentsBuilder
     const composed = yield* Ref.make<Composition>(noComposition)
     const packages = yield* Effect.serviceOption(LanguagePackages)
     const tropes = yield* Effect.serviceOption(TropePackages)
@@ -699,12 +748,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         onSome: (held) => held.moduleSpecifier(request),
       })
 
-    const writtenFor: WrittenFor = (modules, book, landing, root, from) =>
-      Effect.forEach(referencesIn(modules, root, book), (reference) =>
+    const writtenFor: WrittenFor = (modules, catalogue, landing, root, from) =>
+      Effect.forEach(referencesIn(modules, root, catalogue), (reference) =>
         pipe(
           Option.fromNullishOr(modules.get(reference.owner)),
           Option.map((module) =>
-            referredFileOf(book, modules, landing, module, reference.host, reference.ref),
+            referredFileOf(catalogue, modules, landing, module, reference.host, reference.ref),
           ),
           Option.filter(Referred.$is('Named')),
           Option.match({
@@ -747,11 +796,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       entry: LoomModule,
     ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
       if (!holdsReferences(modules)) return Effect.succeed(new Map())
-      const book = bookOf(modules)
-      const landing = landingOf(book, modules)
+      const catalogue = catalogueOf(modules)
+      const landing = landingOf(catalogue, modules)
       return Effect.forEach(entry.product.code, (root) =>
         fileOfRoot(entry, root).pipe(
-          Effect.flatMap((from) => writtenFor(modules, book, landing, root, from)),
+          Effect.flatMap((from) => writtenFor(modules, catalogue, landing, root, from)),
           Effect.map((written) => [root.origin.name, specifiersOf(written)] as const),
         ),
       ).pipe(Effect.map((pairs) => new Map(pairs)))
@@ -871,15 +920,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       weave: (path: Location): Effect.Effect<WovenCorpus> =>
-        buildCorpus(documents, path).pipe(Effect.flatMap((modules) => weaver.build({ modules }))),
-
-      contents: (path: Location): Effect.Effect<string> =>
         buildCorpus(documents, path).pipe(
-          Effect.flatMap((modules) =>
-            tocBuilder
-              .build({ modules })
-              .pipe(Effect.map((toc) => rewriteBook({ modules }, path, toc))),
-          ),
+          Effect.flatMap((modules) => weaver.build({ modules }, path)),
         ),
 
       summaries: (
@@ -931,20 +973,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
-                onSome: (module) => [
-                  ...corpusDiagnostics(modules, installed)(module),
-                  ...Array.flatMap(
-                    unresolvedTocEntriesIn({ modules }, module),
-                    (entry) =>
-                      faulty(
-                        UnresolvedTocEntry({
-                          title: entry.title.value,
-                          discussion: entry.discussion,
-                        }),
-                        entry.title.position,
-                      ).diagnostics,
-                  ),
-                ],
+                onSome: (module) => corpusDiagnostics(modules, installed)(module),
               }),
             ),
           ),
@@ -972,15 +1001,61 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
-      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
-        buildCorpus(documents, path).pipe(
+      symbols: (within: Location, query: string): Effect.Effect<ReadonlyArray<FrameSymbol>> =>
+        Option.match(documents.list, {
+          onNone: () => Effect.succeed<ReadonlyArray<Location>>([]),
+          onSome: (list) => list(within),
+        }).pipe(
+          Effect.flatMap((paths) =>
+            Effect.forEach(paths, (path) =>
+              loadOne(documents, path).pipe(Effect.map((module) => [path, module] as const)),
+            ),
+          ),
+          Effect.map((pairs): Modules => new Map(pairs)),
           Effect.map((modules) =>
             Array.getSomes(
+              Array.map(conceptSymbolsIn({ modules }, query), (symbol) =>
+                Option.map(frameLocationOf(modules, symbol.location), (location): FrameSymbol => ({
+                  name: symbol.name,
+                  container: symbol.container,
+                  location,
+                })),
+              ),
+            ),
+          ),
+        ),
+
+      hover: (path: Location, offset: number): Effect.Effect<FrameHover | undefined> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.getOrUndefined(
+              Option.flatMap(hoverAt({ modules }, path, offset), (card) =>
+                Option.map(
+                  frameLocationOf(modules, { path, position: card.position }),
+                  (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+      rename: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameEdit>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) => [
+            ...Array.getSomes(
               Array.map(renameAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
               ),
             ),
-          ),
+            ...Option.toArray(
+              Option.flatMap(conceptRenameAt({ modules }, path, offset), (rename) =>
+                Option.map(
+                  frameLocationOf(modules, { path: rename.kept.path, position: rename.kept.at }),
+                  (location): FrameEdit => ({ ...location, text: rename.kept.text }),
+                ),
+              ),
+            ),
+          ]),
         ),
 
       renameRange: (path: Location, offset: number): Effect.Effect<FrameLocation | undefined> =>
@@ -1170,13 +1245,6 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        LoomCorpusAstBuilder.layer,
-        LoomMemo.layer,
-        WeaveBuilder.layer,
-        TableOfContentsBuilder.layer,
-      ),
-    ),
+    Layer.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomMemo.layer, WeaveBuilder.layer)),
   )
 }

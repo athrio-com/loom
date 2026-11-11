@@ -7,7 +7,7 @@ export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName
 
 export type EmptyConstruct = MalformedConstruct | 'warpAnnotation' | 'warpDefault'
 
-export type Sibling = 'section' | 'chapter'
+export type Sibling = 'section' | 'chapter' | 'book'
 
 export type Declaration = { readonly at: Position; readonly text: string }
 
@@ -37,12 +37,12 @@ export type LoomFault = Data.TaggedEnum<{
   UnsettledSection: { readonly name: string; readonly declared: boolean }
   SettledLabel: { readonly name: string; readonly label: Position }
   DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
+  UnopenedBook: { readonly name: string }
   CrossLanguageAnchor: {
     readonly name: string
     readonly host: string
     readonly found: string
   }
-  UnresolvedTocEntry: { readonly title: string; readonly discussion: boolean }
   UnclosedFence: { readonly fence: string }
   FenceLabelAgainstLanguage: { readonly label: string; readonly language: string }
   StrayFragment: { readonly value: string }
@@ -89,6 +89,10 @@ export type LoomFault = Data.TaggedEnum<{
   HeadingAgainstCode: {}
   DividerAgainstCode: {}
   FileInDiscussion: {}
+  CodeInProse: {}
+  CodeInConcept: {}
+  ConceptWithoutCode: { readonly name: string }
+  UnresolvedLink: { readonly name: string }
   ManifestOutsideTrope: {}
   TropeRefused: { readonly reason: string }
   UnrootedTrope: { readonly trope: string }
@@ -121,8 +125,8 @@ export const {
   UnsettledSection,
   SettledLabel,
   DuplicateName,
+  UnopenedBook,
   CrossLanguageAnchor,
-  UnresolvedTocEntry,
   UnclosedFence,
   FenceLabelAgainstLanguage,
   StrayFragment,
@@ -151,6 +155,10 @@ export const {
   HeadingAgainstCode,
   DividerAgainstCode,
   FileInDiscussion,
+  CodeInProse,
+  CodeInConcept,
+  ConceptWithoutCode,
+  UnresolvedLink,
   ManifestOutsideTrope,
   TropeRefused,
   UnrootedTrope,
@@ -243,6 +251,7 @@ const knownList = (known: ReadonlyArray<string>): string => {
 const siblingPlace: Record<Sibling, (where: string) => string> = {
   section: (line) => `Another section of this loom, on line ${line},`,
   chapter: (looms) => `Another chapter of this part, in ${looms},`,
+  book: (looms) => `Another book loom, in ${looms},`,
 }
 
 const disambiguation = (paths: ReadonlyArray<string>): string =>
@@ -308,13 +317,13 @@ export const describe = (fault: LoomFault): Note =>
       information(`\`${name}\` holds code now. Remove the \`{To be settled}\` label.`),
     DuplicateName: ({ name, sibling, where }) =>
       error(`${siblingPlace[sibling](where)} is called \`${name}\` too. Rename one of them.`),
+    UnopenedBook: ({ name }) =>
+      warning(
+        `No loom opens the book \`${name}\`. Write its book loom, a loom whose frontmatter holds only \`Book: ${name}\`.`,
+      ),
     CrossLanguageAnchor: ({ name, host, found }) =>
       error(
         `\`${name}\` holds ${found} code, but this section holds ${host}. A section composes code of its own language only.`,
-      ),
-    UnresolvedTocEntry: ({ title, discussion }) =>
-      error(
-        `No ${discussion ? 'discussion' : 'chapter'} is titled \`${title}\`. Run \`loom toc\` to bring the contents up to date.`,
       ),
     StrayFragment: ({ value }) =>
       error(`This line has no place for \`${value}\`, so Loom would ignore it. Remove it.`),
@@ -415,6 +424,22 @@ export const describe = (fault: LoomFault): Note =>
     FileInDiscussion: () =>
       error(
         'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
+      ),
+    CodeInProse: () =>
+      error(
+        'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.',
+      ),
+    CodeInConcept: () =>
+      error(
+        'A concept holds no code. Quote this code in a fence, or move it to a section that realises the concept.',
+      ),
+    ConceptWithoutCode: ({ name }) =>
+      error(
+        `\`${name}\` is a concept, and a concept holds no code. Name the section whose code you mean.`,
+      ),
+    UnresolvedLink: ({ name }) =>
+      warning(
+        `Nothing is called \`${name}\`, so this link leads nowhere. Name a section, a chapter, or a form of a concept.`,
       ),
     ConclusionOutsideTopic: () =>
       error(

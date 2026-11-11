@@ -1,7 +1,7 @@
 ---
 Part II: The shape of a loom
 Chapter 1: The first syntax
-Language: Prose
+Language: TypeScript
 ---
 
 # The first syntax
@@ -16,7 +16,7 @@ The very first thing that lets us materialise a Loom program is the *arrow*. Arr
 
 ~
 
-Our very first program does nothing but show the rhythm of every Loom program. As you noticed, a *tilde* `~` marks the way back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes. The next heading ends a block of code as well, so a tilde is needed only to return to prose within the same section.
+Our very first program does nothing but show the rhythm of every Loom program. Its one line is a comment, and the next chapter, "The node foundation", begins Loom's first file with it. As you noticed, a *tilde* `~` marks the way back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes. The next heading ends a block of code as well, so a tilde is needed only to return to prose within the same section.
 
 That is the whole rhythm. The rest of Loom's syntax is a handful of marks, each small enough to show whole.
 
@@ -26,7 +26,7 @@ A loom is written in chapters, and each chapter is a file of its own. It opens w
 ---
 Part II: The shape of a loom
 Chapter 1: The first syntax
-Language: Prose
+Language: TypeScript
 ---
 ```
 
@@ -61,7 +61,7 @@ Programs written to be read.
 Prose again.
 ````
 
-A heading can say where its code goes and what Loom should make of it. A file name in brackets is a sink, the file that section's code is written to. A word in braces is a specifier. `{Tangle}` writes a section to the file its chapter's `Package` line names, so a chapter that makes one file needs no sink. `{TOC}` marks the table of contents, and a language name such as `{Bash}` switches the section's language.
+A heading can say where its code goes and what Loom should make of it. A file name in brackets is a sink, the file that section's code is written to. A word in braces is a specifier. `{Tangle}` writes a section to the file its chapter's `Package` line names, so a chapter that makes one file needs no sink. A language name such as `{Bash}` switches the section's language.
 
 ```loom
 ## The module [greeting.ts]
@@ -95,4 +95,4 @@ const salutation = '::[salutation]'
 
 Two more marks set text apart from Loom altogether. A fence in prose opens a quote, and every line up to the fence that closes it is shown verbatim, so its arrows and headings stay text. That is how this chapter shows its examples without composing them. Only a fence at the same indent and at least as long closes another, so the quote of fenced code above opens with four backticks and holds the three inside it. A box runs from a line of three colons to a line of three colons alone. The opening line may name the box and give it a kind in braces, as `::: Why a grid {Note}` does, and a box that names no kind is a note, a remark for whoever opens the loom next. Tangling drops a box, so it never reaches the code.
 
-The chapters that follow give each its shape — first the node every one of them is built from, then the tokens inside a line, the lines themselves, the sections they form, and the corpus above them.
+Loom does not work on this text directly. It reads the text into a tree, and every later pass reads that tree and adds to it. The chapters that follow give the tree its shape: first the node every part of it is built from, then the tokens inside a line, the lines themselves, the sections they form, the corpus above them, the books a corpus holds, and the concepts that name a book's ideas.

@@ -7,7 +7,7 @@ import type { LoomCorpusAst } from '@athrio/loom-ast/LoomCorpusAst'
 import { WeaveBuilder } from '../src/weave/WeaveBuilder'
 import type { CodeBlock, HeadingBlock } from '../src/weave/WovenCorpus'
 
-// A two-file corpus: a book root that carries a `{TOC}`, and a chapter whose
+// A two-file corpus: a book root with no frontmatter, and a chapter whose
 // frontmatter opens Part I — a section that defines a name and a `{Tangle}`
 // section that composes it with `::[The name]`. Weave projects this into a
 // `WovenCorpus`: a navigation tree from the corpus frontmatter, a page for the
@@ -15,12 +15,6 @@ import type { CodeBlock, HeadingBlock } from '../src/weave/WovenCorpus'
 const book = `# Loom
 
 Intro prose.
-
-# Contents {TOC}
-
-### Part I — Using Loom
-
-1. A greeting
 `
 
 const greeting = `---
@@ -77,7 +71,7 @@ const weave = (corpus: LoomCorpusAst) =>
   Effect.runSync(
     Effect.gen(function* () {
       const builder = yield* WeaveBuilder
-      return yield* builder.build(corpus)
+      return yield* builder.build(corpus, '/corpus/book.loom')
     }).pipe(Effect.provide(WeaveBuilder.layer)),
   )
 

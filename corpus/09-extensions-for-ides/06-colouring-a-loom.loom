@@ -14,9 +14,9 @@ The capture names follow the list nvim-treesitter keeps. Helix shares every name
 
 ## The frontmatter's colours
 
-The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Part` or `Chapter` line names a title, so its value is a heading, the way the headings below it are. A `Package` names a file or a folder, so its value is a path, as a sink's file is. A `Language` names a language, so its value is a type, as a specifier's label is. Any other field's value is a string.
+The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Part` or `Chapter` line names a title, so its value is a heading, the way the headings below it are. A `Book` line names a book, whose title is a heading too. A `Package` names a file or a folder, so its value is a path, as a sink's file is. A `Language` names a language, so its value is a type, as a specifier's label is. Any other field's value is a string.
 
-The patterns tell the fields apart by their keys. A `Part` key may carry a chapter as well, `Part III, Chapter 2`, so the two title keys match by the word they start with. The patterns use only a plain prefix and exact names, because Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and only the plainest patterns mean the same to both. The last pattern excludes the four keys the others claim, so no value takes two colours.
+The patterns tell the fields apart by their keys. A `Part` key may carry a chapter as well, `Part III, Chapter 2`, so the two title keys match by the word they start with. The patterns use only a plain prefix and exact names, because Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and only the plainest patterns mean the same to both. The last pattern excludes the five keys the others claim, so no value takes two colours.
 
 The key takes a colour of its own, in a section of its own, because the name of that colour is the one Helix spells differently.
 
@@ -39,6 +39,11 @@ The key takes a colour of its own, in a section of its own, because the name of 
 
 ((field
   key: (key) @_key
+  value: (value) @markup.heading)
+  (#eq? @_key "Book"))
+
+((field
+  key: (key) @_key
   value: (value) @string.special.path)
   (#eq? @_key "Package"))
 
@@ -52,6 +57,7 @@ The key takes a colour of its own, in a section of its own, because the name of 
   value: (value) @string)
   (#not-match? @_key "^Part")
   (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Book")
   (#not-eq? @_key "Package")
   (#not-eq? @_key "Language"))
 
@@ -111,7 +117,7 @@ A heading takes the heading colour of its level, from `@markup.heading.1` for a 
 
 ## Specifiers and sinks
 
-A specifier's label is a type, the language a section is written in. Two labels are not languages but instructions to Loom: `{Tangle}` writes the section to a file, and `{TOC}` makes the section a table of contents. Those two take the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets.
+A specifier's label is a type, the language a section is written in. One label is not a language but an instruction to Loom: `{Tangle}` writes the section to a file, so it takes the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets.
 
 =>
 
@@ -126,7 +132,7 @@ A specifier's label is a type, the language a section is written in. Two labels 
 
 ((specifier
   label: (label) @keyword.directive)
-  (#any-of? @keyword.directive "Tangle" "tangle" "TOC" "toc"))
+  (#any-of? @keyword.directive "Tangle" "tangle"))
 
 (sink
   [
@@ -239,7 +245,7 @@ A box's colons mark where the box opens and where it closes, as the frontmatter'
 
 ## Prose is Markdown
 
-Every run of prose is Markdown: a preamble, a prose block, the body of a box, and a table of contents. An editor leaves a node's children out of the text it injects. The children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see, and its boxes, whose lines of colons belong to Loom. A box's body is prose again, so it takes an injection of its own, and its anchors stay out of that one as well. A table of contents is the exception. Its part headings and chapter entries are nodes, but they are Markdown headings and list items as well, so the contents keep their children.
+Every run of prose is Markdown: a preamble, a prose block, and the body of a box. An editor leaves a node's children out of the text it injects. The children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see, and its boxes, whose lines of colons belong to Loom. A box's body is prose again, so it takes an injection of its own, and its anchors stay out of that one as well.
 
 =>
 
@@ -252,10 +258,6 @@ Every run of prose is Markdown: a preamble, a prose block, the body of a box, an
 ((box_body) @injection.content
   (#set! injection.language "markdown"))
 
-((toc) @injection.content
-  (#set! injection.language "markdown")
-  (#set! injection.include-children))
-
 ## A section's language
 
 Each code block is injected with its section's language, resolved by the rules of Part IV: the section's specifier, then its sink's extension, then the chapter's language. The sections below take the rules one at a time. Each pattern matches only where the rules before it do not apply, so a code block is injected once.
@@ -264,7 +266,7 @@ A pattern injects a block's `code_text` nodes, the text between its anchors, rat
 
 ## Named by a specifier
 
-A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case. Three labels are not languages: `{Tangle}` and `{TOC}` are instructions, and a `{Prose}` section is Markdown, which a pattern of its own injects. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
+A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case. Two labels are not languages: `{Tangle}` is an instruction, and a `{Prose}` section is Markdown, which a pattern of its own injects. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
 
 =>
 
@@ -381,7 +383,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     specifier: (specifier
       label: (label) @injection.language))
   (code [(code_text) @injection.content (anchor)]+)
-  (#not-match? @injection.language "^(Tangle|tangle|TOC|toc|Prose|prose)$")
+  (#not-match? @injection.language "^(Tangle|tangle|Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
 
 ((section

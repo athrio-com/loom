@@ -14,13 +14,13 @@ loom weave <path> <out>
 
 ## What comes out
 
-The output has three parts. `nav` is the corpus arranged as parts and the chapters beneath them, which is what a site's navigation is built from. `pages` is a page per chapter, each a list of blocks: a heading carries its level, its title and a slug to link to, and a prose block carries Markdown. `loose` holds chapters that belong to no part.
+The output has three parts. `nav` is the corpus's book arranged as parts and the chapters beneath them, which is what a site's navigation is built from. Chapters that belong to no part close it, under `Orphan chapters`, and the book's discussions follow, under `Back matter`, with the book's index of concepts last. `books` holds the other books of a corpus that has several: each with its name, the page that opens it, and a `nav` of its own. A corpus of one book leaves it empty. `pages` is a page per chapter, each a list of blocks: a heading carries its level, its title and a slug to link to, and a prose block carries Markdown.
 
 Because prose comes out as Markdown rather than as HTML, the site decides how to render it. Nothing about weaving assumes a browser.
 
 ## Point it at a file, not a directory
 
-Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or a spine — a file whose only job is to hold the table of contents — and it reads that file's directory and everything beneath it:
+Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or the loom that opens the corpus, and it reads that file's directory and everything beneath it:
 
 ```bash
 loom weave docs/index.loom docs.woven.json

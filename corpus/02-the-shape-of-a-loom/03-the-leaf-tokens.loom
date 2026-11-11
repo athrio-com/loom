@@ -159,7 +159,17 @@ export type SinkToken = typeof SinkTokenSchema.Type
 
 ## Frontmatter tokens
 
-A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. A chapter always names itself, and its part is named once, by the chapter that opens it: that opener announces the part on its own line and its chapter on the next — `Part III: The shape of a loom`, then `Chapter 1: The node foundation`. A later chapter carries the part by its Roman numeral alone and names itself after the comma — `Part III, Chapter 3: Wefts`. `FrontmatterPart` holds the Roman numeral, `FrontmatterPartName` the part's name where the opener declares it, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` its title. A discussion names itself the same way, with `Discussion` in place of `Chapter`, as in `Part I, Discussion 1: Waking`, and `FrontmatterDiscussion` holds its number. A discussion without a number holds an empty one, so the token still says the loom is a discussion. The chapter that roots a trope is a trope chapter, as `Part XIV, Trope Chapter 1: Mermaid` declares, and the trope takes the chapter's title for its name. Every other chapter of the trope names it with a `Rooted in:` line. `FrontmatterTrope` holds the trope's name in either place, spanning the word `Trope` of a trope chapter or the value of a `Rooted in:` line. The chapter that roots the trope also lists the trope's entries, the chapters that a chapter outside the trope may reach, as `Entries: Charging, Refunds` does, and each `FrontmatterEntry` holds the title of one entry. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
+A chapter opens with a frontmatter block: a `---` fence, a run of field lines, and a closing `---`. The block declares where the chapter belongs and what it produces, and these tokens are its parts. `FrontmatterFence` is a fence line, and its `Probe` is how the classifier finds it.
+
+A chapter always names itself, and its part is named once, by the chapter that opens it. That opener announces the part on its own line and its chapter on the next, as `Part III: The shape of a loom` and then `Chapter 1: The node foundation` do. A later chapter carries the part by its Roman numeral alone and names itself after the comma, as in `Part III, Chapter 3: Wefts`. `FrontmatterPart` holds the Roman numeral, `FrontmatterPartName` the part's name where the opener declares it, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` its title.
+
+A discussion names itself the same way, with `Discussion` in place of `Chapter`, as in `Part I, Discussion 1: Waking`, and `FrontmatterDiscussion` holds its number. A discussion without a number holds an empty one, so the token still says the loom is a discussion.
+
+The chapter that roots a trope is a trope chapter, as `Part XIV, Trope Chapter 1: Mermaid` declares, and the trope takes the chapter's title for its name. Every other chapter of the trope names it with a `Rooted in:` line. `FrontmatterTrope` holds the trope's name in either place, spanning the word `Trope` of a trope chapter or the value of a `Rooted in:` line. The chapter that roots the trope also lists the trope's entries, the chapters that a chapter outside the trope may reach, as `Entries: Charging, Refunds` does, and each `FrontmatterEntry` holds the title of one entry.
+
+A loom names the book it belongs to with a `Book:` line, as `Book: The game` does, and `FrontmatterBook` holds the book's name. A book loom names its own book with the same line, as the chapter "Books" describes.
+
+Every other line is a `key: value` pair, such as `Package` or `Language`: a `FrontmatterKey` and the `FrontmatterValue` it binds. Only the fence carries a `Probe`. The tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
 
 =>
 
@@ -198,6 +208,11 @@ export const FrontmatterEntryTokenSchema = loomNode('FrontmatterEntry', {
 })
 export type FrontmatterEntryToken = typeof FrontmatterEntryTokenSchema.Type
 
+export const FrontmatterBookTokenSchema = loomNode('FrontmatterBook', {
+  value: Schema.String,
+})
+export type FrontmatterBookToken = typeof FrontmatterBookTokenSchema.Type
+
 export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
   value: Schema.String,
 })
@@ -212,32 +227,6 @@ export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
   value: Schema.String,
 })
 export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
-
-## Table-of-contents tokens
-
-The table of contents lists the book's parts and their chapters, and these tokens are its entries. A `TocPart` is a part's line — the `#### Part III — The shape of a loom` heading that opens a part in the listing. A `TocChapter` is a chapter's number and a `TocTitle` its name, both read from a numbered item like `5. The multi-file AST`: the list number is the chapter's `Chapter N`, and the text is its title. The back matter lists the book's discussions, each as a bullet written like its identity line, `- Part I, Discussion 1: Waking`. A `TocDiscussion` holds what comes before the colon, the discussion's place and number, and the `TocTitle` holds its title. None carries a `Probe`. Like the frontmatter tokens, each is read from its line by position, once the classifier has marked the line as table-of-contents content.
-
-=>
-
-export const TocPartTokenSchema = loomNode('TocPart', {
-  value: Schema.String,
-})
-export type TocPartToken = typeof TocPartTokenSchema.Type
-
-export const TocChapterTokenSchema = loomNode('TocChapter', {
-  value: Schema.String,
-})
-export type TocChapterToken = typeof TocChapterTokenSchema.Type
-
-export const TocDiscussionTokenSchema = loomNode('TocDiscussion', {
-  value: Schema.String,
-})
-export type TocDiscussionToken = typeof TocDiscussionTokenSchema.Type
-
-export const TocTitleTokenSchema = loomNode('TocTitle', {
-  value: Schema.String,
-})
-export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
 ## Transition markers
 
@@ -627,9 +616,6 @@ export const LoomTokenSchema = Schema.Union([
   FrontmatterTitleTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterValueTokenSchema,
-  TocPartTokenSchema,
-  TocChapterTokenSchema,
-  TocTitleTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,
@@ -672,8 +658,6 @@ import { loomNode } from '#ast/LoomNode'
 ::[Sinks]
 
 ::[Frontmatter tokens]
-
-::[Table-of-contents tokens]
 
 ::[Transition markers]
 

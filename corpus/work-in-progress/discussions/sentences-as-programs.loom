@@ -1,0 +1,332 @@
+---
+Part: Work in progress
+Discussion: Sentences as programs
+---
+
+# Sentences as programs
+
+Can a sentence be a program? This discussion follows one long exploration of that question, from the trope contract, through a hello world written as a single paragraph, to a working model of the reader that answers it.
+
+It starts from tropes. A trope lets a book apply a solution that already exists, but a trope with one fixed realisation rarely fits a codebase without work. Concepts promise the adaptivity a trope lacks, and the argument climbs from there: to contracts, to a graph of meaning, to lexical forms, and to sentences that compile. A model then builds the reader those sentences need, and its runs show how far lexical forms reach and where they stop.
+
+The thread is condensed. Each message keeps the point it made and drops the rest. The paths the discussion abandoned stay in it, because they show why the conclusions hold.
+
+Concepts and tropes
+---
+
+~ Yegor
+What we want is tropes that help people apply available solutions in their codebase instantly, with little work. Authoring and feature tropes can't give that experience without adaptivity, and adaptivity needs something smarter than static source with a single variant. A concept is easy to achieve: a reference with a definition, plus the tropes that realise it. Together, concepts and tropes form a kind of global DSL, a language shared across domains. For adaptivity, the simplest tool is the lowest on the ladder of computer science: simple programming contracts.
+
+~ Claude
+A concept with variants behaves like an Effect service with several layers. The concept states what is wanted, and each variant is one realisation of it. A caller's parameters choose among the variants, so the parameters collapse the union of variants to one.
+
+~ Yegor
+It is more like a trope has a placeholder, and the placeholder refers to a concept, which can have variants. And it is better not to mix host languages in one trope. A port to Python is always a new trope, realising the same concept as the TypeScript one.
+
+~ Claude
+Then the chain reads placeholder, concept, variant. A trope's place in a book names a concept, the concept lists its variants, and each trope realises the concept in one host language.
+
+::: {Conclusion}
+A trope holds a place that refers to a concept. A concept has variants, and parameters choose one of them. A trope is written in one host language, so a port to another language is another trope that realises the same concept.
+:::
+
+Fingerprints on references
+---
+
+~ Yegor
+We could even mark every reference with a fingerprint, to detect references to prose that has changed. The CLI and the language server can both help with this. It could guarantee that no code drifts from prose that was changed.
+
+~ Claude
+The lock file already records what tangle wrote. It can also record, for every reference, a hash of the section the reference points to, as the author last reviewed it. When the section changes, the editor and the CLI show the reference as drifted, with a diff of what changed. A reference with no entry in the lock has never been reviewed. A rename carries its entries along, and remote storage keeps the lock beside the source.
+
+::: {Conclusion}
+The lock can pin a fingerprint for every reference. When a referenced section changes, the editor and the CLI report the drift until the author reviews it.
+:::
+
+Categories without category theory
+---
+
+~ Yegor
+We don't need category theory reified in code to make this work categorically. TypeScript's type system works structurally. We need only structural support, and the categorical consequences follow. We have tropes and concepts, and we also need templated sentence tropes.
+
+~ Claude
+That holds as long as the structures obey the laws. Composing A with B, and then the result with C, must give the same program as composing A with B and C already joined. An empty contribution must change nothing. A trope's code must depend only on its own parameters and roles, so that the code for a whole is the composition of the code for its parts. Concepts keep their identity by name and are checked by shape. TypeScript needed branded types for the same reason: a price and a weight share a shape and still differ. Tests in a loom can check the laws, so no type has to encode them.
+
+~ Claude
+I also proposed that contributions from across the book merge into a concept, in any order. That breaks the rule that a trope depends only on its own inputs. A sentence added in chapter 7 would change the code that chapter 1 renders.
+
+~ Yegor
+Maybe a concept must not be mutable and accumulative. These declarative sentences belong to concepts. Concepts are what a database schema reflects, and their relations are static and declarative. Logic and dynamics are about what we want to achieve.
+
+::: {Conclusion}
+Loom needs no category theory in its code, only structures that obey the laws: composition that does not depend on grouping, and tropes that depend on nothing beyond their own inputs. Concepts are immutable. A static relation belongs to its subject concept and is written where that concept is defined. Logic and dynamics belong to programs, which refer to concepts and never change them.
+:::
+
+One graph
+---
+
+~ Yegor
+It is interesting to look at all of this as a single polymorphic structure. How do we catch the whole of this graph-like structure? Can it be depicted and named?
+
+~ Claude
+The structure has two kinds of node. A work carries identity: a concept, a process, a section, a chapter. An expression carries content: a sentence, a lexical form, a code trope, a diagram. Each expression sits under a context, such as `lang=et` or `language=ts`. Four kinds of edge join the nodes:
+
+- **Realises** joins a work to one expression per context.
+- **Places** puts works inside a work, in order: sections in a chapter, steps in a process.
+- **Relates** joins two concepts, with no order, as "has one" joins an account to its plan.
+- **Refers** joins an expression to a work. An anchor is one, and so is a role in a sentence.
+
+Static and dynamic now differ by the kind of edge. Relates has no order, and places has one.
+
+~ Claude
+Tangling and reading become one operation: picking a column. Tangle picks `language=ts`, and a reader of Estonian picks `lang=et`. Mathematics calls this shape a theory and its models. Grammatical Framework calls it abstract and concrete syntax.
+
+::: {Conclusion}
+The structure is one graph of works and expressions, joined by four kinds of edge: realises, places, relates, and refers. Loom derives the graph from a corpus, so its name is the corpus graph. Tangling and reading both pick one expression per work, by context.
+:::
+
+Contracts stay in the code
+---
+
+~ Claude
+My first draft gave every concept a contract in YAML: its roles, what it yields, how it fails, what it needs, and its lexical forms. Sentences parsed against those contracts and compiled through the concepts' tropes into Effect.
+
+~ Yegor
+In this draft, authoring a concept diverges too far from literate programming. A concept needs a complex contract before it can exist. A simple pair of prose and code would beat it on ergonomics. The syntax surface must stay minimal, and only published tropes justify complex contracts.
+
+~ Claude
+The contract repeated what the code already says. The type `(theme: Account) => Effect<Receipt, ChargeFailed, Payments>` names the role, the result, the failure, and the need, and the TypeScript service knows that type without being told. Every ecosystem infers types inside a package and declares them at its boundary. A published trope is Loom's boundary.
+
+::: {Conclusion}
+Inside a book, a concept's contract is the type of its code, which the language service already knows. An explicit contract appears only where a trope is published, in its manifest.
+:::
+
+Lexical forms
+---
+
+~ Yegor
+In this chat we explore exactly the sentences, so let's not defer them. Sentences can use prebuilt vocabularies, or vocabularies written on demand. So the most important thing is support for authoring simple lexical forms together with concepts and tropes, so that sentences become programs.
+
+~ Claude
+Two attempts failed here. The first made every heading a pattern, so the heading "Charge an account" matched the sentence "charge every active account". The second let a heading hold anchors as holes, over a body written in the language one level down, so that languages could stack: TypeScript, then Effect, then a domain.
+
+~ Yegor
+The first becomes a back-and-forth game that pretends programs are prose. The second is unreadable: holes everywhere, and plain code is easier to understand and manage. A concept has lexical variants, and concepts in relations have lexical forms. Instead of abusing headings, it is better to introduce a literate syntax for lexical forms and variants:
+
+```
+# Address {Concept}
+
+Definition
+
+Lexical forms:
+- addresses
+```
+
+~ Claude
+That is how terminology work writes an entry. The standard ISO 704 separates a concept from its designations, and the TermBase eXchange format nests them as concept, then language, then term. In Loom the section is the concept, its heading is the preferred term, and the list holds the others. The same section covers the Glossary trope's `{Term}`, so the two kinds become one. A relation needs no holes either. In "a person lives at an address", the words "person" and "address" are forms of other concepts, so they are the relation's roles.
+
+~ Yegor
+Concepts are the pillars, and they should scope the context too. "One hour" can mean many things at once, in different contexts.
+
+~ Claude
+A nearer definition never overrides a wider one, as the ruling on the Glossary trope decided. So context comes from roles. In "retry a day apart", the phrase "a day" fills a role that expects a duration. In "bill one hour", the phrase "one hour" fills a role that expects billable time. When a role cannot decide between two concepts, the author names the concept explicitly.
+
+::: {Conclusion}
+A concept is a `{Concept}` section. Its heading is its preferred form, its prose is its definition, and a `Lexical forms:` list holds its other forms. A relation's forms name its roles through the forms of other concepts, with no marks for slots. The role a phrase fills decides which concept the phrase means, and when the role cannot decide, the author names the concept. Each other natural language adds a variant, with forms of its own and no code.
+:::
+
+Instances and the mathematical dialect
+---
+
+~ Yegor
+This reveals many difficulties. One of them is referring to concrete, instantiated things versus general ones. Programming languages are powerful because of their generic nature: variables, parameters, and so on. So general programming in natural language will end up as some sort of mathematical dialect.
+
+~ Claude
+Mathematics has run this experiment already. Algebra moved from words to abbreviations to symbols, and a modern paper is prose that names its variables and drops into notation when it must. Natural language handles one or two things well, with "it" and "the account". When two things of one kind meet, mathematics adds letters: "let A and B be accounts". Inform 7 and Gherkin show the same limit. Using a phrase reads well, and defining a generic one strains.
+
+::: {Conclusion}
+Genericity stays in code. Tropes are generic, and sentences instantiate them. Concepts name kinds, and instances are data. A closed set of instances may live in its concept, and open instances enter through sentences. When a sentence needs variables, it borrows the mathematical vernacular: let, where, such that.
+:::
+
+A hello world
+---
+
+~ Yegor
+This could be a hello world app:
+
+```
+John is a character in our game. He has white hair and blue eyes. His hight is 1.8m. He is tall. John is joyful person. When we say "hi" to him, he replies with a smile.
+```
+
+~ Claude
+The paragraph makes three kinds of output. The facts about John become data: his hair, his eyes, his height, and his trait. The sentence about saying "hi" becomes a handler. "He is tall" restates what the height already says, so it becomes a test. The word "hight" matches no concept, so it faults with a suggestion. The vocabulary costs about eight concepts, written once, and every later character costs only sentences.
+
+~ Claude
+The paragraph hints that John smiles because he is joyful, but the program infers nothing. "When we say hi to him" makes a rule for John alone. "A joyful character replies to hi with a smile" makes a rule for every joyful character. The subject of a sentence decides the reach of its rule.
+
+::: {Conclusion}
+Facts become data, rules become code, and restated facts become tests. The subject of a sentence moves a rule between one instance and a whole kind. The John paragraph is the acceptance test for sentence programs.
+:::
+
+Who came close
+---
+
+~ Yegor
+Did anyone achieve something close to what we discuss?
+
+~ Claude
+Nobody has combined all of it. Inform 7 comes closest. It has kinds, things declared in sentences, verbs whose inflections the author writes by hand, adjectives with thresholds, units, rules, and extensions, and its compiler is a literate program woven with Inweb. It serves one world model and one target. Catala keeps a statute's prose beside its code, article by article, without parsing the prose. Linguine compiles controlled English with references and types into Python. Grammatical Framework gives concepts forms in about forty languages but realises none of them as code. CodeSpeak compiles English specifications through a language model, so its output is not deterministic.
+
+::: {Conclusion}
+Inform 7 proves that sentence programs with hand-written forms work when the concepts are fixed in advance. Whether they work when authors write the concepts, in any domain, is the question Loom adds. Inform's source and its Inweb-woven compiler are the precedent to study first.
+:::
+
+Incomplete lexemes
+---
+
+~ Yegor
+The idea works only if authoring concepts is simple enough and lexemes compose. To write programs in natural languages there are two options: write incomplete lexemes, or implement and ship full grammars that compile down to the target programming language. The second option is just impossible.
+
+~ Claude
+Every working system chose the first option: Inform 7, Gherkin, and the rule engines that read rules from Word documents. None of them is English. Each is a dialect that reads like English. The first option works only when a sentence the vocabulary cannot read breaks nothing. In prose, such a sentence stays prose. In a sentence section, it is a gap that faults and suggests the nearest forms.
+
+::: {Conclusion}
+Vocabularies are incomplete by design, and a gap is the normal state of a sentence that no vocabulary reads yet. The mechanism stays small:
+
+- A lexeme is a phrase, and the concept words in the phrase are its slots.
+- A slot fills by type, with a literal, a named instance, or another form.
+- Authors write the forms they use, with no inflection rules.
+- "It" and "the account" mean the latest thing of that kind.
+- Only sentence sections are parsed.
+
+Sentence support is a trope, not part of the core.
+:::
+
+Concepts across the book
+---
+
+~ Yegor
+By design, concepts encode entire systems if needed, and tropes are the ways concepts are realised. So concepts are not merely containers for lexemes. They begin the vertical implementation of features. A concept might be the natural scope for linguistic meaning, and arbitrary prose implementing features in parallel with tropes is rather messy.
+
+~ Claude
+Then sentences are one kind of trope: a realisation of a concept, written in the words of the concepts it draws on. A feature then has one channel of implementation, and prose explains without implementing.
+
+~ Yegor
+A concept does not need to sit inside another. Concepts gathered as glossaries are not practical. In any book, definitions are met across the book, and the index is the place to look them up. The author defines a concept, and the concept is a promise to implement it, except for meta-concepts. The author can work on something else, then return and write a trope. Tropes can span more than one section or chapter, and the concepts within one trope are the scope.
+
+~ Claude
+The boundary a trope keeps for anchors can keep meaning as well. Inside a trope, every concept its chapters define is in scope. Outside, only the concepts in its entry chapters are visible, and nested tropes follow the rule already built. A trope's root names the concept it realises with a `Realises:` line, unless its opening section defines the concept itself. A concept owes a trope only once code or a sentence uses it, so a meta-concept needs no mark.
+
+::: {Conclusion}
+A concept is defined wherever the narrative needs it, and a derived index finds it: its forms, its tropes per host language, what is still promised, and where it is used. A trope is a cluster of chapters that realises a concept, and sentences are one kind of trope. The trope's boundary is the scope of meaning. The concepts in its entries are public, the others are private, and the book is the outermost scope.
+:::
+
+What to build
+---
+
+~ Claude
+Four steps, each useful even if the next never comes:
+
+1. **Concepts.** The `{Concept}` kind and its `Lexical forms:` list, merged with `{Term}`. Hover, go to definition, and find references work from any form, and the index appears in the editor and in the woven back matter.
+2. **Promises.** A concept without a trope shows as promised, a trope's root says what it realises, and code that uses a concept with no trope warns.
+3. **Scope.** Trope boundaries apply to concepts, and a form two concepts share faults unless a role decides.
+4. **A sentence prototype.** A trope whose language service parses `{English}` sections against the forms in scope and writes TypeScript with Effect.
+
+::: {Conclusion}
+Concepts, promises, and scope come first, because every book gains from them. The sentence prototype follows as a trope, and the John paragraph judges it. If its eight concepts feel lighter to write than the code, and every sentence beyond the vocabulary lands on a clear fault, sentence programs are worth growing.
+:::
+
+Still open
+---
+
+~ Claude
+These questions have no answer yet:
+
+- How the slots of a relation's forms bind to a trope's parameters: by type, and by name when two parameters share a type.
+- How a concept writes its closed set of instances.
+- Whether "the latest thing of that kind" settles every "it".
+- How a sentence trope assembles data, handlers, and tests into one product.
+- The exact syntax of the `Realises:` line and of variants, which waits on the chapter "Parameters in braces".
+
+A model of the reader
+---
+
+~ Yegor
+I want to see whether the assumed design works in general and is feasible. For now it only looks as if it does. I want a real model of its implementation, not in every detail, but enough to see how lexical forms compose in sentences.
+
+~ Claude
+In the model, each lexical form is a typed constructor of its concept. A word in a form is a slot when it is the name of another concept. A slot takes a name, a number, quoted text, or another form of the slot's concept, which the model reads in turn. That recursion is how forms compose. In "Transfer 100 EUR from Alice's account to Bob's account", the form `number currency` reads "100 EUR" as money, and the form `customer's account` reads each account.
+
+~ Claude
+The model read the John paragraph, a second character, and a small bank. The code it wrote typechecked and ran: two transfers moved money, a restated balance held, and a false one failed. Four rules came out of the runs:
+
+- Only a concept's name marks a slot, never one of its other forms.
+- All forms of one concept take the same slots.
+- A concept's own name inside its own form is a plain word. So no concept is built from itself, and nothing says that a sum counts as money.
+- When two slots take one concept, each slot takes its name from the word before it, as `from` and `to` do.
+
+::: {Conclusion}
+Lexical forms compose. Each form is a typed constructor of its concept, and a slot takes another concept's form in turn. Each new shape of sentence costs about one form. Reading stays fast: the model read 3,000 sentences against 400 concepts in about two seconds.
+:::
+
+Write first, teach after
+---
+
+~ Yegor
+I still do not see how authoring would work. It needs a mechanism that recognises expressions, where the author writes a sentence first and defines its meaning after.
+
+~ Claude
+When no form reads a sentence, the reader still recognises the things in it: names, numbers, quoted text, and phrases another form builds, like "Bob's account". It puts each thing's concept in the thing's place, so "He has white hair" becomes the wording `character has colour hair`. The author teaches that wording in one of two ways. When code realises the concept, the wording joins the concept's `Lexical forms:` list. When other sentences give the meaning, the author writes an example with `means`:
+
+```
+Alice pays Bob 30 EUR means transfer 30 EUR from Alice's account to Bob's account.
+```
+
+The reader finds the example's things inside the meaning, and they become the slots of a new form. Each slot takes its name from its role in the meaning: `from`, `to`, and `money`. After that, "Bob pays Alice 5 EUR" reads without help. In the model, John's paragraph needed two rounds of teaching against concepts that started with no forms, and Mary's paragraph needed two new wordings.
+
+::: {Conclusion}
+The reader recognises the things it knows in a sentence it cannot read, and it proposes a wording for the rest. The author gives the wording to a concept, or teaches a new concept by example with `means`. Either answer is written into the book as text. Teaching works for the words that name things and the relations between them.
+:::
+
+The words that carry the logic
+---
+
+~ Yegor
+Assume a backtick marks a cursor selection, made one at a time:
+
+```
+If `John` has `money` then he can get a ``.
+```
+
+Pressing the quick-fix key, cmd+., on a selection would suggest actions for it. But this is still imperfect, and it assumes something about what programming in a natural language means. Again and again, something is missing.
+
+~ Claude
+No selection can hold the meaning of "can". Nouns, verbs, and adjectives form an open class of words, and speakers coin new ones all the time. Words like "if", "then", "can", "must", "not", "a", and "every" form a small closed class, and they carry the program: a condition, a permission, a negation. The model took "If" for a misspelling of "is". With that check switched off, it proposed the whole sentence, "if" and "can" included, as one wording of one concept. To give the closed class a meaning, Loom would need a fixed table of those words and a model of the states and actions they act on.
+
+~ Yegor
+All of this is impractical. It would work only if TypeScript, or any target language, could be expressed in natural language, so that general programs are valid prose.
+
+~ Claude
+Every system that took this road became a formal language with English keywords: COBOL, AppleScript, and Inform 7. William Cook, one of AppleScript's designers, later judged it easy to read and hard to write, because its author must know the exact forms it accepts. The model hit the same wall. It read John's paragraph in one pass, and writing that paragraph took two rounds of teaching. Dijkstra made the general case in his note "On the foolishness of natural language programming". The narrowness of a formal notation, he argued, is what makes it useful.
+
+::: {Conclusion}
+Sentences are not programs. A program's logic lives in the small closed class of words, and giving those words a meaning turns a dialect into a formal language with English keywords. Loom keeps Knuth's division of labour: prose explains to a person, code instructs the machine, and a loom keeps the two side by side.
+:::
+
+What the exploration leaves
+---
+
+~ Yegor
+Overall, this exploration produced some good ideas. Lexical forms can let a trope recognise its concepts automatically, within its scope. Fingerprints track stale references. A trope's scope is a good boundary for vocabulary. Concepts replace terms. Concepts are immutable, with optional contracts. A trope could still implement parts of category theory, to allow symbolic programming. Some tropes could allow expressions in boxes, such as a concept box with expressions in it, though that is only an experiment.
+
+::: {Conclusion}
+The exploration leaves five results:
+
+- Lexical forms let a trope recognise its concepts in prose, within the trope's scope, by the recognition the model built.
+- A fingerprint on every reference reports when the referenced section changes.
+- A trope's boundary is the scope of its vocabulary.
+- The `{Concept}` section replaces the Glossary trope's `{Term}`.
+- Concepts are immutable. A contract is optional: inside a book it is the code's type, and where a trope is published it is the manifest.
+
+Two experiments remain open to tropes. A trope may implement parts of category theory, so that a book can program symbolically. A trope may also allow expressions inside a box, such as a concept box that holds them.
+:::
