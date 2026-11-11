@@ -1,3 +1,5 @@
+// Hello! This is the beginning of the Loom language.
+
 import { Schema } from 'effect'
 
 const intAtLeast = (min: number) =>

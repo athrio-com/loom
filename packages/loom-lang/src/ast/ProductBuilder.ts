@@ -36,7 +36,7 @@ import {
   type WarpAnchorToken,
   type WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
-import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { ArrowWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
   CodeSchema,
@@ -59,6 +59,7 @@ import {
 import {
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CodeInProse,
   CompositionCycle,
   CrossLanguageAnchor,
   type Declaration,
@@ -313,6 +314,7 @@ const buildSection =
         labelHealth(section, languageId),
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
+        codeInProse(section, languageId),
       ],
       okHealth,
       withHealth,
@@ -416,6 +418,17 @@ const manifestOutsideTrope = (section: LoomSection): Health =>
     onNone: () => okHealth,
     onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
   })
+
+const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
+
+const codeInProse = (section: LoomSection, languageId: string): Health =>
+  languageId === 'prose'
+    ? pipe(
+        Array.filter(section.code, isArrow),
+        Array.map((weft) => faulty(CodeInProse(), weft.arrow.position)),
+        Array.reduce(okHealth, withHealth),
+      )
+    : okHealth
 
 const buildCode = (
   section: LoomSection,

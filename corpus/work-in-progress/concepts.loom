@@ -32,7 +32,7 @@ Billing opens an account with a customer's first order, and never reuses one.
 
 The definition is what a reader sees at every link to the concept. Terminology work tests a definition by substitution, as the standard ISO 704 sets out. A good definition can stand in a sentence in place of its word, and the sentence keeps its meaning.
 
-A concept holds prose and no code. It explains an idea and composes nothing, so an arrow in a concept is a fault, as it is in prose and in a discussion. The code that makes an idea real lives in the sections and tropes that realise the concept.
+A concept holds prose and no code. It explains an idea and composes nothing, so an arrow in a concept is a fault, as it is in prose. The code that makes an idea real lives in the sections and tropes that realise the concept.
 
 A concept is immutable, which is not to say it can't be edited. The author edits a concept's section as freely as any other. Immutable means that no other section redefines the concept: nothing elsewhere overrides its definition, merges into it, or changes what its forms name. A concept therefore means the same in every chapter that links it.
 

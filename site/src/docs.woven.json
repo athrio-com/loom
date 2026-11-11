@@ -781,7 +781,7 @@
             "chapter": "04-the-format/01-syntax",
             "section": "frontmatter"
           },
-          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nPackage: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are."
+          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nPackage: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in. A chapter whose language is `Prose` holds prose and no code, so an arrow in it is an error, as it is in a section labelled `{Prose}`. These documentation pages are written that way."
         },
         {
           "type": "heading",

@@ -89,6 +89,7 @@ export type LoomFault = Data.TaggedEnum<{
   HeadingAgainstCode: {}
   DividerAgainstCode: {}
   FileInDiscussion: {}
+  CodeInProse: {}
   ManifestOutsideTrope: {}
   TropeRefused: { readonly reason: string }
   UnrootedTrope: { readonly trope: string }
@@ -151,6 +152,7 @@ export const {
   HeadingAgainstCode,
   DividerAgainstCode,
   FileInDiscussion,
+  CodeInProse,
   ManifestOutsideTrope,
   TropeRefused,
   UnrootedTrope,
@@ -415,6 +417,10 @@ export const describe = (fault: LoomFault): Note =>
     FileInDiscussion: () =>
       error(
         'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
+      ),
+    CodeInProse: () =>
+      error(
+        'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.',
       ),
     ConclusionOutsideTopic: () =>
       error(

@@ -1,7 +1,7 @@
 ---
 Part II: The shape of a loom
 Chapter 1: The first syntax
-Language: Prose
+Language: TypeScript
 ---
 
 # The first syntax
@@ -16,7 +16,7 @@ The very first thing that lets us materialise a Loom program is the *arrow*. Arr
 
 ~
 
-Our very first program does nothing but show the rhythm of every Loom program. As you noticed, a *tilde* `~` marks the way back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes. The next heading ends a block of code as well, so a tilde is needed only to return to prose within the same section.
+Our very first program does nothing but show the rhythm of every Loom program. Its one line is a comment, and the next chapter, "The node foundation", begins Loom's first file with it. As you noticed, a *tilde* `~` marks the way back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes. The next heading ends a block of code as well, so a tilde is needed only to return to prose within the same section.
 
 That is the whole rhythm. The rest of Loom's syntax is a handful of marks, each small enough to show whole.
 
@@ -26,7 +26,7 @@ A loom is written in chapters, and each chapter is a file of its own. It opens w
 ---
 Part II: The shape of a loom
 Chapter 1: The first syntax
-Language: Prose
+Language: TypeScript
 ---
 ```
 

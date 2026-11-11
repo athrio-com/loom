@@ -19,9 +19,9 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array, option, and record combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, `Data` for the tagged answers a reference gets, `Result` for a step that may stop with one of them, and `pipe` for the spine.
 
-From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body weft a code run is made of. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
+From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body wefts a code run is made of, among them the `ArrowWeft` that opens each run. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
 
-The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, and a warp raises `UnknownVariable`.
+The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, an arrow in a section written in prose raises `CodeInProse`, and a warp raises `UnknownVariable`.
 
 From the product side come the schema constructors for every node the pass builds: the `Code` of a section, its `Fragment`, `NameRef`, and `ModuleRef` leaves, and the `File` a section emits. With them come the `SectionId` that stamps each node and `keyOf`, which names it, the `Provided` names an edge records, and `isMeant`, which asks whether an edge promises its section. From the corpus model come the `LoomModule` the judgement reads, the `Book` it resolves names in through `trailsOf`, `sectionOf`, and `resolveName`, the `Place` a trail ends at, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` the judgement returns.
 
@@ -65,7 +65,7 @@ import {
   type WarpAnchorToken,
   type WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
-import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { ArrowWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
   CodeSchema,
@@ -88,6 +88,7 @@ import {
 import {
   AmbiguousAnchor,
   ChapterWithoutCode,
+  CodeInProse,
   CompositionCycle,
   CrossLanguageAnchor,
   type Declaration,
@@ -386,6 +387,7 @@ const buildSection =
         labelHealth(section, languageId),
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
+        codeInProse(section, languageId),
       ],
       okHealth,
       withHealth,
@@ -515,6 +517,25 @@ const manifestOutsideTrope = (section: LoomSection): Health =>
     onNone: () => okHealth,
     onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
   })
+
+## Prose holds no code
+
+A section written in prose holds words for a reader and no code. A section is written in prose when its heading carries the `{Prose}` specifier, or when its chapter's `Language` is `Prose` and its heading names no other language. An arrow in such a section opens code that no reader of prose expects and no file can take. So `codeInProse` gives each arrow in a prose section the `CodeInProse` fault, on the arrow itself. The section still composes what it holds, so the editor keeps serving that code until the author quotes it in a fence or names its language. A tangle refuses it, as it refuses every error. `isArrow` tells an arrow among a section's wefts.
+
+A Markdown file is no exception, because its section is not written in prose. A sink such as `[README.md]` gives its section the `markdown` language, so the section holds the file's text as code, as any other section holds its own.
+
+=>
+
+const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
+
+const codeInProse = (section: LoomSection, languageId: string): Health =>
+  languageId === 'prose'
+    ? pipe(
+        Array.filter(section.code, isArrow),
+        Array.map((weft) => faulty(CodeInProse(), weft.arrow.position)),
+        Array.reduce(okHealth, withHealth),
+      )
+    : okHealth
 
 ## Composing a section's code
 
@@ -1435,7 +1456,7 @@ A section's code is used when a file includes it: the section writes a file of i
 
 `usedSections` gathers a corpus's `Usage` once, so each loom's judgement only looks it up. Its `used` sections are the section behind every file a loom writes, and every section an anchor composes, through `composedTargetsOf`. It also says whether the corpus `writes` any file at all. A corpus that writes none is documentation rather than a program, as a book that only weaves is, so none of its code counts as unused. A manifest is read by Loom itself, so its section counts as used. A section that holds no code yet has nothing to use, and the note that it is to be settled covers it already.
 
-Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter marked `Canvas` or `Planned` is unfinished, as the chapter "Canvases" describes, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose, as every section of a chapter whose language is `Prose` is, holds words for a reader rather than code for a file, and `isProse` tells such a section.
+Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter marked `Canvas` or `Planned` is unfinished, as the chapter "Canvases" describes, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose holds no code, and any arrow in it already carries the `CodeInProse` fault, so `isProse` keeps the warning from saying the same thing twice.
 
 =>
 
@@ -1610,6 +1631,8 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[Building one section]
 
 ::[One mark for one file]
+
+::[Prose holds no code]
 
 ::[Composing a section's code]
 
