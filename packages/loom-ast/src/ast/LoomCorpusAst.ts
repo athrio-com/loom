@@ -178,6 +178,7 @@ export type Catalogue = {
   readonly boxes: ReadonlyMap<Location, ReadonlyArray<BoxRef>>
   readonly concepts: ReadonlyArray<ConceptRef>
   readonly links: ReadonlySet<string>
+  readonly books: ReadonlySet<string>
 }
 
 export const catalogueOf = (modules: Modules): Catalogue => ({
@@ -196,15 +197,13 @@ export const catalogueOf = (modules: Modules): Catalogue => ({
       Array.map(linksOf(module), (anchor) => linkKey(module.path, anchor)),
     ),
   ),
+  books: new Set(Array.getSomes(Array.map(Array.fromIterable(modules.values()), bookOf))),
 })
 
 const bookAt = (catalogue: Catalogue, from: Location): Option.Option<string> =>
   Option.flatMap(Option.fromNullishOr(catalogue.modules.get(from)), bookOf)
 
-const isBook = (catalogue: Catalogue, name: string): boolean =>
-  Array.some(Array.fromIterable(catalogue.modules.values()), (module) =>
-    Option.contains(bookOf(module), name),
-  )
+const isBook = (catalogue: Catalogue, name: string): boolean => catalogue.books.has(name)
 
 export type Place = Data.TaggedEnum<{
   Book: { readonly book: string }
@@ -854,7 +853,21 @@ export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleW
     Array.takeWhile((line) => line.source.trim() !== '' && !isFormsLine(line)),
   )
 
-const definitionOf = (section: LoomSection): string => textOf(definitionLinesOf(section))
+const plainSource = (line: PreambleWeft): string =>
+  pipe(
+    line.anchors,
+    Array.sort(
+      Order.mapInput(Order.Number, (anchor: WarpAnchorToken) => -anchor.position.start.offset),
+    ),
+    Array.reduce(line.source, (text, anchor) => {
+      const from = anchor.position.start.offset - line.position.start.offset
+      const to = anchor.position.end.offset - line.position.start.offset
+      return text.slice(0, from) + anchor.name.value + text.slice(to)
+    }),
+  )
+
+const definitionOf = (section: LoomSection): string =>
+  tidy(Array.join(Array.map(definitionLinesOf(section), plainSource), ''))
 
 const formOf = (line: LoomWeft): Option.Option<ConceptForm> =>
   Option.map(Option.fromNullishOr(formItem.exec(line.source.trim())?.[1]), (value) => {
@@ -1837,7 +1850,10 @@ export const renameAt = (
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             Option.match(conceptRenameAt(corpus, path, offset), {
-              onSome: (rename): ReadonlyArray<CorpusLocation> => [rename.heading],
+              onSome: (rename): ReadonlyArray<CorpusLocation> => [
+                rename.heading,
+                ...rename.chapter,
+              ],
               onNone: () => placeNamesAt(corpus, path, offset, segmentPosition),
             }),
           ),
@@ -1878,18 +1894,21 @@ export const renameRangeAt = (
 
 export type CorpusHover = { readonly position: Position; readonly markdown: string }
 
-export type ConceptRename = { readonly heading: CorpusLocation; readonly kept: CorpusEdit }
+export type ConceptRename = {
+  readonly heading: CorpusLocation
+  readonly kept: CorpusEdit
+  readonly chapter: ReadonlyArray<CorpusLocation>
+}
 
 const conceptMentionedAt = (
-  corpus: LoomCorpusAst,
+  catalogue: Catalogue,
+  modules: Modules,
   path: Location,
   offset: number,
-): Option.Option<ConceptRef> => {
-  const catalogue = catalogueOf(corpus.modules)
-  return Option.flatMap(mentionAt(catalogue, corpus.modules, path, offset), (mention) =>
+): Option.Option<ConceptRef> =>
+  Option.flatMap(mentionAt(catalogue, modules, path, offset), (mention) =>
     mention.place._tag === 'Section' ? conceptAt(catalogue, mention.place.ref) : Option.none(),
   )
-}
 
 const cardOf = (concept: ConceptRef): string =>
   Array.join(
@@ -1913,7 +1932,9 @@ export const hoverAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusHover> =>
-  Option.flatMap(conceptMentionedAt(corpus, path, offset), (concept) =>
+  Option.flatMap(
+    conceptMentionedAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    (concept) =>
     Option.map(navigationRangeAt(corpus, path, offset), (range) => ({
       position: range.position,
       markdown: cardOf(concept),
@@ -1975,11 +1996,26 @@ export const conceptRenameAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
-): Option.Option<ConceptRename> =>
-  Option.map(conceptMentionedAt(corpus, path, offset), (concept) => ({
+): Option.Option<ConceptRename> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.map(conceptMentionedAt(catalogue, corpus.modules, path, offset), (concept) => ({
     heading: { path: concept.module, position: concept.name.position },
     kept: keptNameOf(concept),
+    chapter: Option.match(
+      chapterTitledBy(catalogue, { module: concept.module, section: concept.section }),
+      {
+        onNone: (): ReadonlyArray<CorpusLocation> => [],
+        onSome: (chapter) =>
+          Array.filter(
+            chapterNames(catalogue, corpus.modules, chapter, segmentPosition),
+            (location) =>
+              location.path !== concept.module ||
+              location.position.start.offset !== concept.name.position.start.offset,
+          ),
+      },
+    ),
   }))
+}
 
 export type CorpusHint = { readonly offset: number; readonly label: string }
 

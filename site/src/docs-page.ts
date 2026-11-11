@@ -160,21 +160,23 @@ const markdownLink = (link: CodeLink, base: string): string => {
     onNone: () => '',
     onSome: (text) => ` "${text.replace(/\s+/g, ' ').replace(/"/g, '\\"')}"`,
   })
-  return `[${link.name}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
+  const words = link.name.replace(/[\\`*_[\]]/g, '\\$&')
+  return `[${words}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
 }
 
-const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+export const withLinks = (prose: ProseBlock, write: (link: CodeLink) => string): string =>
   pipe(
     Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
     Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
     Array.reduce(
       prose.markdown,
       (markdown, link) =>
-        markdown.slice(0, link.offset) +
-        markdownLink(link, base) +
-        markdown.slice(link.offset + link.length),
+        markdown.slice(0, link.offset) + write(link) + markdown.slice(link.offset + link.length),
     ),
   )
+
+const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+  withLinks(prose, (link) => markdownLink(link, base))
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
@@ -657,8 +659,10 @@ const breadcrumb = (
     ],
   )
 
-const openingPieces = (cut: Cut): ReadonlyArray<Piece> =>
-  Array.flatMap(cut.opening, (block) => (block.type === 'prose' ? piecesOf(block.markdown) : []))
+const openingPieces = (cut: Cut, base: string): ReadonlyArray<Piece> =>
+  Array.flatMap(cut.opening, (block) =>
+    block.type === 'prose' ? piecesOf(linkedMarkdown(block, base)) : [],
+  )
 
 const textsOf = (pieces: ReadonlyArray<Piece>): ReadonlyArray<string> =>
   Array.flatMap(pieces, (piece) => (piece.type === 'text' ? [piece.markdown] : []))
@@ -699,7 +703,7 @@ const docHead = (
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const pieces = openingPieces(cut)
+  const pieces = openingPieces(cut, base)
   const [gist] = gistAndRest(textsOf(pieces))
   const heading = chapterHeading(page, cut)
   return h.div(
@@ -1180,7 +1184,7 @@ type OpeningOf = (
 ) => Opening
 
 export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
-  const [, rest] = gistAndRest(textsOf(openingPieces(cut)))
+  const [, rest] = gistAndRest(textsOf(openingPieces(cut, base)))
   const leading = [
     ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
     ...pipe(

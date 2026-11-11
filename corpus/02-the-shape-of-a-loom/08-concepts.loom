@@ -195,7 +195,7 @@ const corpus = (looms: Record<string, string>): Record<string, string> => ({
 
 ## Links by any form
 
-A link names the concept by any of its forms, and the editor follows it to the concept's heading. Resting on the link shows the concept's card: its name, its definition, and its other forms. Neither link raises a fault.
+A link names the concept by any of its forms, and the editor follows it to the concept's heading. Resting on the link shows the concept's card: its name, its definition, and its other forms. A definition that links another concept shows that link as the plain name it gives. Neither link raises a fault.
 
 =>
 
@@ -222,6 +222,27 @@ describe('a link names a concept by any of its forms', () => {
       expect(card?.markdown).toBe(
         "**Account**\n\nA ledger that holds one customer's balance, charges, and payments.\n\nAlso: accounts, account's",
       )
+    }),
+  )
+
+  it.effect("writes a definition's links as plain words on the card", () =>
+    Effect.gen(function* () {
+      const linking = chapter(
+        ['Part I: Money', 'Chapter 1: Billing'],
+        '# Billing',
+        '',
+        '## Customer {Concept}',
+        '',
+        'A person who orders.',
+        '',
+        '## Account {Concept}',
+        '',
+        `A ledger that one ${anchor('Customer')} owns.`,
+      )
+      const card = yield* asked(corpus({ '/corpus/billing.loom': linking }), (compiler) =>
+        compiler.hover('/corpus/orders.loom', orders.indexOf(anchor('Account')) + 4),
+      )
+      expect(card?.markdown).toBe('**Account**\n\nA ledger that one Customer owns.')
     }),
   )
 

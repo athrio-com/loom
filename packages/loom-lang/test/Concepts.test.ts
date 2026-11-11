@@ -115,6 +115,27 @@ describe('a link names a concept by any of its forms', () => {
     }),
   )
 
+  it.effect("writes a definition's links as plain words on the card", () =>
+    Effect.gen(function* () {
+      const linking = chapter(
+        ['Part I: Money', 'Chapter 1: Billing'],
+        '# Billing',
+        '',
+        '## Customer {Concept}',
+        '',
+        'A person who orders.',
+        '',
+        '## Account {Concept}',
+        '',
+        `A ledger that one ${anchor('Customer')} owns.`,
+      )
+      const card = yield* asked(corpus({ '/corpus/billing.loom': linking }), (compiler) =>
+        compiler.hover('/corpus/orders.loom', orders.indexOf(anchor('Account')) + 4),
+      )
+      expect(card?.markdown).toBe('**Account**\n\nA ledger that one Customer owns.')
+    }),
+  )
+
   it.effect('raises no fault for a link that finds its concept', () =>
     Effect.gen(function* () {
       expect(yield* diagnosed(corpus({}), '/corpus/orders.loom')).toEqual([])

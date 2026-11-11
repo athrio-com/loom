@@ -207,7 +207,7 @@ A run of prose is Markdown, and Markdown becomes HTML here rather than at weave 
 
 Not every fence in that Markdown is drawn as Markdown would draw it. A fenced command becomes a button that copies it, and a quoted loom becomes the landing's highlighted card. So `piecesOf` first cuts a run of prose into pieces: stretches of text, and the fences between them, each fence carrying the word after its opening backticks and the lines it holds. A stretch of text that is only blank space is dropped, so two fences in a row leave nothing between them.
 
-A run of prose may carry links, the anchors its author wrote in it. `linkedMarkdown` writes each as a Markdown link before the run is cut into pieces: the words the author wrote, pointing at the address of the section the anchor reaches. A link to a concept keeps the concept's definition as its title, which a browser shows to a reader who rests on the link, on one line, its quotes escaped, as `markdownLink` writes it. The links go in from the last to the first, so each link's offset still holds when its turn comes.
+A run of prose may carry links, the anchors its author wrote in it. `withLinks` writes something in place of each link's span, from the last link to the first, so each link's offset still holds when its turn comes. `linkedMarkdown` writes each as a Markdown link before the run is cut into pieces: the words the author wrote, their Markdown marks escaped so they read as words, pointing at the address of the section the anchor reaches. A link to a concept keeps the concept's definition as its title, which a browser shows to a reader who rests on the link, on one line, its quotes escaped, as `markdownLink` writes it. The search writes each link's words alone, as the chapter "Searching the site" describes.
 
 A fence closes only on a line that matches it, by the rule Loom keeps: the same indent, then at least as many backticks. So a quote of four backticks can show a loom whose fenced code has three. `FENCE` captures the opening indent and backticks to hold the close against them, so the split hands back five pieces for each fence: the indent, the backticks, the word, the lines, and the text after.
 
@@ -224,21 +224,23 @@ const markdownLink = (link: CodeLink, base: string): string => {
     onNone: () => '',
     onSome: (text) => ` "${text.replace(/\s+/g, ' ').replace(/"/g, '\\"')}"`,
   })
-  return `[${link.name}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
+  const words = link.name.replace(/[\\`*_[\]]/g, '\\$&')
+  return `[${words}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
 }
 
-const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+export const withLinks = (prose: ProseBlock, write: (link: CodeLink) => string): string =>
   pipe(
     Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
     Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
     Array.reduce(
       prose.markdown,
       (markdown, link) =>
-        markdown.slice(0, link.offset) +
-        markdownLink(link, base) +
-        markdown.slice(link.offset + link.length),
+        markdown.slice(0, link.offset) + write(link) + markdown.slice(link.offset + link.length),
     ),
   )
+
+const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+  withLinks(prose, (link) => markdownLink(link, base))
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
@@ -836,8 +838,10 @@ The `openingPieces` function cuts the opening's prose into its text and its fenc
 
 =>
 
-const openingPieces = (cut: Cut): ReadonlyArray<Piece> =>
-  Array.flatMap(cut.opening, (block) => (block.type === 'prose' ? piecesOf(block.markdown) : []))
+const openingPieces = (cut: Cut, base: string): ReadonlyArray<Piece> =>
+  Array.flatMap(cut.opening, (block) =>
+    block.type === 'prose' ? piecesOf(linkedMarkdown(block, base)) : [],
+  )
 
 const textsOf = (pieces: ReadonlyArray<Piece>): ReadonlyArray<string> =>
   Array.flatMap(pieces, (piece) => (piece.type === 'text' ? [piece.markdown] : []))
@@ -884,7 +888,7 @@ const docHead = (
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const pieces = openingPieces(cut)
+  const pieces = openingPieces(cut, base)
   const [gist] = gistAndRest(textsOf(pieces))
   const heading = chapterHeading(page, cut)
   return h.div(
@@ -1435,7 +1439,7 @@ type OpeningOf = (
 ) => Opening
 
 export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
-  const [, rest] = gistAndRest(textsOf(openingPieces(cut)))
+  const [, rest] = gistAndRest(textsOf(openingPieces(cut, base)))
   const leading = [
     ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
     ...pipe(

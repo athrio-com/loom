@@ -197,7 +197,7 @@ const openingSectionOf = (module: LoomModule): Option.Option<LoomSection> =>
 
 A `Catalogue` gathers what a lookup reads: the corpus's looms, each loom's titles, every chapter of every book, and each loom's boxes that point to a chapter or a discussion, which the section "Boxes that point to looms" describes. It also holds every concept of the corpus, and the anchors that stand in prose, which link rather than compose, as the section "Concepts and the links that name them" describes. `catalogueOf` builds it from the modules once, for a caller that resolves many names over the same corpus.
 
-`bookAt` reads the book of the loom an anchor stands in, the book its bare names look through. `isBook` tells whether a name names a book, which it does when some loom of the corpus names that book.
+`bookAt` reads the book of the loom an anchor stands in, the book its bare names look through. The catalogue keeps the name of every book some loom names, once, and `isBook` tells whether a name is one of them, since a lookup asks it for every first name of every path.
 
 =>
 
@@ -208,6 +208,7 @@ export type Catalogue = {
   readonly boxes: ReadonlyMap<Location, ReadonlyArray<BoxRef>>
   readonly concepts: ReadonlyArray<ConceptRef>
   readonly links: ReadonlySet<string>
+  readonly books: ReadonlySet<string>
 }
 
 export const catalogueOf = (modules: Modules): Catalogue => ({
@@ -226,15 +227,13 @@ export const catalogueOf = (modules: Modules): Catalogue => ({
       Array.map(linksOf(module), (anchor) => linkKey(module.path, anchor)),
     ),
   ),
+  books: new Set(Array.getSomes(Array.map(Array.fromIterable(modules.values()), bookOf))),
 })
 
 const bookAt = (catalogue: Catalogue, from: Location): Option.Option<string> =>
   Option.flatMap(Option.fromNullishOr(catalogue.modules.get(from)), bookOf)
 
-const isBook = (catalogue: Catalogue, name: string): boolean =>
-  Array.some(Array.fromIterable(catalogue.modules.values()), (module) =>
-    Option.contains(bookOf(module), name),
-  )
+const isBook = (catalogue: Catalogue, name: string): boolean => catalogue.books.has(name)
 
 ~
 
@@ -941,7 +940,7 @@ A concept is a section that defines one idea, and its heading carries the `{Conc
 
 A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by its specifier, whatever its case, as the product pass reads a specifier's language. `conceptsOf` reads every concept of a loom.
 
-`definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line.
+`definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. The definition is read as plain words, for an editor's card or a link's title, so `plainSource` writes each link in a line as the name it gives, without the anchor's marks. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line.
 
 =>
 
@@ -972,7 +971,21 @@ export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleW
     Array.takeWhile((line) => line.source.trim() !== '' && !isFormsLine(line)),
   )
 
-const definitionOf = (section: LoomSection): string => textOf(definitionLinesOf(section))
+const plainSource = (line: PreambleWeft): string =>
+  pipe(
+    line.anchors,
+    Array.sort(
+      Order.mapInput(Order.Number, (anchor: WarpAnchorToken) => -anchor.position.start.offset),
+    ),
+    Array.reduce(line.source, (text, anchor) => {
+      const from = anchor.position.start.offset - line.position.start.offset
+      const to = anchor.position.end.offset - line.position.start.offset
+      return text.slice(0, from) + anchor.name.value + text.slice(to)
+    }),
+  )
+
+const definitionOf = (section: LoomSection): string =>
+  tidy(Array.join(Array.map(definitionLinesOf(section), plainSource), ''))
 
 const formOf = (line: LoomWeft): Option.Option<ConceptForm> =>
   Option.map(Option.fromNullishOr(formItem.exec(line.source.trim())?.[1]), (value) => {
@@ -2041,7 +2054,10 @@ export const renameAt = (
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             Option.match(conceptRenameAt(corpus, path, offset), {
-              onSome: (rename): ReadonlyArray<CorpusLocation> => [rename.heading],
+              onSome: (rename): ReadonlyArray<CorpusLocation> => [
+                rename.heading,
+                ...rename.chapter,
+              ],
               onNone: () => placeNamesAt(corpus, path, offset, segmentPosition),
             }),
           ),
@@ -2092,24 +2108,27 @@ A link names a concept, and a reader who rests on the link wants the concept's m
 
 Every concept is a symbol of its workspace too, so the editor's symbol search finds it by any of its forms. `conceptSymbolsIn` gives a `CorpusSymbol` for each concept with a name that holds the query, whatever its case, which `matching` tells: the concept's heading as the symbol's name, its chapter's title as the symbol's container, and where the heading stands.
 
-A concept's rename never rewrites a sentence. A link writes the form its sentence needs, so `renameAt` moves a concept's heading alone, and `conceptRenameAt` keeps the old name as a form. Its `kept` edit, which `keptNameOf` writes, puts the old heading into the `Lexical forms:` list as the list's first item, at a point `pointSpan` makes into an empty span. A concept with no list gets one under its definition, or under its heading when it has no definition. So every link still finds the concept, and every sentence reads as its author wrote it.
+A concept's rename never rewrites a sentence. A link writes the form its sentence needs, so `renameAt` moves a concept's heading alone, and `conceptRenameAt` keeps the old name as a form. Its `kept` edit, which `keptNameOf` writes, puts the old heading into the `Lexical forms:` list as the list's first item, at a point `pointSpan` makes into an empty span. A concept with no list gets one under its definition, or under its heading when it has no definition. So every link still finds the concept, and every sentence reads as its author wrote it. A concept's heading may also title its chapter, when the chapter's frontmatter names no title, and then the rename takes the chapter's own names along too: the boxes, entries and code anchors that name the chapter, which `chapterNames` gathers. Those name a chapter, not a concept, so they hold no form to keep.
 
 =>
 
 export type CorpusHover = { readonly position: Position; readonly markdown: string }
 
-export type ConceptRename = { readonly heading: CorpusLocation; readonly kept: CorpusEdit }
+export type ConceptRename = {
+  readonly heading: CorpusLocation
+  readonly kept: CorpusEdit
+  readonly chapter: ReadonlyArray<CorpusLocation>
+}
 
 const conceptMentionedAt = (
-  corpus: LoomCorpusAst,
+  catalogue: Catalogue,
+  modules: Modules,
   path: Location,
   offset: number,
-): Option.Option<ConceptRef> => {
-  const catalogue = catalogueOf(corpus.modules)
-  return Option.flatMap(mentionAt(catalogue, corpus.modules, path, offset), (mention) =>
+): Option.Option<ConceptRef> =>
+  Option.flatMap(mentionAt(catalogue, modules, path, offset), (mention) =>
     mention.place._tag === 'Section' ? conceptAt(catalogue, mention.place.ref) : Option.none(),
   )
-}
 
 const cardOf = (concept: ConceptRef): string =>
   Array.join(
@@ -2133,7 +2152,9 @@ export const hoverAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusHover> =>
-  Option.flatMap(conceptMentionedAt(corpus, path, offset), (concept) =>
+  Option.flatMap(
+    conceptMentionedAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    (concept) =>
     Option.map(navigationRangeAt(corpus, path, offset), (range) => ({
       position: range.position,
       markdown: cardOf(concept),
@@ -2195,11 +2216,26 @@ export const conceptRenameAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
-): Option.Option<ConceptRename> =>
-  Option.map(conceptMentionedAt(corpus, path, offset), (concept) => ({
+): Option.Option<ConceptRename> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.map(conceptMentionedAt(catalogue, corpus.modules, path, offset), (concept) => ({
     heading: { path: concept.module, position: concept.name.position },
     kept: keptNameOf(concept),
+    chapter: Option.match(
+      chapterTitledBy(catalogue, { module: concept.module, section: concept.section }),
+      {
+        onNone: (): ReadonlyArray<CorpusLocation> => [],
+        onSome: (chapter) =>
+          Array.filter(
+            chapterNames(catalogue, corpus.modules, chapter, segmentPosition),
+            (location) =>
+              location.path !== concept.module ||
+              location.position.start.offset !== concept.name.position.start.offset,
+          ),
+      },
+    ),
   }))
+}
 
 ## Titles beside numbers
 
