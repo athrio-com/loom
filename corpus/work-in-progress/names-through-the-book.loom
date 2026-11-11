@@ -42,7 +42,7 @@ A number names a position, not a chapter. When a chapter moves, a numbered refer
 
 A bare name is ambiguous when it matches two things at the nearest scope where it matches at all. The fault sits at the reference, not at either declaration, since both are legal where they stand. The `AmbiguousAnchor` fault lists the paths that would each resolve, and the editor offers every one of them as a fix. Two parts may each hold a chapter called "Setup", and nothing is wrong until a bare `::[Setup]` asks for one of them.
 
-A term reference, written `::[Account]{Term}`, has a lookup of its own. It looks only among terms, through the chain of glossaries that the chapter "The Glossary trope" describes, and a plain anchor never finds a term. A term and a section may therefore share a name without making a reference to either one ambiguous.
+A concept answers to every one of its forms, as the chapter "Concepts" describes, so `::[accounts]` finds the concept `Account` from anywhere in the corpus. A form is a name like a section's title. Concepts never shadow one another, though. Two concepts that share a form make a bare reference ambiguous wherever they stand, and the same fault offers a path to each.
 
 ## The lookup, changed in place
 
@@ -140,11 +140,11 @@ The editor offers a fix that declares the missing section in the anchor's own lo
 
 ## The book as a graph
 
-The book's names and references, seen together, form a graph. Its nodes are the named things of the corpus: books, parts, chapters, discussions, glossaries and their terms, sections, boxes, and the files sections emit. Its edges are the references between them, of eight kinds:
+The book's names and references, seen together, form a graph. Its nodes are the named things of the corpus: books, parts, chapters, discussions, concepts, sections, boxes, and the files sections emit. Its edges are the references between them, of eight kinds:
 
 - **Composes:** a `::[Name]` anchor in code, which draws the named section's code in place.
 - **Refers:** a `::[Name]` anchor where the code expects a module path, which names a file the book emits, the way an import names a module.
-- **Links:** a `::[Name]` anchor in prose, which a reader follows, including a reference to a term.
+- **Links:** a `::[Name]` anchor in prose, which a reader follows, including a link to a concept.
 - **Places:** a table-of-contents entry, or a prose anchor that places a chapter in the book.
 - **Emits:** a sink on a heading, from its section to the file the section writes.
 - **Declares:** a box of kind `Chapter` or `Discussion`, from the box to the loom it points to.

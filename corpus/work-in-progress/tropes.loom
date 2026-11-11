@@ -10,7 +10,7 @@ Language: TypeScript
 
 Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. It also gives the editor its support for Loom's own syntax and for prose. Everything else Loom does for a book comes from a trope.
 
-A trope adds to Loom as a language, to the way people interact with a book, or to the book itself. TypeScript's checks come from a trope. So do a mark for citing a paper, a kind of box that draws a diagram, a glossary of a book's terms, a view that shows a game running beside its code, a model that completes a line, and a chapter that sets up a release pipeline, written once for any book to take up.
+A trope adds to Loom as a language, to the way people interact with a book, or to the book itself. TypeScript's checks come from a trope. So do a mark for citing a paper, a kind of box that draws a diagram, a view that shows a game running beside its code, a model that completes a line, and a chapter that sets up a release pipeline, written once for any book to take up.
 
 A trope is itself a loom, of the kind `Trope`, which a book keeps in its back matter. A package carries a trope's loom to other books.
 
@@ -175,15 +175,17 @@ The `contract` field names the version a trope was built against. Each Loom rele
 
 ## Extending the language
 
-A trope extends Loom's language by declaring kinds. A kind is a named sort of loom, section, box, or anchor. An author picks a loom's kind in its identity line, and the kind of a section, a box, or an anchor in its specifier, as the chapter "Parameters in braces" describes. The Glossary trope that Loom ships declares three kinds:
+A trope extends Loom's language by declaring kinds. A kind is a named sort of loom, section, box, or anchor. An author picks a loom's kind in its identity line, and the kind of a section, a box, or an anchor in its specifier, as the chapter "Parameters in braces" describes. A trope for decision records, the short documents in which a team records a choice and the options it weighed, declares three kinds:
 
 ```
 "kinds": {
-  "loom":    [{ "kind": "Glossary", "numbered": false, "zone": "back", "code": "none", "holds": ["Term"] }],
-  "section": [{ "kind": "Term", "code": "none", "parameters": { "override": "boolean" } }],
-  "anchor":  [{ "kind": "Term", "in": "prose", "parameters": { "text": "text" } }]
+  "loom":    [{ "kind": "Decision", "numbered": true, "zone": "back", "code": "none", "holds": ["Option"] }],
+  "section": [{ "kind": "Option", "code": "none", "parameters": { "status": { "choice": ["chosen", "rejected"] }, "replaces": "reference" } }],
+  "anchor":  [{ "kind": "Decision", "in": "prose" }]
 }
 ```
+
+A decision is a loom of its own, numbered among the book's decisions and placed in its back matter. Each option it weighs is a section. The `status` parameter of an option takes one of two words, and its `replaces` parameter names an option that an earlier decision chose. A prose anchor of the `Decision` kind cites a decision from any chapter.
 
 A kind lists the parameters its specifier may hold, and each parameter has a key and a value type. The key belongs to the trope. It is new syntax, which Loom learns only from the manifest. The value type comes from a fixed list in the contract: text, a number, a boolean, a choice among words the key lists, a locale tag, a reference, or a list of any one of these. A manifest writes a list as `{ "list": "reference" }` and a choice as `{ "choice": ["draft", "done"] }`. The chapter "Parameters in braces" describes each type, and how the core reads a value through its key's declared type rather than from the value's look. The type is all the core needs to handle a value. A trope that needs a type the list lacks, such as a date, asks for the contract to grow.
 
@@ -404,7 +406,7 @@ A trope that keeps failing, or that the editor stops, costs only itself. Its con
 ## What this chapter grows into
 
 1. The contract's manifest schema, in Effect Schema and versioned by the `contract` field: the language service as the first kind of contribution, TypeScript declared as a bundled trope, and the loader reading a language's `id`, `displayName`, and `extensions` from the manifest instead of from the package's export.
-2. Declared kinds beyond boxes: kinds of loom, section, and anchor, the `headings` key, the value types, data bodies checked against their schemas, the registry read from packages as a workspace opens, and relations shown as edges in the book's graph, with the Glossary trope among the first to declare them.
+2. Declared kinds beyond boxes: kinds of loom, section, and anchor, the `headings` key, the value types, data bodies checked against their schemas, the registry read from packages as a workspace opens, and relations shown as edges in the book's graph.
 3. Third-party packages in the store: named in full, built against a contract version, installed with their install scripts off, and pinned by version and integrity.
 4. The sandbox around every trope process, with the default rights, an explicit environment, and Loom's own protected paths.
 5. Grants: `loom add` shows what a trope asks for and records the grant, and an update that asks for more asks again.
