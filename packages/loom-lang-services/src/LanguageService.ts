@@ -92,6 +92,16 @@ export interface FrameHover {
   readonly markdown: string
 }
 
+export interface FrameFix {
+  readonly title: string
+  readonly edits: ReadonlyArray<FrameEdit>
+}
+
+export interface FrameMove {
+  readonly concept: string
+  readonly targets: ReadonlyArray<FrameFix>
+}
+
 export interface FrameToken {
   readonly range: FrameLocation['range']
   readonly type: SemanticToken
@@ -125,6 +135,8 @@ export interface FrameQueryApi {
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly hover: (path: string, offset: number) => FrameHover | undefined
+  readonly links: (path: string, start: number, end: number) => ReadonlyArray<FrameFix>
+  readonly moves: (path: string, offset: number) => ReadonlyArray<FrameMove>
   readonly symbols: (query: string) => ReadonlyArray<FrameSymbol>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameEdit>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined

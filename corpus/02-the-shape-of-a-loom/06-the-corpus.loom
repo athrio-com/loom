@@ -85,13 +85,13 @@ A book loom opens its book rather than standing in it, as the chapter "Books" de
 
 =>
 
-type PartRef = {
+export type PartRef = {
   readonly book: Option.Option<string>
   readonly number: Option.Option<string>
   readonly name: Option.Option<string>
 }
 
-type Chapter = {
+export type Chapter = {
   readonly title: string
   readonly number: Option.Option<string>
   readonly discussion: boolean
@@ -266,7 +266,7 @@ export type Trail = Array.NonEmptyReadonlyArray<Step>
 
 A name in a path is a title or a number. `Part II` names a part by its number, `Chapter 6` a chapter by its number, and `Discussion 1` a discussion by its number, the way a loom's identity line names them, and any other name is a title. A discussion is a loom of its own kind, which sits in its part beside the chapters, so a title finds a discussion wherever it finds a chapter. Chapters and discussions are numbered apart, so a number finds only its own kind, through `numberedSteps`. `numberIn` reads the number out of a name that opens with a keyword: `Part`, `Chapter`, or `Discussion`.
 
-`stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top, a segment names a book, or a part or a chapter of the anchor's own book. Inside a book, it names a part or a chapter of that book. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's boxes that point to a loom, by its name. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part of a book by a test on its `PartRef`, and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a book, or of one part of it, that pass a test.
+`stepsNamed` finds the places a segment can mean inside a scope, and records for each whether the segment named it by number. At the top, a segment names a book, or a part or a chapter of the anchor's own book. Inside a book, it names a part or a chapter of that book. Inside a part, it names a chapter of that part. Inside a chapter, it names one of the chapter's sections by its title, since a section has no number, or one of the chapter's boxes that point to a loom, by its name. It also names one of the chapter's concepts by any of its forms, which `conceptNamedIn` finds, so a path to a concept can end in the word its sentence needs. Inside a section or a box, it finds nothing, so the walk ends there. `partsWhere` finds a part of a book by a test on its `PartRef`, and keeps the reference of the first chapter in it, which carries the part's number and its name both. `chaptersWithin` finds the chapters of a book, or of one part of it, that pass a test.
 
 `walk` follows a path's segments through `stepsNamed`, one scope deeper for each, starting from the anchor's own book. A book and a part each group chapters and stand for no section of their own, which `groupsChapters` tells. So a trail is `finished` anywhere else, a trail that ends at a book or a part resolves nothing, and a bare name never finds either.
 
@@ -382,15 +382,22 @@ const stepsNamed = (
         Match.tag('Part', ({ part }) => chapterSteps(part.book, Option.some(part))),
         Match.tag('Chapter', ({ chapter }) =>
           Option.toArray(
-            Option.orElse(
+            pipe(
               Option.map(sectionTitled(catalogue, chapter.module.path, segment.text), (ref) =>
                 step(false)(Place.Section({ ref })),
               ),
-              () =>
+              Option.orElse(() =>
                 Option.map(boxNamed(catalogue, chapter.module.path, segment.text), (ref) => ({
                   ...step(false)(boxPlace(catalogue, ref)),
                   through: throughOf(ref),
                 })),
+              ),
+              Option.orElse(() =>
+                Option.map(
+                  conceptNamedIn(catalogue, chapter.module.path, segment.text),
+                  (concept) => step(false)(Place.Section({ ref: conceptSectionOf(concept) })),
+                ),
+              ),
             ),
           ),
         ),
@@ -559,9 +566,11 @@ An ambiguous name reaches several places, and a longer path can name each of the
 
 `namesFor` lists the paths that can name a place, shortest first. A path names a chapter by its title, or by its part and its title. A path names a section by its chapter and its title, or by the chapter's part, the chapter, and the title, and it names a box the same way, by the box's name. `chapterOf` finds the chapter a section's loom declares, and `throughPart` adds the longer path when the chapter belongs to a part. `throughBook` adds a path that starts with the chapter's book for each of those, when the chapter belongs to a named book, so an anchor in another book reaches it too. `samePlace` compares two places, and `leadsTo` resolves a path through `trailsOf` and accepts it when its one trail ends at the place. A place that no path names alone gets none, such as one of two sections that share a title in one loom.
 
+A link that names a concept by one of its forms keeps the word it wrote, since that word is the one its sentence needs. So `formNamesFor` puts the paths that end in that word before the paths `namesFor` gives, when the place is a concept and the word is one of its names. `conceptPathOf` gives the path to one concept that ends in a word the concept answers to, for an editor that offers a link to the concept a word means.
+
 =>
 
-const chapterOf = (catalogue: Catalogue, module: Location): Option.Option<Chapter> =>
+export const chapterOf = (catalogue: Catalogue, module: Location): Option.Option<Chapter> =>
   Array.findFirst(catalogue.chapters, (chapter) => chapter.module.path === module)
 
 const throughPart = (
@@ -634,6 +643,25 @@ const leadsTo =
       samePlace(Array.lastNonEmpty(trail).place, place),
     )
 
+const formNamesFor = (
+  catalogue: Catalogue,
+  place: Place,
+  said: string,
+): ReadonlyArray<ReadonlyArray<string>> =>
+  place._tag !== 'Section'
+    ? []
+    : pipe(
+        conceptAt(catalogue, place.ref),
+        Option.filter((concept) =>
+          Array.some(conceptNames(concept), (name) => foldFirst(name) === foldFirst(said)),
+        ),
+        Option.flatMap((concept) => chapterOf(catalogue, concept.module)),
+        Option.match({
+          onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
+          onSome: (chapter) => throughBook(chapter, throughPart(chapter, [chapter.title, said])),
+        }),
+      )
+
 export const pathsTo = (
   catalogue: Catalogue,
   from: Location,
@@ -641,12 +669,37 @@ export const pathsTo = (
 ): ReadonlyArray<string> =>
   Array.getSomes(
     Array.map(trails, (trail) => {
-      const place = Array.lastNonEmpty(trail).place
+      const last = Array.lastNonEmpty(trail)
       return Array.findFirst(
-        Array.map(namesFor(catalogue, place), (names) => Array.join(names, ', ')),
-        leadsTo(catalogue, from, place),
+        Array.map(
+          [
+            ...formNamesFor(catalogue, last.place, last.segment.text),
+            ...namesFor(catalogue, last.place),
+          ],
+          (names) => Array.join(names, ', '),
+        ),
+        leadsTo(catalogue, from, last.place),
       )
     }),
+  )
+
+export const conceptPathOf = (
+  catalogue: Catalogue,
+  from: Location,
+  concept: ConceptRef,
+  form: string,
+): Option.Option<string> =>
+  Array.head(
+    pathsTo(catalogue, from, [
+      [
+        {
+          segment: whole(form),
+          place: Place.Section({ ref: conceptSectionOf(concept) }),
+          numbered: false,
+          through: Option.none(),
+        },
+      ],
+    ]),
   )
 
 ~
@@ -940,7 +993,7 @@ A concept is a section that defines one idea, and its heading carries the `{Conc
 
 A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by its specifier, whatever its case, as the product pass reads a specifier's language. `conceptsOf` reads every concept of a loom.
 
-`definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. The definition is read as plain words, for an editor's card or a link's title, so `plainSource` writes each link in a line as the name it gives, without the anchor's marks. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line.
+`definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. The definition is read as plain words, for an editor's card or a link's title, so `plainSource` writes each link in a line as the name it gives, without the anchor's marks. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line. `formLinesOf` gives that line together with its items. Those lines name the concept rather than use it, so the editor's reading of plain prose passes over them.
 
 =>
 
@@ -961,7 +1014,7 @@ const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line
 
 const formItem = /^[-*]\s+(\S.*?)\s*$/
 
-const formsLineOf = (section: LoomSection): Option.Option<LoomWeft> =>
+const formsLineOf = (section: LoomSection): Option.Option<PreambleWeft> =>
   Array.findFirst(section.preamble, isFormsLine)
 
 export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
@@ -999,21 +1052,24 @@ const formOf = (line: LoomWeft): Option.Option<ConceptForm> =>
     }
   })
 
-const formsOf = (section: LoomSection): ReadonlyArray<ConceptForm> =>
+const formItemsOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
   pipe(
     Array.findFirstIndex(section.preamble, isFormsLine),
     Option.map((at) =>
-      Array.getSomes(
-        Array.map(
-          Array.takeWhile(Array.drop(section.preamble, at + 1), (line) =>
-            formItem.test(line.source.trim()),
-          ),
-          formOf,
-        ),
+      Array.takeWhile(Array.drop(section.preamble, at + 1), (line) =>
+        formItem.test(line.source.trim()),
       ),
     ),
-    Option.getOrElse((): ReadonlyArray<ConceptForm> => []),
+    Option.getOrElse((): ReadonlyArray<PreambleWeft> => []),
   )
+
+const formsOf = (section: LoomSection): ReadonlyArray<ConceptForm> =>
+  Array.getSomes(Array.map(formItemsOf(section), formOf))
+
+export const formLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> => [
+  ...Option.toArray(formsLineOf(section)),
+  ...formItemsOf(section),
+]
 
 const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
   Array.getSomes(
@@ -1032,9 +1088,9 @@ const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
 
 ~
 
-An anchor in code composes the section it names, and an anchor in prose links to it. A link may name a concept by any of its forms, from anywhere in the corpus. No book, part, or chapter closes a concept to a link from outside it, and no concept shadows another. So a link looks among the corpus's concepts before it looks anywhere nearer, and a form that two concepts share names both, an ambiguity the faults report with a path to each. A link that names no concept resolves as any anchor does, nearest first.
+An anchor in code composes the section it names, and an anchor in prose links to it. A link may name a concept by any of its forms, from anywhere in the corpus. A form matches whatever the case of its first letter, so a sentence that opens on `Accounts` links the form `accounts`, and a sentence that says `account` links the heading `Account`. Every other letter matches as written. No book, part, or chapter closes a concept to a link from outside it, and no concept shadows another. So a link looks among the corpus's concepts before it looks anywhere nearer, and a form that two concepts share names both, an ambiguity the faults report with a path to each. A link that names no concept resolves as any anchor does, nearest first.
 
-`linksOf` gives the anchors of a loom that stand in prose: in the loom's preamble, in a section's lines before its first arrow, and in the prose after a tilde. `sectionLinksOf` gives those of one section. `linkKey` names such an anchor by its loom and the offset of its name, and the `Catalogue` keeps the keys of them all, so `anchorTrails` tells a link from an anchor in code. `conceptNames` lists the names of a concept, its heading first. `conceptsCalled` finds every concept a name is a form of, and `conceptTrails` makes each into a trail that ends at the concept's section. `linkTrailsOf` is a link's lookup: the concepts first, then the nearest place. `conceptAt` finds the concept a section defines, for the editor's card and the woven index.
+`linksOf` gives the anchors of a loom that stand in prose: in the loom's preamble, in a section's lines before its first arrow, and in the prose after a tilde. `sectionLinksOf` gives those of one section. `linkKey` names such an anchor by its loom and the offset of its name, and the `Catalogue` keeps the keys of them all, so `anchorTrails` tells a link from an anchor in code. `conceptNames` lists the names of a concept, its heading first. `foldFirst` lowers a name's first letter, so two names that differ there alone fold to one. `conceptsCalled` finds every concept a name is a form of, folded that way, and `conceptTrails` makes each into a trail that ends at the concept's section, which `conceptSectionOf` gives. `conceptNamedIn` finds the concept of one loom that a name is a form of, for a path that ends inside a chapter. `linkTrailsOf` is a link's lookup: the concepts first, then the nearest place. `conceptAt` finds the concept a section defines, for the editor's card and the woven index.
 
 =>
 
@@ -1055,19 +1111,35 @@ export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> => [
 const linkKey = (path: Location, anchor: WarpAnchorToken): string =>
   `${path}#${anchor.name.position.start.offset}`
 
-const conceptNames = (concept: ConceptRef): ReadonlyArray<string> => [
+export const conceptNames = (concept: ConceptRef): ReadonlyArray<string> => [
   concept.name.source,
   ...Array.map(concept.forms, (form) => form.value),
 ]
 
+export const foldFirst = (name: string): string => name.charAt(0).toLowerCase() + name.slice(1)
+
 export const conceptsCalled = (catalogue: Catalogue, name: string): ReadonlyArray<ConceptRef> =>
-  Array.filter(catalogue.concepts, (concept) => Array.contains(conceptNames(concept), name))
+  Array.filter(catalogue.concepts, (concept) =>
+    Array.some(conceptNames(concept), (form) => foldFirst(form) === foldFirst(name)),
+  )
+
+export const conceptSectionOf = (concept: ConceptRef): SectionRef => ({
+  module: concept.module,
+  section: concept.section,
+})
+
+const conceptNamedIn = (
+  catalogue: Catalogue,
+  module: Location,
+  name: string,
+): Option.Option<ConceptRef> =>
+  Array.findFirst(conceptsCalled(catalogue, name), (concept) => concept.module === module)
 
 const conceptTrails = (catalogue: Catalogue, name: string): ReadonlyArray<Trail> =>
   Array.map(conceptsCalled(catalogue, name), (concept): Trail => [
     {
       segment: whole(name),
-      place: Place.Section({ ref: { module: concept.module, section: concept.section } }),
+      place: Place.Section({ ref: conceptSectionOf(concept) }),
       numbered: false,
       through: Option.none(),
     },
@@ -2120,7 +2192,7 @@ export type ConceptRename = {
   readonly chapter: ReadonlyArray<CorpusLocation>
 }
 
-const conceptMentionedAt = (
+export const conceptMentionedAt = (
   catalogue: Catalogue,
   modules: Modules,
   path: Location,
@@ -2130,7 +2202,7 @@ const conceptMentionedAt = (
     mention.place._tag === 'Section' ? conceptAt(catalogue, mention.place.ref) : Option.none(),
   )
 
-const cardOf = (concept: ConceptRef): string =>
+export const cardOf = (concept: ConceptRef): string =>
   Array.join(
     [
       `**${concept.name.source}**`,

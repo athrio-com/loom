@@ -1241,7 +1241,7 @@ const workspaceAt = (root: string, service: string): string => {
 
 The cases start the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The client hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit. `definition` asks where the name at one place in a loom is defined, and keeps the loom and the line of each answer, whether the server answers with a location or a link. `rename` asks for the edits that rename the name at one place, and keeps the loom, the line, and the new text of each, whether the edits arrive by document or as changes.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case may hand it the `experimental` capabilities an editor states as well, such as the commands the editor runs itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit. `definition` asks where the name at one place in a loom is defined, and keeps the loom and the line of each answer, whether the server answers with a location or a link. `rename` asks for the edits that rename the name at one place, and keeps the loom, the line, and the new text of each, whether the edits arrive by document or as changes.
 
 =>
 
@@ -1249,7 +1249,7 @@ const serverEntry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
 
 const tsdk = dirname(createRequire(import.meta.url).resolve('typescript/lib/typescript.js'))
 
-const editorAt = async (folder: string) => {
+const editorAt = async (folder: string, experimental?: unknown) => {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'LOOM_HOME'))
   const child = spawn(process.execPath, [serverEntry, '--stdio'], {
     env,
@@ -1273,7 +1273,10 @@ const editorAt = async (folder: string) => {
     processId: process.pid,
     rootUri: pathToFileURL(folder).href,
     workspaceFolders: [{ uri: pathToFileURL(folder).href, name: 'outer' }],
-    capabilities: { workspace: { didChangeWatchedFiles: { dynamicRegistration: true } } },
+    capabilities: {
+      workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
+      ...(experimental === undefined ? {} : { experimental }),
+    },
     initializationOptions: { typescript: { tsdk } },
   })
   await connection.sendNotification('initialized', {})
@@ -1941,6 +1944,68 @@ describe('LoomServer — a fix for an ambiguous anchor', () => {
     } finally {
       editor.close()
     }
+  }, 30_000)
+})
+
+## Testing a concept moved up
+
+The corpus loom `book.loom` has no frontmatter, so it stands for the corpus. The chapter `Accounts` of Part I defines the concept `Account`, whose heading stands on line 7. The quick fix on that heading moves the concept up, and the default book has no loom of its own, so the nearest scope with a home is the corpus. An editor with no picker is offered that one move, which edits both looms. An editor that runs `loom.moveConcept` itself is offered one action instead, which runs the command with every target. `moveCase` builds the corpus, starts an editor with the given capabilities, and gives the moves it is offered on the heading.
+
+=>
+
+describe('LoomServer — a concept moved up', () => {
+  const moveCase = async (experimental?: unknown): Promise<ReadonlyArray<CodeAction>> => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    chapterAt(root, 'book.loom', lines('# Money', '', 'A corpus about money.'))
+    const accounts = chapterAt(
+      root,
+      'accounts.loom',
+      lines(
+        '---',
+        'Part I: Billing',
+        'Chapter 1: Accounts',
+        '---',
+        '',
+        '# Accounts',
+        '',
+        '## Account {Concept}',
+        '',
+        'A ledger.',
+      ),
+    )
+    const editor = await editorAt(root, experimental)
+    try {
+      await editor.open(accounts)
+      return (await editor.fixes(accounts, 7)).filter((action) => action.kind === 'refactor.move')
+    } finally {
+      editor.close()
+    }
+  }
+
+  it('offers the nearest scope to an editor with no picker', async () => {
+    const actions = await moveCase()
+    expect(
+      actions.map((action) => [
+        action.title,
+        Object.keys(action.edit?.changes ?? {})
+          .map((uri) => uri.slice(uri.lastIndexOf('/') + 1))
+          .sort(),
+      ]),
+    ).toEqual([['Move `Account` up to the corpus', ['accounts.loom', 'book.loom']]])
+  }, 30_000)
+
+  it('hands every target to an editor that picks', async () => {
+    const actions = await moveCase({ commands: { commands: ['loom.moveConcept'] } })
+    expect(
+      actions.map((action) => [
+        action.title,
+        action.command?.command,
+        (action.command?.arguments?.[0] as ReadonlyArray<{ readonly title: string }>).map(
+          (target) => target.title,
+        ),
+      ]),
+    ).toEqual([['Move `Account` up…', 'loom.moveConcept', ['Move `Account` up to the corpus']]])
   }, 30_000)
 })
 
@@ -2702,6 +2767,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing where a TypeScript 6 comes from]
 
 ::[Testing a fix for an ambiguous anchor]
+
+::[Testing a concept moved up]
 
 ::[Testing the title beside a number]
 

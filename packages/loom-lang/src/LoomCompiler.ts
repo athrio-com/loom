@@ -74,9 +74,11 @@ import {
   type FrameContract,
   type FrameBox,
   type FrameEdit,
+  type FrameFix,
   type FrameHint,
   type FrameHover,
   type FrameLocation,
+  type FrameMove,
   type FrameSymbol,
   type FrameToken,
   type PromisedName,
@@ -87,6 +89,16 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
 import { TropePackages } from './TropePackages'
 import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
+import {
+  type ConceptFix,
+  conceptReferencesAt,
+  linksAt,
+  movesAt,
+  recognisedDefinitionAt,
+  recognisedHoverAt,
+  recognisedRangeAt,
+  vocabulariesIn,
+} from '#ast/ConceptScope'
 import {
   contractsIn,
   fromCode,
@@ -415,6 +427,18 @@ const frameLocationOf = (
       end: lineCharAt(text, location.position.end.offset),
     },
   }))
+
+const frameFixOf = (modules: Modules, fix: ConceptFix): FrameFix => ({
+  title: fix.title,
+  edits: Array.getSomes(
+    Array.map(fix.edits, (edit) =>
+      Option.map(
+        frameLocationOf(modules, { path: edit.path, position: edit.at }),
+        (location): FrameEdit => ({ ...location, text: edit.text }),
+      ),
+    ),
+  ),
+})
 
 const headingLocationOf = (modules: Modules, module: LoomModule, name: string): FrameLocation =>
   pipe(
@@ -983,8 +1007,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Option.getOrUndefined(
-              Option.flatMap(definitionAt({ modules }, path, offset), (loc) =>
-                frameLocationOf(modules, loc),
+              Option.flatMap(
+                Option.orElse(definitionAt({ modules }, path, offset), () =>
+                  recognisedDefinitionAt(vocabulariesIn(modules), path, offset),
+                ),
+                (loc) => frameLocationOf(modules, loc),
               ),
             ),
           ),
@@ -994,10 +1021,32 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(referencesAt({ modules }, path, offset), (loc) =>
-                frameLocationOf(modules, loc),
+              Array.map(
+                Option.getOrElse(conceptReferencesAt(vocabulariesIn(modules), path, offset), () =>
+                  referencesAt({ modules }, path, offset),
+                ),
+                (loc) => frameLocationOf(modules, loc),
               ),
             ),
+          ),
+        ),
+
+      links: (path: Location, start: number, end: number): Effect.Effect<ReadonlyArray<FrameFix>> =>
+        Effect.all([config.resolve(path), buildCorpus(documents, path)]).pipe(
+          Effect.map(([settings, modules]) =>
+            Array.map(linksAt(vocabulariesIn(modules), path, start, end, settings.delims), (fix) =>
+              frameFixOf(modules, fix),
+            ),
+          ),
+        ),
+
+      moves: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameMove>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Array.map(movesAt(vocabulariesIn(modules), path, offset), (move): FrameMove => ({
+              concept: move.concept,
+              targets: Array.map(move.targets, (fix) => frameFixOf(modules, fix)),
+            })),
           ),
         ),
 
@@ -1029,11 +1078,15 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Option.getOrUndefined(
-              Option.flatMap(hoverAt({ modules }, path, offset), (card) =>
-                Option.map(
-                  frameLocationOf(modules, { path, position: card.position }),
-                  (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
+              Option.flatMap(
+                Option.orElse(hoverAt({ modules }, path, offset), () =>
+                  recognisedHoverAt(vocabulariesIn(modules), path, offset),
                 ),
+                (card) =>
+                  Option.map(
+                    frameLocationOf(modules, { path, position: card.position }),
+                    (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
+                  ),
               ),
             ),
           ),
@@ -1073,8 +1126,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Option.getOrUndefined(
-              Option.flatMap(navigationRangeAt({ modules }, path, offset), (loc) =>
-                frameLocationOf(modules, loc),
+              Option.flatMap(
+                Option.orElse(navigationRangeAt({ modules }, path, offset), () =>
+                  recognisedRangeAt(vocabulariesIn(modules), path, offset),
+                ),
+                (loc) => frameLocationOf(modules, loc),
               ),
             ),
           ),

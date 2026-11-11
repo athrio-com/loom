@@ -52,6 +52,8 @@ Loom judges a trope's boundary in these places:
 - An `Entries:` line on a chapter that is no trope chapter is an error.
 - A chapter that names no trope, but that a trope's chapter reaches, is a note: its relation to the trope is undeclared. Such a chapter sees inside the trope that reaches it. It stays open to every other chapter, since nothing declares it private.
 
+Only a declared trope draws these lines. The corpus, its books, and their parts are tropes too, as the chapter "The trope contract" describes, but they are implicit and draw no boundary. A chapter that names no trope stands in the implicit trope of its part, which neither keeps it private nor raises a note. The note concerns only the declared trope that reaches the chapter.
+
 ## A trope's boundary
 
 A `TropeNode` holds what Loom derives for one trope with a root: its `name`, its `root`, the `parent` trope its root is rooted in, when it is, the names its `Entries:` line lists with the chapters they lead to, and the paths of the `entries` themselves. A `Listed` pairs one such name with the chapter it leads to, when it leads to one.

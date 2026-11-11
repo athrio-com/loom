@@ -9,7 +9,7 @@ Language: TypeScript
 
 Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. What the core leaves out, a trope adds: a kind of box that draws a diagram, say, or a mark for citing a paper. The word comes from writing, where a trope is a familiar turn that any author may take up. A Loom trope is the same for books: a way of doing something, written once, that any book can take up.
 
-A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box a manifest declares, the boundary a trope draws around its chapters, and the tropes a workspace installs from its store. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
+A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box a manifest declares, the boundary a trope draws around its chapters, the tropes a workspace installs from its store, and the scope a trope gives the concepts its chapters define. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
 
 ## A trope is chapters
 
@@ -36,6 +36,12 @@ A box of the Mermaid kind holds a diagram's source.
 ```
 
 The rest of a root explains the trope, as any chapter explains its code.
+
+## The tropes nobody declares
+
+Every chapter stands in a trope, as every object of a program belongs to a class. The corpus is the root trope. It stands for the app the corpus builds, so some trope always stands above a chapter. The books of the corpus are tropes inside it, and the parts of each book are tropes inside the book. A chapter that names no trope belongs to the trope of its part, or to the trope of its book when it belongs to no part.
+
+These tropes are implicit. No frontmatter declares them, they hold no manifest, and they draw no boundary, so a chapter of one part reaches a chapter of another freely. A declared trope stands inside the implicit trope that holds its root. What the implicit tropes give is scope: they decide which concepts a chapter recognises in its prose, as the chapter "The scope of a concept" describes.
 
 ## What contract 1 lets a trope declare
 

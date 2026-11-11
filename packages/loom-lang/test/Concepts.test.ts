@@ -177,7 +177,7 @@ describe('the faults a concept raises', () => {
         '/corpus/orders.loom',
       )
       expect(messages).toContain(
-        '`accounts` names 2 sections. Write the path to the one you mean: `Billing, Account` or `Signing in, Account`.',
+        '`accounts` names 2 sections. Write the path to the one you mean: `Billing, accounts` or `Signing in, accounts`.',
       )
     }),
   )

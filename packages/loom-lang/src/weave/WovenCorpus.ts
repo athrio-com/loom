@@ -21,6 +21,14 @@ export const AnchorLinkSchema = Schema.Struct({
 })
 export type AnchorLink = typeof AnchorLinkSchema.Type
 
+export const RecognisedWordSchema = Schema.Struct({
+  offset: Schema.Number.check(intAtLeast(0)),
+  length: Schema.Number.check(intAtLeast(0)),
+  concept: Schema.String,
+  definition: Schema.String,
+})
+export type RecognisedWord = typeof RecognisedWordSchema.Type
+
 export const UnsettledSpanSchema = Schema.Struct({
   offset: Schema.Number.check(intAtLeast(0)),
   length: Schema.Number.check(intAtLeast(0)),
@@ -32,6 +40,7 @@ export const ProseBlockSchema = Schema.Struct({
   source: SourceAnchorSchema,
   markdown: Schema.String,
   links: Schema.Array(AnchorLinkSchema),
+  recognised: Schema.optional(Schema.Array(RecognisedWordSchema)),
 })
 export type ProseBlock = typeof ProseBlockSchema.Type
 

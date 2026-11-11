@@ -18,10 +18,19 @@ const CodeLink = S.Struct({
 })
 export type CodeLink = typeof CodeLink.Type
 
+const RecognisedWord = S.Struct({
+  offset: S.Number,
+  length: S.Number,
+  concept: S.String,
+  definition: S.String,
+})
+export type RecognisedWord = typeof RecognisedWord.Type
+
 const ProseBlock = S.Struct({
   type: S.Literal('prose'),
   markdown: S.String,
   links: S.optional(S.Array(CodeLink)),
+  recognised: S.optional(S.Array(RecognisedWord)),
 })
 export type ProseBlock = typeof ProseBlock.Type
 

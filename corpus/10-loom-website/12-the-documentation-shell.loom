@@ -33,6 +33,7 @@ import {
   type CodeBlock,
   type CodeLink,
   type ProseBlock,
+  type RecognisedWord,
   type Corpus,
   type HeadingBlock,
   type Message,
@@ -207,7 +208,7 @@ A run of prose is Markdown, and Markdown becomes HTML here rather than at weave 
 
 Not every fence in that Markdown is drawn as Markdown would draw it. A fenced command becomes a button that copies it, and a quoted loom becomes the landing's highlighted card. So `piecesOf` first cuts a run of prose into pieces: stretches of text, and the fences between them, each fence carrying the word after its opening backticks and the lines it holds. A stretch of text that is only blank space is dropped, so two fences in a row leave nothing between them.
 
-A run of prose may carry links, the anchors its author wrote in it. `withLinks` writes something in place of each link's span, from the last link to the first, so each link's offset still holds when its turn comes. `linkedMarkdown` writes each as a Markdown link before the run is cut into pieces: the words the author wrote, their Markdown marks escaped so they read as words, pointing at the address of the section the anchor reaches. A link to a concept keeps the concept's definition as its title, which a browser shows to a reader who rests on the link, on one line, its quotes escaped, as `markdownLink` writes it. The search writes each link's words alone, as the chapter "Searching the site" describes.
+A run of prose may carry links, the anchors its author wrote in it, and words it recognises as concepts without a link. `withLinks` writes something in place of each link's span and each recognised word's, from the last to the first, so each span's offset still holds when its turn comes. A `Mark` is one such span with what it writes there, given the text it covers. `linkedMarkdown` writes each link as a Markdown link before the run is cut into pieces: the words the author wrote, their Markdown marks escaped so they read as words, pointing at the address of the section the anchor reaches. A link to a concept keeps the concept's definition as its title, which a browser shows to a reader who rests on the link, on one line, its quotes escaped, as `markdownLink` writes it. A recognised word keeps its text and gains the concept's definition as the title of a `concept-word` span around it, which `wordSpan` writes, its quotes and angle brackets written as entities. The search writes each link's words alone and leaves each recognised word as it stands, as the chapter "Searching the site" describes.
 
 A fence closes only on a line that matches it, by the rule Loom keeps: the same indent, then at least as many backticks. So a quote of four backticks can show a loom whose fenced code has three. `FENCE` captures the opening indent and backticks to hold the close against them, so the split hands back five pieces for each fence: the indent, the backticks, the word, the lines, and the text after.
 
@@ -228,19 +229,57 @@ const markdownLink = (link: CodeLink, base: string): string => {
   return `[${words}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
 }
 
-export const withLinks = (prose: ProseBlock, write: (link: CodeLink) => string): string =>
+type Mark = {
+  readonly offset: number
+  readonly length: number
+  readonly write: (text: string) => string
+}
+
+export const withLinks = (
+  prose: ProseBlock,
+  write: (link: CodeLink) => string,
+  recognise: (word: RecognisedWord, text: string) => string = (_, text) => text,
+): string =>
   pipe(
-    Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
-    Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
+    [
+      ...Array.map(
+        Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
+        (link): Mark => ({ offset: link.offset, length: link.length, write: () => write(link) }),
+      ),
+      ...Array.map(
+        Option.getOrElse(
+          Option.fromNullishOr(prose.recognised),
+          (): ReadonlyArray<RecognisedWord> => [],
+        ),
+        (word): Mark => ({
+          offset: word.offset,
+          length: word.length,
+          write: (text) => recognise(word, text),
+        }),
+      ),
+    ],
+    Array.sort(Order.mapInput(Order.Number, (mark: Mark) => -mark.offset)),
     Array.reduce(
       prose.markdown,
-      (markdown, link) =>
-        markdown.slice(0, link.offset) + write(link) + markdown.slice(link.offset + link.length),
+      (markdown, mark) =>
+        markdown.slice(0, mark.offset) +
+        mark.write(markdown.slice(mark.offset, mark.offset + mark.length)) +
+        markdown.slice(mark.offset + mark.length),
     ),
   )
 
+const wordSpan = (word: RecognisedWord, text: string): string => {
+  const title = word.definition
+    .replace(/\s+/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return `<span class="concept-word" title="${title}">${text}</span>`
+}
+
 const linkedMarkdown = (prose: ProseBlock, base: string): string =>
-  withLinks(prose, (link) => markdownLink(link, base))
+  withLinks(prose, (link) => markdownLink(link, base), wordSpan)
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)

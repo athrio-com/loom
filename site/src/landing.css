@@ -136,6 +136,12 @@ a:hover { color: var(--ink-3); }
 .docs-prose a { color: var(--accent); }
 .docs-prose a:hover { color: var(--accent-hover); }
 
+.docs-prose .concept-word {
+  text-decoration: underline dotted var(--ink-3);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
 ::selection { background: rgba(0, 179, 126, 0.24); color: var(--ink); }
 
 .footer::selection,

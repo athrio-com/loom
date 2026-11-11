@@ -13,7 +13,7 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `catalogueOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. It supplies `bookOf` and `isBookLoom` too, which tell the book a loom stands in and the loom that opens a book, and the concepts the index lists: `conceptAt`, which finds the concept a section defines, `definitionLinesOf`, which gives a concept's definition, and `sectionLinksOf`, which gives the links a section makes. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the corpus's structure: `buildContents` reads the corpus's frontmatter into its books, each with its parts and chapters, its orphan chapters, and the back matter that lists its discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its books, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `catalogueOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. It supplies `bookOf` and `isBookLoom` too, which tell the book a loom stands in and the loom that opens a book, and the concepts the index lists: `conceptAt`, which finds the concept a section defines, `conceptNames` and `foldFirst`, which tell the words a concept answers to, `definitionLinesOf`, which gives a concept's definition, and `sectionLinksOf`, which gives the links a section makes. The scopes of concepts supply `vocabulariesIn` and `recognisedIn`, which find the plain words each loom recognises, each a `Recognised`. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the corpus's structure: `buildContents` reads the corpus's frontmatter into its books, each with its parts and chapters, its orphan chapters, and the back matter that lists its discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its books, its parts and entries, its pages, the source anchor each block records, and the blocks, links, recognised words, and unsettled spans a page holds.
 
 =>
 
@@ -31,8 +31,10 @@ import {
   catalogueOf,
   type Catalogue,
   conceptAt,
+  conceptNames,
   type ConceptRef,
   definitionLinesOf,
+  foldFirst,
   isBookLoom,
   type Location,
   type LoomCorpusAst,
@@ -44,6 +46,7 @@ import { type Position } from '@athrio/loom-ast/LoomNode'
 import { keyOf } from '@athrio/loom-ast/ProductAst'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { unsettledRef } from '#ast/LoomVirtualCodeBuilder'
+import { type Recognised, recognisedIn, vocabulariesIn } from '#ast/ConceptScope'
 import {
   type AnchorLink,
   AnchorLinkSchema,
@@ -52,6 +55,8 @@ import {
   MessageBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
+  type RecognisedWord,
+  RecognisedWordSchema,
   type SourceAnchor,
   SourceAnchorSchema,
   UnsettledSpanSchema,
@@ -100,7 +105,7 @@ export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder'
 
 export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
-  const weaving = weavingOf(corpus.modules)
+  const weaving = weavingOf(corpus.modules, root)
   const slugOf = (path: Location): string => pageSlug(weaving.catalogue, path)
   const contents = buildContents(corpus, root)
   const uses = usesByConcept(weaving, modules, root)
@@ -148,7 +153,7 @@ const pagedBooks = (
 
 ## What a page marks as unsettled
 
-A reference to a section that holds no code yet is to be settled, as the chapter "Names through the book" describes, and the woven page marks it. A `Weaving` carries what every page draws on: the corpus's `Catalogue`, the anchors that stop short of code, and the sections they stop at. `weavingOf` builds it once. It asks the projection's `unsettledRef` of every edge in every module's product, so the page marks exactly the references the tangle refuses. `anchorKey` names an anchor by its loom and the offset of its name.
+A reference to a section that holds no code yet is to be settled, as the chapter "Names through the book" describes, and the woven page marks it. A `Weaving` carries what every page draws on: the corpus's `Catalogue`, the anchors that stop short of code, and the sections they stop at. It also carries the loom the weave starts from, its `root`, and the plain words each loom recognises as concepts, as the chapter "The scope of a concept" describes. `weavingOf` builds it once. It asks the projection's `unsettledRef` of every edge in every module's product, so the page marks exactly the references the tangle refuses, and it reads every loom's recognised words through the corpus's vocabularies. `anchorKey` names an anchor by its loom and the offset of its name.
 
 =>
 
@@ -156,12 +161,18 @@ type Weaving = {
   readonly catalogue: Catalogue
   readonly anchors: ReadonlySet<string>
   readonly sections: ReadonlySet<string>
+  readonly root: Location | undefined
+  readonly recognised: ReadonlyMap<Location, ReadonlyArray<Recognised>>
 }
 
 const anchorKey = (path: Location, at: Position): string => `${path}#${at.start.offset}`
 
-const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
+const weavingOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Location | undefined,
+): Weaving => {
   const catalogue = catalogueOf(modules)
+  const vocabularies = vocabulariesIn(modules)
   const unsettled = pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((module) =>
@@ -181,6 +192,13 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
     anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
     sections: new Set(
       Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
+    ),
+    root,
+    recognised: new Map(
+      Array.map(Array.fromIterable(modules.values()), (module) => [
+        module.path,
+        recognisedIn(vocabularies, module),
+      ]),
     ),
   }
 }
@@ -443,7 +461,7 @@ const headingBlock = (
 
 A section's body is its preamble and its code together. `sectionBody` joins the two, so a quote that opens in the leading prose and runs on stays one prose block, not two split at the seam. `splitRuns` cuts that body into runs: a run is one unbroken stretch of one mode, and a run that opens with no marker is prose — the leading paragraphs, the prose after fenced code, or a quote the classifier left verbatim. `startsRun` says where a cut falls: at each `=>` and `~`, and on the line after a fence that closes fenced code, since the prose that follows it needs no tilde.
 
-`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that an arrow opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with each note split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `proseBlockOf` keeps the prose as Markdown, with a link for each anchor in it that resolves, placed by its offset in the trimmed Markdown. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the arrow or tilde itself, so the `code` holds nothing that is not code. A fence line around fenced code bounds no content either, so `pieceOfWeft` counts it as blank, and the span runs from the first line of code to the last.
+`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that an arrow opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with each note split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `proseBlockOf` keeps the prose as Markdown, with a link for each anchor in it that resolves, placed by its offset in the trimmed Markdown. It carries the words the loom recognises within the prose too, each placed the same way by `recognisedWithin`, and carries none when there are none. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the arrow or tilde itself, so the `code` holds nothing that is not code. A fence line around fenced code bounds no content either, so `pieceOfWeft` counts it as blank, and the span runs from the first line of code to the last.
 
 A note is a box of the `Note` kind, and the classifier has already marked the lines of colons that open and close it. `stretchesOf` cuts a prose run at those marks into stretches, each either a note or the prose between notes. A stretch that a note opens runs to the line that closes it, and `bodyOf` drops the two lines of colons, so a note block holds its body alone. The note's name, when it has one, becomes the block's `caption`, which `captionOfNote` reads from the line that opens the note. A note quoted inside a fence is text, not a note: the classifier marks no line inside a quote, so nothing there can start a stretch of its own. A box of any other kind stays in the prose around it, as the author wrote it.
 
@@ -605,6 +623,7 @@ const proseBlockOf = (
       const raw = sliceContent(module.text, span)
       const markdown = raw.trim()
       const start = span.start + raw.length - raw.trimStart().length
+      const recognised = recognisedWithin(module, weaving, span, start)
       return markdown.length === 0
         ? []
         : [
@@ -616,10 +635,36 @@ const proseBlockOf = (
                   resolveLink(module, weaving, start, anchor),
                 ),
               ),
+              ...(recognised.length === 0 ? {} : { recognised }),
             }),
           ]
     },
   })
+
+const recognisedWithin = (
+  module: LoomModule,
+  weaving: Weaving,
+  span: Span,
+  blockStart: number,
+): ReadonlyArray<RecognisedWord> =>
+  pipe(
+    Option.getOrElse(
+      Option.fromNullishOr(weaving.recognised.get(module.path)),
+      (): ReadonlyArray<Recognised> => [],
+    ),
+    Array.filter(
+      ({ word }) =>
+        word.position.start.offset >= span.start && word.position.end.offset <= span.end,
+    ),
+    Array.map(({ word, concept }) =>
+      RecognisedWordSchema.make({
+        offset: word.position.start.offset - blockStart,
+        length: word.position.end.offset - word.position.start.offset,
+        concept: concept.name.source,
+        definition: concept.definition,
+      }),
+    ),
+  )
 
 const proseBlocks = (
   module: LoomModule,
@@ -722,9 +767,16 @@ const runBlocks =
 
 ## Resolving a code anchor
 
-`resolveLink` turns one `::[…]` anchor into a link. It resolves the anchor the way the composition does, through the corpus's `Catalogue`, and reads the section it reaches: a section of the anchor's own loom, a chapter's opening section, or a section a path names. A link in prose may reach a concept by any of its forms, and then it carries the concept's definition as its title, which `conceptAt` finds. The link carries the name the author wrote, the page and heading that section becomes, and the anchor's place within the block, so the presentation makes just those characters a link. An anchor that resolves to nothing yields no link, and stands in the code as the author's own text.
+`resolveLink` turns one `::[…]` anchor into a link. It resolves the anchor the way the composition does, through the corpus's `Catalogue`, and reads the section it reaches: a section of the anchor's own loom, a chapter's opening section, or a section a path names. A link in prose may reach a concept by any of its forms, and then it carries the concept's definition as its title, which `conceptAt` finds. A link to a concept may also write a path that ends in the word its sentence needs, so it shows that word alone, which `wordOf` reads, and not the whole path. The link carries the name the author wrote, the page and heading that section becomes, and the anchor's place within the block, so the presentation makes just those characters a link. An anchor that resolves to nothing yields no link, and stands in the code as the author's own text.
 
 =>
+
+const wordOf = (name: string, concept: ConceptRef): string => {
+  const last = name.slice(name.lastIndexOf(',') + 1).trim()
+  return Array.some(conceptNames(concept), (form) => foldFirst(form) === foldFirst(last))
+    ? last
+    : name
+}
 
 const resolveLink = (
   module: LoomModule,
@@ -735,22 +787,26 @@ const resolveLink = (
   pipe(
     resolveAnchor(weaving.catalogue, module.path, anchor),
     Option.flatMap((ref) =>
-      Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
-        AnchorLinkSchema.make({
-          name: anchor.name.value,
+      Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink => {
+        const concept = conceptAt(weaving.catalogue, ref)
+        return AnchorLinkSchema.make({
+          name: Option.match(concept, {
+            onNone: () => anchor.name.value,
+            onSome: (found) => wordOf(anchor.name.value, found),
+          }),
           targetSlug: pageSlug(weaving.catalogue, ref.module),
           targetId: slugify(title.source),
           offset: anchor.position.start.offset - blockStart,
           length: anchor.position.end.offset - anchor.position.start.offset,
           title: Option.getOrUndefined(
             pipe(
-              conceptAt(weaving.catalogue, ref),
-              Option.map((concept) => concept.definition),
+              concept,
+              Option.map((found) => found.definition),
               Option.filter((definition) => definition !== ''),
             ),
           ),
-        }),
-      ),
+        })
+      }),
     ),
   )
 
@@ -758,7 +814,7 @@ const resolveLink = (
 
 A book that defines concepts closes on its index, the page a reader turns to for a word's meaning, as the chapter "Concepts" describes. Nobody writes it: the weave builds it from the concepts the book's chapters define. `indexPageOf` gives the index page of one book, titled `Index`, which `indexHeading` holds, and nothing for a book with no concepts. Its slug is `index`, after the book's own slug for a named book, which `indexSlug` writes. It lists the book's concepts by name, which `byConceptName` orders, and `bookNameOf` reads the book a concept's loom stands in.
 
-`entryBlocks` writes one concept's entry: its name as a heading, its definition with the links it makes, its other forms, and a line that says where the book defines it and where the book uses it. `usesByConcept` finds the uses of every concept in one pass over the corpus's links, keyed by `conceptKey`: each section with a link that reaches the concept, outside the loom the weave starts from, ordered by its page's slug and then by where it stands, as `byUse` orders them. `placeOf` writes a use as the title of its section, linked to that section. `linkedBlock` writes the whole line as a prose block from its phrases, each a `Phrase`, with a link on each name it gives, so a reader reaches the definition and each use in one step.
+`entryBlocks` writes one concept's entry: its name as a heading, its definition with the links it makes, its other forms, and a line that says where the book defines it and where the book uses it. `usesByConcept` finds the uses of every concept in one pass over the corpus's links and recognised words, keyed by `conceptKey`: each section with a link that reaches the concept, or a word that recognises it, outside the loom the weave starts from, ordered by its page's slug and then by where it stands, as `byUse` orders them. `placeOf` writes a use as the title of its section, linked to that section. A concept the corpus loom defines has no page to link to, since that loom yields none, so its entry names the loom's title with no link. `linkedBlock` writes the whole line as a prose block from its phrases, each a `Phrase`, with a link on each name it gives, so a reader reaches the definition and each use in one step.
 
 =>
 
@@ -815,6 +871,24 @@ const byUse = (weaving: Weaving): Order.Order<Use> =>
     Order.mapInput(Order.Number, (use: Use) => use.section.position.start.offset),
   ])
 
+const recognisedInSection = (
+  weaving: Weaving,
+  module: LoomModule,
+  section: LoomSection,
+): ReadonlyArray<ConceptRef> =>
+  pipe(
+    Option.getOrElse(
+      Option.fromNullishOr(weaving.recognised.get(module.path)),
+      (): ReadonlyArray<Recognised> => [],
+    ),
+    Array.filter(
+      ({ word }) =>
+        word.position.start.offset >= section.position.start.offset &&
+        word.position.end.offset <= section.position.end.offset,
+    ),
+    Array.map(({ concept }) => concept),
+  )
+
 const usesByConcept = (
   weaving: Weaving,
   modules: ReadonlyArray<LoomModule>,
@@ -825,14 +899,16 @@ const usesByConcept = (
     Array.flatMap((module) =>
       Array.flatMap(module.doc.sections, (section) =>
         pipe(
-          sectionLinksOf(section),
-          Array.flatMap((link) =>
-            Option.toArray(
-              Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
-                conceptAt(weaving.catalogue, ref),
+          [
+            ...Array.flatMap(sectionLinksOf(section), (link) =>
+              Option.toArray(
+                Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
+                  conceptAt(weaving.catalogue, ref),
+                ),
               ),
             ),
-          ),
+            ...recognisedInSection(weaving, module, section),
+          ],
           Array.map((concept) => conceptKey(concept.module, concept.section)),
           Array.dedupe,
           Array.map((key) => ({ key, use: { module, section } })),
@@ -900,7 +976,9 @@ const entryBlocks = (
         onSome: (module): ReadonlyArray<Phrase> => [
           {
             text: Option.getOrElse(chapterTitleOf(module), () => concept.name.source),
-            target: Option.some({ slug: pageSlug(weaving.catalogue, module.path), id }),
+            target: isCorpusLoom(module, weaving.root)
+              ? Option.none()
+              : Option.some({ slug: pageSlug(weaving.catalogue, module.path), id }),
           },
         ],
       }),

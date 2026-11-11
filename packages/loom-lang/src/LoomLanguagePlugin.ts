@@ -145,6 +145,12 @@ const frameQueryOver = (
     ),
   hover: (path, offset) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.hover(path, offset)))),
+  links: (path, start, end) =>
+    runtime.runSync(
+      LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.links(path, start, end))),
+    ),
+  moves: (path, offset) =>
+    runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.moves(path, offset)))),
   symbols: (query) =>
     runtime.runSync(
       LoomCompiler.pipe(

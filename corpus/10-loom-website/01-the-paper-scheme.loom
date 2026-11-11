@@ -198,6 +198,8 @@ A link is set in body ink rather than in a colour of its own, and fades to muted
 
 Prose is the exception, because a sentence has no shape to read. A link inside a documentation article takes the accent, which is the one place on the site where a run of text has to announce that part of it is a link.
 
+A word the book recognises as a concept is no link, so it keeps the ink of its sentence. A dotted underline in muted ink marks it, and the pointer becomes a question mark over it, since resting there shows the concept's definition.
+
 That accent is not a link colour. It marks state: the rail's current chapter, the outline's current heading, a token chip. Naming it for what it does keeps it from being sprinkled on anything merely clickable.
 
 A selection washes the mark's green over the text at a quarter strength and leaves the ink alone. The browser's own blue belongs to no scheme on this page, and green is the one colour here that reads as a thing the reader did rather than a thing the page is saying.
@@ -232,6 +234,12 @@ a:hover { color: var(--ink-3); }
 
 .docs-prose a { color: var(--accent); }
 .docs-prose a:hover { color: var(--accent-hover); }
+
+.docs-prose .concept-word {
+  text-decoration: underline dotted var(--ink-3);
+  text-underline-offset: 3px;
+  cursor: help;
+}
 
 ::selection { background: rgba(0, 179, 126, 0.24); color: var(--ink); }
 

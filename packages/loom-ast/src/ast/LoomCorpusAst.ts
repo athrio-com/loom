@@ -63,13 +63,13 @@ export type TitleIndexes = ReadonlyMap<Location, ReadonlyMap<string, SectionRef>
 export const titleIndexes = (modules: Modules): TitleIndexes =>
   new Map(Array.fromIterable(modules.values()).map((m) => [m.path, titlesIn(m)] as const))
 
-type PartRef = {
+export type PartRef = {
   readonly book: Option.Option<string>
   readonly number: Option.Option<string>
   readonly name: Option.Option<string>
 }
 
-type Chapter = {
+export type Chapter = {
   readonly title: string
   readonly number: Option.Option<string>
   readonly discussion: boolean
@@ -336,15 +336,22 @@ const stepsNamed = (
         Match.tag('Part', ({ part }) => chapterSteps(part.book, Option.some(part))),
         Match.tag('Chapter', ({ chapter }) =>
           Option.toArray(
-            Option.orElse(
+            pipe(
               Option.map(sectionTitled(catalogue, chapter.module.path, segment.text), (ref) =>
                 step(false)(Place.Section({ ref })),
               ),
-              () =>
+              Option.orElse(() =>
                 Option.map(boxNamed(catalogue, chapter.module.path, segment.text), (ref) => ({
                   ...step(false)(boxPlace(catalogue, ref)),
                   through: throughOf(ref),
                 })),
+              ),
+              Option.orElse(() =>
+                Option.map(
+                  conceptNamedIn(catalogue, chapter.module.path, segment.text),
+                  (concept) => step(false)(Place.Section({ ref: conceptSectionOf(concept) })),
+                ),
+              ),
             ),
           ),
         ),
@@ -493,7 +500,7 @@ export const tropeEntryModuleOf = (
 ): Option.Option<LoomModule> =>
   Option.map(tropeEntryChapterOf(catalogue, from, name), (chapter) => chapter.module)
 
-const chapterOf = (catalogue: Catalogue, module: Location): Option.Option<Chapter> =>
+export const chapterOf = (catalogue: Catalogue, module: Location): Option.Option<Chapter> =>
   Array.findFirst(catalogue.chapters, (chapter) => chapter.module.path === module)
 
 const throughPart = (
@@ -566,6 +573,25 @@ const leadsTo =
       samePlace(Array.lastNonEmpty(trail).place, place),
     )
 
+const formNamesFor = (
+  catalogue: Catalogue,
+  place: Place,
+  said: string,
+): ReadonlyArray<ReadonlyArray<string>> =>
+  place._tag !== 'Section'
+    ? []
+    : pipe(
+        conceptAt(catalogue, place.ref),
+        Option.filter((concept) =>
+          Array.some(conceptNames(concept), (name) => foldFirst(name) === foldFirst(said)),
+        ),
+        Option.flatMap((concept) => chapterOf(catalogue, concept.module)),
+        Option.match({
+          onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
+          onSome: (chapter) => throughBook(chapter, throughPart(chapter, [chapter.title, said])),
+        }),
+      )
+
 export const pathsTo = (
   catalogue: Catalogue,
   from: Location,
@@ -573,12 +599,37 @@ export const pathsTo = (
 ): ReadonlyArray<string> =>
   Array.getSomes(
     Array.map(trails, (trail) => {
-      const place = Array.lastNonEmpty(trail).place
+      const last = Array.lastNonEmpty(trail)
       return Array.findFirst(
-        Array.map(namesFor(catalogue, place), (names) => Array.join(names, ', ')),
-        leadsTo(catalogue, from, place),
+        Array.map(
+          [
+            ...formNamesFor(catalogue, last.place, last.segment.text),
+            ...namesFor(catalogue, last.place),
+          ],
+          (names) => Array.join(names, ', '),
+        ),
+        leadsTo(catalogue, from, last.place),
       )
     }),
+  )
+
+export const conceptPathOf = (
+  catalogue: Catalogue,
+  from: Location,
+  concept: ConceptRef,
+  form: string,
+): Option.Option<string> =>
+  Array.head(
+    pathsTo(catalogue, from, [
+      [
+        {
+          segment: whole(form),
+          place: Place.Section({ ref: conceptSectionOf(concept) }),
+          numbered: false,
+          through: Option.none(),
+        },
+      ],
+    ]),
   )
 
 const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
@@ -843,7 +894,7 @@ const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line
 
 const formItem = /^[-*]\s+(\S.*?)\s*$/
 
-const formsLineOf = (section: LoomSection): Option.Option<LoomWeft> =>
+const formsLineOf = (section: LoomSection): Option.Option<PreambleWeft> =>
   Array.findFirst(section.preamble, isFormsLine)
 
 export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
@@ -881,21 +932,24 @@ const formOf = (line: LoomWeft): Option.Option<ConceptForm> =>
     }
   })
 
-const formsOf = (section: LoomSection): ReadonlyArray<ConceptForm> =>
+const formItemsOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
   pipe(
     Array.findFirstIndex(section.preamble, isFormsLine),
     Option.map((at) =>
-      Array.getSomes(
-        Array.map(
-          Array.takeWhile(Array.drop(section.preamble, at + 1), (line) =>
-            formItem.test(line.source.trim()),
-          ),
-          formOf,
-        ),
+      Array.takeWhile(Array.drop(section.preamble, at + 1), (line) =>
+        formItem.test(line.source.trim()),
       ),
     ),
-    Option.getOrElse((): ReadonlyArray<ConceptForm> => []),
+    Option.getOrElse((): ReadonlyArray<PreambleWeft> => []),
   )
+
+const formsOf = (section: LoomSection): ReadonlyArray<ConceptForm> =>
+  Array.getSomes(Array.map(formItemsOf(section), formOf))
+
+export const formLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> => [
+  ...Option.toArray(formsLineOf(section)),
+  ...formItemsOf(section),
+]
 
 const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
   Array.getSomes(
@@ -929,19 +983,35 @@ export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> => [
 const linkKey = (path: Location, anchor: WarpAnchorToken): string =>
   `${path}#${anchor.name.position.start.offset}`
 
-const conceptNames = (concept: ConceptRef): ReadonlyArray<string> => [
+export const conceptNames = (concept: ConceptRef): ReadonlyArray<string> => [
   concept.name.source,
   ...Array.map(concept.forms, (form) => form.value),
 ]
 
+export const foldFirst = (name: string): string => name.charAt(0).toLowerCase() + name.slice(1)
+
 export const conceptsCalled = (catalogue: Catalogue, name: string): ReadonlyArray<ConceptRef> =>
-  Array.filter(catalogue.concepts, (concept) => Array.contains(conceptNames(concept), name))
+  Array.filter(catalogue.concepts, (concept) =>
+    Array.some(conceptNames(concept), (form) => foldFirst(form) === foldFirst(name)),
+  )
+
+export const conceptSectionOf = (concept: ConceptRef): SectionRef => ({
+  module: concept.module,
+  section: concept.section,
+})
+
+const conceptNamedIn = (
+  catalogue: Catalogue,
+  module: Location,
+  name: string,
+): Option.Option<ConceptRef> =>
+  Array.findFirst(conceptsCalled(catalogue, name), (concept) => concept.module === module)
 
 const conceptTrails = (catalogue: Catalogue, name: string): ReadonlyArray<Trail> =>
   Array.map(conceptsCalled(catalogue, name), (concept): Trail => [
     {
       segment: whole(name),
-      place: Place.Section({ ref: { module: concept.module, section: concept.section } }),
+      place: Place.Section({ ref: conceptSectionOf(concept) }),
       numbered: false,
       through: Option.none(),
     },
@@ -1900,7 +1970,7 @@ export type ConceptRename = {
   readonly chapter: ReadonlyArray<CorpusLocation>
 }
 
-const conceptMentionedAt = (
+export const conceptMentionedAt = (
   catalogue: Catalogue,
   modules: Modules,
   path: Location,
@@ -1910,7 +1980,7 @@ const conceptMentionedAt = (
     mention.place._tag === 'Section' ? conceptAt(catalogue, mention.place.ref) : Option.none(),
   )
 
-const cardOf = (concept: ConceptRef): string =>
+export const cardOf = (concept: ConceptRef): string =>
   Array.join(
     [
       `**${concept.name.source}**`,

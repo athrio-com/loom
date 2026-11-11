@@ -86,7 +86,9 @@ Lexical forms:
 - accounts
 ```
 
-Prose links a concept by any of its forms, as `::[accounts]` does, from anywhere in the corpus. Your editor shows the definition when you rest on the link, and the woven site ends each book on an index of its concepts. A concept holds no code, so it never composes into a file.
+Prose links a concept by any of its forms, as `::[accounts]` does, from anywhere in the corpus. A form matches whatever the case of its first letter, so `::[Accounts]` opening a sentence finds it too. Your editor shows the definition when you rest on the link, and the woven site ends each book on an index of its concepts. A concept holds no code, so it never composes into a file.
+
+Your editor also recognises a concept's forms in plain prose, wherever the concept's scope reaches. A concept belongs to the part of the chapter that defines it. A concept in a book's opening loom belongs to the whole book, and one in a loom with no frontmatter, such as `book.loom`, to the whole corpus. Linking a concept once imports it into the rest of the linking chapter's part. A recognised word shows the definition as a link does, counts as a use in the index, and carries the definition on the woven site. When two concepts claim one word, the editor offers a link to each instead, and a quick fix on a concept's heading moves the concept up to a wider scope.
 
 ## Naming a file
 

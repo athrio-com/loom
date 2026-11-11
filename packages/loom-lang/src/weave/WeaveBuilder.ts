@@ -12,8 +12,10 @@ import {
   catalogueOf,
   type Catalogue,
   conceptAt,
+  conceptNames,
   type ConceptRef,
   definitionLinesOf,
+  foldFirst,
   isBookLoom,
   type Location,
   type LoomCorpusAst,
@@ -25,6 +27,7 @@ import { type Position } from '@athrio/loom-ast/LoomNode'
 import { keyOf } from '@athrio/loom-ast/ProductAst'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { unsettledRef } from '#ast/LoomVirtualCodeBuilder'
+import { type Recognised, recognisedIn, vocabulariesIn } from '#ast/ConceptScope'
 import {
   type AnchorLink,
   AnchorLinkSchema,
@@ -33,6 +36,8 @@ import {
   MessageBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
+  type RecognisedWord,
+  RecognisedWordSchema,
   type SourceAnchor,
   SourceAnchorSchema,
   UnsettledSpanSchema,
@@ -71,7 +76,7 @@ export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder'
 
 export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
-  const weaving = weavingOf(corpus.modules)
+  const weaving = weavingOf(corpus.modules, root)
   const slugOf = (path: Location): string => pageSlug(weaving.catalogue, path)
   const contents = buildContents(corpus, root)
   const uses = usesByConcept(weaving, modules, root)
@@ -121,12 +126,18 @@ type Weaving = {
   readonly catalogue: Catalogue
   readonly anchors: ReadonlySet<string>
   readonly sections: ReadonlySet<string>
+  readonly root: Location | undefined
+  readonly recognised: ReadonlyMap<Location, ReadonlyArray<Recognised>>
 }
 
 const anchorKey = (path: Location, at: Position): string => `${path}#${at.start.offset}`
 
-const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
+const weavingOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Location | undefined,
+): Weaving => {
   const catalogue = catalogueOf(modules)
+  const vocabularies = vocabulariesIn(modules)
   const unsettled = pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((module) =>
@@ -146,6 +157,13 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
     anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
     sections: new Set(
       Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
+    ),
+    root,
+    recognised: new Map(
+      Array.map(Array.fromIterable(modules.values()), (module) => [
+        module.path,
+        recognisedIn(vocabularies, module),
+      ]),
     ),
   }
 }
@@ -522,6 +540,7 @@ const proseBlockOf = (
       const raw = sliceContent(module.text, span)
       const markdown = raw.trim()
       const start = span.start + raw.length - raw.trimStart().length
+      const recognised = recognisedWithin(module, weaving, span, start)
       return markdown.length === 0
         ? []
         : [
@@ -533,10 +552,36 @@ const proseBlockOf = (
                   resolveLink(module, weaving, start, anchor),
                 ),
               ),
+              ...(recognised.length === 0 ? {} : { recognised }),
             }),
           ]
     },
   })
+
+const recognisedWithin = (
+  module: LoomModule,
+  weaving: Weaving,
+  span: Span,
+  blockStart: number,
+): ReadonlyArray<RecognisedWord> =>
+  pipe(
+    Option.getOrElse(
+      Option.fromNullishOr(weaving.recognised.get(module.path)),
+      (): ReadonlyArray<Recognised> => [],
+    ),
+    Array.filter(
+      ({ word }) =>
+        word.position.start.offset >= span.start && word.position.end.offset <= span.end,
+    ),
+    Array.map(({ word, concept }) =>
+      RecognisedWordSchema.make({
+        offset: word.position.start.offset - blockStart,
+        length: word.position.end.offset - word.position.start.offset,
+        concept: concept.name.source,
+        definition: concept.definition,
+      }),
+    ),
+  )
 
 const proseBlocks = (
   module: LoomModule,
@@ -637,6 +682,13 @@ const runBlocks =
             }),
     })
 
+const wordOf = (name: string, concept: ConceptRef): string => {
+  const last = name.slice(name.lastIndexOf(',') + 1).trim()
+  return Array.some(conceptNames(concept), (form) => foldFirst(form) === foldFirst(last))
+    ? last
+    : name
+}
+
 const resolveLink = (
   module: LoomModule,
   weaving: Weaving,
@@ -646,22 +698,26 @@ const resolveLink = (
   pipe(
     resolveAnchor(weaving.catalogue, module.path, anchor),
     Option.flatMap((ref) =>
-      Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
-        AnchorLinkSchema.make({
-          name: anchor.name.value,
+      Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink => {
+        const concept = conceptAt(weaving.catalogue, ref)
+        return AnchorLinkSchema.make({
+          name: Option.match(concept, {
+            onNone: () => anchor.name.value,
+            onSome: (found) => wordOf(anchor.name.value, found),
+          }),
           targetSlug: pageSlug(weaving.catalogue, ref.module),
           targetId: slugify(title.source),
           offset: anchor.position.start.offset - blockStart,
           length: anchor.position.end.offset - anchor.position.start.offset,
           title: Option.getOrUndefined(
             pipe(
-              conceptAt(weaving.catalogue, ref),
-              Option.map((concept) => concept.definition),
+              concept,
+              Option.map((found) => found.definition),
               Option.filter((definition) => definition !== ''),
             ),
           ),
-        }),
-      ),
+        })
+      }),
     ),
   )
 
@@ -718,6 +774,24 @@ const byUse = (weaving: Weaving): Order.Order<Use> =>
     Order.mapInput(Order.Number, (use: Use) => use.section.position.start.offset),
   ])
 
+const recognisedInSection = (
+  weaving: Weaving,
+  module: LoomModule,
+  section: LoomSection,
+): ReadonlyArray<ConceptRef> =>
+  pipe(
+    Option.getOrElse(
+      Option.fromNullishOr(weaving.recognised.get(module.path)),
+      (): ReadonlyArray<Recognised> => [],
+    ),
+    Array.filter(
+      ({ word }) =>
+        word.position.start.offset >= section.position.start.offset &&
+        word.position.end.offset <= section.position.end.offset,
+    ),
+    Array.map(({ concept }) => concept),
+  )
+
 const usesByConcept = (
   weaving: Weaving,
   modules: ReadonlyArray<LoomModule>,
@@ -728,14 +802,16 @@ const usesByConcept = (
     Array.flatMap((module) =>
       Array.flatMap(module.doc.sections, (section) =>
         pipe(
-          sectionLinksOf(section),
-          Array.flatMap((link) =>
-            Option.toArray(
-              Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
-                conceptAt(weaving.catalogue, ref),
+          [
+            ...Array.flatMap(sectionLinksOf(section), (link) =>
+              Option.toArray(
+                Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
+                  conceptAt(weaving.catalogue, ref),
+                ),
               ),
             ),
-          ),
+            ...recognisedInSection(weaving, module, section),
+          ],
           Array.map((concept) => conceptKey(concept.module, concept.section)),
           Array.dedupe,
           Array.map((key) => ({ key, use: { module, section } })),
@@ -803,7 +879,9 @@ const entryBlocks = (
         onSome: (module): ReadonlyArray<Phrase> => [
           {
             text: Option.getOrElse(chapterTitleOf(module), () => concept.name.source),
-            target: Option.some({ slug: pageSlug(weaving.catalogue, module.path), id }),
+            target: isCorpusLoom(module, weaving.root)
+              ? Option.none()
+              : Option.some({ slug: pageSlug(weaving.catalogue, module.path), id }),
           },
         ],
       }),

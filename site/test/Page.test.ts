@@ -203,6 +203,39 @@ describe('the page', () => {
     )
   })
 
+  it('marks a word the prose recognises, with the definition of its concept', () => {
+    const orders = { number: '2', title: 'Orders', slug: 'corpus/orders' }
+    const book: Corpus = {
+      nav: [{ number: 'I', name: 'Money', chapters: [orders] }],
+      pages: [
+        {
+          slug: orders.slug,
+          title: 'Orders',
+          blocks: [
+            { type: 'heading', level: 1, title: 'Orders', id: 'orders', unsettled: false },
+            {
+              type: 'prose',
+              markdown: 'An account stays open while it owes.',
+              links: [],
+              recognised: [
+                {
+                  offset: 3,
+                  length: 7,
+                  concept: 'Account',
+                  definition: 'A ledger "of" money & <debts>.',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const html = render(at('source', { book: Option.some(book) }))
+    expect(html).toContain(
+      'An <span class="concept-word" title="A ledger &quot;of&quot; money &amp; &lt;debts&gt;.">account</span> stays open',
+    )
+  })
+
   it('marks the sections still to be settled and the anchors that reach them', () => {
     const greeting = anchor('Greeting')
     const farewell = `${anchor('Farewell')}{To be settled}`

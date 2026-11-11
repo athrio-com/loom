@@ -13,6 +13,7 @@ import {
   type CodeBlock,
   type CodeLink,
   type ProseBlock,
+  type RecognisedWord,
   type Corpus,
   type HeadingBlock,
   type Message,
@@ -164,19 +165,57 @@ const markdownLink = (link: CodeLink, base: string): string => {
   return `[${words}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
 }
 
-export const withLinks = (prose: ProseBlock, write: (link: CodeLink) => string): string =>
+type Mark = {
+  readonly offset: number
+  readonly length: number
+  readonly write: (text: string) => string
+}
+
+export const withLinks = (
+  prose: ProseBlock,
+  write: (link: CodeLink) => string,
+  recognise: (word: RecognisedWord, text: string) => string = (_, text) => text,
+): string =>
   pipe(
-    Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
-    Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
+    [
+      ...Array.map(
+        Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
+        (link): Mark => ({ offset: link.offset, length: link.length, write: () => write(link) }),
+      ),
+      ...Array.map(
+        Option.getOrElse(
+          Option.fromNullishOr(prose.recognised),
+          (): ReadonlyArray<RecognisedWord> => [],
+        ),
+        (word): Mark => ({
+          offset: word.offset,
+          length: word.length,
+          write: (text) => recognise(word, text),
+        }),
+      ),
+    ],
+    Array.sort(Order.mapInput(Order.Number, (mark: Mark) => -mark.offset)),
     Array.reduce(
       prose.markdown,
-      (markdown, link) =>
-        markdown.slice(0, link.offset) + write(link) + markdown.slice(link.offset + link.length),
+      (markdown, mark) =>
+        markdown.slice(0, mark.offset) +
+        mark.write(markdown.slice(mark.offset, mark.offset + mark.length)) +
+        markdown.slice(mark.offset + mark.length),
     ),
   )
 
+const wordSpan = (word: RecognisedWord, text: string): string => {
+  const title = word.definition
+    .replace(/\s+/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return `<span class="concept-word" title="${title}">${text}</span>`
+}
+
 const linkedMarkdown = (prose: ProseBlock, base: string): string =>
-  withLinks(prose, (link) => markdownLink(link, base))
+  withLinks(prose, (link) => markdownLink(link, base), wordSpan)
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)

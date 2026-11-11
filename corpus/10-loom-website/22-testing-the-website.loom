@@ -321,6 +321,45 @@ it('draws a link in prose, with the definition of the concept it reaches', () =>
 
 ~
 
+A word the prose recognises as a concept keeps its text and gains the concept's definition as the title of a span around it, its quotes, ampersands and angle brackets written as entities.
+
+=>
+
+it('marks a word the prose recognises, with the definition of its concept', () => {
+  const orders = { number: '2', title: 'Orders', slug: 'corpus/orders' }
+  const book: Corpus = {
+    nav: [{ number: 'I', name: 'Money', chapters: [orders] }],
+    pages: [
+      {
+        slug: orders.slug,
+        title: 'Orders',
+        blocks: [
+          { type: 'heading', level: 1, title: 'Orders', id: 'orders', unsettled: false },
+          {
+            type: 'prose',
+            markdown: 'An account stays open while it owes.',
+            links: [],
+            recognised: [
+              {
+                offset: 3,
+                length: 7,
+                concept: 'Account',
+                definition: 'A ledger "of" money & <debts>.',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  const html = render(at('source', { book: Option.some(book) }))
+  expect(html).toContain(
+    'An <span class="concept-word" title="A ledger &quot;of&quot; money &amp; &lt;debts&gt;.">account</span> stays open',
+  )
+})
+
+~
+
 The source page shows which sections are still to be settled. Here `The program` names `Greeting`, which is declared but holds no code, and `Farewell`, which only the `{To be settled}` label declares. The first anchor stays a link, marked as unsettled. The second has no link, so it draws as an unsettled mark of its own. The heading of `Greeting` carries the pill that says it is to be settled.
 
 =>

@@ -1,0 +1,1299 @@
+---
+Part XIII, Chapter 6: The scope of a concept
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# The scope of a concept
+
+A link reaches a concept from anywhere in the corpus, as the chapter "Concepts" describes. Most prose names its concepts without a link, though. An editor that recognises those plain words can show a reader the concept's meaning where the word stands, and the index can count each word as a use. Recognition needs a boundary that links do without, because many concepts are everyday words too. Box and mark are ideas Loom's book defines, and they are also plain English.
+
+This chapter gives each concept the scope it belongs to, and each chapter the vocabulary it recognises: the concepts whose words it reads as concepts.
+
+## Every chapter stands in a trope
+
+The corpus is the root trope, as the chapter "The trope contract" describes, and its books and their parts are tropes inside it. A scope is one of these tropes, implicit or declared. A `Scope` names it. The `Corpus` is the root, and a `Book` is the default book or a named one, as the chapter "Books" describes. A `Part` carries the part's reference: its book, its number, and its name. A `Trope` names a declared trope that has a root.
+
+Two scopes that name the same trope are one scope, whatever object holds them. `scopeKey` writes a scope as a string, so a map can key by it, and `sameScope` compares two scopes by it.
+
+=>
+
+export type Scope = Data.TaggedEnum<{
+  Corpus: {}
+  Book: { readonly book: Option.Option<string> }
+  Part: { readonly part: PartRef }
+  Trope: { readonly trope: string }
+}>
+
+export const Scope = Data.taggedEnum<Scope>()
+
+export const scopeKey = (scope: Scope): string =>
+  Scope.$match(scope, {
+    Corpus: () => 'corpus',
+    Book: ({ book }) => JSON.stringify(['book', Option.getOrNull(book)]),
+    Part: ({ part }) =>
+      JSON.stringify([
+        'part',
+        Option.getOrNull(part.book),
+        Option.getOrNull(Option.orElse(part.number, () => part.name)),
+      ]),
+    Trope: ({ trope }) => JSON.stringify(['trope', trope]),
+  })
+
+const sameScope = (one: Scope, other: Scope): boolean => scopeKey(one) === scopeKey(other)
+
+## Where a concept belongs
+
+Every loom stands in one innermost scope, and a concept belongs to the scope of the loom that defines it:
+
+- A chapter of a declared trope stands in the trope, whichever part holds the chapter.
+- A loom with no frontmatter stands in the corpus. The corpus loom is such a loom, as `corpus/book.loom` is.
+- Any other chapter of a part stands in its part.
+- A book loom, and a chapter that belongs to no part, stand in their book.
+
+So a concept added in a chapter belongs to the chapter's part by default, and a concept in the corpus loom belongs to the whole corpus.
+
+`scopeOf` gives a loom's scope. It first reads the trope the loom names, through `tropeOf`, and keeps it when the trope has a root, since only a root draws a trope's boundary. Otherwise `standingScopeOf` reads where the loom stands: in the corpus when it has no frontmatter, in the part its chapter names when it names one, and in its book when it names none.
+
+=>
+
+const standingScopeOf = (catalogue: Catalogue, module: LoomModule): Scope =>
+  module.doc.frontmatter === undefined
+    ? Scope.Corpus()
+    : Option.match(
+        Option.filter(
+          Option.map(chapterOf(catalogue, module.path), (chapter) => chapter.part),
+          (part) => Option.isSome(part.number) || Option.isSome(part.name),
+        ),
+        {
+          onSome: (part): Scope => Scope.Part({ part }),
+          onNone: (): Scope => Scope.Book({ book: bookOf(module) }),
+        },
+      )
+
+export const scopeOf = (boundaries: Boundaries, catalogue: Catalogue, module: LoomModule): Scope =>
+  pipe(
+    tropeOf(module),
+    Option.filter((trope) => boundaries.tropes.has(trope)),
+    Option.match({
+      onSome: (trope): Scope => Scope.Trope({ trope }),
+      onNone: () => standingScopeOf(catalogue, module),
+    }),
+  )
+
+## Scopes inside scopes
+
+Each scope but the corpus stands inside another. A part stands in its book, and a book stands in the corpus. A declared trope stands in the trope its root is `Rooted in:`. A trope rooted in no other trope stands where its root stands, in the root's part, say. `enclosingScopeOf` gives the scope around a scope, and nothing around the corpus.
+
+`scopeChainOf` walks outward from a scope to the corpus, the scope itself first. Tropes rooted in each other in a loop are a fault of their own, as the chapter "The boundaries of a trope" describes, so the walk stops at a scope it has already passed rather than run forever.
+
+=>
+
+const enclosingScopeOf =
+  (boundaries: Boundaries, catalogue: Catalogue) =>
+  (scope: Scope): Option.Option<Scope> =>
+    Scope.$match(scope, {
+      Corpus: () => Option.none<Scope>(),
+      Book: () => Option.some<Scope>(Scope.Corpus()),
+      Part: ({ part }) => Option.some<Scope>(Scope.Book({ book: part.book })),
+      Trope: ({ trope }) =>
+        Option.map(Option.fromNullishOr(boundaries.tropes.get(trope)), (node): Scope =>
+          Option.match(
+            Option.filter(node.parent, (parent) => boundaries.tropes.has(parent)),
+            {
+              onSome: (parent): Scope => Scope.Trope({ trope: parent }),
+              onNone: () => standingScopeOf(catalogue, node.root),
+            },
+          ),
+        ),
+    })
+
+export const scopeChainOf = (
+  boundaries: Boundaries,
+  catalogue: Catalogue,
+  scope: Scope,
+): ReadonlyArray<Scope> => {
+  const outward = enclosingScopeOf(boundaries, catalogue)
+  const walk = (at: Scope, passed: ReadonlySet<string>): ReadonlyArray<Scope> =>
+    passed.has(scopeKey(at))
+      ? []
+      : [
+          at,
+          ...Option.match(outward(at), {
+            onNone: (): ReadonlyArray<Scope> => [],
+            onSome: (next) => walk(next, new Set([...passed, scopeKey(at)])),
+          }),
+        ]
+  return walk(scope, new Set())
+}
+
+## The words a chapter knows
+
+A chapter recognises the forms of its vocabulary, the concepts its scope knows. A scope's vocabulary gathers four kinds of concept:
+
+1. the concepts that belong to the scope;
+2. the vocabulary of the scope around it, and so of every scope out to the corpus;
+3. the concepts in the entries of the declared tropes that stand directly inside the scope;
+4. the concepts that a link in the scope's own looms names.
+
+The first two make scopes nest. A concept in the corpus loom is known in every chapter, and a concept of a part only in that part. The third follows a trope's boundary. An entry is a trope's way in, so the concepts its entries define are known around the trope, and the concepts of the rest of the trope stay inside it.
+
+The fourth makes a link an import. An author links a concept at its first use, as Wikipedia's style guide asks of every link, and the rest of the scope then recognises the concept's forms without a link. A link in a chapter of a declared trope imports the concept into the trope. A link in any other chapter imports it into the chapter's part, or into its book when it has no part.
+
+`vocabulariesOf` builds every vocabulary of a corpus at once. It reads each loom's scope, then what each scope adds by itself, the first, third, and fourth kinds above, which `addedBy` gathers. `loomsIn` gives the looms that stand in a scope, `conceptsIn` the concepts some looms define, and `nestedIn` the declared tropes that stand directly inside a scope. `importsOf` gives the concepts the links of some looms reach. It resolves only a link whose name, or the last name of whose path, is a word some concept of the corpus answers to, since no other link can reach a concept. `namesConcept` tells such a name, against the corpus's words, which `vocabulariesOf` gathers once. A scope's vocabulary joins what every scope of its chain adds.
+
+`vocabularyAt` gives the vocabulary of the scope a loom stands in. `vocabulariesIn` builds the vocabularies straight from a corpus's looms, through its catalogue and the boundaries of its tropes. A corpus that defines no concept has no word to recognise, so for it `vocabulariesIn` reads neither scopes nor boundaries, and gives `noVocabularies`.
+
+=>
+
+export type Vocabularies = {
+  readonly catalogue: Catalogue
+  readonly boundaries: Boundaries
+  readonly scopes: ReadonlyMap<Location, Scope>
+  readonly vocabularies: ReadonlyMap<string, Vocabulary>
+}
+
+const conceptsIn = (
+  catalogue: Catalogue,
+  looms: ReadonlyArray<Location>,
+): ReadonlyArray<ConceptRef> =>
+  Array.filter(catalogue.concepts, (concept) => looms.includes(concept.module))
+
+const namesConcept =
+  (words: ReadonlySet<string>) =>
+  (name: string): boolean =>
+    words.has(foldFirst(name)) || words.has(foldFirst(name.slice(name.lastIndexOf(',') + 1).trim()))
+
+const importsOf = (
+  catalogue: Catalogue,
+  named: (name: string) => boolean,
+  looms: ReadonlyArray<LoomModule>,
+): ReadonlyArray<ConceptRef> =>
+  Array.flatMap(looms, (module) =>
+    pipe(
+      linksOf(module),
+      Array.filter((link) => named(link.name.value)),
+      Array.map((link) =>
+        Option.flatMap(resolveAnchor(catalogue, module.path, link), (ref) =>
+          conceptAt(catalogue, ref),
+        ),
+      ),
+      Array.getSomes,
+    ),
+  )
+
+export const vocabulariesOf = (catalogue: Catalogue, boundaries: Boundaries): Vocabularies => {
+  const modules = Array.fromIterable(catalogue.modules.values())
+  const scopes: ReadonlyMap<Location, Scope> = new Map(
+    Array.map(modules, (module) => [module.path, scopeOf(boundaries, catalogue, module)] as const),
+  )
+  const outward = enclosingScopeOf(boundaries, catalogue)
+  const named = namesConcept(
+    new Set(
+      Array.flatMap(catalogue.concepts, (concept) => Array.map(conceptNames(concept), foldFirst)),
+    ),
+  )
+  const loomsIn = (scope: Scope): ReadonlyArray<LoomModule> =>
+    Array.filter(modules, (module) =>
+      Option.exists(Option.fromNullishOr(scopes.get(module.path)), (own) => sameScope(own, scope)),
+    )
+  const nestedIn = (scope: Scope): ReadonlyArray<TropeNode> =>
+    Array.filter(Array.fromIterable(boundaries.tropes.values()), (node) =>
+      Option.exists(outward(Scope.Trope({ trope: node.name })), (around) =>
+        sameScope(around, scope),
+      ),
+    )
+  const addedBy = (scope: Scope): ReadonlyArray<ConceptRef> => {
+    const own = loomsIn(scope)
+    return [
+      ...conceptsIn(
+        catalogue,
+        Array.map(own, (module) => module.path),
+      ),
+      ...Array.flatMap(nestedIn(scope), (node) => conceptsIn(catalogue, node.entries)),
+      ...importsOf(catalogue, named, own),
+    ]
+  }
+  const standing = Array.dedupeWith(Array.fromIterable(scopes.values()), sameScope)
+  const chains = Array.map(standing, (scope) => scopeChainOf(boundaries, catalogue, scope))
+  const added = new Map(
+    Array.map(Array.dedupeWith(Array.flatten(chains), sameScope), (scope) => [
+      scopeKey(scope),
+      addedBy(scope),
+    ]),
+  )
+  return {
+    catalogue,
+    boundaries,
+    scopes,
+    vocabularies: new Map(
+      Array.zipWith(standing, chains, (scope, chain) => [
+        scopeKey(scope),
+        vocabularyOf(
+          Array.flatMap(chain, (around) =>
+            Option.getOrElse(Option.fromNullishOr(added.get(scopeKey(around))), () => []),
+          ),
+        ),
+      ]),
+    ),
+  }
+}
+
+export const vocabularyAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+): Option.Option<Vocabulary> =>
+  Option.flatMap(Option.fromNullishOr(vocabularies.scopes.get(path)), (scope) =>
+    Option.fromNullishOr(vocabularies.vocabularies.get(scopeKey(scope))),
+  )
+
+const noVocabularies = (catalogue: Catalogue): Vocabularies => ({
+  catalogue,
+  boundaries: { tropes: new Map(), chains: new Map(), derived: new Map() },
+  scopes: new Map(),
+  vocabularies: new Map(),
+})
+
+export const vocabulariesIn = (modules: ReadonlyMap<Location, LoomModule>): Vocabularies => {
+  const catalogue = catalogueOf(modules)
+  return Array.isReadonlyArrayNonEmpty(catalogue.concepts)
+    ? vocabulariesOf(catalogue, boundariesOf(modules, catalogue, tropesOf(modules)))
+    : noVocabularies(catalogue)
+}
+
+## One concept to a word
+
+A `Vocabulary` holds its `concepts`, and for each word they answer to, the concepts that claim it, as its `claims`. Usually one concept claims a word. A word that two concepts of one vocabulary both claim is not recognised, since Loom cannot tell which of them the sentence means. The editor offers a link to each concept instead, as the section "A word two concepts claim" describes.
+
+A form matches whatever the case of its first letter, as a link's name does, so `Accounts` opening a sentence is a word of the form `accounts`. Every other letter must match as written. The corpus's `foldFirst` lowers a word's first letter, and the claims key each form folded that way.
+
+The vocabulary's `pattern` finds its words in one pass over a line. `formPattern` writes a form whose first letter takes either case, and `escaped` keeps every other character of the form literal. `wordPattern` joins the forms, longest first, so that `lexical form` wins over `form` where both match. A word stands between characters that are neither letters, digits, nor underscores, so `account` is never found inside `accountant`. `vocabularyOf` builds a vocabulary from the concepts it gathers, keeping each concept once, as `sameConcept` tells.
+
+=>
+
+export type Vocabulary = {
+  readonly concepts: ReadonlyArray<ConceptRef>
+  readonly claims: ReadonlyMap<string, ReadonlyArray<ConceptRef>>
+  readonly pattern: Option.Option<RegExp>
+}
+
+const sameConcept = (one: ConceptRef, other: ConceptRef): boolean =>
+  one.module === other.module && one.section === other.section
+
+const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const formPattern = (form: string): string => {
+  const first = form.charAt(0)
+  return first.toLowerCase() === first.toUpperCase()
+    ? escaped(form)
+    : `[${first.toUpperCase()}${first.toLowerCase()}]${escaped(form.slice(1))}`
+}
+
+const wordPattern = (forms: ReadonlyArray<string>): Option.Option<RegExp> =>
+  Option.map(
+    Option.liftPredicate(forms, Array.isReadonlyArrayNonEmpty),
+    (some) =>
+      new RegExp(
+        `(?<![\\p{L}\\p{N}_])(?:${Array.join(Array.map(some, formPattern), '|')})(?![\\p{L}\\p{N}_])`,
+        'gu',
+      ),
+  )
+
+const vocabularyOf = (gathered: ReadonlyArray<ConceptRef>): Vocabulary => {
+  const concepts = Array.dedupeWith(gathered, sameConcept)
+  const named = Array.flatMap(concepts, (concept) =>
+    Array.map(Array.dedupe(Array.map(conceptNames(concept), foldFirst)), (name) => ({
+      name,
+      concept,
+    })),
+  )
+  const claims: ReadonlyMap<string, ReadonlyArray<ConceptRef>> = new Map(
+    Array.map(Object.entries(Array.groupBy(named, ({ name }) => name)), ([name, found]) => [
+      name,
+      Array.map(found, ({ concept }) => concept),
+    ]),
+  )
+  return {
+    concepts,
+    claims,
+    pattern: wordPattern(
+      Array.sort(
+        Array.fromIterable(claims.keys()),
+        Order.flip(Order.mapInput(Order.Number, (form: string) => form.length)),
+      ),
+    ),
+  }
+}
+
+## Reading plain prose
+
+Recognition reads the lines of prose, the preamble lines and the prose lines of a loom, and passes over every line that holds no running prose. A line of colons opens or closes a box. A quote runs from a fence in prose to the fence that closes it, as the chapter "Fenced code" describes. A concept's `Lexical forms:` list names the concept rather than using it. `readableLines` keeps every other line. It threads a `Reading`, which knows whether a quote or a box is open, through the lines with `readOn`, by the rules the classifier keeps, and starts `outside` both.
+
+Some text inside a line is not prose either. An anchor already links, a warp declares a value, and inline code is code. A Markdown link's address, an HTML tag, and a web address are addresses, which `literals` finds. `scanTextOf` blanks each of them with spaces before the search, so no word is found inside one, and every offset still holds.
+
+A concept's own section uses its own words about itself, so a word that the section's concept claims is not recognised there. A `ClaimedWord` records each word found: the `word` as the prose writes it, its `position`, and the concepts that claim it. `wordsOn` finds the words of one line. `passagesOf` cuts a loom into its preamble and its sections, each with its readable lines and the concept the section defines, and `claimedWordsIn` gives every claimed word of a loom.
+
+=>
+
+type ProseLine = PreambleWeft | ProseWeft
+
+const isProseLine = (weft: LoomWeft): weft is ProseLine =>
+  weft.type === 'PreambleWeft' || weft.type === 'ProseWeft'
+
+type Reading = { readonly quote: Option.Option<Fence>; readonly inBox: boolean }
+
+const outside: Reading = { quote: Option.none(), inBox: false }
+
+const readOn = (state: Reading, line: ProseLine): readonly [Reading, boolean] =>
+  Option.match(state.quote, {
+    onSome: (fence): readonly [Reading, boolean] => [
+      closesFence(fence)(line.source) ? { ...state, quote: Option.none() } : state,
+      false,
+    ],
+    onNone: () =>
+      Option.match(boxOf(line), {
+        onSome: (box): readonly [Reading, boolean] => [
+          { ...state, inBox: box.side === 'open' },
+          false,
+        ],
+        onNone: () =>
+          Option.match(state.inBox ? Option.none<Fence>() : openingFence(line.source), {
+            onSome: (fence): readonly [Reading, boolean] => [
+              { ...state, quote: Option.some(fence) },
+              false,
+            ],
+            onNone: (): readonly [Reading, boolean] => [state, true],
+          }),
+      }),
+  })
+
+const readableLines = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<ProseLine> =>
+  Array.getSomes(
+    Array.mapAccum(Array.filter(wefts, isProseLine), outside, (state, line) => {
+      const [next, readable] = readOn(state, line)
+      return [next, readable ? Option.some(line) : Option.none<ProseLine>()]
+    })[1],
+  )
+
+const literals = /`[^`]*`|\]\([^)]*\)|<[^>\s][^>]*>|https?:\/\/\S+/g
+
+const blanked = (text: string, from: number, to: number): string =>
+  text.slice(0, from) + ' '.repeat(Math.max(0, to - from)) + text.slice(to)
+
+const scanTextOf = (line: ProseLine): string => {
+  const start = line.position.start.offset
+  const tokens = [...line.anchors, ...(line.type === 'PreambleWeft' ? line.warps : [])]
+  return Array.reduce(
+    tokens,
+    line.source.replace(literals, (found) => ' '.repeat(found.length)),
+    (text, token) =>
+      blanked(text, token.position.start.offset - start, token.position.end.offset - start),
+  )
+}
+
+export type ClaimedWord = {
+  readonly word: string
+  readonly position: Position
+  readonly claims: ReadonlyArray<ConceptRef>
+}
+
+const wordsOn =
+  (vocabulary: Vocabulary, pattern: RegExp, own: Option.Option<ConceptRef>) =>
+  (line: ProseLine): ReadonlyArray<ClaimedWord> =>
+    Array.getSomes(
+      Array.map(Array.fromIterable(scanTextOf(line).matchAll(pattern)), (found) => {
+        const claims = Option.getOrElse(
+          Option.fromNullishOr(vocabulary.claims.get(foldFirst(found[0]))),
+          (): ReadonlyArray<ConceptRef> => [],
+        )
+        const from = line.position.start.offset + found.index
+        return claims.length === 0 ||
+          Option.exists(own, (self) => Array.some(claims, (claim) => sameConcept(claim, self)))
+          ? Option.none()
+          : Option.some({
+              word: found[0],
+              position: {
+                start: { line: line.position.start.line, offset: from },
+                end: { line: line.position.start.line, offset: from + found[0].length },
+              },
+              claims,
+            })
+      }),
+    )
+
+type Passage = {
+  readonly own: Option.Option<ConceptRef>
+  readonly lines: ReadonlyArray<ProseLine>
+}
+
+const passagesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Passage> => [
+  { own: Option.none(), lines: readableLines(module.doc.preamble) },
+  ...Array.map(module.doc.sections, (section): Passage => {
+    const concept = isConceptSection(section)
+      ? conceptAt(catalogue, { module: module.path, section })
+      : Option.none()
+    const listing = new Set(
+      Array.map(
+        Option.isSome(concept) ? formLinesOf(section) : [],
+        (line) => line.position.start.offset,
+      ),
+    )
+    return {
+      own: concept,
+      lines: Array.filter(
+        readableLines([...section.preamble, ...section.code]),
+        (line) => !listing.has(line.position.start.offset),
+      ),
+    }
+  }),
+]
+
+export const claimedWordsIn = (
+  vocabularies: Vocabularies,
+  module: LoomModule,
+): ReadonlyArray<ClaimedWord> =>
+  pipe(
+    vocabularyAt(vocabularies, module.path),
+    Option.flatMap((vocabulary) =>
+      Option.map(vocabulary.pattern, (pattern) => ({ vocabulary, pattern })),
+    ),
+    Option.match({
+      onNone: (): ReadonlyArray<ClaimedWord> => [],
+      onSome: ({ vocabulary, pattern }) =>
+        Array.flatMap(passagesOf(vocabularies.catalogue, module), ({ own, lines }) =>
+          Array.flatMap(lines, wordsOn(vocabulary, pattern, own)),
+        ),
+    }),
+  )
+
+## A word in the editor
+
+A word that one concept claims is recognised, and the editor treats it like a link to the concept, without rewriting the text. A `Recognised` pairs such a word with its concept, and `recognisedOf` makes one of a word that one concept claims. `recognisedIn` gives the recognised words of a loom, and `recognisedAt` the one under a cursor, which `covers` tells, in the loom `moduleAt` finds. `recognisedDefinitionAt` follows a recognised word to its concept's heading. `recognisedHoverAt` shows the concept's card over the word, the same card `cardOf` writes for a link, and `recognisedRangeAt` gives the span a definition link underlines.
+
+A recognised word is a use of its concept as much as a link is, so the editor's references count it. `conceptReferencesAt` reads the concept under a cursor, which `conceptUnder` finds at the concept's heading, at a link to it, or at a word that recognises it. It gives the places that name the concept, which `referencesAt` finds from the heading, beside every word across the corpus that recognises the concept, which `recognisedUsesOf` gathers.
+
+=>
+
+export type Recognised = { readonly word: ClaimedWord; readonly concept: ConceptRef }
+
+const recognisedOf = (word: ClaimedWord): Option.Option<Recognised> =>
+  word.claims.length === 1
+    ? Option.map(Array.head(word.claims), (concept) => ({ word, concept }))
+    : Option.none()
+
+export const recognisedIn = (
+  vocabularies: Vocabularies,
+  module: LoomModule,
+): ReadonlyArray<Recognised> =>
+  Array.getSomes(Array.map(claimedWordsIn(vocabularies, module), recognisedOf))
+
+const covers = (position: Position, offset: number): boolean =>
+  position.start.offset <= offset && offset <= position.end.offset
+
+const moduleAt = (vocabularies: Vocabularies, path: Location): Option.Option<LoomModule> =>
+  Option.fromNullishOr(vocabularies.catalogue.modules.get(path))
+
+export const recognisedAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): Option.Option<Recognised> =>
+  Option.flatMap(moduleAt(vocabularies, path), (module) =>
+    Array.findFirst(recognisedIn(vocabularies, module), ({ word }) =>
+      covers(word.position, offset),
+    ),
+  )
+
+export const recognisedDefinitionAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.map(recognisedAt(vocabularies, path, offset), ({ concept }) => ({
+    path: concept.module,
+    position: concept.name.position,
+  }))
+
+export const recognisedHoverAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusHover> =>
+  Option.map(recognisedAt(vocabularies, path, offset), ({ word, concept }) => ({
+    position: word.position,
+    markdown: cardOf(concept),
+  }))
+
+export const recognisedRangeAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.map(recognisedAt(vocabularies, path, offset), ({ word }) => ({
+    path,
+    position: word.position,
+  }))
+
+const conceptUnder = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): Option.Option<ConceptRef> =>
+  Option.orElse(
+    conceptMentionedAt(vocabularies.catalogue, vocabularies.catalogue.modules, path, offset),
+    () => Option.map(recognisedAt(vocabularies, path, offset), ({ concept }) => concept),
+  )
+
+const recognisedUsesOf = (
+  vocabularies: Vocabularies,
+  concept: ConceptRef,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(vocabularies.catalogue.modules.values()), (module) =>
+    pipe(
+      recognisedIn(vocabularies, module),
+      Array.filter((found) => sameConcept(found.concept, concept)),
+      Array.map(({ word }): CorpusLocation => ({ path: module.path, position: word.position })),
+    ),
+  )
+
+export const conceptReferencesAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): Option.Option<ReadonlyArray<CorpusLocation>> =>
+  Option.map(conceptUnder(vocabularies, path, offset), (concept) => [
+    ...referencesAt(
+      { modules: vocabularies.catalogue.modules },
+      concept.module,
+      concept.name.position.start.offset,
+    ),
+    ...recognisedUsesOf(vocabularies, concept),
+  ])
+
+## A word two concepts claim
+
+A word that two concepts claim needs its author to say which concept the sentence means. `linksAt` makes an offer for each concept that claims a word within a range of a loom. The offer writes a link in the word's place, with the workspace's own anchor delimiters, and the link names the path to the concept. The path ends in the word itself, which `conceptPathOf` writes, so the sentence keeps the word its author chose. A `ConceptFix` holds one offer: the title the editor lists, and the edits it makes.
+
+=>
+
+export type ConceptFix = {
+  readonly title: string
+  readonly edits: ReadonlyArray<CorpusEdit>
+}
+
+export const linksAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  start: number,
+  end: number,
+  delims: AnchorDelims,
+): ReadonlyArray<ConceptFix> =>
+  Option.match(moduleAt(vocabularies, path), {
+    onNone: (): ReadonlyArray<ConceptFix> => [],
+    onSome: (module) =>
+      pipe(
+        claimedWordsIn(vocabularies, module),
+        Array.filter(
+          (found) =>
+            found.claims.length > 1 &&
+            found.position.start.offset <= end &&
+            start <= found.position.end.offset,
+        ),
+        Array.flatMap((found) =>
+          Array.getSomes(
+            Array.map(found.claims, (concept) =>
+              Option.map(
+                conceptPathOf(vocabularies.catalogue, path, concept, found.word),
+                (named): ConceptFix => ({
+                  title: `Link to \`${named}\``,
+                  edits: [
+                    { path, at: found.position, text: `${delims.open}${named}${delims.close}` },
+                  ],
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+  })
+
+## Moving a concept up
+
+A concept that turns out to serve more than its scope moves up, to a scope that encloses it. The move puts the concept's section in the loom that stands for the new scope, its home, which `homeOf` finds. A declared trope's home is its root. Any other scope's home is the first loom that stands in the scope and opens it, which `opensItsScope` tells: a part's opening chapter, which announces the part's name, or a book's book loom. A scope with no such loom takes the first of its looms by path, as the default book takes one of its chapters that belong to no part. A scope with no loom at all has no home, and the move passes it over for the scope around it. Every link to the concept keeps working after the move, since a link reaches a concept wherever it stands.
+
+A `ConceptMove` lists the targets for one concept, nearest first, each a `ConceptFix` titled by the scope it moves to, which `labelOf` names. `movesAt` gives the move for the concept whose heading stands under a cursor. The editor moves the concept up one scope by default, and an editor that offers a picker lists every target, as the chapter "The Loom language" describes. A concept whose heading titles its loom stays where it is, since moving it would take the loom's title along, and `titlesItsLoom` tells such a concept.
+
+`movedTo` writes a move as two edits. One cuts the section from its loom, from its heading up to the next section's heading. The other writes it at the end of the home loom, which `endOf` finds, after a blank line, which `separatorAfter` makes sure of.
+
+=>
+
+export type ConceptMove = {
+  readonly concept: string
+  readonly targets: Array.NonEmptyReadonlyArray<ConceptFix>
+}
+
+const opensItsScope = (module: LoomModule): boolean =>
+  isBookLoom(module) || module.doc.frontmatter?.partName !== undefined
+
+const homeOf = (vocabularies: Vocabularies, scope: Scope): Option.Option<LoomModule> =>
+  scope._tag === 'Trope'
+    ? Option.map(
+        Option.fromNullishOr(vocabularies.boundaries.tropes.get(scope.trope)),
+        (node) => node.root,
+      )
+    : pipe(
+        Array.fromIterable(vocabularies.catalogue.modules.values()),
+        Array.filter((module) =>
+          Option.exists(Option.fromNullishOr(vocabularies.scopes.get(module.path)), (own) =>
+            sameScope(own, scope),
+          ),
+        ),
+        Array.sort(
+          Order.combine(
+            Order.mapInput(Order.Boolean, (module: LoomModule) => !opensItsScope(module)),
+            Order.mapInput(Order.String, (module: LoomModule) => module.path),
+          ),
+        ),
+        Array.head,
+      )
+
+const labelOf = (scope: Scope): string =>
+  Scope.$match(scope, {
+    Corpus: () => 'the corpus',
+    Book: ({ book }) =>
+      Option.match(book, { onNone: () => 'the book', onSome: (name) => `the book \`${name}\`` }),
+    Part: ({ part }) =>
+      Option.match(part.number, {
+        onSome: (number) => `Part ${number}`,
+        onNone: () => `the part \`${Option.getOrElse(part.name, () => '')}\``,
+      }),
+    Trope: ({ trope }) => `the \`${trope}\` trope`,
+  })
+
+const titlesItsLoom = (module: LoomModule, concept: ConceptRef): boolean =>
+  module.doc.frontmatter?.title === undefined &&
+  Option.exists(
+    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
+    (opening) => opening === concept.section,
+  )
+
+const endOf = (text: string): Point => ({ line: text.split('\n').length, offset: text.length })
+
+const separatorAfter = (text: string): string =>
+  Match.value(text).pipe(
+    Match.when(
+      (held: string) => held === '' || held.endsWith('\n\n'),
+      () => '',
+    ),
+    Match.when(
+      (held: string) => held.endsWith('\n'),
+      () => '\n',
+    ),
+    Match.orElse(() => '\n\n'),
+  )
+
+const movedTo = (
+  module: LoomModule,
+  concept: ConceptRef,
+  home: LoomModule,
+): ReadonlyArray<CorpusEdit> => {
+  const start = concept.section.heading.position.start
+  const end = Option.getOrElse(
+    Option.map(
+      Array.findFirst(
+        module.doc.sections,
+        (section) => section.position.start.offset > start.offset,
+      ),
+      (next) => next.position.start,
+    ),
+    () => endOf(module.text),
+  )
+  const at = endOf(home.text)
+  return [
+    { path: module.path, at: { start, end }, text: '' },
+    {
+      path: home.path,
+      at: { start: at, end: at },
+      text: `${separatorAfter(home.text)}${module.text.slice(start.offset, end.offset).trimEnd()}\n`,
+    },
+  ]
+}
+
+export const movesAt = (
+  vocabularies: Vocabularies,
+  path: Location,
+  offset: number,
+): ReadonlyArray<ConceptMove> =>
+  Option.toArray(
+    Option.flatMap(moduleAt(vocabularies, path), (module) =>
+      pipe(
+        Array.findFirst(
+          vocabularies.catalogue.concepts,
+          (concept) => concept.module === path && covers(concept.section.heading.position, offset),
+        ),
+        Option.filter((concept) => !titlesItsLoom(module, concept)),
+        Option.flatMap((concept) =>
+          pipe(
+            Option.fromNullishOr(vocabularies.scopes.get(path)),
+            Option.map((scope) =>
+              Array.getSomes(
+                Array.map(
+                  Array.drop(
+                    scopeChainOf(vocabularies.boundaries, vocabularies.catalogue, scope),
+                    1,
+                  ),
+                  (target) =>
+                    Option.map(homeOf(vocabularies, target), (home): ConceptFix => ({
+                      title: `Move \`${concept.name.source}\` up to ${labelOf(target)}`,
+                      edits: movedTo(module, concept, home),
+                    })),
+                ),
+              ),
+            ),
+            Option.flatMap(
+              Array.match({
+                onEmpty: () => Option.none<ConceptMove>(),
+                onNonEmpty: (targets) => Option.some({ concept: concept.name.source, targets }),
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  )
+
+## What the scopes draw on
+
+From `effect` come the array, option, and order combinators, `Data` for the tagged scopes, `Match` for the blank line before a moved section, and `pipe`. From the Loom AST come the `Position` and `Point` a word stands at, the prose wefts recognition reads, with `boxOf`, which finds a line of colons, the `Fence` of a quote with `openingFence` and `closesFence`, which follow it, and the `AnchorDelims` a link is written with. The corpus lends the `Catalogue` with `catalogueOf`, the `PartRef` a part is known by and `chapterOf`, which finds a loom's chapter, `bookOf` and `isBookLoom`, the concepts with `conceptAt`, `conceptNames`, `foldFirst`, `formLinesOf`, and `isConceptSection`, the links with `linksOf` and `resolveAnchor`, and the editor's answers: `cardOf`, `conceptMentionedAt`, `conceptPathOf`, `referencesAt`, and the `CorpusLocation`, `CorpusHover`, and `CorpusEdit` they come in. The registry lends `tropeOf` and `tropesOf`, and the boundaries lend `boundariesOf`, the `Boundaries` they derive, and the `TropeNode` of each trope with a root.
+
+=>
+
+import { Array, Data, Match, Option, Order, pipe } from 'effect'
+import type { Point, Position } from '@athrio/loom-ast/LoomNode'
+import { boxOf, type LoomWeft, type PreambleWeft, type ProseWeft } from '@athrio/loom-ast/Weft'
+import {
+  type AnchorDelims,
+  closesFence,
+  type Fence,
+  openingFence,
+} from '@athrio/loom-ast/LoomTokens'
+import {
+  bookOf,
+  type Catalogue,
+  catalogueOf,
+  cardOf,
+  chapterOf,
+  type ConceptRef,
+  conceptAt,
+  conceptMentionedAt,
+  conceptNames,
+  conceptPathOf,
+  type CorpusEdit,
+  type CorpusHover,
+  type CorpusLocation,
+  foldFirst,
+  formLinesOf,
+  isBookLoom,
+  isConceptSection,
+  linksOf,
+  type Location,
+  type LoomModule,
+  type PartRef,
+  referencesAt,
+  resolveAnchor,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import { type Boundaries, boundariesOf, type TropeNode } from './TropeBoundaries'
+import { tropeOf, tropesOf } from './DeclaredKinds'
+
+## The module [src/ast/ConceptScope.ts]
+
+=>
+
+::[What the scopes draw on]
+
+::[Every chapter stands in a trope]
+
+::[Where a concept belongs]
+
+::[Scopes inside scopes]
+
+::[The words a chapter knows]
+
+::[One concept to a word]
+
+::[Reading plain prose]
+
+::[A word in the editor]
+
+::[A word two concepts claim]
+
+::[Moving a concept up]
+
+## Testing the scopes
+
+The cases compile small corpora held in memory and ask the compiler what an editor and a reader see. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted. `lines` joins them into the text a file holds, `anchor` writes an anchor without opening one here, and `chapter` writes a loom from its frontmatter lines and its body.
+
+`layerOf` gives the compiler a corpus held in memory, settled on Loom's own anchor delimiters, TypeScript, and a width of a hundred, and `asked` runs one use of the compiler over such a corpus. `offsetOf` finds a word inside a phrase of a loom, so a case names the word it rests on. `cardAt` gives the card the editor shows there, and nothing where it shows none. The cases run on Bun's runner with `effectify`, so a case is an Effect.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Match, Option as Opt } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { WovenBlock } from '../src/weave/WovenCorpus'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const chapter = (identity: ReadonlyArray<string>, ...body: ReadonlyArray<string>): string =>
+  lines('---', ...identity, '---', '', ...body)
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Opt.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Opt.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const asked = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+) => LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files)))
+
+const offsetOf = (text: string | undefined, phrase: string, word: string = phrase): number =>
+  (text ?? '').indexOf(phrase) + phrase.indexOf(word) + 1
+
+const cardAt = (files: Record<string, string>, path: string, phrase: string, word: string) =>
+  asked(files, (compiler) => compiler.hover(path, offsetOf(files[path], phrase, word))).pipe(
+    Effect.map((card) => card?.markdown),
+  )
+
+## A corpus about money
+
+The cases share one corpus. Its corpus loom, `money`, has no frontmatter and defines `Currency`, so every chapter knows that word. Part I, Billing, opens with the chapter `Accounts`, which defines `Account`, with one more form, `accounts`. The chapter `Invoices` of the same part uses both concepts in plain prose, and Part II, Shipping, holds the chapter `Parcels`. `book` gathers these looms beside the ones a case adds or replaces, and `accountCard` and `currencyCard` are the cards an editor shows for the two concepts.
+
+=>
+
+const root = '/corpus/book.loom'
+const accounts = '/corpus/accounts.loom'
+const invoices = '/corpus/invoices.loom'
+const parcels = '/corpus/parcels.loom'
+
+const money = lines(
+  '# Money',
+  '',
+  'A corpus about money.',
+  '',
+  '## Currency {Concept}',
+  '',
+  'A unit of money that a country issues.',
+)
+
+const book = (looms: Record<string, string>): Record<string, string> => ({
+  [root]: money,
+  [accounts]: chapter(
+    ['Part I: Billing', 'Chapter 1: Accounts'],
+    '# Accounts',
+    '',
+    'Billing keeps money in accounts.',
+    '',
+    '## Account {Concept}',
+    '',
+    "A ledger that holds one customer's balance.",
+    '',
+    'Lexical forms:',
+    '- accounts',
+  ),
+  [invoices]: chapter(
+    ['Part I, Chapter 2: Invoices'],
+    '# Invoices',
+    '',
+    'An invoice charges an account in one currency.',
+    '',
+    'Accounts close once they owe nothing, and `account` in code is no word.',
+  ),
+  [parcels]: chapter(
+    ['Part II: Shipping', 'Chapter 3: Parcels'],
+    '# Parcels',
+    '',
+    'A parcel ships to the address an account gives, paid in a currency.',
+  ),
+  ...looms,
+})
+
+const accountCard = "**Account**\n\nA ledger that holds one customer's balance.\n\nAlso: accounts"
+
+const currencyCard = '**Currency**\n\nA unit of money that a country issues.'
+
+## Words a chapter recognises
+
+A chapter recognises the concepts of its own part, and leads from the word to the concept's heading. It reads a form whatever the case of its first letter, and never inside code. Part II knows nothing of Part I's account, though every chapter knows the corpus's currency.
+
+=>
+
+describe('the words a chapter recognises', () => {
+  it.effect("recognises a concept of the chapter's own part", () =>
+    Effect.gen(function* () {
+      const files = book({})
+      const card = yield* cardAt(files, invoices, 'charges an account', 'account')
+      const target = yield* asked(files, (compiler) =>
+        compiler.definition(invoices, offsetOf(files[invoices], 'charges an account', 'account')),
+      )
+      expect([card, target?.path, target?.range.start]).toEqual([
+        accountCard,
+        accounts,
+        { line: 9, character: 3 },
+      ])
+    }),
+  )
+
+  it.effect('reads a form whatever the case of its first letter, and never inside code', () =>
+    Effect.gen(function* () {
+      const files = book({})
+      expect([
+        yield* cardAt(files, invoices, 'Accounts close', 'Accounts'),
+        yield* cardAt(files, invoices, '`account` in code', 'account'),
+      ]).toEqual([accountCard, undefined])
+    }),
+  )
+
+  it.effect("keeps a part's concepts to the part, and the corpus's to every chapter", () =>
+    Effect.gen(function* () {
+      const files = book({})
+      expect([
+        yield* cardAt(files, parcels, 'an account gives', 'account'),
+        yield* cardAt(files, parcels, 'a currency', 'currency'),
+      ]).toEqual([undefined, currencyCard])
+    }),
+  )
+})
+
+## A link imports its concept
+
+A link in a chapter of Part II imports the concept into Part II, so another chapter of the part recognises the plain word. The link writes the word as its sentence needs it, in lower case, and still finds the concept whose heading is capitalised.
+
+=>
+
+describe('a link imports its concept', () => {
+  it.effect('lets the rest of the part recognise the word', () =>
+    Effect.gen(function* () {
+      const returns = '/corpus/returns.loom'
+      const files = book({
+        [parcels]: chapter(
+          ['Part II: Shipping', 'Chapter 3: Parcels'],
+          '# Parcels',
+          '',
+          `A parcel ships to the address an ${anchor('account')} gives.`,
+        ),
+        [returns]: chapter(
+          ['Part II, Chapter 4: Returns'],
+          '# Returns',
+          '',
+          'A return refunds the account that paid.',
+        ),
+      })
+      expect(yield* cardAt(files, returns, 'the account that', 'account')).toBe(accountCard)
+    }),
+  )
+})
+
+## Books and tropes
+
+A book loom's concepts reach every chapter of its book, and no chapter of another book. A declared trope knows its own concepts and those of the part its root stands in. Around the trope, its entries' concepts are known, and the concepts of the rest of the trope are not.
+
+=>
+
+describe('books and tropes', () => {
+  it.effect("lets a book loom's concepts reach its own book alone", () =>
+    Effect.gen(function* () {
+      const game = '/corpus/game.loom'
+      const board = '/corpus/board.loom'
+      const files = book({
+        [game]: chapter(
+          ['Book: Games'],
+          '# Games',
+          '',
+          '## Move {Concept}',
+          '',
+          'One turn of a player.',
+        ),
+        [board]: chapter(
+          ['Book: Games', 'Part I: Play', 'Chapter 1: Board'],
+          '# Board',
+          '',
+          'Each move places a stone.',
+        ),
+        [invoices]: chapter(
+          ['Part I, Chapter 2: Invoices'],
+          '# Invoices',
+          '',
+          'A move of money is no game.',
+        ),
+      })
+      expect([
+        yield* cardAt(files, board, 'Each move', 'move'),
+        yield* cardAt(files, invoices, 'A move of', 'move'),
+      ]).toEqual(['**Move**\n\nOne turn of a player.', undefined])
+    }),
+  )
+
+  it.effect('keeps a trope private but for its entries', () =>
+    Effect.gen(function* () {
+      const ledger = '/corpus/ledger.loom'
+      const files = book({
+        '/corpus/payments.loom': chapter(
+          ['Part I, Trope Chapter 4: Payments', 'Entries: Charging'],
+          '# Payments',
+          '',
+          'Payments takes money.',
+        ),
+        '/corpus/charging.loom': chapter(
+          ['Part I, Chapter 5: Charging', 'Rooted in: Payments'],
+          '# Charging',
+          '',
+          '## Charge {Concept}',
+          '',
+          'A sum a customer owes.',
+        ),
+        [ledger]: chapter(
+          ['Part I, Chapter 6: Ledger', 'Rooted in: Payments'],
+          '# Ledger',
+          '',
+          'Each posting records a charge against an account.',
+          '',
+          '## Posting {Concept}',
+          '',
+          'One line of the ledger.',
+        ),
+        [invoices]: chapter(
+          ['Part I, Chapter 2: Invoices'],
+          '# Invoices',
+          '',
+          'An invoice lists each charge, and never a posting.',
+        ),
+      })
+      const charge = '**Charge**\n\nA sum a customer owes.'
+      expect([
+        yield* cardAt(files, ledger, 'Each posting', 'posting'),
+        yield* cardAt(files, ledger, 'a charge against', 'charge'),
+        yield* cardAt(files, ledger, 'an account.', 'account'),
+        yield* cardAt(files, invoices, 'each charge', 'charge'),
+        yield* cardAt(files, invoices, 'a posting', 'posting'),
+      ]).toEqual(['**Posting**\n\nOne line of the ledger.', charge, accountCard, charge, undefined])
+    }),
+  )
+})
+
+## Two concepts, one word
+
+The chapter `Signing in` of Part I defines another `Account`, so Part I's vocabulary holds two concepts that claim the word. The word is no longer recognised, and the editor offers a link to each concept instead. Each link ends in the word as the sentence writes it.
+
+=>
+
+describe('a word two concepts claim', () => {
+  it.effect('is not recognised, and offers a link to each concept', () =>
+    Effect.gen(function* () {
+      const files = book({
+        '/corpus/signing-in.loom': chapter(
+          ['Part I, Chapter 7: Signing in'],
+          '# Signing in',
+          '',
+          '## Account {Concept}',
+          '',
+          'The person who signs in.',
+        ),
+      })
+      const at = offsetOf(files[invoices], 'charges an account', 'account')
+      const card = yield* asked(files, (compiler) => compiler.hover(invoices, at))
+      const offers = yield* asked(files, (compiler) => compiler.links(invoices, at, at))
+      expect([
+        card,
+        offers.map((offer) => [offer.title, offer.edits.map((edit) => edit.text)]),
+      ]).toEqual([
+        undefined,
+        [
+          ['Link to `Accounts, account`', [anchor('Accounts, account')]],
+          ['Link to `Signing in, account`', [anchor('Signing in, account')]],
+        ],
+      ])
+    }),
+  )
+})
+
+## Uses in the editor and the index
+
+Find references on a concept's heading lists the heading and every word that recognises the concept, in its own chapter and in others. The woven index counts each section with such a word as a use, and the woven page carries the concept's definition on each recognised word, which the website shows a reader who rests on it. `wordsOf` reads a block as the words it shows, a heading marked by a `#`.
+
+=>
+
+const wordsOf = (block: WovenBlock): string =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, (heading) => `# ${heading.title}`),
+    Match.when({ type: 'prose' }, (prose) => prose.markdown),
+    Match.orElse((other) => other.type),
+  )
+
+describe('uses in the editor and the index', () => {
+  it.effect('finds every word that recognises a concept', () =>
+    Effect.gen(function* () {
+      const files = book({})
+      const found = yield* asked(files, (compiler) =>
+        compiler.references(accounts, offsetOf(files[accounts], '## Account', 'Account')),
+      )
+      expect(found.map((place) => [place.path, place.range.start.line])).toEqual([
+        [accounts, 9],
+        [accounts, 7],
+        [invoices, 6],
+        [invoices, 8],
+      ])
+    }),
+  )
+
+  it.effect('counts recognised words as uses, and marks them on the page', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(book({}), (compiler) => compiler.weave(root))
+      const index = site.pages.find((page) => page.slug === 'index')?.blocks ?? []
+      const page = site.pages.find((page) => page.slug === 'corpus/invoices')?.blocks ?? []
+      const marks = page.flatMap((block) =>
+        block.type === 'prose' ? (block.recognised ?? []) : [],
+      )
+      expect([
+        index.map(wordsOf).filter((words) => words.startsWith('Defined in')),
+        marks.map((mark) => [mark.concept, mark.definition]),
+      ]).toEqual([
+        [
+          'Defined in Accounts. Used in Accounts, Invoices.',
+          'Defined in Money. Used in Invoices, Parcels.',
+        ],
+        [
+          ['Account', "A ledger that holds one customer's balance."],
+          ['Currency', 'A unit of money that a country issues.'],
+          ['Account', "A ledger that holds one customer's balance."],
+        ],
+      ])
+    }),
+  )
+})
+
+## A concept moved up
+
+A concept of Part I moves up to the corpus, since the default book has no loom of its own. The move cuts the concept's section from its chapter and writes it at the end of the corpus loom. A concept of a trope moves up to the part its root stands in, whose opening chapter is its home, or on to the corpus.
+
+=>
+
+describe('moving a concept up', () => {
+  it.effect('moves a concept of a part to the corpus loom', () =>
+    Effect.gen(function* () {
+      const files = book({})
+      const moves = yield* asked(files, (compiler) =>
+        compiler.moves(accounts, offsetOf(files[accounts], '## Account', 'Account')),
+      )
+      expect(
+        moves.map((move) => [
+          move.concept,
+          move.targets.map((target) => [
+            target.title,
+            target.edits.map((edit) => [edit.path, edit.text]),
+          ]),
+        ]),
+      ).toEqual([
+        [
+          'Account',
+          [
+            [
+              'Move `Account` up to the corpus',
+              [
+                [accounts, ''],
+                [
+                  root,
+                  "\n## Account {Concept}\n\nA ledger that holds one customer's balance.\n\nLexical forms:\n- accounts\n",
+                ],
+              ],
+            ],
+          ],
+        ],
+      ])
+    }),
+  )
+
+  it.effect('moves a concept of a trope to its part, or on to the corpus', () =>
+    Effect.gen(function* () {
+      const ledger = '/corpus/ledger.loom'
+      const files = book({
+        '/corpus/payments.loom': chapter(
+          ['Part I, Trope Chapter 4: Payments'],
+          '# Payments',
+          '',
+          'Payments takes money.',
+        ),
+        [ledger]: chapter(
+          ['Part I, Chapter 6: Ledger', 'Rooted in: Payments'],
+          '# Ledger',
+          '',
+          '## Posting {Concept}',
+          '',
+          'One line of the ledger.',
+        ),
+      })
+      const moves = yield* asked(files, (compiler) =>
+        compiler.moves(ledger, offsetOf(files[ledger], '## Posting', 'Posting')),
+      )
+      expect(
+        moves.map((move) =>
+          move.targets.map((target) => [target.title, target.edits.map((edit) => edit.path)]),
+        ),
+      ).toEqual([
+        [
+          ['Move `Posting` up to Part I', [ledger, accounts]],
+          ['Move `Posting` up to the corpus', [ledger, root]],
+        ],
+      ])
+    }),
+  )
+})
+
+## The test file [test/ConceptScope.test.ts]
+
+=>
+
+::[Testing the scopes]
+
+::[A corpus about money]
+
+::[Words a chapter recognises]
+
+::[A link imports its concept]
+
+::[Books and tropes]
+
+::[Two concepts, one word]
+
+::[Uses in the editor and the index]
+
+::[A concept moved up]

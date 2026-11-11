@@ -1,5 +1,6 @@
-import { Array, Effect, Option, pipe } from 'effect'
+import { Array, Effect, Option, pipe, Schema } from 'effect'
 import type {
+  ClientCapabilities,
   CodeAction,
   CompletionItem,
   DocumentSymbol,
@@ -20,7 +21,9 @@ import { SemanticTokenSchema } from '@athrio/loom-ast/LoomSymbol'
 import {
   defineLanguageService,
   type FrameEdit,
+  type FrameFix,
   type FrameLocation,
+  type FrameMove,
   FrameQuery,
   type FrameQueryApi,
 } from './LanguageService'
@@ -282,6 +285,87 @@ const loomHover = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const workspaceEditOf = (frame: FrameQueryApi, fix: FrameFix): WorkspaceEdit => ({
+  changes: groupEdits(frame, fix.edits, ''),
+})
+
+const loomLinks = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-links',
+  capabilities: { codeActionProvider: { codeActionKinds: ['quickfix'] } },
+  create: (context) => ({
+    provideCodeActions: (document, range) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(
+        frame.links(
+          frame.locationOf(decoded[0]),
+          document.offsetAt(range.start),
+          document.offsetAt(range.end),
+        ),
+        (fix): CodeAction => ({
+          title: fix.title,
+          kind: 'quickfix',
+          edit: workspaceEditOf(frame, fix),
+        }),
+      )
+    },
+  }),
+})
+
+const moveCommand = 'loom.moveConcept'
+
+const ClientCommands = Schema.Struct({
+  commands: Schema.Struct({ commands: Schema.Array(Schema.String) }),
+})
+
+const picksTargets = (capabilities: ClientCapabilities | undefined): boolean =>
+  Option.exists(Schema.decodeUnknownOption(ClientCommands)(capabilities?.experimental), (listed) =>
+    listed.commands.commands.includes(moveCommand),
+  )
+
+const moveActionsOf =
+  (frame: FrameQueryApi, picker: boolean) =>
+  (move: FrameMove): ReadonlyArray<CodeAction> =>
+    picker
+      ? [
+          {
+            title: `Move \`${move.concept}\` up…`,
+            kind: 'refactor.move',
+            command: {
+              title: `Move \`${move.concept}\` up`,
+              command: moveCommand,
+              arguments: [
+                Array.map(move.targets, (target) => ({
+                  title: target.title,
+                  edit: workspaceEditOf(frame, target),
+                })),
+              ],
+            },
+          },
+        ]
+      : Option.toArray(
+          Option.map(Array.head(move.targets), (target): CodeAction => ({
+            title: target.title,
+            kind: 'refactor.move',
+            edit: workspaceEditOf(frame, target),
+          })),
+        )
+
+const loomMoves = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-moves',
+  capabilities: { codeActionProvider: { codeActionKinds: ['refactor.move'] } },
+  create: (context) => ({
+    provideCodeActions: (document, range) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.flatMap(
+        frame.moves(frame.locationOf(decoded[0]), document.offsetAt(range.start)),
+        moveActionsOf(frame, picksTargets(context.env.clientCapabilities)),
+      )
+    },
+  }),
+})
+
 const loomSymbols = (frame: FrameQueryApi): LanguageServicePlugin => ({
   name: 'loom-symbols',
   capabilities: { workspaceSymbolProvider: {} },
@@ -411,6 +495,8 @@ export const LoomLanguage = defineLanguageService({
         loomDefinition(frame),
         loomReferences(frame),
         loomHover(frame),
+        loomLinks(frame),
+        loomMoves(frame),
         loomSymbols(frame),
         loomRename(frame),
         loomSemanticTokens(frame),

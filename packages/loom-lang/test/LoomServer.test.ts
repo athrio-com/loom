@@ -100,7 +100,7 @@ const serverEntry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
 
 const tsdk = dirname(createRequire(import.meta.url).resolve('typescript/lib/typescript.js'))
 
-const editorAt = async (folder: string) => {
+const editorAt = async (folder: string, experimental?: unknown) => {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'LOOM_HOME'))
   const child = spawn(process.execPath, [serverEntry, '--stdio'], {
     env,
@@ -124,7 +124,10 @@ const editorAt = async (folder: string) => {
     processId: process.pid,
     rootUri: pathToFileURL(folder).href,
     workspaceFolders: [{ uri: pathToFileURL(folder).href, name: 'outer' }],
-    capabilities: { workspace: { didChangeWatchedFiles: { dynamicRegistration: true } } },
+    capabilities: {
+      workspace: { didChangeWatchedFiles: { dynamicRegistration: true } },
+      ...(experimental === undefined ? {} : { experimental }),
+    },
     initializationOptions: { typescript: { tsdk } },
   })
   await connection.sendNotification('initialized', {})
@@ -718,6 +721,62 @@ describe('LoomServer — a fix for an ambiguous anchor', () => {
     } finally {
       editor.close()
     }
+  }, 30_000)
+})
+
+describe('LoomServer — a concept moved up', () => {
+  const moveCase = async (experimental?: unknown): Promise<ReadonlyArray<CodeAction>> => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    chapterAt(root, 'book.loom', lines('# Money', '', 'A corpus about money.'))
+    const accounts = chapterAt(
+      root,
+      'accounts.loom',
+      lines(
+        '---',
+        'Part I: Billing',
+        'Chapter 1: Accounts',
+        '---',
+        '',
+        '# Accounts',
+        '',
+        '## Account {Concept}',
+        '',
+        'A ledger.',
+      ),
+    )
+    const editor = await editorAt(root, experimental)
+    try {
+      await editor.open(accounts)
+      return (await editor.fixes(accounts, 7)).filter((action) => action.kind === 'refactor.move')
+    } finally {
+      editor.close()
+    }
+  }
+
+  it('offers the nearest scope to an editor with no picker', async () => {
+    const actions = await moveCase()
+    expect(
+      actions.map((action) => [
+        action.title,
+        Object.keys(action.edit?.changes ?? {})
+          .map((uri) => uri.slice(uri.lastIndexOf('/') + 1))
+          .sort(),
+      ]),
+    ).toEqual([['Move `Account` up to the corpus', ['accounts.loom', 'book.loom']]])
+  }, 30_000)
+
+  it('hands every target to an editor that picks', async () => {
+    const actions = await moveCase({ commands: { commands: ['loom.moveConcept'] } })
+    expect(
+      actions.map((action) => [
+        action.title,
+        action.command?.command,
+        (action.command?.arguments?.[0] as ReadonlyArray<{ readonly title: string }>).map(
+          (target) => target.title,
+        ),
+      ]),
+    ).toEqual([['Move `Account` up…', 'loom.moveConcept', ['Move `Account` up to the corpus']]])
   }, 30_000)
 })
 

@@ -46,6 +46,8 @@ A lexical form is a word or phrase the prose writes for a concept: a plural, a p
 
 Authors write the forms their prose uses. Loom knows no rules of inflection for any language, so it never derives `accounts` from `Account`. A form nobody writes is a form nobody needs.
 
+A sentence capitalises the word that opens it, and a heading capitalises its first word, so a form matches whatever the case of its first letter. The word `account` in the middle of a sentence finds the heading `Account`, and `Accounts` opening a sentence finds the form `accounts`. Every other letter matches as written.
+
 ## Linking a concept
 
 Prose links a concept with an anchor that names any of its forms. The sentence shows the form the anchor names, so the prose reads naturally, and the link leads to the concept:
@@ -63,6 +65,8 @@ Two concepts may share a form. The corpus can define Account in the chapter "Bil
 ::[Signing in, Account]
 ```
 
+A path to a concept may end in any of its forms. So a fix for a link that wrote `accounts` offers `Billing, accounts`, the sentence keeps its word, and the woven page shows that word alone.
+
 No definition shadows another. A nearer concept never wins over a farther one, so every link says which concept it means.
 
 A code anchor composes code, and a concept holds none. So a code anchor that names a concept is a fault, whose message names the concept and says it holds no code. A code anchor still resolves nearest first, as the chapter "The multi-file AST" describes, so a concept never changes which section a code anchor composes.
@@ -73,8 +77,10 @@ The editor treats every form as the concept itself:
 
 - **Hover** on a link shows the concept's definition.
 - **Go to definition** on a link lands on the concept's heading.
-- **Find references** on a concept, or on any link to it, lists every link, whichever form it names.
+- **Find references** on a concept, or on any link to it, lists every link, whichever form it names, and every plain word that recognises the concept.
 - **Rename** never rewrites a sentence. Renaming a concept makes the new name its heading and moves the old name into its `Lexical forms:` list, so every link still finds the concept and every sentence still reads as its author wrote it.
+
+Prose that names a concept in plain words, with no link, gets the same hover and go to definition wherever the concept's scope reaches, as the chapter "The scope of a concept" describes.
 
 A new wording joins a concept as a new form, and the old forms stay. A rewrite that swapped one form for another across the book would change sentences no one had reread, and a typo in the new form would break every one of them at once. When an author removes a form that a link still names, that link faults. The change is then visible at every place it touches, and nothing breaks silently.
 
@@ -82,7 +88,7 @@ A new wording joins a concept as a new form, and the old forms stay. A rewrite t
 
 A printed book meets its definitions across its chapters, and its index is where a reader looks them up. Glossaries gathered apart from the text rarely help, since the text already defines each idea where it first needs it. Loom builds the index instead, from the concepts the corpus defines.
 
-The index lists every concept with its preferred form, its definition, its other forms, the chapter that defines it, and the sections that link it.
+The index lists every concept with its preferred form, its definition, its other forms, the chapter that defines it, and the sections that use it, by a link or by a plain word the editor recognises.
 
 Those uses are the concept's back links. They show a reader everything else the book says about a concept. They also let an author check that none of it contradicts the definition, since a book that grows adds to its concepts in chapters written long after the definition. In the editor, every concept is a workspace symbol, so the editor's symbol search finds a concept by any of its forms. The woven book gives each book's index a page at the end of its back matter, with a link to each concept and to each place that uses it.
 
@@ -255,7 +261,7 @@ describe('a link names a concept by any of its forms', () => {
 
 ## Faults a concept raises
 
-Two concepts may share a form, and a link that names it names both, so Loom faults the link and offers a path to each. A link whose form no concept carries any longer leads nowhere, and warns. A concept holds no code, so an arrow in one is a fault, and so is a code anchor that names one, whichever form it writes.
+Two concepts may share a form, and a link that names it names both, so Loom faults the link and offers a path to each, ending in the form the link wrote. A link whose form no concept carries any longer leads nowhere, and warns. A concept holds no code, so an arrow in one is a fault, and so is a code anchor that names one, whichever form it writes.
 
 =>
 
@@ -293,7 +299,7 @@ describe('the faults a concept raises', () => {
         '/corpus/orders.loom',
       )
       expect(messages).toContain(
-        '`accounts` names 2 sections. Write the path to the one you mean: `Billing, Account` or `Signing in, Account`.',
+        '`accounts` names 2 sections. Write the path to the one you mean: `Billing, accounts` or `Signing in, accounts`.',
       )
     }),
   )
