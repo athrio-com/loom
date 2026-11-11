@@ -12,8 +12,8 @@ import {
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import {
-  bookOf,
-  type Book,
+  catalogueOf,
+  type Catalogue,
   type LoomModule,
   type Location,
   promisedThrough,
@@ -99,7 +99,7 @@ const mappedIn = (text: string, source: Position, owner: Location, home: Locatio
 const inlinePart =
   (
     modules: ReadonlyMap<Location, LoomModule>,
-    book: Book,
+    catalogue: Catalogue,
     seen: ReadonlySet<string>,
     home: Location,
     owner: Location,
@@ -118,14 +118,20 @@ const inlinePart =
       ),
       Match.when({ type: 'NameRef' }, (ref) =>
         pipe(
-          targetOf(book, owner, ref),
+          targetOf(catalogue, owner, ref),
           Option.filter((t) => !seen.has(keyOf(t))),
           Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
           Option.match({
             onNone: () => emptyLeaf,
             onSome: ([t, node]) =>
               absorbTrailingNewline(
-                inlineComposed(modules, book, new Set([...seen, keyOf(t)]), home, specifiers)(node),
+                inlineComposed(
+                  modules,
+                  catalogue,
+                  new Set([...seen, keyOf(t)]),
+                  home,
+                  specifiers,
+                )(node),
               ),
           }),
         ),
@@ -136,13 +142,13 @@ const inlinePart =
 const inlineComposed =
   (
     modules: ReadonlyMap<Location, LoomModule>,
-    book: Book,
+    catalogue: Catalogue,
     seen: ReadonlySet<string>,
     home: Location,
     specifiers: Specifiers,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, book, seen, home, node.origin.path, specifiers)
+    const build = inlinePart(modules, catalogue, seen, home, node.origin.path, specifiers)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -195,12 +201,12 @@ const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId
 
 const unsettledReference = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   host: Code,
   ref: ModuleRef,
 ): Option.Option<Unsettled> =>
   Option.flatMap(Option.fromNullishOr(modules.get(host.origin.path)), (module) =>
-    Referred.$match(referredFileOf(book, modules, {}, module, host, ref), {
+    Referred.$match(referredFileOf(catalogue, modules, {}, module, host, ref), {
       Unsettled: ({ declared }) =>
         Option.some<Unsettled>({
           path: host.origin.path,
@@ -218,13 +224,13 @@ const unsettledReference = (
 
 export const unsettledRef = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   owner: Location,
   ref: Ref,
 ): Option.Option<Unsettled> =>
-  Option.match(targetOf(book, owner, ref), {
+  Option.match(targetOf(catalogue, owner, ref), {
     onNone: () => {
-      const promised = promisedThrough(book, owner, ref.name)
+      const promised = promisedThrough(catalogue, owner, ref.name)
       return isMeant(ref) || Array.isReadonlyArrayNonEmpty(promised)
         ? Option.some(
             unsettledAt(owner, { ...ref, provides: [...ref.provides, ...promised] }, Option.none()),
@@ -240,24 +246,24 @@ export const unsettledRef = (
   })
 
 const unsettledFrom =
-  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Unsettled> =>
     Array.flatMap(node.fragments, (part) =>
       Match.value(part).pipe(
         Match.when({ type: 'Fragment' }, (): ReadonlyArray<Unsettled> => []),
         Match.when({ type: 'ModuleRef' }, (ref) =>
-          Option.toArray(unsettledReference(modules, book, node, ref)),
+          Option.toArray(unsettledReference(modules, catalogue, node, ref)),
         ),
         Match.when({ type: 'NameRef' }, (ref) =>
-          Option.match(unsettledRef(modules, book, node.origin.path, ref), {
+          Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
             onSome: (unsettled): ReadonlyArray<Unsettled> => [unsettled],
             onNone: () =>
               pipe(
-                targetOf(book, node.origin.path, ref),
+                targetOf(catalogue, node.origin.path, ref),
                 Option.filter((reached) => !seen.has(keyOf(reached))),
                 Option.flatMap((reached) =>
                   Option.map(lookup(modules, reached), (code) =>
-                    unsettledFrom(modules, book, new Set([...seen, keyOf(reached)]))(code),
+                    unsettledFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
                   ),
                 ),
                 Option.getOrElse((): ReadonlyArray<Unsettled> => []),
@@ -271,8 +277,9 @@ const unsettledFrom =
 export const unsettledIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: Code,
-  book: Book = bookOf(modules),
-): ReadonlyArray<Unsettled> => unsettledFrom(modules, book, new Set([keyOf(root.origin)]))(root)
+  catalogue: Catalogue = catalogueOf(modules),
+): ReadonlyArray<Unsettled> =>
+  unsettledFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
 export interface Reference {
   readonly owner: Location
@@ -281,7 +288,7 @@ export interface Reference {
 }
 
 const referencesFrom =
-  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Reference> =>
     Array.flatMap(node.fragments, (part) =>
       Match.value(part).pipe(
@@ -291,11 +298,11 @@ const referencesFrom =
         ]),
         Match.when({ type: 'NameRef' }, (ref) =>
           pipe(
-            targetOf(book, node.origin.path, ref),
+            targetOf(catalogue, node.origin.path, ref),
             Option.filter((reached) => !seen.has(keyOf(reached))),
             Option.flatMap((reached) =>
               Option.map(lookup(modules, reached), (code) =>
-                referencesFrom(modules, book, new Set([...seen, keyOf(reached)]))(code),
+                referencesFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
               ),
             ),
             Option.getOrElse((): ReadonlyArray<Reference> => []),
@@ -308,9 +315,9 @@ const referencesFrom =
 export const referencesIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: Code,
-  book: Book = bookOf(modules),
+  catalogue: Catalogue = catalogueOf(modules),
 ): ReadonlyArray<Reference> =>
-  referencesFrom(modules, book, new Set([keyOf(root.origin)]))(root)
+  referencesFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
 export type Contract = {
   readonly section: string
@@ -338,13 +345,13 @@ const writtenSpan = (code: Code): Option.Option<Position> =>
 
 const contractOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   path: Location,
   ref: Ref,
 ): Option.Option<Contract> =>
   Option.gen(function* () {
     const provides = yield* Option.liftPredicate(ref.provides, Array.isReadonlyArrayNonEmpty)
-    const target = yield* targetOf(book, path, ref)
+    const target = yield* targetOf(catalogue, path, ref)
     const code = yield* lookup(modules, target)
     const span = yield* writtenSpan(code)
     return {
@@ -358,17 +365,17 @@ const contractOf = (
   })
 
 const composedOf =
-  (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
+  (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Code> => [
     node,
     ...Array.flatMap(node.fragments, (part) =>
       part.type === 'NameRef'
         ? pipe(
-            targetOf(book, node.origin.path, part),
+            targetOf(catalogue, node.origin.path, part),
             Option.filter((reached) => !seen.has(keyOf(reached))),
             Option.flatMap((reached) =>
               Option.map(lookup(modules, reached), (code) =>
-                composedOf(modules, book, new Set([...seen, keyOf(reached)]))(code),
+                composedOf(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
               ),
             ),
             Option.getOrElse((): ReadonlyArray<Code> => []),
@@ -379,11 +386,11 @@ const composedOf =
 
 const composedSpan = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   root: Code,
 ): Option.Option<Position> =>
   pipe(
-    composedOf(modules, book, new Set([keyOf(root.origin)]))(root),
+    composedOf(modules, catalogue, new Set([keyOf(root.origin)]))(root),
     Array.filter((code) => code.origin.path === root.origin.path),
     Array.map(writtenSpan),
     Array.getSomes,
@@ -401,7 +408,7 @@ const composedSpan = (
 
 const moduleContractOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   module: LoomModule,
   host: Code,
@@ -409,12 +416,15 @@ const moduleContractOf = (
 ): Option.Option<Contract> =>
   Option.gen(function* () {
     const provides = yield* Option.liftPredicate(ref.provides, Array.isReadonlyArrayNonEmpty)
-    const landed = yield* Referred.$match(referredFileOf(book, modules, landing, module, host, ref), {
-      Named: ({ landed }) => Option.some(landed),
-      Unsettled: () => Option.none(),
-      Faulted: () => Option.none(),
-    })
-    const span = yield* composedSpan(modules, book, landed.file.code)
+    const landed = yield* Referred.$match(
+      referredFileOf(catalogue, modules, landing, module, host, ref),
+      {
+        Named: ({ landed }) => Option.some(landed),
+        Unsettled: () => Option.none(),
+        Faulted: () => Option.none(),
+      },
+    )
+    const span = yield* composedSpan(modules, catalogue, landed.file.code)
     return {
       section: ref.name,
       target: landed.loom,
@@ -448,21 +458,21 @@ const tropeContractOf = (
 export const contractsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   path: Location,
-  book: Book = bookOf(modules),
+  catalogue: Catalogue = catalogueOf(modules),
 ): ReadonlyArray<Contract> =>
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: (): ReadonlyArray<Contract> => [],
     onSome: (module) => {
-      const landing = landingOf(book, modules)
+      const landing = landingOf(catalogue, modules)
       return [
         ...pipe(
           module.product.code,
           Array.flatMap((host) =>
             Array.map(host.fragments, (part) =>
               Match.value(part).pipe(
-                Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, book, path, ref)),
+                Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, catalogue, path, ref)),
                 Match.when({ type: 'ModuleRef' }, (ref) =>
-                  moduleContractOf(modules, book, landing, module, host, ref),
+                  moduleContractOf(modules, catalogue, landing, module, host, ref),
                 ),
                 Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
                 Match.exhaustive,
@@ -472,7 +482,9 @@ export const contractsIn = (
           Array.getSomes,
         ),
         ...Array.getSomes(
-          Array.map(tropeContractsIn(book, path), (contract) => tropeContractOf(modules, contract)),
+          Array.map(tropeContractsIn(catalogue, path), (contract) =>
+            tropeContractOf(modules, contract),
+          ),
         ),
       ]
     },
@@ -586,12 +598,12 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 export const fromCode = (
   modules: ReadonlyMap<Location, LoomModule>,
   node: Code,
-  book: Book = bookOf(modules),
+  catalogue: Catalogue = catalogueOf(modules),
   specifiers: Specifiers = noSpecifiers,
 ): LoomVirtualCode => ({
   ...inlineComposed(
     modules,
-    book,
+    catalogue,
     new Set([keyOf(node.origin)]),
     node.origin.path,
     specifiers,
@@ -603,14 +615,14 @@ export const fromCode = (
 export const fromProduct = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: SectionId,
-  book: Book = bookOf(modules),
+  catalogue: Catalogue = catalogueOf(modules),
   specifiers: Specifiers = noSpecifiers,
 ): LoomVirtualCode =>
   pipe(
     lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
-      onSome: (node) => fromCode(modules, node, book, specifiers),
+      onSome: (node) => fromCode(modules, node, catalogue, specifiers),
     }),
   )
 

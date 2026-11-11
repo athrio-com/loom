@@ -13,7 +13,7 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `bookOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters and the back matter that lists the discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `catalogueOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters and the back matter that lists the discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks, links, and unsettled spans a page holds.
 
 =>
 
@@ -30,8 +30,8 @@ import {
   type LoomCorpusAst,
   type LoomModule,
   resolveAnchor,
-  bookOf,
-  type Book,
+  catalogueOf,
+  type Catalogue,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
@@ -104,12 +104,12 @@ export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus
 
 ## What a page marks as unsettled
 
-A reference to a section that holds no code yet is to be settled, as the chapter "Names through the book" describes, and the woven page marks it. A `Weaving` carries what every page draws on: the corpus's `Book`, the anchors that stop short of code, and the sections they stop at. `weavingOf` builds it once. It asks the projection's `unsettledRef` of every edge in every module's product, so the page marks exactly the references the tangle refuses. `anchorKey` names an anchor by its loom and the offset of its name.
+A reference to a section that holds no code yet is to be settled, as the chapter "Names through the book" describes, and the woven page marks it. A `Weaving` carries what every page draws on: the corpus's `Catalogue`, the anchors that stop short of code, and the sections they stop at. `weavingOf` builds it once. It asks the projection's `unsettledRef` of every edge in every module's product, so the page marks exactly the references the tangle refuses. `anchorKey` names an anchor by its loom and the offset of its name.
 
 =>
 
 type Weaving = {
-  readonly book: Book
+  readonly catalogue: Catalogue
   readonly anchors: ReadonlySet<string>
   readonly sections: ReadonlySet<string>
 }
@@ -117,7 +117,7 @@ type Weaving = {
 const anchorKey = (path: Location, at: Position): string => `${path}#${at.start.offset}`
 
 const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   const unsettled = pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((module) =>
@@ -125,7 +125,7 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
         Array.getSomes(
           Array.map(code.fragments, (part) =>
             part.type === 'NameRef'
-              ? unsettledRef(modules, book, module.path, part)
+              ? unsettledRef(modules, catalogue, module.path, part)
               : Option.none(),
           ),
         ),
@@ -133,7 +133,7 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
     ),
   )
   return {
-    book,
+    catalogue,
     anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
     sections: new Set(
       Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
@@ -580,7 +580,7 @@ const runBlocks =
 
 ## Resolving a code anchor
 
-`resolveLink` turns one `::[…]` anchor into a link. It resolves the anchor the way the composition does, through the corpus's `Book`, and reads the section it reaches: a section of the anchor's own loom, a chapter's opening section, or a section a path names. The link carries the name the author wrote, the page and heading that section becomes, and the anchor's place within the block, so the presentation makes just those characters a link. An anchor that resolves to nothing yields no link, and stands in the code as the author's own text.
+`resolveLink` turns one `::[…]` anchor into a link. It resolves the anchor the way the composition does, through the corpus's `Catalogue`, and reads the section it reaches: a section of the anchor's own loom, a chapter's opening section, or a section a path names. The link carries the name the author wrote, the page and heading that section becomes, and the anchor's place within the block, so the presentation makes just those characters a link. An anchor that resolves to nothing yields no link, and stands in the code as the author's own text.
 
 =>
 
@@ -591,7 +591,7 @@ const resolveLink = (
   anchor: WarpAnchorToken,
 ): Option.Option<AnchorLink> =>
   pipe(
-    resolveAnchor(weaving.book, module.path, anchor),
+    resolveAnchor(weaving.catalogue, module.path, anchor),
     Option.flatMap((ref) =>
       Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
         AnchorLinkSchema.make({

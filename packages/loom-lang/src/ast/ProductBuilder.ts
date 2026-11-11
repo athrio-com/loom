@@ -13,7 +13,7 @@ import {
   type Position,
 } from '@athrio/loom-ast/LoomNode'
 import {
-  type Book,
+  type Catalogue,
   type Location,
   type LoomModule,
   pathsTo,
@@ -727,7 +727,7 @@ const stray = (target: WarpAnchorTargetToken): Health =>
   faulty(StrayTarget({ target: target.source, at: target.position }), target.position)
 
 export const crossFileFaults = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
   landing: Landing,
@@ -738,11 +738,13 @@ export const crossFileFaults = (
       Array.flatMap(host.fragments, (part) =>
         Match.value(part).pipe(
           Match.when({ type: 'NameRef' }, (ref) =>
-            Option.isNone(ref.target) ? nameHealth(book, modules, module, host, ref).diagnostics : [],
+            Option.isNone(ref.target)
+              ? nameHealth(catalogue, modules, module, host, ref).diagnostics
+              : [],
           ),
           Match.when(
             { type: 'ModuleRef' },
-            (ref) => referenceHealth(book, modules, landing, module, host, ref).diagnostics,
+            (ref) => referenceHealth(catalogue, modules, landing, module, host, ref).diagnostics,
           ),
           Match.orElse((): ReadonlyArray<Diagnostic> => []),
         ),
@@ -751,27 +753,27 @@ export const crossFileFaults = (
   )
 
 const referenceHealth = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   landing: Landing,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
 ): Health =>
-  Referred.$match(referredFileOf(book, modules, landing, module, host, ref), {
+  Referred.$match(referredFileOf(catalogue, modules, landing, module, host, ref), {
     Named: () => okHealth,
     Unsettled: ({ declared }) => faulty(UnsettledModule({ name: ref.name, declared }), ref.anchor),
     Faulted: ({ health }) => health,
   })
 
 const nameHealth = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
   host: Code,
   ref: NameRef,
 ): Health => {
-  const trails = trailsOf(book, module.path, ref.name)
+  const trails = trailsOf(catalogue, module.path, ref.name)
   return Array.matchLeft(trails, {
     onEmpty: () =>
       isMeant(ref)
@@ -779,7 +781,7 @@ const nameHealth = (
         : unresolvedHealth(module, host, ref.name, ref.anchor),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
+        ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(catalogue, module.path, trails))
         : trailHealth(modules, host, ref, trail),
   })
 }
@@ -905,9 +907,13 @@ const codeOf = (
     ),
   )
 
-export const targetOf = (book: Book, from: Location, ref: NameRef): Option.Option<SectionId> =>
+export const targetOf = (
+  catalogue: Catalogue,
+  from: Location,
+  ref: NameRef,
+): Option.Option<SectionId> =>
   Option.orElse(ref.target, () =>
-    Option.map(resolveName(book, from, ref.name), (reached) => ({
+    Option.map(resolveName(catalogue, from, ref.name), (reached) => ({
       path: reached.module,
       name: sectionNameOf(reached.section),
     })),
@@ -934,14 +940,14 @@ type ReferredNode = Data.TaggedEnum<{
 const ReferredNode = Data.taggedEnum<ReferredNode>()
 
 export const referredFileOf = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   landing: Landing,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
 ): Referred =>
-  Result.match(referredNodeOf(book, module, host, ref), {
+  Result.match(referredNodeOf(catalogue, module, host, ref), {
     onFailure: (stopped) => stopped,
     onSuccess: (node) =>
       ReferredNode.$match(node, {
@@ -951,7 +957,7 @@ export const referredFileOf = (
   })
 
 const referredNodeOf = (
-  book: Book,
+  catalogue: Catalogue,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
@@ -959,7 +965,7 @@ const referredNodeOf = (
   Option.match(ref.target, {
     onSome: (id) => Result.succeed(ReferredNode.Section({ id })),
     onNone: () => {
-      const trails = trailsOf(book, module.path, ref.name)
+      const trails = trailsOf(catalogue, module.path, ref.name)
       return Array.matchLeft(trails, {
         onEmpty: () =>
           Result.fail(
@@ -975,7 +981,7 @@ const referredNodeOf = (
                     ref.name,
                     ref.anchor,
                     trails.length,
-                    pathsTo(book, module.path, trails),
+                    pathsTo(catalogue, module.path, trails),
                   ),
                 }),
               )
@@ -1130,7 +1136,7 @@ const codeAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): Option
   )
 
 const reachedFrom = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   root: Code,
 ): ReadonlyArray<string> => {
@@ -1139,7 +1145,7 @@ const reachedFrom = (
       part.type !== 'NameRef'
         ? reached
         : pipe(
-            targetOf(book, code.origin.path, part),
+            targetOf(catalogue, code.origin.path, part),
             Option.filter((target) => !reached.has(keyOf(target))),
             Option.flatMap((target) =>
               Option.map(codeAt(modules, target), (next) =>
@@ -1152,13 +1158,16 @@ const reachedFrom = (
   return Array.fromIterable(walk(new Set([keyOf(root.origin)]), root))
 }
 
-export const landingOf = (book: Book, modules: ReadonlyMap<string, LoomModule>): Landing =>
+export const landingOf = (
+  catalogue: Catalogue,
+  modules: ReadonlyMap<string, LoomModule>,
+): Landing =>
   holdsReferences(modules)
     ? pipe(
         Array.fromIterable(modules.values()),
         Array.flatMap(filesOf),
         Array.flatMap((landed) =>
-          Array.map(reachedFrom(book, modules, landed.file.code), (key) => ({ key, landed })),
+          Array.map(reachedFrom(catalogue, modules, landed.file.code), (key) => ({ key, landed })),
         ),
         Array.groupBy((entry) => entry.key),
         Record.map((entries) => Array.map(entries, (entry) => entry.landed)),
@@ -1170,21 +1179,21 @@ type Walked = {
   readonly path: Option.Option<ReadonlyArray<SectionId>>
 }
 
-const composedTargetsOf = (book: Book, code: Code): ReadonlyArray<SectionId> =>
+const composedTargetsOf = (catalogue: Catalogue, code: Code): ReadonlyArray<SectionId> =>
   Array.getSomes(
     Array.map(code.fragments, (part) =>
-      part.type === 'NameRef' ? targetOf(book, code.origin.path, part) : Option.none(),
+      part.type === 'NameRef' ? targetOf(catalogue, code.origin.path, part) : Option.none(),
     ),
   )
 
 const nextFrom = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   at: SectionId,
 ): ReadonlyArray<SectionId> =>
   Option.match(codeAt(modules, at), {
     onNone: (): ReadonlyArray<SectionId> => [],
-    onSome: (code) => composedTargetsOf(book, code),
+    onSome: (code) => composedTargetsOf(catalogue, code),
   })
 
 const unwalked = (visited: ReadonlySet<string>): Walked => ({ visited, path: Option.none() })
@@ -1194,11 +1203,15 @@ const prefixed = (at: SectionId, walked: Walked): Walked => ({
   path: Option.map(walked.path, (rest) => [at, ...rest]),
 })
 
-const pathBack = (book: Book, modules: ReadonlyMap<string, LoomModule>, goal: SectionId) => {
+const pathBack = (
+  catalogue: Catalogue,
+  modules: ReadonlyMap<string, LoomModule>,
+  goal: SectionId,
+) => {
   const walk = (visited: ReadonlySet<string>, at: SectionId): Walked =>
     keyOf(at) === keyOf(goal)
       ? { visited, path: Option.some([at]) }
-      : Array.reduce(nextFrom(book, modules, at), unwalked(visited), (walked, next) =>
+      : Array.reduce(nextFrom(catalogue, modules, at), unwalked(visited), (walked, next) =>
           Option.isSome(walked.path) || walked.visited.has(keyOf(next))
             ? walked
             : prefixed(at, walk(new Set([...walked.visited, keyOf(next)]), next)),
@@ -1207,14 +1220,14 @@ const pathBack = (book: Book, modules: ReadonlyMap<string, LoomModule>, goal: Se
 }
 
 const loopThrough = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   host: Code,
   ref: NameRef,
 ): Option.Option<ReadonlyArray<SectionId>> =>
-  Option.flatMap(targetOf(book, host.origin.path, ref), (target) =>
+  Option.flatMap(targetOf(catalogue, host.origin.path, ref), (target) =>
     Option.map(
-      pathBack(book, modules, host.origin)(new Set([keyOf(target)]), target).path,
+      pathBack(catalogue, modules, host.origin)(new Set([keyOf(target)]), target).path,
       (path) => [host.origin, ...path],
     ),
   )
@@ -1231,14 +1244,14 @@ const titleAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): strin
   )
 
 export const compositionCycles = (
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> =>
   Array.flatMap(module.product.code, (host) =>
     Array.flatMap(host.fragments, (part) =>
       part.type === 'NameRef'
-        ? Option.match(loopThrough(book, modules, host, part), {
+        ? Option.match(loopThrough(catalogue, modules, host, part), {
             onNone: (): ReadonlyArray<Diagnostic> => [],
             onSome: (loop) =>
               faulty(
@@ -1252,7 +1265,10 @@ export const compositionCycles = (
 
 export type Usage = { readonly writes: boolean; readonly used: ReadonlySet<string> }
 
-export const usedSections = (book: Book, modules: ReadonlyMap<string, LoomModule>): Usage => {
+export const usedSections = (
+  catalogue: Catalogue,
+  modules: ReadonlyMap<string, LoomModule>,
+): Usage => {
   const all = Array.fromIterable(modules.values())
   const files = Array.flatMap(all, (module) => module.product.files)
   return {
@@ -1261,7 +1277,7 @@ export const usedSections = (book: Book, modules: ReadonlyMap<string, LoomModule
       ...Array.map(files, (file) => keyOf(file.code.origin)),
       ...Array.flatMap(all, (module) =>
         Array.flatMap(module.product.code, (code) =>
-          Array.map(composedTargetsOf(book, code), keyOf),
+          Array.map(composedTargetsOf(catalogue, code), keyOf),
         ),
       ),
     ]),

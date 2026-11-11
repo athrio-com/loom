@@ -11,8 +11,8 @@ import {
   type LoomCorpusAst,
   type LoomModule,
   resolveAnchor,
-  bookOf,
-  type Book,
+  catalogueOf,
+  type Catalogue,
   type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
@@ -74,7 +74,7 @@ export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus
 }
 
 type Weaving = {
-  readonly book: Book
+  readonly catalogue: Catalogue
   readonly anchors: ReadonlySet<string>
   readonly sections: ReadonlySet<string>
 }
@@ -82,7 +82,7 @@ type Weaving = {
 const anchorKey = (path: Location, at: Position): string => `${path}#${at.start.offset}`
 
 const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   const unsettled = pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((module) =>
@@ -90,7 +90,7 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
         Array.getSomes(
           Array.map(code.fragments, (part) =>
             part.type === 'NameRef'
-              ? unsettledRef(modules, book, module.path, part)
+              ? unsettledRef(modules, catalogue, module.path, part)
               : Option.none(),
           ),
         ),
@@ -98,7 +98,7 @@ const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
     ),
   )
   return {
-    book,
+    catalogue,
     anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
     sections: new Set(
       Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
@@ -508,7 +508,7 @@ const resolveLink = (
   anchor: WarpAnchorToken,
 ): Option.Option<AnchorLink> =>
   pipe(
-    resolveAnchor(weaving.book, module.path, anchor),
+    resolveAnchor(weaving.catalogue, module.path, anchor),
     Option.flatMap((ref) =>
       Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
         AnchorLinkSchema.make({

@@ -60,12 +60,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         onSome: (held) => held.moduleSpecifier(request),
       })
 
-    const writtenFor: WrittenFor = (modules, book, landing, root, from) =>
-      Effect.forEach(referencesIn(modules, root, book), (reference) =>
+    const writtenFor: WrittenFor = (modules, catalogue, landing, root, from) =>
+      Effect.forEach(referencesIn(modules, root, catalogue), (reference) =>
         pipe(
           Option.fromNullishOr(modules.get(reference.owner)),
           Option.map((module) =>
-            referredFileOf(book, modules, landing, module, reference.host, reference.ref),
+            referredFileOf(catalogue, modules, landing, module, reference.host, reference.ref),
           ),
           Option.filter(Referred.$is('Named')),
           Option.match({
@@ -108,11 +108,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       entry: LoomModule,
     ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
       if (!holdsReferences(modules)) return Effect.succeed(new Map())
-      const book = bookOf(modules)
-      const landing = landingOf(book, modules)
+      const catalogue = catalogueOf(modules)
+      const landing = landingOf(catalogue, modules)
       return Effect.forEach(entry.product.code, (root) =>
         fileOfRoot(entry, root).pipe(
-          Effect.flatMap((from) => writtenFor(modules, book, landing, root, from)),
+          Effect.flatMap((from) => writtenFor(modules, catalogue, landing, root, from)),
           Effect.map((written) => [root.origin.name, specifiersOf(written)] as const),
         ),
       ).pipe(Effect.map((pairs) => new Map(pairs)))
@@ -553,7 +553,7 @@ const entryOf = (
 
 A module's diagnostics come from two places. Its own two tiers, the parse and the product, travel with the module in the memo, and `moduleDiagnostics` reads them. The rest are judged against the corpus, because the module alone cannot see them. An anchor that reaches beyond its loom goes to the product pass's `crossFileFaults`, which tells whether the section it names exists. Every composing anchor goes to `compositionCycles` as well, which faults an anchor whose section composes, however far down, the section the anchor stands in. Every section goes to `unusedSections`, which warns of code that no file includes, against the corpus's used sections, which `usedSections` gathers once. A chapter's title goes to `namesakeFaults`, which raises the `DuplicateName` fault when another chapter of its part carries the same title, and names those chapters by their looms through `loomName`.
 
-`corpusDiagnostics` reads both for one module, against the corpus the module came from. It builds the corpus's `Book` once, so the judgement of every module resolves names through the same index, and the corpus's `Landing` once, which tells the file each section lands in, for a reference that names a section with no sink. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken. A box that points to a loom needs the corpus too, since that loom lives in another file. `boxNoticeHealth` turns each of its notices into a diagnostic at the box's name: a box whose loom nobody has written carries the `UnwrittenLoom` note, a trope box that points nowhere yet carries the `UnsettledTrope` note, and a box whose copy of the summary is out of step carries the `StaleSummary` warning. Neither is an error, so neither stops a tangle.
+`corpusDiagnostics` reads both for one module, against the corpus the module came from. It builds the corpus's `Catalogue` once, so the judgement of every module resolves names through the same index, and the corpus's `Landing` once, which tells the file each section lands in, for a reference that names a section with no sink. The tangle gates on it and `diagnose` reports it, so the build and the editor agree on what is broken. A box that points to a loom needs the corpus too, since that loom lives in another file. `boxNoticeHealth` turns each of its notices into a diagnostic at the box's name: a box whose loom nobody has written carries the `UnwrittenLoom` note, a trope box that points nowhere yet carries the `UnsettledTrope` note, and a box whose copy of the summary is out of step carries the `StaleSummary` warning. Neither is an error, so neither stops a tangle.
 
 A box's kind needs the corpus as well, since a trope anywhere in the book may declare it. A trope the workspace installs may declare it too, and the `installed` kinds the compiler hands in carry those. `corpusDiagnostics` gathers the registry of declared kinds once, through `declaredKindsOf`, and `kindFaults` judges each module against it: a box whose kind nobody gives carries the `UnknownKind` fault, and a trope Loom refuses carries the `TropeRefused` fault, as Part XIII, Tropes, describes. Both are errors, so either stops a tangle, as an unknown kind did when the parse alone judged it.
 
@@ -563,8 +563,8 @@ A trope's boundary needs the corpus too, since the chapters that reach a trope m
 
 const loomName = (loom: Location): string => loom.slice(loom.lastIndexOf('/') + 1)
 
-const namesakeFaults = (book: Book, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  Option.match(namesakesOf(book, module), {
+const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Option.match(namesakesOf(catalogue, module), {
     onNone: (): ReadonlyArray<Diagnostic> => [],
     onSome: ({ title, looms }) =>
       faulty(
@@ -594,19 +594,19 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
   })
 
 const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
-  const book = bookOf(modules)
-  const landing = landingOf(book, modules)
-  const kinds = declaredKindsOf(modules, book, installed)
-  const boundaries = boundariesOf(modules, book, kinds.tropes)
-  const used = usedSections(book, modules)
+  const catalogue = catalogueOf(modules)
+  const landing = landingOf(catalogue, modules)
+  const kinds = declaredKindsOf(modules, catalogue, installed)
+  const boundaries = boundariesOf(modules, catalogue, kinds.tropes)
+  const used = usedSections(catalogue, modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
-    ...crossFileFaults(book, modules, module, landing),
-    ...compositionCycles(book, modules, module),
+    ...crossFileFaults(catalogue, modules, module, landing),
+    ...compositionCycles(catalogue, modules, module),
     ...unusedSections(used, module),
-    ...namesakeFaults(book, module),
+    ...namesakeFaults(catalogue, module),
     ...kindFaults(kinds, module),
-    ...boundaryFaults(boundaries, book, modules, module),
+    ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
       (notice) => boxNoticeHealth(notice).diagnostics,
@@ -620,7 +620,7 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it resolves where the file lands, writes the paths the file's references name from there through `writtenFor`, and flattens the composed code across the corpus with `fromCode`, over one `Book` built for the whole entry. It starts from the sink's own `Code` rather than finding the section again by its name, so a namesake can never stand in for the sink. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it resolves where the file lands, writes the paths the file's references name from there through `writtenFor`, and flattens the composed code across the corpus with `fromCode`, over one `Catalogue` built for the whole entry. It starts from the sink's own `Code` rather than finding the section again by its name, so a namesake can never stand in for the sink. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placeOf` method for each sink. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. Neither does a reference whose path its package could not write, which fails the tangle after the files are composed. The failure is loud, and names every file and line.
 
@@ -650,17 +650,17 @@ const resolveSinks = (
     Option.match({
       onNone: () => Effect.succeed<Resolved>({ files: [], unwritten: [] }),
       onSome: (module) => {
-        const book = bookOf(modules)
-        const landing = landingOf(book, modules)
+        const catalogue = catalogueOf(modules)
+        const landing = landingOf(catalogue, modules)
         return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.flatMap((path) =>
-              written(modules, book, landing, file.code, path).pipe(
+              written(modules, catalogue, landing, file.code, path).pipe(
                 Effect.map((paths) => ({
                   file: {
                     section: file.code.origin.name,
                     path,
-                    content: fromCode(modules, file.code, book, specifiersOf(paths)).code,
+                    content: fromCode(modules, file.code, catalogue, specifiersOf(paths)).code,
                   },
                   unwritten: paths.unwritten,
                 })),
@@ -681,13 +681,13 @@ const unsettledFailures = (
   modules: Modules,
   entry: Location,
 ): ReadonlyArray<{ readonly path: Location; readonly diagnostics: ReadonlyArray<Diagnostic> }> => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return pipe(
     Option.fromNullishOr(modules.get(entry)),
     Option.match({
       onNone: (): ReadonlyArray<Unsettled> => [],
       onSome: (module) =>
-        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, book)),
+        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, catalogue)),
     }),
     Array.dedupeWith(
       (one, other) =>
@@ -749,7 +749,7 @@ interface Written {
 
 type WrittenFor = (
   modules: Modules,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   root: Code,
   from: Location,
@@ -930,7 +930,7 @@ A `Composition` holds what the last call composed. Its `modules` are the corpus 
 
 A change also reaches the modules that anchor into the changed one, because their files inline its sections. `staleSince` adds them. It asks `dependentsOf` twice, once over the old corpus and once over the new. The old corpus finds a module that anchored a section the change removed. The new corpus finds a module whose anchor the change has just satisfied.
 
-`recompose` builds the next `Composition`. When nothing is stale, it keeps the last composition whole, over the corpus just built. Otherwise it keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had, with each reference's path written from the file it lands in. It builds the corpus's `Book` and `Landing` once for all of them, for the open edges `fromProduct` binds and the references it writes. `composition` reads the last composition, recomposes, and keeps the result for the next call. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
+`recompose` builds the next `Composition`. When nothing is stale, it keeps the last composition whole, over the corpus just built. Otherwise it keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had, with each reference's path written from the file it lands in. It builds the corpus's `Catalogue` and `Landing` once for all of them, for the open edges `fromProduct` binds and the references it writes. `composition` reads the last composition, recomposes, and keeps the result for the next call. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
 
 =>
 
@@ -944,23 +944,21 @@ const noComposition: Composition = { modules: new Map(), placed: new Map(), file
 
 const composedFilesOf = (
   modules: Modules,
-  book: Book,
+  catalogue: Catalogue,
   landing: Landing,
   module: LoomModule,
   paths: ReadonlyArray<Location>,
   written: WrittenFor,
 ): Effect.Effect<ReadonlyArray<ComposedFile>> =>
   Effect.forEach(Array.zip(module.product.files, paths), ([file, path]) =>
-    written(modules, book, landing, file.code, path).pipe(
-      Effect.map(
-        (specifiers): ComposedFile => ({
-          path,
-          content: fromCode(modules, file.code, book, specifiersOf(specifiers)).code,
-          loomPath: module.path,
-          rootId: file.code.origin.name.toLowerCase(),
-          heading: headingLocationOf(modules, module, file.code.origin.name),
-        }),
-      ),
+    written(modules, catalogue, landing, file.code, path).pipe(
+      Effect.map((specifiers): ComposedFile => ({
+        path,
+        content: fromCode(modules, file.code, catalogue, specifiersOf(specifiers)).code,
+        loomPath: module.path,
+        rootId: file.code.origin.name.toLowerCase(),
+        heading: headingLocationOf(modules, module, file.code.origin.name),
+      })),
     ),
   )
 
@@ -1009,8 +1007,8 @@ const recompose = (
 ): Effect.Effect<Composition> => {
   const stale = staleSince(previous, modules, placed)
   if (stale.size === 0) return Effect.succeed({ ...previous, modules, placed })
-  const book = bookOf(modules)
-  const landing = landingOf(book, modules)
+  const catalogue = catalogueOf(modules)
+  const landing = landingOf(catalogue, modules)
   return Effect.forEach(Array.fromIterable(modules.values()), (module) =>
     pipe(
       Option.fromNullishOr(previous.files.get(module.path)),
@@ -1020,7 +1018,7 @@ const recompose = (
         onNone: () =>
           composedFilesOf(
             modules,
-            book,
+            catalogue,
             landing,
             module,
             placed.get(module.path) ?? [],
@@ -1072,7 +1070,7 @@ const promisedNamesIn = (
 
 ## Projecting a file's tree
 
-`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, over one `Book` for all the file's roots, so it treats a lone file and a whole corpus the same way. Each root writes its references' paths from the `Specifiers` that `rootSpecifiers` worked out for it.
+`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, over one `Catalogue` for all the file's roots, so it treats a lone file and a whole corpus the same way. Each root writes its references' paths from the `Specifiers` that `rootSpecifiers` worked out for it.
 
 =>
 
@@ -1095,7 +1093,7 @@ const projectTree = (
   entry: LoomModule,
   specifiers: ReadonlyMap<string, Specifiers>,
 ): LoomVirtualCode => {
-  const book = bookOf(modules)
+  const catalogue = catalogueOf(modules)
   return rootVirtualCode(
     entry.text,
     [
@@ -1106,7 +1104,7 @@ const projectTree = (
           fromProduct(
             modules,
             { path: entry.path, name },
-            book,
+            catalogue,
             Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
           ),
         ),
@@ -1205,7 +1203,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, and `usedSections` and `unusedSections`, which find the code no file includes; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, each a `DeclaredKind`, and judge each module's boxes against it, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Catalogue` that a judgement and a projection resolve names through, with `catalogueOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, and `usedSections` and `unusedSections`, which find the code no file includes; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels; the fault catalog's `faulty`, with the `DuplicateName`, `UnresolvedTocEntry`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, each a `DeclaredKind`, and judge each module's boxes against it, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 References add a few more. From the product pass comes what fits a reference to its file: `referredFileOf`, the `Referred` it answers, the `Landing` it reads, `landingOf`, which builds the landing, and `holdsReferences`, which tells whether a corpus refers at all. The projection gives `referencesIn`, which gathers a root's references as `Reference`s, and the `Specifiers` the projection writes them with, `noSpecifiers` among them. The product model gives the `Code` of a root, and `Position` keys a specifier by its anchor's place. The fault catalog gives `UnsettledModule` and `SpecifierUnknown`, and the language-service contract gives the `SpecifierRequest` a package answers and the `ServiceError` it fails with. `LanguagePackages` is the service that asks the packages, which the environment may provide.
 
@@ -1219,8 +1217,8 @@ import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/Lo
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
-  bookOf,
-  type Book,
+  catalogueOf,
+  type Catalogue,
   BoxNotice,
   boxNoticesIn,
   captionOf,

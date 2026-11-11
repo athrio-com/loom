@@ -2,7 +2,7 @@ import { Array, Match, Option, Order, pipe } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { FrontmatterEntryToken } from '@athrio/loom-ast/LoomTokens'
 import {
-  type Book,
+  type Catalogue,
   type Location,
   type LoomModule,
   reachesOf,
@@ -44,11 +44,11 @@ export type Boundaries = {
 const parentOf = (root: LoomModule): Option.Option<string> =>
   Option.map(Option.fromNullishOr(root.doc.frontmatter?.rootedIn), (line) => line.value)
 
-const nodeOf = (book: Book, trope: Trope, root: LoomModule): TropeNode => {
+const nodeOf = (catalogue: Catalogue, trope: Trope, root: LoomModule): TropeNode => {
   const names = Option.fromNullishOr(root.doc.frontmatter?.entries)
   const listed = Array.map(
     Option.getOrElse(names, () => []),
-    (name): Listed => ({ name, chapter: tropeEntryModuleOf(book, name.value) }),
+    (name): Listed => ({ name, chapter: tropeEntryModuleOf(catalogue, name.value) }),
   )
   return {
     name: trope.name,
@@ -84,13 +84,13 @@ const namesNoTrope = (module: LoomModule): boolean =>
 
 export const boundariesOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  book: Book,
+  catalogue: Catalogue,
   gathered: ReadonlyArray<Trope>,
 ): Boundaries => {
   const tropes: ReadonlyMap<string, TropeNode> = new Map(
     Array.getSomes(
       Array.map(gathered, (trope) =>
-        Option.map(trope.root, (root) => [trope.name, nodeOf(book, trope, root)] as const),
+        Option.map(trope.root, (root) => [trope.name, nodeOf(catalogue, trope, root)] as const),
       ),
     ),
   )
@@ -113,7 +113,7 @@ export const boundariesOf = (
     Option.match(tropeOf(module), {
       onNone: () => found,
       onSome: (trope) =>
-        Array.reduce(reachesOf(book, module), found, (was, each) =>
+        Array.reduce(reachesOf(catalogue, module), found, (was, each) =>
           was.has(each.target) ||
           !Option.exists(Option.fromNullishOr(modules.get(each.target)), namesNoTrope)
             ? was
@@ -264,7 +264,7 @@ const crossedFault = (
 
 const reachingInside = (
   boundaries: Boundaries,
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<Location, LoomModule>,
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> => {
@@ -278,7 +278,7 @@ const reachingInside = (
   })
   return boundaries.tropes.size === 0
     ? []
-    : Array.flatMap(reachesOf(book, module), (each) =>
+    : Array.flatMap(reachesOf(catalogue, module), (each) =>
         Option.match(
           Option.flatMap(Option.fromNullishOr(modules.get(each.target)), (target) =>
             crossedFault(boundaries, modules, own, target),
@@ -293,7 +293,7 @@ const reachingInside = (
 
 export const boundaryFaults = (
   boundaries: Boundaries,
-  book: Book,
+  catalogue: Catalogue,
   modules: ReadonlyMap<Location, LoomModule>,
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> => [
@@ -301,5 +301,5 @@ export const boundaryFaults = (
   ...rootedInFaults(boundaries, module),
   ...entryFaults(boundaries, module),
   ...undeclaredFaults(boundaries, module),
-  ...reachingInside(boundaries, book, modules, module),
+  ...reachingInside(boundaries, catalogue, modules, module),
 ]
