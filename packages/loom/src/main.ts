@@ -528,7 +528,7 @@ const installerUpgrade = Installation.$match({
     Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} @athrio/loom@latest`),
 })
 
-const loomVersion = '0.0.19'
+const loomVersion = '0.0.20'
 
 const releases = process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
 

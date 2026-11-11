@@ -115,7 +115,7 @@
       ]
     }
   ],
-  "loose": [],
+  "books": [],
   "pages": [
     {
       "slug": "01-getting-started/01-quick-start",
@@ -141,7 +141,8 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "quick-start"
           },
-          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```"
+          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -161,7 +162,8 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "write-your-first-loom"
           },
-          "markdown": "Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. [Installing Loom](/docs/getting-started/installing-loom) covers the details. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```"
+          "markdown": "Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. [Installing Loom](/docs/getting-started/installing-loom) covers the details. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -181,7 +183,8 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "turn-it-into-code"
           },
-          "markdown": "Run `$ loom tangle hello.loom`. Loom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:\n\n```typescript\nconst greet = (name: string): string => `Hello, ${name}!`\n\nconsole.log(greet('world'))\n```"
+          "markdown": "Run `$ loom tangle hello.loom`. Loom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:\n\n```typescript\nconst greet = (name: string): string => `Hello, ${name}!`\n\nconsole.log(greet('world'))\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -201,7 +204,8 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "run-it"
           },
-          "markdown": "Run the file with the runtime you use:\n\n```run\nhello.ts\n```\n\nIt prints `Hello, world!`."
+          "markdown": "Run the file with the runtime you use:\n\n```run\nhello.ts\n```\n\nIt prints `Hello, world!`.",
+          "links": []
         }
       ]
     },
@@ -229,7 +233,8 @@
             "chapter": "01-getting-started/02-installing-loom",
             "section": "installing-loom"
           },
-          "markdown": "The `loom` command is how you use Loom. It tangles your looms into source files and weaves them into documentation. Install it with the package manager you already use, or with `curl` if you use none.\n\n```install\n```\n\n```bash\nloom --version\n```"
+          "markdown": "The `loom` command is how you use Loom. It tangles your looms into source files and weaves them into documentation. Install it with the package manager you already use, or with `curl` if you use none.\n\n```install\n```\n\n```bash\nloom --version\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -249,7 +254,8 @@
             "chapter": "01-getting-started/02-installing-loom",
             "section": "without-node-or-bun"
           },
-          "markdown": "The `curl` line installs Loom on a machine that has neither Node nor Bun. On macOS or Linux, it puts Loom in `~/.loom/bin` as a single file. It then adds that folder to your `PATH`, the list of folders your terminal searches for commands. It makes the change in your shell's profile, such as `~/.zshrc`, and tells you which file it changed. Open a new terminal afterwards, so the shell reads the change.\n\nIf you'd rather edit your `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`."
+          "markdown": "The `curl` line installs Loom on a machine that has neither Node nor Bun. On macOS or Linux, it puts Loom in `~/.loom/bin` as a single file. It then adds that folder to your `PATH`, the list of folders your terminal searches for commands. It makes the change in your shell's profile, such as `~/.zshrc`, and tells you which file it changed. Open a new terminal afterwards, so the shell reads the change.\n\nIf you'd rather edit your `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`.",
+          "links": []
         },
         {
           "type": "heading",
@@ -269,7 +275,8 @@
             "chapter": "01-getting-started/02-installing-loom",
             "section": "on-windows"
           },
-          "markdown": "Download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases), and unpack it with a tool such as 7-Zip."
+          "markdown": "Download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases), and unpack it with a tool such as 7-Zip.",
+          "links": []
         },
         {
           "type": "heading",
@@ -289,7 +296,8 @@
             "chapter": "01-getting-started/02-installing-loom",
             "section": "on-macos"
           },
-          "markdown": "Apple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings."
+          "markdown": "Apple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings.",
+          "links": []
         },
         {
           "type": "heading",
@@ -309,7 +317,8 @@
             "chapter": "01-getting-started/02-installing-loom",
             "section": "when-an-older-loom-answers"
           },
-          "markdown": "If `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds.\n\n`$ loom doctor` checks again at any time. It shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in."
+          "markdown": "If `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds.\n\n`$ loom doctor` checks again at any time. It shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in.",
+          "links": []
         }
       ]
     },
@@ -337,7 +346,8 @@
             "chapter": "01-getting-started/03-loom-projects",
             "section": "loom-projects"
           },
-          "markdown": "A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.\n\n```picture\nproject\n```"
+          "markdown": "A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.\n\n```picture\nproject\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -357,7 +367,8 @@
             "chapter": "01-getting-started/03-loom-projects",
             "section": "initialise-project"
           },
-          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\nignore: []\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom/config.yaml` is now a Loom project.\n\n`ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
+          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\nignore: []\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom/config.yaml` is now a Loom project.\n\n`ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have.",
+          "links": []
         },
         {
           "type": "heading",
@@ -377,7 +388,8 @@
             "chapter": "01-getting-started/03-loom-projects",
             "section": "a-home-for-your-looms"
           },
-          "markdown": "Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in with `$ mv hello.loom corpus/`.\n\nA loom in `corpus` writes its files to the project root folder, the one that holds `corpus`. So `hello.ts` still lands where it did.\n\nIn a real project you'll want to choose where the files go. For that, Loom supports a `Package` setting in a loom's frontmatter:\n\n```loom\n---\nPackage: src/\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```\n\nWith that frontmatter, Loom writes `src/hello.ts`.\n\nThis loom has no `Language` line, because the project's primary language is TypeScript. The quick start's loom needed one because it wasn't part of a project."
+          "markdown": "Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in with `$ mv hello.loom corpus/`.\n\nA loom in `corpus` writes its files to the project root folder, the one that holds `corpus`. So `hello.ts` still lands where it did.\n\nIn a real project you'll want to choose where the files go. For that, Loom supports a `Package` setting in a loom's frontmatter:\n\n```loom\n---\nPackage: src/\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```\n\nWith that frontmatter, Loom writes `src/hello.ts`.\n\nThis loom has no `Language` line, because the project's primary language is TypeScript. The quick start's loom needed one because it wasn't part of a project.",
+          "links": []
         },
         {
           "type": "heading",
@@ -397,7 +409,8 @@
             "chapter": "01-getting-started/03-loom-projects",
             "section": "tangle-the-project"
           },
-          "markdown": "Point `loom tangle` at the folder rather than at one file: `$ loom tangle corpus`. Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before."
+          "markdown": "Point `loom tangle` at the folder rather than at one file: `$ loom tangle corpus`. Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before.",
+          "links": []
         },
         {
           "type": "heading",
@@ -417,7 +430,8 @@
             "chapter": "01-getting-started/03-loom-projects",
             "section": "the-lock-file"
           },
-          "markdown": "Every time it tangles, Loom records the files it wrote in `.loom/loom.lock`. Commit it with the rest of the project.\n\nThe lock is how Loom tells its files from yours. A file that isn't in the lock was never tangled, so Loom never touches it: a README, a test, anything you wrote by hand.\n\nWhen you delete a section that wrote a file, the file stays on disk, but the lock still lists it. `$ loom orphans` shows such files, and `$ loom orphans --prune` deletes them."
+          "markdown": "Every time it tangles, Loom records the files it wrote in `.loom/loom.lock`. Commit it with the rest of the project.\n\nThe lock is how Loom tells its files from yours. A file that isn't in the lock was never tangled, so Loom never touches it: a README, a test, anything you wrote by hand.\n\nWhen you delete a section that wrote a file, the file stays on disk, but the lock still lists it. `$ loom orphans` shows such files, and `$ loom orphans --prune` deletes them.",
+          "links": []
         },
         {
           "type": "heading",
@@ -437,7 +451,8 @@
             "chapter": "01-getting-started/03-loom-projects",
             "section": "ejecting-loom"
           },
-          "markdown": "Loom doesn't lock you in. What it tangles is ordinary source code, the same files you would write by hand. Nothing in them depends on Loom.\n\nSo you can stop using Loom whenever you like. `$ loom eject` is the opposite of `loom init`: it replaces `corpus` with `corpus.zip`, so your looms are kept, and removes `.loom`. Every tangled file stays where it is, and the project builds and runs as it did before."
+          "markdown": "Loom doesn't lock you in. What it tangles is ordinary source code, the same files you would write by hand. Nothing in them depends on Loom.\n\nSo you can stop using Loom whenever you like. `$ loom eject` is the opposite of `loom init`: it replaces `corpus` with `corpus.zip`, so your looms are kept, and removes `.loom`. Every tangled file stays where it is, and the project builds and runs as it did before.",
+          "links": []
         }
       ]
     },
@@ -465,7 +480,8 @@
             "chapter": "02-writing-looms/01-sections-prose-and-code",
             "section": "sections-prose-and-code"
           },
-          "markdown": "A loom is a list of sections. Each section explains one piece of the program in prose, then gives its code. This chapter is about how the two take turns."
+          "markdown": "A loom is a list of sections. Each section explains one piece of the program in prose, then gives its code. This chapter is about how the two take turns.",
+          "links": []
         },
         {
           "type": "heading",
@@ -485,7 +501,8 @@
             "chapter": "02-writing-looms/01-sections-prose-and-code",
             "section": "sections"
           },
-          "markdown": "A heading starts a section, at any level: `#`, `##`, `###` and so on. The level is for the reader. It shapes the loom as a document, and Loom tangles every section the same way.\n\nThe heading's text is the section's name. It is how an anchor finds the section, as `::[Greeting function]` found the greeting in the quick start.\n\nA section doesn't need code. An introduction, or a note on why the design is the way it is, is a section of prose alone."
+          "markdown": "A heading starts a section, at any level: `#`, `##`, `###` and so on. The level is for the reader. It shapes the loom as a document, and Loom tangles every section the same way.\n\nThe heading's text is the section's name. It is how an anchor finds the section, as `::[Greeting function]` found the greeting in the quick start.\n\nA section doesn't need code. An introduction, or a note on why the design is the way it is, is a section of prose alone.",
+          "links": []
         },
         {
           "type": "heading",
@@ -505,7 +522,8 @@
             "chapter": "02-writing-looms/01-sections-prose-and-code",
             "section": "from-prose-to-code"
           },
-          "markdown": "A line with `=>` on its own ends the prose and starts the code. The code runs until the next heading.\n\nA line that starts with `#` and a space is a heading wherever it appears, even in the middle of code. Most languages never start a line that way. Where yours does, as with a comment in a shell script, Supported languages shows the way around it."
+          "markdown": "A line with `=>` on its own ends the prose and starts the code. The code runs until the next heading.\n\nA line that starts with `#` and a space is a heading wherever it appears, even in the middle of code. Most languages never start a line that way. Where yours does, as with a comment in a shell script, Supported languages shows the way around it.",
+          "links": []
         },
         {
           "type": "heading",
@@ -525,7 +543,8 @@
             "chapter": "02-writing-looms/01-sections-prose-and-code",
             "section": "back-to-prose"
           },
-          "markdown": "A line with `~` on its own ends the code and returns to prose. So a section can take turns: explain a piece, show it, explain the next piece, show that.\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Areas [areas.ts]\n\nA circle's area needs pi.\n\n=>\n\nexport const circle = (r: number): number => Math.PI * r * r\n\n~\n\nA square needs only its side.\n\n=>\n\nexport const square = (side: number): number => side * side\n```\n\nLoom joins the section's code blocks in the order they appear, with a blank line between each:\n\n```typescript\nexport const circle = (r: number): number => Math.PI * r * r\n\nexport const square = (side: number): number => side * side\n```"
+          "markdown": "A line with `~` on its own ends the code and returns to prose. So a section can take turns: explain a piece, show it, explain the next piece, show that.\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Areas [areas.ts]\n\nA circle's area needs pi.\n\n=>\n\nexport const circle = (r: number): number => Math.PI * r * r\n\n~\n\nA square needs only its side.\n\n=>\n\nexport const square = (side: number): number => side * side\n```\n\nLoom joins the section's code blocks in the order they appear, with a blank line between each:\n\n```typescript\nexport const circle = (r: number): number => Math.PI * r * r\n\nexport const square = (side: number): number => side * side\n```",
+          "links": []
         }
       ]
     },
@@ -553,7 +572,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "supported-editors"
           },
-          "markdown": "Like any language, Loom needs two things from your editor: syntax highlighting and a language server. Loom provides both for the editors below. If yours isn't here, [ask for it](https://github.com/athrio-com/loom/issues)."
+          "markdown": "Like any language, Loom needs two things from your editor: syntax highlighting and a language server. Loom provides both for the editors below. If yours isn't here, [ask for it](https://github.com/athrio-com/loom/issues).",
+          "links": []
         },
         {
           "type": "heading",
@@ -573,7 +593,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "vs-code"
           },
-          "markdown": "Install the Loom extension from the Extensions view, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```\n\nCursor, Windsurf and VSCodium install the same extension from Open VSX, the registry they use in place of Microsoft's."
+          "markdown": "Install the Loom extension from the Extensions view, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```\n\nCursor, Windsurf and VSCodium install the same extension from Open VSX, the registry they use in place of Microsoft's.",
+          "links": []
         },
         {
           "type": "heading",
@@ -593,7 +614,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "zed"
           },
-          "markdown": "Zed builds the Loom extension on your machine, so install Rust from [rustup.rs](https://rustup.rs) first.\n\nZed's registry doesn't list the extension yet, so Zed installs it from a folder. Clone the extension, then run `zed: install dev extension` from the command palette and choose the `loom-zed` folder:\n\n```bash\ngit clone https://github.com/athrio-com/loom-zed\n```"
+          "markdown": "Zed builds the Loom extension on your machine, so install Rust from [rustup.rs](https://rustup.rs) first.\n\nZed's registry doesn't list the extension yet, so Zed installs it from a folder. Clone the extension, then run `zed: install dev extension` from the command palette and choose the `loom-zed` folder:\n\n```bash\ngit clone https://github.com/athrio-com/loom-zed\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -613,7 +635,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "gram"
           },
-          "markdown": "Gram, a fork of Zed, installs the same extension straight from its repository, and builds it with Rust from [rustup.rs](https://rustup.rs). Open the Extensions page, click **Install From URL**, and enter `$ https://github.com/athrio-com/loom-zed`."
+          "markdown": "Gram, a fork of Zed, installs the same extension straight from its repository, and builds it with Rust from [rustup.rs](https://rustup.rs). Open the Extensions page, click **Install From URL**, and enter `$ https://github.com/athrio-com/loom-zed`.",
+          "links": []
         },
         {
           "type": "heading",
@@ -633,7 +656,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "helix"
           },
-          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nLoom installed with `curl` carries the grammar already built, so that's all it takes. Loom installed from npm builds the grammar on your machine, which takes a C compiler: the Xcode Command Line Tools on macOS, or your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.\n\nIn Helix, `:format` formats a loom."
+          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nLoom installed with `curl` carries the grammar already built, so that's all it takes. Loom installed from npm builds the grammar on your machine, which takes a C compiler: the Xcode Command Line Tools on macOS, or your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.\n\nIn Helix, `:format` formats a loom.",
+          "links": []
         },
         {
           "type": "heading",
@@ -653,7 +677,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "neovim"
           },
-          "markdown": "Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:\n\n```bash\nloom nvim\n```\n\nIt takes Neovim 0.11 or newer. Loom installed from npm also needs a C compiler to build the grammar, while Loom installed with `curl` carries it already built. Run `loom nvim` again after you upgrade Loom, and check the result with `:checkhealth vim.treesitter`."
+          "markdown": "Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:\n\n```bash\nloom nvim\n```\n\nIt takes Neovim 0.11 or newer. Loom installed from npm also needs a C compiler to build the grammar, while Loom installed with `curl` carries it already built. Run `loom nvim` again after you upgrade Loom, and check the result with `:checkhealth vim.treesitter`.",
+          "links": []
         },
         {
           "type": "heading",
@@ -673,7 +698,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "any-other-editor"
           },
-          "markdown": "An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding `.loom/config.yaml` as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom)."
+          "markdown": "An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding `.loom/config.yaml` as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom).",
+          "links": []
         },
         {
           "type": "heading",
@@ -693,7 +719,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "formatting-and-wrapping"
           },
-          "markdown": "Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same.\n\nA paragraph on one line is for your editor to wrap. Zed, Gram and Helix wrap a loom's prose at the width Loom formats code to, so prose and code end at the same column. They read that width from the `.editorconfig` that `loom init` writes. It is a hundred columns unless `.loom/config.yaml` sets another `width`. After you change it, run `loom init` again to bring `.editorconfig` up to date."
+          "markdown": "Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same.\n\nA paragraph on one line is for your editor to wrap. Zed, Gram and Helix wrap a loom's prose at the width Loom formats code to, so prose and code end at the same column. They read that width from the `.editorconfig` that `loom init` writes. It is a hundred columns unless `.loom/config.yaml` sets another `width`. After you change it, run `loom init` again to bring `.editorconfig` up to date.",
+          "links": []
         },
         {
           "type": "heading",
@@ -713,7 +740,8 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "checking-typescript"
           },
-          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nThe server checks a project with the TypeScript the project installs, TypeScript 6 or TypeScript 7, in every editor. A project that installs no TypeScript gets TypeScript 7, which the server fetches once per machine, into `~/.loom/typescript`, the first time such a project asks."
+          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nThe server checks a project with the TypeScript the project installs, TypeScript 6 or TypeScript 7, in every editor. A project that installs no TypeScript gets TypeScript 7, which the server fetches once per machine, into `~/.loom/typescript`, the first time such a project asks.",
+          "links": []
         }
       ]
     },
@@ -741,7 +769,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "syntax"
           },
-          "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are eight of them, and each does a single thing. Learn these and you can read any corpus."
+          "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are eight of them, and each does a single thing. Learn these and you can read any corpus.",
+          "links": []
         },
         {
           "type": "heading",
@@ -761,7 +790,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "the-marks"
           },
-          "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name = value }}` | binds a value an anchor can draw into the code |\n\nTwo more constructs set a stretch of text apart. Three backticks in prose fence a quote: Loom shows its lines and reads none of them as marks, which is how this page quotes marks without invoking them. A box sets a block of prose apart from the text around it. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. No mark inside a box opens anything. A box that names no kind is a note, a remark for whoever opens the corpus next, and tangling drops it with the rest of the prose. A box of the `Chapter` kind points to the chapter its name titles.\n\n```loom\n::: Why a grid {Note}\nThe room is small enough to model as cells, so the game needs no engine.\n:::\n```"
+          "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name = value }}` | binds a value an anchor can draw into the code |\n\nTwo more constructs set a stretch of text apart. Three backticks in prose fence a quote: Loom shows its lines and reads none of them as marks, which is how this page quotes marks without invoking them. A box sets a block of prose apart from the text around it. A line of three colons opens it, with an optional name and optional braces, and a line of three colons alone closes it. No mark inside a box opens anything. A box that names no kind is a note, a remark for whoever opens the corpus next, and tangling drops it with the rest of the prose. A box of the `Chapter` kind points to the chapter its name titles.\n\n```loom\n::: Why a grid {Note}\nThe room is small enough to model as cells, so the game needs no engine.\n:::\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -781,7 +811,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "frontmatter"
           },
-          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nPackage: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in. A chapter whose language is `Prose` holds prose and no code, so an arrow in it is an error, as it is in a section labelled `{Prose}`. These documentation pages are written that way."
+          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nPackage: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the navigation is built from. `Package` names where the chapter's code is written. A directory, ending in a slash, holds the files its sections name; a single file takes the chapter's code whole. `Language` declares what the chapter's code is written in. A chapter whose language is `Prose` holds prose and no code, so an arrow in it is an error, as it is in a section labelled `{Prose}`. These documentation pages are written that way.",
+          "links": []
         },
         {
           "type": "heading",
@@ -801,7 +832,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "sections"
           },
-          "markdown": "A `#` heading opens a section, and everything under it belongs to that section until the next heading.\n\nA section's title is also its name. That name is how every other part of the corpus refers to it, so titles are not decoration — renaming a section renames the thing that draws it in."
+          "markdown": "A `#` heading opens a section, and everything under it belongs to that section until the next heading.\n\nA section's title is also its name. That name is how every other part of the corpus refers to it, so titles are not decoration — renaming a section renames the thing that draws it in.",
+          "links": []
         },
         {
           "type": "heading",
@@ -821,7 +853,50 @@
             "chapter": "04-the-format/01-syntax",
             "section": "parts"
           },
-          "markdown": "A part gathers chapters, and the frontmatter names it, not a heading. The chapter that opens a part names the part on its own line, as `Part IV: The format` does above. Every later chapter of the part names it by its numeral alone, before its own number and title: `Part IV, Chapter 2:` and the title.\n\nHeadings never gather anything. A `##` heading opens a section just as a `#` heading does, and its depth only shows a reader how the chapter is laid out."
+          "markdown": "A part gathers chapters, and the frontmatter names it, not a heading. The chapter that opens a part names the part on its own line, as `Part IV: The format` does above. Every later chapter of the part names it by its numeral alone, before its own number and title: `Part IV, Chapter 2:` and the title.\n\nHeadings never gather anything. A `##` heading opens a section just as a `#` heading does, and its depth only shows a reader how the chapter is laid out.",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "04-the-format/01-syntax",
+            "section": "books"
+          },
+          "level": 2,
+          "title": "Books",
+          "id": "books",
+          "unsettled": false,
+          "divider": false
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "04-the-format/01-syntax",
+            "section": "books"
+          },
+          "markdown": "A corpus can hold more than one book: a game, say, beside the website that sells it. A chapter names its book in a `Book` field, beside the line that names its part:\n\n```loom\n---\nPart I, Chapter 2: Sleeping monsters\nBook: The game\n---\n```\n\nA loom whose frontmatter holds the `Book` field alone opens that book. Its first heading is the book's title, and its prose is the book's preface. Chapters that name no book belong to the corpus's default book, so a corpus of one book needs no `Book` field at all.\n\nEach book numbers its own parts. A bare name finds chapters in its own book only, and a path that starts with a book's name reaches into another, as `::[The game, Sleeping monsters]` does.",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "04-the-format/01-syntax",
+            "section": "concepts"
+          },
+          "level": 2,
+          "title": "Concepts",
+          "id": "concepts",
+          "unsettled": false,
+          "divider": false
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "04-the-format/01-syntax",
+            "section": "concepts"
+          },
+          "markdown": "A concept is a section that defines one idea, marked `{Concept}` on its heading. Its heading is the word the book uses for the idea, its first paragraph is its definition, and a `Lexical forms:` list gives the other words the prose writes for it:\n\n```loom\n## Account {Concept}\n\nA ledger that holds one customer's balance, charges, and payments.\n\nLexical forms:\n- accounts\n```\n\nProse links a concept by any of its forms, as `::[accounts]` does, from anywhere in the corpus. Your editor shows the definition when you rest on the link, and the woven site ends each book on an index of its concepts. A concept holds no code, so it never composes into a file.",
+          "links": []
         },
         {
           "type": "heading",
@@ -841,7 +916,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "naming-a-file"
           },
-          "markdown": "A heading may name the file its code belongs to, by putting the path in brackets:\n\n```loom\n## The parser [parser.ts]\n```\n\nEverything that section composes is written to `parser.ts`, under the chapter's `Package` directory. One chapter can fill several files, and several chapters can fill one."
+          "markdown": "A heading may name the file its code belongs to, by putting the path in brackets:\n\n```loom\n## The parser [parser.ts]\n```\n\nEverything that section composes is written to `parser.ts`, under the chapter's `Package` directory. One chapter can fill several files, and several chapters can fill one.",
+          "links": []
         },
         {
           "type": "heading",
@@ -861,7 +937,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "labelling-a-heading"
           },
-          "markdown": "A heading may also carry a label in braces, which says what Loom should make of the section rather than where its code goes.\n\n```loom\n## The module {Tangle}\n\n# Table of Contents {TOC}\n\n## Installing it {Bash}\n```\n\n`{Tangle}` marks the section that composes the one file its chapter names, so a chapter that writes a single file needs no bracket. A bracket alone is enough to name a file, and a heading never needs both. `{TOC}` marks the heading whose list of parts and chapters Loom keeps up to date. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document."
+          "markdown": "A heading may also carry a label in braces, which says what Loom should make of the section rather than where its code goes.\n\n```loom\n## The module {Tangle}\n\n## Installing it {Bash}\n```\n\n`{Tangle}` marks the section that composes the one file its chapter names, so a chapter that writes a single file needs no bracket. A bracket alone is enough to name a file, and a heading never needs both. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document.",
+          "links": []
         },
         {
           "type": "heading",
@@ -881,7 +958,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "opening-and-closing-code"
           },
-          "markdown": "The `=>` operator opens a code block. The `~` separator closes it and returns to prose. Between them the text is code in the chapter's language, and Loom treats it as opaque — it reads the marks, never the language.\n\n```loom\nThe parser reads one line at a time.\n\n=>\n\nexport const parse = (line: string) => line.trim()\n\n~\n\nTrimming first means the caller never has to.\n```\n\nProse and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.\n\nA block opened with `=>` also ends at the next heading. That suits most code, but some files hold lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Fence that code, the way Markdown fences any code. Three backticks go on the first line after the arrow, and three more where the code ends. Every line between the fences is code, `#` lines included, and the closing fence returns to prose without a tilde.\n\n````loom\n## The skill [SKILL.md]\n\n=>\n```\n# Writing for the reader\n\n## Put the actor in the subject\n```\n````\n\nThe tilde that closes a plain block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. A fence that never closes is an error, because it would otherwise swallow the rest of the chapter. Code that holds three backticks of its own, such as a Markdown file with an example in it, opens with a fence of four, and only four close it."
+          "markdown": "The `=>` operator opens a code block. The `~` separator closes it and returns to prose. Between them the text is code in the chapter's language, and Loom treats it as opaque — it reads the marks, never the language.\n\n```loom\nThe parser reads one line at a time.\n\n=>\n\nexport const parse = (line: string) => line.trim()\n\n~\n\nTrimming first means the caller never has to.\n```\n\nProse and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.\n\nA block opened with `=>` also ends at the next heading. That suits most code, but some files hold lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Fence that code, the way Markdown fences any code. Three backticks go on the first line after the arrow, and three more where the code ends. Every line between the fences is code, `#` lines included, and the closing fence returns to prose without a tilde.\n\n````loom\n## The skill [SKILL.md]\n\n=>\n```\n# Writing for the reader\n\n## Put the actor in the subject\n```\n````\n\nThe tilde that closes a plain block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. A fence that never closes is an error, because it would otherwise swallow the rest of the chapter. Code that holds three backticks of its own, such as a Markdown file with an example in it, opens with a fence of four, and only four close it.",
+          "links": []
         },
         {
           "type": "heading",
@@ -901,7 +979,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "anchors"
           },
-          "markdown": "An anchor draws another section in by name, and it is how a file gets assembled out of the pieces that explain it:\n\n```loom\n## The module [parser.ts]\n\n=>\n\n::[The tokens]\n\n::[The parser]\n```\n\nOrder on the page and order in the file are separate concerns. A section may be explained early and composed late, or the reverse, because the anchor decides where its code lands.\n\nTangling checks every anchor. Name a section that does not exist and the build stops and says so, which is what keeps a document and its files from drifting apart as the document is edited.\n\nInside a code block an anchor is always an anchor, fenced or not. To write one as an example rather than as a reference, as this page does throughout, put it in backticks or in a quote, and Loom leaves it as text."
+          "markdown": "An anchor draws another section in by name, and it is how a file gets assembled out of the pieces that explain it:\n\n```loom\n## The module [parser.ts]\n\n=>\n\n::[The tokens]\n\n::[The parser]\n```\n\nOrder on the page and order in the file are separate concerns. A section may be explained early and composed late, or the reverse, because the anchor decides where its code lands.\n\nTangling checks every anchor. Name a section that does not exist and the build stops and says so, which is what keeps a document and its files from drifting apart as the document is edited.\n\nInside a code block an anchor is always an anchor, fenced or not. To write one as an example rather than as a reference, as this page does throughout, put it in backticks or in a quote, and Loom leaves it as text.",
+          "links": []
         },
         {
           "type": "heading",
@@ -921,7 +1000,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "warps"
           },
-          "markdown": "A warp binds a name to a value. It is written in the prose before a section's first arrow, and an anchor with the same name draws the value into that section's code. A quoted string lands without its quotes, so the code writes any quotes it needs around the anchor.\n\n```loom\n## The version [version.ts]\n\n{{ version = \"1.2.0\" }}\n\n=>\n\nexport const VERSION = '::[version]'\n```\n\nWhere a section repeats a version number, a package name or a path, the warp names it once."
+          "markdown": "A warp binds a name to a value. It is written in the prose before a section's first arrow, and an anchor with the same name draws the value into that section's code. A quoted string lands without its quotes, so the code writes any quotes it needs around the anchor.\n\n```loom\n## The version [version.ts]\n\n{{ version = \"1.2.0\" }}\n\n=>\n\nexport const VERSION = '::[version]'\n```\n\nWhere a section repeats a version number, a package name or a path, the warp names it once.",
+          "links": []
         },
         {
           "type": "heading",
@@ -941,7 +1021,8 @@
             "chapter": "04-the-format/01-syntax",
             "section": "tangling"
           },
-          "markdown": "`loom tangle` walks the corpus, resolves every anchor and warp, and writes each file out. What it produces is ordinary source: no marker, no runtime, nothing of Loom left in it. A reader of the output cannot tell it came from a document.\n\n`loom weave` renders the same corpus the other way, as a document to read. These pages are the result."
+          "markdown": "`loom tangle` walks the corpus, resolves every anchor and warp, and writes each file out. What it produces is ordinary source: no marker, no runtime, nothing of Loom left in it. A reader of the output cannot tell it came from a document.\n\n`loom weave` renders the same corpus the other way, as a document to read. These pages are the result.",
+          "links": []
         }
       ]
     },
@@ -969,7 +1050,8 @@
             "chapter": "05-cli/01-loom-init",
             "section": "loom-init"
           },
-          "markdown": "`loom init` sets a workspace up. It is the only command that asks questions, and it asks them once.\n\n```bash\nloom init [directory]\n```\n\nThe directory defaults to the current one."
+          "markdown": "`loom init` sets a workspace up. It is the only command that asks questions, and it asks them once.\n\n```bash\nloom init [directory]\n```\n\nThe directory defaults to the current one.",
+          "links": []
         },
         {
           "type": "heading",
@@ -989,7 +1071,8 @@
             "chapter": "05-cli/01-loom-init",
             "section": "what-it-asks"
           },
-          "markdown": "The first question is the **primary language** — the language a section is written in when its heading does not say otherwise. It defaults to `typescript`.\n\nThe second is which **languages to activate**, as space-separated identifiers. Activating a language installs its editor services, so the language server can offer completion and diagnostics inside that language's sections. It defaults to whatever you answered first."
+          "markdown": "The first question is the **primary language** — the language a section is written in when its heading does not say otherwise. It defaults to `typescript`.\n\nThe second is which **languages to activate**, as space-separated identifiers. Activating a language installs its editor services, so the language server can offer completion and diagnostics inside that language's sections. It defaults to whatever you answered first.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1009,7 +1092,8 @@
             "chapter": "05-cli/01-loom-init",
             "section": "what-it-writes"
           },
-          "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.editorconfig` | a `[*.loom]` section whose `max_line_length` is the project's width, so your editor wraps a loom's prose where its code ends |\n\nIt also creates the corpus directory the configuration names, if it isn't there yet.\n\n`.editorconfig` may hold settings of your own, and `init` keeps them. It writes its section of `.editorconfig` between two comment lines that mark the section as Loom's. If your `.editorconfig` already has a `[*.loom]` section of yours, `init` leaves the file alone."
+          "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.editorconfig` | a `[*.loom]` section whose `max_line_length` is the project's width, so your editor wraps a loom's prose where its code ends |\n\nIt also creates the corpus directory the configuration names, if it isn't there yet.\n\n`.editorconfig` may hold settings of your own, and `init` keeps them. It writes its section of `.editorconfig` between two comment lines that mark the section as Loom's. If your `.editorconfig` already has a `[*.loom]` section of yours, `init` leaves the file alone.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1029,7 +1113,8 @@
             "chapter": "05-cli/01-loom-init",
             "section": "running-it-twice"
           },
-          "markdown": "Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the editor configuration without losing its language settings. Run it again after you change `width` in `.loom/config.yaml`, and it rewrites its `.editorconfig` section to match.\n\nTo change the languages afterwards, use `loom add` and `loom remove` rather than editing the file by hand."
+          "markdown": "Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the editor configuration without losing its language settings. Run it again after you change `width` in `.loom/config.yaml`, and it rewrites its `.editorconfig` section to match.\n\nTo change the languages afterwards, use `loom add` and `loom remove` rather than editing the file by hand.",
+          "links": []
         }
       ]
     },
@@ -1057,7 +1142,8 @@
             "chapter": "05-cli/02-loom-tangle",
             "section": "loom-tangle"
           },
-          "markdown": "`loom tangle` is the command that turns documents into files. It reads a corpus, resolves every anchor and warp, and writes each section's code to the file that section names.\n\n```bash\nloom tangle <path> [--watch]\n```"
+          "markdown": "`loom tangle` is the command that turns documents into files. It reads a corpus, resolves every anchor and warp, and writes each section's code to the file that section names.\n\n```bash\nloom tangle <path> [--watch]\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1077,7 +1163,8 @@
             "chapter": "05-cli/02-loom-tangle",
             "section": "what-it-writes"
           },
-          "markdown": "Output is ordinary source. Tangling leaves no marker, no header and no import behind, so a file Loom wrote is indistinguishable from one a person typed. That is deliberate: a tool that stamped its output would make every consumer of that output care about the tool.\n\nA file is only rewritten when its content would change. Prose edits therefore cost nothing downstream — no timestamp churn, and no rebuild triggered in whatever is watching the output directory."
+          "markdown": "Output is ordinary source. Tangling leaves no marker, no header and no import behind, so a file Loom wrote is indistinguishable from one a person typed. That is deliberate: a tool that stamped its output would make every consumer of that output care about the tool.\n\nA file is only rewritten when its content would change. Prose edits therefore cost nothing downstream — no timestamp churn, and no rebuild triggered in whatever is watching the output directory.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1097,7 +1184,8 @@
             "chapter": "05-cli/02-loom-tangle",
             "section": "when-it-refuses"
           },
-          "markdown": "Tangle checks the corpus before it writes anything, and it refuses the whole run rather than write half of it. An anchor that names a section which does not exist is the common case:\n\n```\nloom: refusing to tangle — No section or chapter is called `the parser`. Write one, or label this anchor `{To be settled}`.\n```\n\nRefusing wholesale is what keeps a corpus and its files from drifting apart. A partial write would leave the output in a state no document describes."
+          "markdown": "Tangle checks the corpus before it writes anything, and it refuses the whole run rather than write half of it. An anchor that names a section which does not exist is the common case:\n\n```\nloom: refusing to tangle — No section or chapter is called `the parser`. Write one, or label this anchor `{To be settled}`.\n```\n\nRefusing wholesale is what keeps a corpus and its files from drifting apart. A partial write would leave the output in a state no document describes.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1117,7 +1205,8 @@
             "chapter": "05-cli/02-loom-tangle",
             "section": "watching"
           },
-          "markdown": "`--watch` re-tangles when a document changes.\n\n```bash\nloom tangle corpus --watch\n```\n\nThis is the normal way to work: leave it running beside the editor and the files follow the document as you write it."
+          "markdown": "`--watch` re-tangles when a document changes.\n\n```bash\nloom tangle corpus --watch\n```\n\nThis is the normal way to work: leave it running beside the editor and the files follow the document as you write it.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1137,7 +1226,8 @@
             "chapter": "05-cli/02-loom-tangle",
             "section": "finding-files-nothing-describes"
           },
-          "markdown": "Rename a section's sink and the file it used to write stays on disk, no longer described by anything. `loom orphans` lists those.\n\n```bash\nloom orphans [--prune]\n```\n\nWith `--prune` it deletes them. Without it, it only reports — which is the safer habit, since the list is also a useful signal that a rename went further than you intended."
+          "markdown": "Rename a section's sink and the file it used to write stays on disk, no longer described by anything. `loom orphans` lists those.\n\n```bash\nloom orphans [--prune]\n```\n\nWith `--prune` it deletes them. Without it, it only reports — which is the safer habit, since the list is also a useful signal that a rename went further than you intended.",
+          "links": []
         }
       ]
     },
@@ -1165,7 +1255,8 @@
             "chapter": "05-cli/03-loom-weave",
             "section": "loom-weave"
           },
-          "markdown": "Where tangling reads a corpus for its code, weaving reads the same corpus for its document. It produces one JSON file describing the whole thing — its parts and chapters, each page's headings, its prose as Markdown, and its code.\n\n```bash\nloom weave <path> <out>\n```"
+          "markdown": "Where tangling reads a corpus for its code, weaving reads the same corpus for its document. It produces one JSON file describing the whole thing — its parts and chapters, each page's headings, its prose as Markdown, and its code.\n\n```bash\nloom weave <path> <out>\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1185,7 +1276,8 @@
             "chapter": "05-cli/03-loom-weave",
             "section": "what-comes-out"
           },
-          "markdown": "The output has three parts. `nav` is the corpus arranged as parts and the chapters beneath them, which is what a site's navigation is built from. `pages` is a page per chapter, each a list of blocks: a heading carries its level, its title and a slug to link to, and a prose block carries Markdown. `loose` holds chapters that belong to no part.\n\nBecause prose comes out as Markdown rather than as HTML, the site decides how to render it. Nothing about weaving assumes a browser."
+          "markdown": "The output has three parts. `nav` is the corpus's book arranged as parts and the chapters beneath them, which is what a site's navigation is built from. Chapters that belong to no part close it, under `Orphan chapters`, and the book's discussions follow, under `Back matter`, with the book's index of concepts last. `books` holds the other books of a corpus that has several: each with its name, the page that opens it, and a `nav` of its own. A corpus of one book leaves it empty. `pages` is a page per chapter, each a list of blocks: a heading carries its level, its title and a slug to link to, and a prose block carries Markdown.\n\nBecause prose comes out as Markdown rather than as HTML, the site decides how to render it. Nothing about weaving assumes a browser.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1205,7 +1297,8 @@
             "chapter": "05-cli/03-loom-weave",
             "section": "point-it-at-a-file-not-a-directory"
           },
-          "markdown": "Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or a spine — a file whose only job is to hold the table of contents — and it reads that file's directory and everything beneath it:\n\n```bash\nloom weave docs/index.loom docs.woven.json\n```\n\nGive it a directory instead and, unless that directory is a workspace in its own right, it reads the directory *above* the one you named. In a repository that means it can quietly weave everything you have, test fixtures included. The rule is short: pass a file."
+          "markdown": "Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or the loom that opens the corpus, and it reads that file's directory and everything beneath it:\n\n```bash\nloom weave docs/index.loom docs.woven.json\n```\n\nGive it a directory instead and, unless that directory is a workspace in its own right, it reads the directory *above* the one you named. In a repository that means it can quietly weave everything you have, test fixtures included. The rule is short: pass a file.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1225,7 +1318,8 @@
             "chapter": "05-cli/03-loom-weave",
             "section": "more-than-one-corpus-in-a-project"
           },
-          "markdown": "A project can hold several corpora — a book of documentation beside the source it documents, for instance. They need no configuration of their own. Each is a directory of chapters, and each is woven by pointing at a file inside it, so the same workspace settings govern them all."
+          "markdown": "A project can hold several corpora — a book of documentation beside the source it documents, for instance. They need no configuration of their own. Each is a directory of chapters, and each is woven by pointing at a file inside it, so the same workspace settings govern them all.",
+          "links": []
         }
       ]
     },
@@ -1253,7 +1347,8 @@
             "chapter": "05-cli/04-loom-eject",
             "section": "loom-eject"
           },
-          "markdown": "`loom eject` is the way out. It archives the corpus and leaves the tangled source in place, so a project that no longer wants to be literate keeps everything Loom built for it and stops depending on Loom.\n\n```bash\nloom eject\n```"
+          "markdown": "`loom eject` is the way out. It archives the corpus and leaves the tangled source in place, so a project that no longer wants to be literate keeps everything Loom built for it and stops depending on Loom.\n\n```bash\nloom eject\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1273,7 +1368,8 @@
             "chapter": "05-cli/04-loom-eject",
             "section": "what-it-leaves-behind"
           },
-          "markdown": "The source stays exactly where it was. Every file tangle wrote — `src/board.ts`, `src/rules.ts`, the SQL, the JSON — remains on disk, unchanged, and the project builds and runs as it did the moment before. Nothing has to be regenerated, because tangling already produced ordinary source and no build step ever stood between that source and the compiler.\n\nThe corpus is archived rather than deleted. It becomes `corpus.zip` beside the project, so the prose that explains the code is kept even though nothing reads it any more.\n\nThen the workspace's own files go: `.loom/`, and the configuration inside it."
+          "markdown": "The source stays exactly where it was. Every file tangle wrote — `src/board.ts`, `src/rules.ts`, the SQL, the JSON — remains on disk, unchanged, and the project builds and runs as it did the moment before. Nothing has to be regenerated, because tangling already produced ordinary source and no build step ever stood between that source and the compiler.\n\nThe corpus is archived rather than deleted. It becomes `corpus.zip` beside the project, so the prose that explains the code is kept even though nothing reads it any more.\n\nThen the workspace's own files go: `.loom/`, and the configuration inside it.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1293,7 +1389,8 @@
             "chapter": "05-cli/04-loom-eject",
             "section": "why-it-exists"
           },
-          "markdown": "A tool that cannot be removed is a tool you have to be sure about before you start. Eject is what makes Loom a choice rather than a commitment: the code was always plain source, so leaving costs one command and loses nothing except the explanation.\n\nThat the exit is cheap is also why the explanation tends to survive. Prose that a tool holds hostage gets abandoned. Prose you could walk away from at any moment, and keep anyway, is prose someone chose to write."
+          "markdown": "A tool that cannot be removed is a tool you have to be sure about before you start. Eject is what makes Loom a choice rather than a commitment: the code was always plain source, so leaving costs one command and loses nothing except the explanation.\n\nThat the exit is cheap is also why the explanation tends to survive. Prose that a tool holds hostage gets abandoned. Prose you could walk away from at any moment, and keep anyway, is prose someone chose to write.",
+          "links": []
         }
       ]
     },
@@ -1321,7 +1418,8 @@
             "chapter": "05-cli/05-loom-format",
             "section": "loom-format"
           },
-          "markdown": "`loom format` formats looms the way your editor's format command does. It puts each prose paragraph on one line, so your editor can wrap it at any width, and it lays out each code section with that language's formatter.\n\n```bash\nloom format <path> [--check]\n```"
+          "markdown": "`loom format` formats looms the way your editor's format command does. It puts each prose paragraph on one line, so your editor can wrap it at any width, and it lays out each code section with that language's formatter.\n\n```bash\nloom format <path> [--check]\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1341,7 +1439,8 @@
             "chapter": "05-cli/05-loom-format",
             "section": "what-it-changes"
           },
-          "markdown": "Prose keeps its words and loses only the line breaks inside a paragraph. Lists, code fences, tables, headings and a line that ends in two spaces keep their lines.\n\nCode goes through its language's formatter: Prettier for TypeScript, with your project's own Prettier settings. Each section's code is formatted on its own, from its own first column, so lines keep to the project's `width`, a hundred columns unless `.loom/config.yaml` sets another or your Prettier settings name their own. An anchor is one of those lines, so it takes the indentation the code it brings in needs, and the section it names keeps one shape however many anchors use it.\n\nA section that can't be read by itself, such as the members of an object, is formatted where its one anchor places it. If several anchors use it, it stays as you wrote it. Formatting never breaks code: a tangled file that no longer reads after formatting gets its sections back as they were."
+          "markdown": "Prose keeps its words and loses only the line breaks inside a paragraph. Lists, code fences, tables, headings and a line that ends in two spaces keep their lines.\n\nCode goes through its language's formatter: Prettier for TypeScript, with your project's own Prettier settings. Each section's code is formatted on its own, from its own first column, so lines keep to the project's `width`, a hundred columns unless `.loom/config.yaml` sets another or your Prettier settings name their own. An anchor is one of those lines, so it takes the indentation the code it brings in needs, and the section it names keeps one shape however many anchors use it.\n\nA section that can't be read by itself, such as the members of an object, is formatted where its one anchor places it. If several anchors use it, it stays as you wrote it. Formatting never breaks code: a tangled file that no longer reads after formatting gets its sections back as they were.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1361,7 +1460,8 @@
             "chapter": "05-cli/05-loom-format",
             "section": "checking"
           },
-          "markdown": "`--check` changes nothing. It lists the looms that would change, and fails when any would, so CI can keep a project formatted.\n\n```bash\nloom format corpus --check\n```"
+          "markdown": "`--check` changes nothing. It lists the looms that would change, and fails when any would, so CI can keep a project formatted.\n\n```bash\nloom format corpus --check\n```",
+          "links": []
         }
       ]
     },
@@ -1389,7 +1489,8 @@
             "chapter": "05-cli/06-loom-update",
             "section": "loom-update"
           },
-          "markdown": "`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project. To upgrade Loom itself, run `loom upgrade`.\n\n```bash\nloom update <language>...\nloom update --all\n```"
+          "markdown": "`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project. To upgrade Loom itself, run `loom upgrade`.\n\n```bash\nloom update <language>...\nloom update --all\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1409,7 +1510,8 @@
             "chapter": "05-cli/06-loom-update",
             "section": "why-servers-fall-behind"
           },
-          "markdown": "Each language a project turns on with `loom add` has a language server, the package that checks that language's sections in your editor. Loom keeps the servers in `.loom/services`, and each one must match the version of Loom that runs it. Upgrading Loom doesn't touch them, so they stay at the old version until you update them."
+          "markdown": "Each language a project turns on with `loom add` has a language server, the package that checks that language's sections in your editor. Loom keeps the servers in `.loom/services`, and each one must match the version of Loom that runs it. Upgrading Loom doesn't touch them, so they stay at the old version until you update them.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1429,7 +1531,8 @@
             "chapter": "05-cli/06-loom-update",
             "section": "updating"
           },
-          "markdown": "Name the languages to update, or update all of them with `$ loom update --all`. For each language, Loom installs its server if it's missing, replaces it if it's at another version, and leaves it alone if it's current. Git ignores `.loom/services`, so a fresh clone has no servers yet, and the same command installs them.\n\n`loom update` works only on languages that are already on. Turn a language on with `loom add`, and see which servers are out of date with `loom status`. Restart your editor's language server afterwards, so it loads the new ones."
+          "markdown": "Name the languages to update, or update all of them with `$ loom update --all`. For each language, Loom installs its server if it's missing, replaces it if it's at another version, and leaves it alone if it's current. Git ignores `.loom/services`, so a fresh clone has no servers yet, and the same command installs them.\n\n`loom update` works only on languages that are already on. Turn a language on with `loom add`, and see which servers are out of date with `loom status`. Restart your editor's language server afterwards, so it loads the new ones.",
+          "links": []
         }
       ]
     },
@@ -1457,7 +1560,8 @@
             "chapter": "05-cli/07-loom-upgrade",
             "section": "loom-upgrade"
           },
-          "markdown": "`loom upgrade` replaces the Loom you're running with the latest release.\n\n```bash\nloom upgrade\n```"
+          "markdown": "`loom upgrade` replaces the Loom you're running with the latest release.\n\n```bash\nloom upgrade\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1477,7 +1581,8 @@
             "chapter": "05-cli/07-loom-upgrade",
             "section": "installed-with-curl"
           },
-          "markdown": "If you installed Loom with the `curl` line, `loom upgrade` downloads the latest release for your machine from GitHub. It checks the download against the release's list of checksums, then swaps it in for the file you ran. A download that doesn't match is thrown away, and your Loom stays as it was. If Loom sits in a folder you can't write to, run the install line again instead."
+          "markdown": "If you installed Loom with the `curl` line, `loom upgrade` downloads the latest release for your machine from GitHub. It checks the download against the release's list of checksums, then swaps it in for the file you ran. A download that doesn't match is thrown away, and your Loom stays as it was. If Loom sits in a folder you can't write to, run the install line again instead.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1497,7 +1602,8 @@
             "chapter": "05-cli/07-loom-upgrade",
             "section": "installed-with-a-package-manager"
           },
-          "markdown": "A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`. If you installed Loom into a project, the command it prints runs in that project's folder, with the package manager the project uses."
+          "markdown": "A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`. If you installed Loom into a project, the command it prints runs in that project's folder, with the package manager the project uses.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1517,7 +1623,8 @@
             "chapter": "05-cli/07-loom-upgrade",
             "section": "after-upgrading"
           },
-          "markdown": "A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along.\n\nIf `loom --version` still shows the old version, another `loom` comes first on your `PATH`. Run `$ loom doctor` to find it, and the command that removes it."
+          "markdown": "A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along.\n\nIf `loom --version` still shows the old version, another `loom` comes first on your `PATH`. Run `$ loom doctor` to find it, and the command that removes it.",
+          "links": []
         }
       ]
     },
@@ -1545,7 +1652,8 @@
             "chapter": "05-cli/08-loom-doctor",
             "section": "loom-doctor"
           },
-          "markdown": "`loom doctor` checks what can go wrong around Loom, from your `PATH` to your project's language servers. For each problem it finds, it prints the command that fixes it.\n\n```bash\nloom doctor\n```"
+          "markdown": "`loom doctor` checks what can go wrong around Loom, from your `PATH` to your project's language servers. For each problem it finds, it prints the command that fixes it.\n\n```bash\nloom doctor\n```",
+          "links": []
         },
         {
           "type": "heading",
@@ -1565,7 +1673,8 @@
             "chapter": "05-cli/08-loom-doctor",
             "section": "your-machine"
           },
-          "markdown": "Wherever you run it, `loom doctor` names the Loom you ran: its version, where it sits, and how you installed it, whether with `curl`, a package manager, or into a project. It then reads your `PATH`, the folders your terminal searches for commands. It checks that the first `loom` there is the one you ran, since that's the one every terminal runs.\n\nEvery other `loom` on your `PATH` is a problem, such as one an earlier npm or Bun install left behind. It may be the one your terminal runs, or it may wait behind yours. `loom doctor` names each one, says how it was installed, and prints the command that removes it, such as `npm uninstall -g @athrio/loom`. It never removes anything itself."
+          "markdown": "Wherever you run it, `loom doctor` names the Loom you ran: its version, where it sits, and how you installed it, whether with `curl`, a package manager, or into a project. It then reads your `PATH`, the folders your terminal searches for commands. It checks that the first `loom` there is the one you ran, since that's the one every terminal runs.\n\nEvery other `loom` on your `PATH` is a problem, such as one an earlier npm or Bun install left behind. It may be the one your terminal runs, or it may wait behind yours. `loom doctor` names each one, says how it was installed, and prints the command that removes it, such as `npm uninstall -g @athrio/loom`. It never removes anything itself.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1585,7 +1694,8 @@
             "chapter": "05-cli/08-loom-doctor",
             "section": "your-project"
           },
-          "markdown": "Run inside a project, `loom doctor` also checks each language you turned on with `loom add`. Its language server must be in `.loom/services`, at the version of the Loom you ran. A missing or older one is a problem that `$ loom update` fixes.\n\nLast, it checks that the language server can find TypeScript, which it checks your code against. It looks in your project first, then beside Loom, then in `.loom/services`. When it finds none, the language server installs one there the first time it starts, so that's not a problem. It's one only for Loom installed with a package manager on a system with no `npm` to install TypeScript with."
+          "markdown": "Run inside a project, `loom doctor` also checks each language you turned on with `loom add`. Its language server must be in `.loom/services`, at the version of the Loom you ran. A missing or older one is a problem that `$ loom update` fixes.\n\nLast, it checks that the language server can find TypeScript, which it checks your code against. It looks in your project first, then beside Loom, then in `.loom/services`. When it finds none, the language server installs one there the first time it starts, so that's not a problem. It's one only for Loom installed with a package manager on a system with no `npm` to install TypeScript with.",
+          "links": []
         },
         {
           "type": "heading",
@@ -1605,7 +1715,8 @@
             "chapter": "05-cli/08-loom-doctor",
             "section": "reading-the-report"
           },
-          "markdown": "Each line starts with a ✓ when all is well, or a ✗ for a problem, with the command that fixes it on the line below. Run the commands, then run `loom doctor` again. When it finds a problem, it exits with a non-zero status, so a script can use it as a check.\n\nIf your terminal can't find `loom` at all, run Loom by its full path, such as `~/.loom/bin/loom doctor`."
+          "markdown": "Each line starts with a ✓ when all is well, or a ✗ for a problem, with the command that fixes it on the line below. Run the commands, then run `loom doctor` again. When it finds a problem, it exits with a non-zero status, so a script can use it as a check.\n\nIf your terminal can't find `loom` at all, run Loom by its full path, such as `~/.loom/bin/loom doctor`.",
+          "links": []
         }
       ]
     }
