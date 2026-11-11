@@ -7,6 +7,8 @@ Language: TypeScript
 
 # The virtual-code projection
 
+A loom is several languages at once: the Loom syntax, the prose, and the code in each section's language. The editor serves every one of them. Loom projects the document into a tree of virtual files and hands that tree to the editor through one plugin and a language server.
+
 `LoomVirtualCode` is the terminal model of the pipeline — the projection a `.loom` presents to Volar. It is plain data, not an AST: a tree of nodes, each holding a string of `code` and a list of `Mapping`s back to the source. `LoomVirtualCodeBuilder` builds it, and `LoomCompiler`'s `toVolar` adapts it to Volar's runtime types at the editor edge.
 
 ## Mappings

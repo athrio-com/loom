@@ -9,7 +9,7 @@ Language: TypeScript
 
 `@athrio/loom-lang-services` holds the contract every Loom language service satisfies — the `LanguageService` — together with the loader that finds them and the one service built into the server. A `LanguageService` gives one language its editor support: its diagnostics, hover, and completion.
 
-Loom is the one language built in. `LoomLanguage` serves the frame, and every `.loom` has a frame, so its service is always present and needs no package. Every other language — TypeScript first among them — ships as a `@athrio/loom-service-<id>` package the project installs and the loader resolves by id. This module defines the contract both kinds satisfy; `LanguageLoader` turns an activated id into the service that serves it.
+Loom composes code in any language, so it cannot build each language's editor support in. Loom is the one language built in. `LoomLanguage` serves the frame, and every `.loom` has a frame, so its service is always present and needs no package. Every other language — TypeScript first among them — ships as a `@athrio/loom-service-<id>` package the project installs and the loader resolves by id. This module defines the contract both kinds satisfy; `LanguageLoader` turns an activated id into the service that serves it.
 
 ## Architecture
 
