@@ -42,7 +42,7 @@ export type SourceAnchor = typeof SourceAnchorSchema.Type
 
 ## Links between sections
 
-Within a code section an author writes `::[A greeting]` to draw in another section. Tangle inlines the named section; weave keeps the reference and turns it into a link. An `AnchorLink` is that resolved reference. It carries the `name` the author wrote, the page and heading it points to, and the span it occupies in the source — so the presentation can make just those characters a link.
+Within a code section an author writes `::[A greeting]` to draw in another section. Tangle inlines the named section; weave keeps the reference and turns it into a link. An anchor in prose is a link already, and it often names a concept by one of its forms. An `AnchorLink` is that resolved reference. It carries the `name` the author wrote, the page and heading it points to, and the span it occupies in the block, so the presentation can make just those characters a link. A link that reaches a concept also carries the concept's definition as its `title`, which the presentation shows a reader who rests on the link.
 
 An anchor may also reach a section that holds no code yet, or name one nobody has declared under the `{To be settled}` label, as the chapter "Names through the book" describes. An `UnsettledSpan` marks such an anchor's span within its code, so the page can mark the reference as to be settled. An anchor that names nothing yet has no link at all, so the mark stands on its own.
 
@@ -54,6 +54,7 @@ export const AnchorLinkSchema = Schema.Struct({
   targetId: Schema.String,
   offset: Schema.Number.check(intAtLeast(0)),
   length: Schema.Number.check(intAtLeast(0)),
+  title: Schema.optional(Schema.String),
 })
 export type AnchorLink = typeof AnchorLinkSchema.Type
 
@@ -65,7 +66,7 @@ export type UnsettledSpan = typeof UnsettledSpanSchema.Type
 
 ## The blocks of a page
 
-A page is a sequence of blocks, in the order the author wrote them. A block is one of five, and only a discussion holds the fifth. Prose is a run of Markdown, held as its Markdown source. A heading carries its level, its title, the `id` a link targets, and whether its section is `unsettled`: declared and named by a composing anchor, but holding no code yet. A heading that a divider wrote, rather than a run of `#` marks, is a `divider`, which the presentation draws as a rule with the title at its centre. Code carries its language, its verbatim `code`, the anchor links found within it, and the `unsettled` spans of the anchors in it that reach no code. It also keeps the syntax that framed it: the `arrow` that opened it, as written, and whether a tilde `closed` it or it ran on to the next heading. Neither belongs to the code, but a reader learning Loom needs to see where a block began and ended, so the presentation can draw them around it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it. A note the author named carries that name as its `caption`, which the page shows above the note.
+A page is a sequence of blocks, in the order the author wrote them. A block is one of five, and only a discussion holds the fifth. Prose is a run of Markdown, held as its Markdown source, with the links its anchors make. A heading carries its level, its title, the `id` a link targets, and whether its section is `unsettled`: declared and named by a composing anchor, but holding no code yet. A heading that a divider wrote, rather than a run of `#` marks, is a `divider`, which the presentation draws as a rule with the title at its centre. Code carries its language, its verbatim `code`, the anchor links found within it, and the `unsettled` spans of the anchors in it that reach no code. It also keeps the syntax that framed it: the `arrow` that opened it, as written, and whether a tilde `closed` it or it ran on to the next heading. Neither belongs to the code, but a reader learning Loom needs to see where a block began and ended, so the presentation can draw them around it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it. A note the author named carries that name as its `caption`, which the page shows above the note.
 
 The fifth block marks where a message of a discussion begins. In a discussion a tilde opens each message, and the name written after the tilde signs it, so a `message` block carries that name as its `author`. The message's words follow as blocks of their own. A message nobody signed carries no author.
 
@@ -77,6 +78,7 @@ export const ProseBlockSchema = Schema.Struct({
   type: Schema.tag('prose'),
   source: SourceAnchorSchema,
   markdown: Schema.String,
+  links: Schema.Array(AnchorLinkSchema),
 })
 export type ProseBlock = typeof ProseBlockSchema.Type
 

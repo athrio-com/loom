@@ -17,6 +17,7 @@ export const AnchorLinkSchema = Schema.Struct({
   targetId: Schema.String,
   offset: Schema.Number.check(intAtLeast(0)),
   length: Schema.Number.check(intAtLeast(0)),
+  title: Schema.optional(Schema.String),
 })
 export type AnchorLink = typeof AnchorLinkSchema.Type
 
@@ -30,6 +31,7 @@ export const ProseBlockSchema = Schema.Struct({
   type: Schema.tag('prose'),
   source: SourceAnchorSchema,
   markdown: Schema.String,
+  links: Schema.Array(AnchorLinkSchema),
 })
 export type ProseBlock = typeof ProseBlockSchema.Type
 

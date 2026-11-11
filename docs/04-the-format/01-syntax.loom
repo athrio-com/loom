@@ -73,6 +73,21 @@ A loom whose frontmatter holds the `Book` field alone opens that book. Its first
 
 Each book numbers its own parts. A bare name finds chapters in its own book only, and a path that starts with a book's name reaches into another, as `::[The game, Sleeping monsters]` does.
 
+## Concepts
+
+A concept is a section that defines one idea, marked `{Concept}` on its heading. Its heading is the word the book uses for the idea, its first paragraph is its definition, and a `Lexical forms:` list gives the other words the prose writes for it:
+
+```loom
+## Account {Concept}
+
+A ledger that holds one customer's balance, charges, and payments.
+
+Lexical forms:
+- accounts
+```
+
+Prose links a concept by any of its forms, as `::[accounts]` does, from anywhere in the corpus. Your editor shows the definition when you rest on the link, and the woven site ends each book on an index of its concepts. A concept holds no code, so it never composes into a file.
+
 ## Naming a file
 
 A heading may name the file its code belongs to, by putting the path in brackets:

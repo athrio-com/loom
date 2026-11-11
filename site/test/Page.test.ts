@@ -169,6 +169,40 @@ describe('the page', () => {
     expect(html).toContain('<a class="crumb" href="/source/the-game">The game</a>')
   })
 
+  it('draws a link in prose, with the definition of the concept it reaches', () => {
+    const orders = { number: '2', title: 'Orders', slug: 'corpus/orders' }
+    const book: Corpus = {
+      nav: [{ number: 'I', name: 'Money', chapters: [orders] }],
+      pages: [
+        {
+          slug: orders.slug,
+          title: 'Orders',
+          blocks: [
+            { type: 'heading', level: 1, title: 'Orders', id: 'orders', unsettled: false },
+            {
+              type: 'prose',
+              markdown: `Every order lands on one of a customer's ${anchor('accounts')}.`,
+              links: [
+                {
+                  name: 'accounts',
+                  offset: 41,
+                  length: 12,
+                  targetSlug: 'corpus/billing',
+                  targetId: 'account',
+                  title: 'A ledger "of" money.',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const html = render(at('source', { book: Option.some(book) }))
+    expect(html).toContain(
+      'one of a customer&#39;s <a href="/source/corpus/billing#account" title="A ledger &quot;of&quot; money.">accounts</a>.',
+    )
+  })
+
   it('marks the sections still to be settled and the anchors that reach them', () => {
     const greeting = anchor('Greeting')
     const farewell = `${anchor('Farewell')}{To be settled}`

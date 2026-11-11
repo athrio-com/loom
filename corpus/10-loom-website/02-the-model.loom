@@ -83,7 +83,7 @@ export type Model = typeof Model.Type
 
 The docs and the source page both draw a woven corpus: the shape `loom weave` gives a book. Its table of contents is a list of parts, each with a number, a name, and its chapters. A corpus of several books carries each named book's own table of contents as well, under the book's name and the slug of the page that opens it. A corpus woven by an older Loom carries no books, so the list is optional, and a corpus without it draws as one book. Each chapter has a number, a title, a slug, the path of its loom without the extension, and the language its frontmatter names, when it names one. Each chapter's page holds its slug, its title, its frontmatter as the loom writes it, when it has one, and its blocks, in the order the loom wrote them.
 
-A block is one of five things. A heading carries its level, its title, the id a link reaches it by, and whether its section is still to be settled, declared but holding no code yet. A heading a divider wrote is a divider, which draws as a rule. A run of prose is Markdown. A run of code carries its language, the code itself, its links and its colours. Its links are its `::[…]` anchors, each as the name, where it sits in the code, and the chapter and section it reaches. Its unsettled spans are the anchors in it that reach no code yet, each as where it sits. A note is a reader's annotation, in Markdown, with the caption its author named it by, when it has one. A message marks where a message of a discussion begins, with the name of its author when the author signed it. The docs hold headings and prose only, and the book holds all five.
+A block is one of five things. A heading carries its level, its title, the id a link reaches it by, and whether its section is still to be settled, declared but holding no code yet. A heading a divider wrote is a divider, which draws as a rule. A run of prose is Markdown, with the links its anchors make, each placed the same way as a link in code. A link that reaches a concept carries the concept's definition as its title. A book woven by an older Loom carries no links in its prose, so the list is optional. A run of code carries its language, the code itself, its links and its colours. Its links are its `::[…]` anchors, each as the name, where it sits in the code, and the chapter and section it reaches. Its unsettled spans are the anchors in it that reach no code yet, each as where it sits. A note is a reader's annotation, in Markdown, with the caption its author named it by, when it has one. A message marks where a message of a discussion begins, with the name of its author when the author signed it. The docs hold headings and prose only, and the book holds all five.
 
 The documentation is small enough to ship to the browser whole, so its corpus is part of the client. Loom's own book is not. Woven, it is two megabytes, and a reader reads one chapter of it at a time. So the server holds the book and hands each source page a slice of it, through the model: the whole table of contents, which the menu and the pager need, and the one page on show.
 
@@ -99,16 +99,22 @@ const HeadingBlock = S.Struct({
 })
 export type HeadingBlock = typeof HeadingBlock.Type
 
-const ProseBlock = S.Struct({ type: S.Literal('prose'), markdown: S.String })
-
 const CodeLink = S.Struct({
   name: S.String,
   offset: S.Number,
   length: S.Number,
   targetSlug: S.String,
   targetId: S.String,
+  title: S.optional(S.String),
 })
 export type CodeLink = typeof CodeLink.Type
+
+const ProseBlock = S.Struct({
+  type: S.Literal('prose'),
+  markdown: S.String,
+  links: S.optional(S.Array(CodeLink)),
+})
+export type ProseBlock = typeof ProseBlock.Type
 
 ~
 

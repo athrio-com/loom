@@ -12,6 +12,7 @@ import {
   type Chapter,
   type CodeBlock,
   type CodeLink,
+  type ProseBlock,
   type Corpus,
   type HeadingBlock,
   type Message,
@@ -153,6 +154,27 @@ type Piece =
   | { readonly type: 'fence'; readonly kind: string; readonly body: string }
 
 const FENCE = /^([ \t]*)(`{3,})([\w-]*)[ \t]*\r?\n([\s\S]*?)^\1\2`*[ \t]*$/m
+
+const markdownLink = (link: CodeLink, base: string): string => {
+  const title = Option.match(Option.fromNullishOr(link.title), {
+    onNone: () => '',
+    onSome: (text) => ` "${text.replace(/\s+/g, ' ').replace(/"/g, '\\"')}"`,
+  })
+  return `[${link.name}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
+}
+
+const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+  pipe(
+    Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
+    Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
+    Array.reduce(
+      prose.markdown,
+      (markdown, link) =>
+        markdown.slice(0, link.offset) +
+        markdownLink(link, base) +
+        markdown.slice(link.offset + link.length),
+    ),
+  )
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
@@ -509,7 +531,7 @@ const blockOf = (
       h.h3([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
     ]),
     Match.when({ type: 'prose' }, (prose) =>
-      Array.map(piecesOf(prose.markdown), (piece) =>
+      Array.map(piecesOf(linkedMarkdown(prose, base)), (piece) =>
         piece.type === 'text'
           ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),

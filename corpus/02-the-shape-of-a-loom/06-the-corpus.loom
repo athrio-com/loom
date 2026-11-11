@@ -965,7 +965,7 @@ const formItem = /^[-*]\s+(\S.*?)\s*$/
 const formsLineOf = (section: LoomSection): Option.Option<LoomWeft> =>
   Array.findFirst(section.preamble, isFormsLine)
 
-const definitionLinesOf = (section: LoomSection): ReadonlyArray<LoomWeft> =>
+export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
   pipe(
     outsideBoxes(section.preamble),
     Array.dropWhile((line) => line.source.trim() === ''),
@@ -1021,25 +1021,23 @@ const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
 
 An anchor in code composes the section it names, and an anchor in prose links to it. A link may name a concept by any of its forms, from anywhere in the corpus. No book, part, or chapter closes a concept to a link from outside it, and no concept shadows another. So a link looks among the corpus's concepts before it looks anywhere nearer, and a form that two concepts share names both, an ambiguity the faults report with a path to each. A link that names no concept resolves as any anchor does, nearest first.
 
-`linksOf` gives the anchors of a loom that stand in prose: in the loom's preamble, in a section's lines before its first arrow, and in the prose after a tilde. `linkKey` names such an anchor by its loom and the offset of its name, and the `Catalogue` keeps the keys of them all, so `anchorTrails` tells a link from an anchor in code. `conceptNames` lists the names of a concept, its heading first. `conceptsCalled` finds every concept a name is a form of, and `conceptTrails` makes each into a trail that ends at the concept's section. `linkTrailsOf` is a link's lookup: the concepts first, then the nearest place. `conceptAt` finds the concept a section defines.
+`linksOf` gives the anchors of a loom that stand in prose: in the loom's preamble, in a section's lines before its first arrow, and in the prose after a tilde. `sectionLinksOf` gives those of one section. `linkKey` names such an anchor by its loom and the offset of its name, and the `Catalogue` keeps the keys of them all, so `anchorTrails` tells a link from an anchor in code. `conceptNames` lists the names of a concept, its heading first. `conceptsCalled` finds every concept a name is a form of, and `conceptTrails` makes each into a trail that ends at the concept's section. `linkTrailsOf` is a link's lookup: the concepts first, then the nearest place. `conceptAt` finds the concept a section defines, for the editor's card and the woven index.
 
 =>
 
 const isProseLine = (weft: LoomWeft): weft is PreambleWeft | TildeWeft | ProseWeft =>
   weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
 
-export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> =>
-  pipe(
-    [
-      ...module.doc.preamble,
-      ...Array.flatMap(module.doc.sections, (section): ReadonlyArray<LoomWeft> => [
-        ...section.preamble,
-        ...section.code,
-      ]),
-    ],
-    Array.filter(isProseLine),
-    Array.flatMap((weft) => weft.anchors),
-  )
+const proseAnchorsOf = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<WarpAnchorToken> =>
+  Array.flatMap(wefts, (weft) => (isProseLine(weft) ? weft.anchors : []))
+
+export const sectionLinksOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
+  proseAnchorsOf([...section.preamble, ...section.code])
+
+export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> => [
+  ...proseAnchorsOf(module.doc.preamble),
+  ...Array.flatMap(module.doc.sections, sectionLinksOf),
+]
 
 const linkKey = (path: Location, anchor: WarpAnchorToken): string =>
   `${path}#${anchor.name.position.start.offset}`
@@ -1065,7 +1063,7 @@ const conceptTrails = (catalogue: Catalogue, name: string): ReadonlyArray<Trail>
 const linkTrailsOf = (catalogue: Catalogue, from: Location, name: string): ReadonlyArray<Trail> =>
   nearest([() => conceptTrails(catalogue, name), () => trailsOf(catalogue, from, name)])
 
-const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<ConceptRef> =>
+export const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<ConceptRef> =>
   Array.findFirst(
     catalogue.concepts,
     (concept) => concept.module === ref.module && concept.section === ref.section,
@@ -2090,9 +2088,11 @@ export const renameRangeAt = (
 
 ## A concept's card
 
-A link names a concept, and a reader who rests on the link wants the concept's meaning, without leaving the sentence. `hoverAt` gives the card the editor shows: the concept's name, its definition, and its other forms, which `cardOf` writes as Markdown. It reads the mention under the cursor, a heading or a step of an anchor, and answers only when the mention is a concept. The card covers the whole symbol the cursor rests on, as the navigation range does.
+A link names a concept, and a reader who rests on the link wants the concept's meaning, without leaving the sentence. `hoverAt` gives the card the editor shows: the concept's name, its definition, and its other forms, which `cardOf` writes as Markdown. `conceptMentionedAt` reads the mention under the cursor, a heading or a step of an anchor, and finds the concept it names, so the card answers only for a concept. The card covers the whole symbol the cursor rests on, as the navigation range does.
 
-A concept's rename never rewrites a sentence. A link writes the form its sentence needs, so `renameAt` moves a concept's heading alone, and `conceptRenameAt` keeps the old name as a form. Its `kept` edit writes the old heading into the `Lexical forms:` list, as the list's first item. A concept with no list gets one under its definition, or under its heading when it has no definition. So every link still finds the concept, and every sentence reads as its author wrote it.
+Every concept is a symbol of its workspace too, so the editor's symbol search finds it by any of its forms. `conceptSymbolsIn` gives a `CorpusSymbol` for each concept with a name that holds the query, whatever its case, which `matching` tells: the concept's heading as the symbol's name, its chapter's title as the symbol's container, and where the heading stands.
+
+A concept's rename never rewrites a sentence. A link writes the form its sentence needs, so `renameAt` moves a concept's heading alone, and `conceptRenameAt` keeps the old name as a form. Its `kept` edit, which `keptNameOf` writes, puts the old heading into the `Lexical forms:` list as the list's first item, at a point `pointSpan` makes into an empty span. A concept with no list gets one under its definition, or under its heading when it has no definition. So every link still finds the concept, and every sentence reads as its author wrote it.
 
 =>
 
@@ -2160,6 +2160,36 @@ const keptNameOf = (concept: ConceptRef): CorpusEdit =>
       text: `\n\nLexical forms:\n- ${concept.name.source}`,
     }),
   })
+
+export type CorpusSymbol = {
+  readonly name: string
+  readonly container: string
+  readonly location: CorpusLocation
+}
+
+const matching =
+  (query: string) =>
+  (name: string): boolean =>
+    name.toLowerCase().includes(query.toLowerCase())
+
+export const conceptSymbolsIn = (
+  corpus: LoomCorpusAst,
+  query: string,
+): ReadonlyArray<CorpusSymbol> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return pipe(
+    catalogue.concepts,
+    Array.filter((concept) => Array.some(conceptNames(concept), matching(query))),
+    Array.map((concept): CorpusSymbol => ({
+      name: concept.name.source,
+      container: Option.getOrElse(
+        Option.map(chapterOf(catalogue, concept.module), (chapter) => chapter.title),
+        () => concept.module,
+      ),
+      location: { path: concept.module, position: concept.name.position },
+    })),
+  )
+}
 
 export const conceptRenameAt = (
   corpus: LoomCorpusAst,
@@ -2296,9 +2326,9 @@ const stillInBox = (inBox: boolean, box: BoxToken): boolean =>
     Match.exhaustive,
   )
 
-const outsideBoxes = (lines: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+const outsideBoxes = <Line extends LoomWeft>(lines: ReadonlyArray<Line>): ReadonlyArray<Line> =>
   Array.getSomes(
-    Array.mapAccum(lines, false, (inBox, line): readonly [boolean, Option.Option<LoomWeft>] =>
+    Array.mapAccum(lines, false, (inBox, line): readonly [boolean, Option.Option<Line>] =>
       Option.match(boxOf(line), {
         onNone: () => [inBox, inBox ? Option.none() : Option.some(line)],
         onSome: (box) => [stillInBox(inBox, box), Option.none()],

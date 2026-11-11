@@ -32,6 +32,7 @@ import {
   type Chapter,
   type CodeBlock,
   type CodeLink,
+  type ProseBlock,
   type Corpus,
   type HeadingBlock,
   type Message,
@@ -206,6 +207,8 @@ A run of prose is Markdown, and Markdown becomes HTML here rather than at weave 
 
 Not every fence in that Markdown is drawn as Markdown would draw it. A fenced command becomes a button that copies it, and a quoted loom becomes the landing's highlighted card. So `piecesOf` first cuts a run of prose into pieces: stretches of text, and the fences between them, each fence carrying the word after its opening backticks and the lines it holds. A stretch of text that is only blank space is dropped, so two fences in a row leave nothing between them.
 
+A run of prose may carry links, the anchors its author wrote in it. `linkedMarkdown` writes each as a Markdown link before the run is cut into pieces: the words the author wrote, pointing at the address of the section the anchor reaches. A link to a concept keeps the concept's definition as its title, which a browser shows to a reader who rests on the link, on one line, its quotes escaped, as `markdownLink` writes it. The links go in from the last to the first, so each link's offset still holds when its turn comes.
+
 A fence closes only on a line that matches it, by the rule Loom keeps: the same indent, then at least as many backticks. So a quote of four backticks can show a loom whose fenced code has three. `FENCE` captures the opening indent and backticks to hold the close against them, so the split hands back five pieces for each fence: the indent, the backticks, the word, the lines, and the text after.
 
 =>
@@ -215,6 +218,27 @@ type Piece =
   | { readonly type: 'fence'; readonly kind: string; readonly body: string }
 
 const FENCE = /^([ \t]*)(`{3,})([\w-]*)[ \t]*\r?\n([\s\S]*?)^\1\2`*[ \t]*$/m
+
+const markdownLink = (link: CodeLink, base: string): string => {
+  const title = Option.match(Option.fromNullishOr(link.title), {
+    onNone: () => '',
+    onSome: (text) => ` "${text.replace(/\s+/g, ' ').replace(/"/g, '\\"')}"`,
+  })
+  return `[${link.name}](${chapterPath(base, link.targetSlug)}#${link.targetId}${title})`
+}
+
+const linkedMarkdown = (prose: ProseBlock, base: string): string =>
+  pipe(
+    Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
+    Array.sort(Order.mapInput(Order.Number, (link: CodeLink) => -link.offset)),
+    Array.reduce(
+      prose.markdown,
+      (markdown, link) =>
+        markdown.slice(0, link.offset) +
+        markdownLink(link, base) +
+        markdown.slice(link.offset + link.length),
+    ),
+  )
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
@@ -648,7 +672,7 @@ const blockOf = (
       h.h3([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
     ]),
     Match.when({ type: 'prose' }, (prose) =>
-      Array.map(piecesOf(prose.markdown), (piece) =>
+      Array.map(piecesOf(linkedMarkdown(prose, base)), (piece) =>
         piece.type === 'text'
           ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),

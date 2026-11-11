@@ -81,6 +81,12 @@ export interface FrameEdit extends FrameLocation {
   readonly text?: string
 }
 
+export interface FrameSymbol {
+  readonly name: string
+  readonly container: string
+  readonly location: FrameLocation
+}
+
 export interface FrameHover {
   readonly range: FrameLocation['range']
   readonly markdown: string
@@ -119,6 +125,7 @@ export interface FrameQueryApi {
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly hover: (path: string, offset: number) => FrameHover | undefined
+  readonly symbols: (query: string) => ReadonlyArray<FrameSymbol>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameEdit>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
   readonly navigationRange: (path: string, offset: number) => FrameLocation | undefined

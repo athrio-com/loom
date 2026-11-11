@@ -1,8 +1,5 @@
 ---
-Part: Work in progress
-Chapter: Concepts
-Status: Planned
-Priority: 2
+Part II, Chapter 8: Concepts
 Package: packages/loom-lang/
 Language: TypeScript
 ---
@@ -13,7 +10,7 @@ A book coins words for its ideas, and it uses each word in many chapters. Loom's
 
 A concept is a section that defines one idea. It names the idea, defines it, and lists the other words the prose uses for it. Prose links to a concept from anywhere in the corpus, and the editor and the woven page show the definition wherever a link stands. An index that Loom derives from the corpus lists every concept, the words that name it, and where the book uses it.
 
-Concepts belong to the core. Every book names its ideas, and a trope realises a concept, so concepts sit beneath tropes rather than inside one.
+Concepts belong to the core, since every book names its ideas. Where a concept belongs, and how the editor recognises its words in prose that links nothing, the chapter "The scope of a concept" describes.
 
 ## A concept is a section
 
@@ -39,7 +36,7 @@ A concept is immutable, which is not to say it can't be edited. The author edits
 
 Other sections still say more about a concept, as the later chapters of any academic book say more about the ideas its early chapters define. An example in Part VI, or a consequence a later chapter draws, adds to what a reader knows about the concept without changing what it means. Such prose must never contradict the definition. A contradiction is the sign of a poor definition, and its fix belongs in the concept's own section.
 
-Loom can't judge what prose says, so it tracks where prose says it. Every link to a concept, and every use the editor recognises, stands in the index beside the definition, as the section "The index" describes.
+Loom can't judge what prose says, so it tracks where prose says it. Every link to a concept stands in the index beside the definition, as the section "The index" describes.
 
 A static relation to another concept, such as an account belonging to a customer, is part of the definition, and the definition links the other concept there.
 
@@ -57,7 +54,7 @@ Prose links a concept with an anchor that names any of its forms. The sentence s
 Billing keeps one ::[Account] per customer, and it closes ::[accounts] that stay empty for a year.
 ```
 
-A link reaches a concept anywhere in the corpus. No trope, part, or book closes a concept to links from outside it. Where a concept belongs, which the section "Where a concept belongs" describes, matters only for recognising its forms in plain prose.
+A link reaches a concept anywhere in the corpus. No trope, part, or book closes a concept to links from outside it, and a link looks among the concepts before it looks anywhere nearer. A link that names no concept resolves as any anchor does, and a link that names nothing at all warns, since a reader would follow it nowhere.
 
 Two concepts may share a form. The corpus can define Account in the chapter "Billing", as a ledger, and again in the chapter "Signing in", as the person who signs in. A link that names `Account` then names both, and Loom faults it rather than guess. The fault offers a path to each, the way it does for an anchor that names two sections:
 
@@ -68,7 +65,7 @@ Two concepts may share a form. The corpus can define Account in the chapter "Bil
 
 No definition shadows another. A nearer concept never wins over a farther one, so every link says which concept it means.
 
-A code anchor composes code, and a concept holds none. So a code anchor that names a concept is a fault, whose message names the concept and says it holds no code.
+A code anchor composes code, and a concept holds none. So a code anchor that names a concept is a fault, whose message names the concept and says it holds no code. A code anchor still resolves nearest first, as the chapter "The multi-file AST" describes, so a concept never changes which section a code anchor composes.
 
 ## A concept in the editor
 
@@ -85,40 +82,11 @@ A new wording joins a concept as a new form, and the old forms stay. A rewrite t
 
 A printed book meets its definitions across its chapters, and its index is where a reader looks them up. Glossaries gathered apart from the text rarely help, since the text already defines each idea where it first needs it. Loom builds the index instead, from the concepts the corpus defines.
 
-The index lists every concept with its preferred form and its other forms, the section that defines it, the scope it belongs to, and the sections that use it, by a link or by a recognised form.
+The index lists every concept with its preferred form, its definition, its other forms, the chapter that defines it, and the sections that link it.
 
-Those uses are the concept's back links. They show a reader everything else the book says about a concept. They also let an author check that none of it contradicts the definition, since a book that grows adds to its concepts in chapters written long after the definition. In the editor, every concept is a workspace symbol, so the editor's symbol search finds a concept by any of its forms. The woven book gives the index a page in its back matter, with a link to each concept and to each place that uses it.
+Those uses are the concept's back links. They show a reader everything else the book says about a concept. They also let an author check that none of it contradicts the definition, since a book that grows adds to its concepts in chapters written long after the definition. In the editor, every concept is a workspace symbol, so the editor's symbol search finds a concept by any of its forms. The woven book gives each book's index a page at the end of its back matter, with a link to each concept and to each place that uses it.
 
 Nothing in the index is written by hand. Loom derives it again whenever the corpus changes.
-
-## Where a concept belongs
-
-Loom's scopes nest. The corpus holds books, a book holds parts, and a part holds chapters. The corpus is the outermost scope. It stands for the app the corpus builds, an implicit trope that holds every chapter, so every concept belongs to some scope.
-
-A concept belongs to a scope by where its section stands:
-
-- A concept in a chapter of a part belongs to that part.
-- A concept in a chapter that belongs to no part belongs to the chapter's book.
-- A concept in a book loom belongs to the book, and a concept in the corpus loom to the corpus, as the chapter "Books" describes those looms.
-- A concept in a chapter of a declared trope belongs to the trope, whichever parts the trope's chapters sit in.
-
-A concept that turns out to serve more than its scope moves up. A quick fix on the concept's heading offers each enclosing scope, and moves the section there, under a division the author picks. The concept's links keep working, since a link reaches a concept wherever it stands.
-
-## Recognising concepts in plain prose
-
-Most prose names a concept without linking it. The editor recognises those words as the concept's forms, and gives them the hover and the go to definition a link has. The index counts each recognised word as a use. Recognition never rewrites the text.
-
-Ordinary words make recognition risky. Box and mark are concepts in Loom's book, and they are also everyday English. So a chapter recognises only the forms of its vocabulary, the concepts its scope knows:
-
-1. the concepts that belong to the chapter's own scope, and to every scope that encloses it, up to the corpus;
-2. the concepts of the chapter's trope, and of every trope that encloses that trope;
-3. the concepts in the entry chapters of the tropes nested inside the chapter's trope;
-4. the concepts the chapter's trope realises;
-5. the concepts a link in the trope names.
-
-The last rule makes a link an import. An author links a concept at its first use, as Wikipedia's style guide asks of every link, and the rest of the trope then recognises the concept's forms without links. A chapter that belongs to no declared trope imports into its part.
-
-A word that two concepts of one vocabulary both claim is not recognised. The editor offers a link to each concept instead, and the author picks the one the sentence means.
 
 ## Testing concepts
 
@@ -130,8 +98,9 @@ The cases compile small corpora held in memory and ask the compiler what a reade
 
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Match, Option } from 'effect'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { WovenBlock } from '../src/weave/WovenCorpus'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
@@ -401,6 +370,96 @@ describe('a concept in the editor', () => {
   )
 })
 
+## The index, and the links on the woven page
+
+The weave starts from a corpus loom, here a short one with no frontmatter. The book's back matter ends on its index, which lists the concept by name, with its definition, its other forms, and a line that links where the book defines it and where the book uses it. On the page of `Orders`, each link carries the concept's definition, which the website shows a reader who rests on it. `wordsOf` reads a block as the words it shows, a heading marked by a `#`.
+
+=>
+
+const wordsOf = (block: WovenBlock): string =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, (heading) => `# ${heading.title}`),
+    Match.when({ type: 'prose' }, (prose) => prose.markdown),
+    Match.orElse((other) => other.type),
+  )
+
+describe('the index of a book', () => {
+  const root = '/corpus/book.loom'
+  const files = corpus({ [root]: lines('# Money', '', 'A corpus about money.') })
+  const definition = "A ledger that holds one customer's balance, charges, and payments."
+
+  it.effect('closes the back matter on the index', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      expect(
+        site.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)]),
+      ).toEqual([
+        ['Money', ['Billing', 'Orders']],
+        ['Back matter', ['Index']],
+      ])
+    }),
+  )
+
+  it.effect('lists each concept with its definition, its forms, and its uses', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      const blocks = site.pages.find((page) => page.slug === 'index')?.blocks ?? []
+      const uses = blocks.flatMap((block) => (block.type === 'prose' ? block.links : []))
+      expect([
+        blocks.map(wordsOf),
+        uses.map((link) => [link.name, link.targetSlug, link.targetId]),
+      ]).toEqual([
+        [
+          '# Index',
+          '# Account',
+          definition,
+          "Also: accounts, account's.",
+          'Defined in Billing. Used in Orders.',
+        ],
+        [
+          ['Billing', 'corpus/billing', 'account'],
+          ['Orders', 'corpus/orders', 'orders'],
+        ],
+      ])
+    }),
+  )
+
+  it.effect('gives each link to a concept its definition on the woven page', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      const blocks = site.pages.find((page) => page.slug === 'corpus/orders')?.blocks ?? []
+      const links = blocks.flatMap((block) => (block.type === 'prose' ? block.links : []))
+      expect(links.map((link) => [link.name, link.targetSlug, link.targetId, link.title])).toEqual([
+        ['accounts', 'corpus/billing', 'account', definition],
+        ['Account', 'corpus/billing', 'account', definition],
+      ])
+    }),
+  )
+})
+
+## Concepts in the symbol search
+
+The editor's search for a symbol finds a concept by any of its forms, and names the chapter that defines it. A query that only the definition's words hold finds nothing, since a symbol is found by its names.
+
+=>
+
+describe('concepts in the symbol search', () => {
+  it.effect('finds a concept by any of its forms', () =>
+    Effect.gen(function* () {
+      const found = yield* asked(corpus({}), (compiler) =>
+        compiler.symbols('/corpus/workspace.loom', "account's"),
+      )
+      const none = yield* asked(corpus({}), (compiler) =>
+        compiler.symbols('/corpus/workspace.loom', 'ledger'),
+      )
+      expect([
+        found.map((symbol) => [symbol.name, symbol.container, symbol.location.path]),
+        none,
+      ]).toEqual([[['Account', 'Billing', '/corpus/billing.loom']], []])
+    }),
+  )
+})
+
 ## The concepts test file [test/Concepts.test.ts]
 
 =>
@@ -415,12 +474,6 @@ describe('a concept in the editor', () => {
 
 ::[Renaming a concept]
 
-## What this chapter grows into
+::[The index, and the links on the woven page]
 
-1. The `{Concept}` kind: its definition, its `Lexical forms:` list, the fault for code in a concept, links by any form, the fault that offers a path to each of two concepts, hover, go to definition, and find references from every form, and a rename that keeps the old name as a form.
-2. The index: workspace symbols in the editor, and a page in the woven back matter.
-3. The scope a concept belongs to, once the corpus is the implicit root trope, and recognition of plain prose with links as imports.
-4. The quick fix that moves a concept up to an enclosing scope.
-5. Variants of a concept in other natural languages, each with forms of its own and no code, once a heading's specifier takes parameters.
-
-When concepts link, show their definitions, and appear in the index, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.
+::[Concepts in the symbol search]

@@ -3,6 +3,7 @@ import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
 import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type * as ts from 'typescript'
+import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
@@ -130,6 +131,7 @@ const frameQueryOver = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
   source: WorkspaceSource['Service'],
   languages: ReadonlyArray<LanguageService>,
+  workspace: string,
 ): FrameQueryApi => ({
   diagnostics: (path) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.diagnose(path)))),
@@ -143,6 +145,12 @@ const frameQueryOver = (
     ),
   hover: (path, offset) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.hover(path, offset)))),
+  symbols: (query) =>
+    runtime.runSync(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.symbols(join(workspace, 'workspace.loom'), query)),
+      ),
+    ),
   rename: (path, offset) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.rename(path, offset)))),
   renameRange: (path, offset) =>
@@ -211,7 +219,7 @@ export const loomServicePlugins = (
       active,
       sdk,
       settings,
-      frameQueryOver(runtime, source, active),
+      frameQueryOver(runtime, source, active, workspace),
       compositionOver(runtime),
     )
   })

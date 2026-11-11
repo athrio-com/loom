@@ -1,7 +1,8 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Match, Option } from 'effect'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { WovenBlock } from '../src/weave/WovenCorpus'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
@@ -243,6 +244,84 @@ describe('a concept in the editor', () => {
         ['/corpus/billing.loom', { line: 9, character: 3 }, undefined],
         ['/corpus/billing.loom', { line: 13, character: 14 }, '\n- Account'],
       ])
+    }),
+  )
+})
+
+const wordsOf = (block: WovenBlock): string =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, (heading) => `# ${heading.title}`),
+    Match.when({ type: 'prose' }, (prose) => prose.markdown),
+    Match.orElse((other) => other.type),
+  )
+
+describe('the index of a book', () => {
+  const root = '/corpus/book.loom'
+  const files = corpus({ [root]: lines('# Money', '', 'A corpus about money.') })
+  const definition = "A ledger that holds one customer's balance, charges, and payments."
+
+  it.effect('closes the back matter on the index', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      expect(
+        site.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)]),
+      ).toEqual([
+        ['Money', ['Billing', 'Orders']],
+        ['Back matter', ['Index']],
+      ])
+    }),
+  )
+
+  it.effect('lists each concept with its definition, its forms, and its uses', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      const blocks = site.pages.find((page) => page.slug === 'index')?.blocks ?? []
+      const uses = blocks.flatMap((block) => (block.type === 'prose' ? block.links : []))
+      expect([
+        blocks.map(wordsOf),
+        uses.map((link) => [link.name, link.targetSlug, link.targetId]),
+      ]).toEqual([
+        [
+          '# Index',
+          '# Account',
+          definition,
+          "Also: accounts, account's.",
+          'Defined in Billing. Used in Orders.',
+        ],
+        [
+          ['Billing', 'corpus/billing', 'account'],
+          ['Orders', 'corpus/orders', 'orders'],
+        ],
+      ])
+    }),
+  )
+
+  it.effect('gives each link to a concept its definition on the woven page', () =>
+    Effect.gen(function* () {
+      const site = yield* asked(files, (compiler) => compiler.weave(root))
+      const blocks = site.pages.find((page) => page.slug === 'corpus/orders')?.blocks ?? []
+      const links = blocks.flatMap((block) => (block.type === 'prose' ? block.links : []))
+      expect(links.map((link) => [link.name, link.targetSlug, link.targetId, link.title])).toEqual([
+        ['accounts', 'corpus/billing', 'account', definition],
+        ['Account', 'corpus/billing', 'account', definition],
+      ])
+    }),
+  )
+})
+
+describe('concepts in the symbol search', () => {
+  it.effect('finds a concept by any of its forms', () =>
+    Effect.gen(function* () {
+      const found = yield* asked(corpus({}), (compiler) =>
+        compiler.symbols('/corpus/workspace.loom', "account's"),
+      )
+      const none = yield* asked(corpus({}), (compiler) =>
+        compiler.symbols('/corpus/workspace.loom', 'ledger'),
+      )
+      expect([
+        found.map((symbol) => [symbol.name, symbol.container, symbol.location.path]),
+        none,
+      ]).toEqual([[['Account', 'Billing', '/corpus/billing.loom']], []])
     }),
   )
 })

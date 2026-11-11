@@ -19,6 +19,7 @@ import {
   definitionAt,
   dependentsOf,
   conceptRenameAt,
+  conceptSymbolsIn,
   hintsAt,
   hoverAt,
   labelSlotAt,
@@ -76,6 +77,7 @@ import {
   type FrameHint,
   type FrameHover,
   type FrameLocation,
+  type FrameSymbol,
   type FrameToken,
   type PromisedName,
   type ServiceError,
@@ -994,6 +996,30 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             Array.getSomes(
               Array.map(referencesAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+        ),
+
+      symbols: (within: Location, query: string): Effect.Effect<ReadonlyArray<FrameSymbol>> =>
+        Option.match(documents.list, {
+          onNone: () => Effect.succeed<ReadonlyArray<Location>>([]),
+          onSome: (list) => list(within),
+        }).pipe(
+          Effect.flatMap((paths) =>
+            Effect.forEach(paths, (path) =>
+              loadOne(documents, path).pipe(Effect.map((module) => [path, module] as const)),
+            ),
+          ),
+          Effect.map((pairs): Modules => new Map(pairs)),
+          Effect.map((modules) =>
+            Array.getSomes(
+              Array.map(conceptSymbolsIn({ modules }, query), (symbol) =>
+                Option.map(frameLocationOf(modules, symbol.location), (location): FrameSymbol => ({
+                  name: symbol.name,
+                  container: symbol.container,
+                  location,
+                })),
               ),
             ),
           ),

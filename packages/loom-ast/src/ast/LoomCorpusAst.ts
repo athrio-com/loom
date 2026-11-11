@@ -847,7 +847,7 @@ const formItem = /^[-*]\s+(\S.*?)\s*$/
 const formsLineOf = (section: LoomSection): Option.Option<LoomWeft> =>
   Array.findFirst(section.preamble, isFormsLine)
 
-const definitionLinesOf = (section: LoomSection): ReadonlyArray<LoomWeft> =>
+export const definitionLinesOf = (section: LoomSection): ReadonlyArray<PreambleWeft> =>
   pipe(
     outsideBoxes(section.preamble),
     Array.dropWhile((line) => line.source.trim() === ''),
@@ -902,18 +902,16 @@ const conceptsOf = (module: LoomModule): ReadonlyArray<ConceptRef> =>
 const isProseLine = (weft: LoomWeft): weft is PreambleWeft | TildeWeft | ProseWeft =>
   weft.type === 'PreambleWeft' || weft.type === 'TildeWeft' || weft.type === 'ProseWeft'
 
-export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> =>
-  pipe(
-    [
-      ...module.doc.preamble,
-      ...Array.flatMap(module.doc.sections, (section): ReadonlyArray<LoomWeft> => [
-        ...section.preamble,
-        ...section.code,
-      ]),
-    ],
-    Array.filter(isProseLine),
-    Array.flatMap((weft) => weft.anchors),
-  )
+const proseAnchorsOf = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<WarpAnchorToken> =>
+  Array.flatMap(wefts, (weft) => (isProseLine(weft) ? weft.anchors : []))
+
+export const sectionLinksOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
+  proseAnchorsOf([...section.preamble, ...section.code])
+
+export const linksOf = (module: LoomModule): ReadonlyArray<WarpAnchorToken> => [
+  ...proseAnchorsOf(module.doc.preamble),
+  ...Array.flatMap(module.doc.sections, sectionLinksOf),
+]
 
 const linkKey = (path: Location, anchor: WarpAnchorToken): string =>
   `${path}#${anchor.name.position.start.offset}`
@@ -939,7 +937,7 @@ const conceptTrails = (catalogue: Catalogue, name: string): ReadonlyArray<Trail>
 const linkTrailsOf = (catalogue: Catalogue, from: Location, name: string): ReadonlyArray<Trail> =>
   nearest([() => conceptTrails(catalogue, name), () => trailsOf(catalogue, from, name)])
 
-const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<ConceptRef> =>
+export const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<ConceptRef> =>
   Array.findFirst(
     catalogue.concepts,
     (concept) => concept.module === ref.module && concept.section === ref.section,
@@ -1943,6 +1941,36 @@ const keptNameOf = (concept: ConceptRef): CorpusEdit =>
     }),
   })
 
+export type CorpusSymbol = {
+  readonly name: string
+  readonly container: string
+  readonly location: CorpusLocation
+}
+
+const matching =
+  (query: string) =>
+  (name: string): boolean =>
+    name.toLowerCase().includes(query.toLowerCase())
+
+export const conceptSymbolsIn = (
+  corpus: LoomCorpusAst,
+  query: string,
+): ReadonlyArray<CorpusSymbol> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return pipe(
+    catalogue.concepts,
+    Array.filter((concept) => Array.some(conceptNames(concept), matching(query))),
+    Array.map((concept): CorpusSymbol => ({
+      name: concept.name.source,
+      container: Option.getOrElse(
+        Option.map(chapterOf(catalogue, concept.module), (chapter) => chapter.title),
+        () => concept.module,
+      ),
+      location: { path: concept.module, position: concept.name.position },
+    })),
+  )
+}
+
 export const conceptRenameAt = (
   corpus: LoomCorpusAst,
   path: Location,
@@ -2054,9 +2082,9 @@ const stillInBox = (inBox: boolean, box: BoxToken): boolean =>
     Match.exhaustive,
   )
 
-const outsideBoxes = (lines: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+const outsideBoxes = <Line extends LoomWeft>(lines: ReadonlyArray<Line>): ReadonlyArray<Line> =>
   Array.getSomes(
-    Array.mapAccum(lines, false, (inBox, line): readonly [boolean, Option.Option<LoomWeft>] =>
+    Array.mapAccum(lines, false, (inBox, line): readonly [boolean, Option.Option<Line>] =>
       Option.match(boxOf(line), {
         onNone: () => [inBox, inBox ? Option.none() : Option.some(line)],
         onSome: (box) => [stillInBox(inBox, box), Option.none()],

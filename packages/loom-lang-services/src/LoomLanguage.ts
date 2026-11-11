@@ -12,6 +12,7 @@ import type {
   SemanticToken,
   TextEdit,
   WorkspaceEdit,
+  WorkspaceSymbol,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -281,6 +282,23 @@ const loomHover = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const loomSymbols = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-symbols',
+  capabilities: { workspaceSymbolProvider: {} },
+  create: () => ({
+    provideWorkspaceSymbols: (query) =>
+      Array.map(frame.symbols(query), (symbol): WorkspaceSymbol => ({
+        name: symbol.name,
+        kind: 14,
+        containerName: symbol.container,
+        location: {
+          uri: frame.uriOf(symbol.location.path).toString(),
+          range: symbol.location.range,
+        },
+      })),
+  }),
+})
+
 const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
   name: 'loom-hints',
   capabilities: { inlayHintProvider: {} },
@@ -393,6 +411,7 @@ export const LoomLanguage = defineLanguageService({
         loomDefinition(frame),
         loomReferences(frame),
         loomHover(frame),
+        loomSymbols(frame),
         loomRename(frame),
         loomSemanticTokens(frame),
         loomHints(frame),
