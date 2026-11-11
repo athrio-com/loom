@@ -190,6 +190,7 @@ The first trope Loom publishes lets a book draw a diagram from a box of the `Mer
 - Books
 - Boxes
 - Canvases
+- Concepts
 - Decorators
 - Discussions
 - Divisions
@@ -201,7 +202,6 @@ The first trope Loom publishes lets a book draw a diagram from a box of the `Mer
 - Runnable looms
 - Small passes over the tree
 - Testing in looms
-- The Glossary trope
 - The weave pass
 - The weave writer
 - The woven corpus

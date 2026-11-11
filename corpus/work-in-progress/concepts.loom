@@ -1,0 +1,130 @@
+---
+Part: Work in progress
+Chapter: Concepts
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Concepts
+
+A book coins words for its ideas, and it uses each word in many chapters. Loom's own book says anchor, sink, and trope on nearly every page. The people who build the product need each word to keep one meaning, so that no two chapters use it in two senses. A reader who first meets one of those words in Part VI needs its meaning there, without hunting for the chapter that introduced it.
+
+A concept is a section that defines one idea. It names the idea, defines it, and lists the other words the prose uses for it. Prose links to a concept from anywhere in the corpus, and the editor and the woven page show the definition wherever a link stands. An index that Loom derives from the corpus lists every concept, the words that name it, and where the book uses it.
+
+Concepts belong to the core. Every book names its ideas, and a trope realises a concept, so concepts sit beneath tropes rather than inside one.
+
+## A concept is a section
+
+A concept is a section whose specifier is `{Concept}`. Its heading is the concept's preferred form, the word the book uses for the idea by default. Its first paragraph is the definition. A `Lexical forms:` list after the definition holds the other words that name the idea, and whatever follows holds notes and examples:
+
+```
+## Account {Concept}
+
+A ledger that holds one customer's balance, charges, and payments.
+
+Lexical forms:
+- accounts
+- account's
+
+Billing opens an account with a customer's first order, and never reuses one.
+```
+
+The definition is what a reader sees at every link to the concept. Terminology work tests a definition by substitution, as the standard ISO 704 sets out. A good definition can stand in a sentence in place of its word, and the sentence keeps its meaning.
+
+A concept holds prose and no code. It explains an idea and composes nothing, so an arrow in a concept is a fault, as it is in prose and in a discussion. The code that makes an idea real lives in the sections and tropes that realise the concept.
+
+A concept is immutable, which is not to say it can't be edited. The author edits a concept's section as freely as any other. Immutable means that no other section redefines the concept: nothing elsewhere overrides its definition, merges into it, or changes what its forms name. A concept therefore means the same in every chapter that links it.
+
+Other sections still say more about a concept, as the later chapters of any academic book say more about the ideas its early chapters define. An example in Part VI, or a consequence a later chapter draws, adds to what a reader knows about the concept without changing what it means. Such prose must never contradict the definition. A contradiction is the sign of a poor definition, and its fix belongs in the concept's own section.
+
+Loom can't judge what prose says, so it tracks where prose says it. Every link to a concept, and every use the editor recognises, stands in the index beside the definition, as the section "The index" describes.
+
+A static relation to another concept, such as an account belonging to a customer, is part of the definition, and the definition links the other concept there.
+
+## Every form is a name
+
+A lexical form is a word or phrase the prose writes for a concept: a plural, a possessive, a case ending in Estonian, or an abbreviation. The heading and every entry of the `Lexical forms:` list are names of the concept, and each one finds it.
+
+Authors write the forms their prose uses. Loom knows no rules of inflection for any language, so it never derives `accounts` from `Account`. A form nobody writes is a form nobody needs.
+
+## Linking a concept
+
+Prose links a concept with an anchor that names any of its forms. The sentence shows the form the anchor names, so the prose reads naturally, and the link leads to the concept:
+
+```
+Billing keeps one ::[Account] per customer, and it closes ::[accounts] that stay empty for a year.
+```
+
+A link reaches a concept anywhere in the corpus. No trope, part, or book closes a concept to links from outside it. Where a concept belongs, which the section "Where a concept belongs" describes, matters only for recognising its forms in plain prose.
+
+Two concepts may share a form. The corpus can define Account in the chapter "Billing", as a ledger, and again in the chapter "Signing in", as the person who signs in. A link that names `Account` then names both, and Loom faults it rather than guess. The fault offers a path to each, the way it does for an anchor that names two sections:
+
+```
+::[Billing, Account]
+::[Signing in, Account]
+```
+
+No definition shadows another. A nearer concept never wins over a farther one, so every link says which concept it means.
+
+A code anchor composes code, and a concept holds none. So a code anchor that names a concept is a fault, whose message names the concept and says it holds no code.
+
+## A concept in the editor
+
+The editor treats every form as the concept itself:
+
+- **Hover** on a link shows the concept's definition.
+- **Go to definition** on a link lands on the concept's heading.
+- **Find references** on a concept, or on any link to it, lists every link, whichever form it names.
+- **Rename** never rewrites a sentence. Renaming a concept makes the new name its heading and moves the old name into its `Lexical forms:` list, so every link still finds the concept and every sentence still reads as its author wrote it.
+
+A new wording joins a concept as a new form, and the old forms stay. A rewrite that swapped one form for another across the book would change sentences no one had reread, and a typo in the new form would break every one of them at once. When an author removes a form that a link still names, that link faults. The change is then visible at every place it touches, and nothing breaks silently.
+
+## The index
+
+A printed book meets its definitions across its chapters, and its index is where a reader looks them up. Glossaries gathered apart from the text rarely help, since the text already defines each idea where it first needs it. Loom builds the index instead, from the concepts the corpus defines.
+
+The index lists every concept with its preferred form and its other forms, the section that defines it, the scope it belongs to, and the sections that use it, by a link or by a recognised form.
+
+Those uses are the concept's back links. They show a reader everything else the book says about a concept. They also let an author check that none of it contradicts the definition, since a book that grows adds to its concepts in chapters written long after the definition. In the editor, every concept is a workspace symbol, so the editor's symbol search finds a concept by any of its forms. The woven book gives the index a page in its back matter, with a link to each concept and to each place that uses it.
+
+Nothing in the index is written by hand. Loom derives it again whenever the corpus changes.
+
+## Where a concept belongs
+
+Loom's scopes nest. The corpus holds books, a book holds parts, and a part holds chapters. The corpus is the outermost scope. It stands for the app the corpus builds, an implicit trope that holds every chapter, so every concept belongs to some scope.
+
+A concept belongs to a scope by where its section stands:
+
+- A concept in a chapter of a part belongs to that part.
+- A concept in a chapter that belongs to no part belongs to the chapter's book.
+- A concept in a book loom belongs to the book, and a concept in the corpus loom to the corpus, as the chapter "Books" describes those looms.
+- A concept in a chapter of a declared trope belongs to the trope, whichever parts the trope's chapters sit in.
+
+A concept that turns out to serve more than its scope moves up. A quick fix on the concept's heading offers each enclosing scope, and moves the section there, under a division the author picks. The concept's links keep working, since a link reaches a concept wherever it stands.
+
+## Recognising concepts in plain prose
+
+Most prose names a concept without linking it. The editor recognises those words as the concept's forms, and gives them the hover and the go to definition a link has. The index counts each recognised word as a use. Recognition never rewrites the text.
+
+Ordinary words make recognition risky. Box and mark are concepts in Loom's book, and they are also everyday English. So a chapter recognises only the forms of its vocabulary, the concepts its scope knows:
+
+1. the concepts that belong to the chapter's own scope, and to every scope that encloses it, up to the corpus;
+2. the concepts of the chapter's trope, and of every trope that encloses that trope;
+3. the concepts in the entry chapters of the tropes nested inside the chapter's trope;
+4. the concepts the chapter's trope realises;
+5. the concepts a link in the trope names.
+
+The last rule makes a link an import. An author links a concept at its first use, as Wikipedia's style guide asks of every link, and the rest of the trope then recognises the concept's forms without links. A chapter that belongs to no declared trope imports into its part.
+
+A word that two concepts of one vocabulary both claim is not recognised. The editor offers a link to each concept instead, and the author picks the one the sentence means.
+
+## What this chapter grows into
+
+1. The `{Concept}` kind: its definition, its `Lexical forms:` list, the fault for code in a concept, links by any form, the fault that offers a path to each of two concepts, hover, go to definition, and find references from every form, and a rename that keeps the old name as a form.
+2. The index: workspace symbols in the editor, and a page in the woven back matter.
+3. The scope a concept belongs to, once the corpus is the implicit root trope, and recognition of plain prose with links as imports.
+4. The quick fix that moves a concept up to an enclosing scope.
+5. Variants of a concept in other natural languages, each with forms of its own and no code, once a heading's specifier takes parameters.
+
+When concepts link, show their definitions, and appear in the index, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.
