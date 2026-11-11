@@ -7,8 +7,8 @@ variables:
   version: 0.0.19
   effect: 4.0.5
   grammar: 0.0.12
-  zed: 0.0.17
-  grammarRevision: 6df6c73b7da570fd83f5faa51f7e0f2a40c1f7e7
+  zed: 0.0.18
+  grammarRevision: d3f48ecf4d874084718ea5a01ff4f6f58f902138
   typescript: 7.0.2
 settings:
   typescript:
