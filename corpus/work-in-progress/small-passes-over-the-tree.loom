@@ -37,7 +37,7 @@ They differ from nanopasses in four ways:
 
 The front of the pipeline stays as it is. Text becomes lines, lines become wefts, and wefts become a tree, and each of those steps changes the shape of the whole. Splitting them gains little, and nanopass compilers also begin with a parser that writes their first language.
 
-Small passes begin once the tree exists. The Loom AST, the `LoomDocument` and its nodes, is the core language, a union of tagged node classes in Effect Schema. A small pass is a pure function from one tree to the next. It runs over a generic fold of the tree: it matches only the tags of the nodes it changes, and the fold rebuilds every other node as it was.
+Small passes begin once the tree exists. The Loom AST is the core language: every node of a loom's tree is a tagged struct in Effect Schema. A small pass is a pure function from one tree to the next. It writes a case for each kind of node it changes, and the `rewritten` function walks the tree for it and rebuilds every other node as it was, as the chapter "A fold over the tree" describes.
 
 Each pass's output has a schema of its own: the core language, edited by that pass. A test decodes what a pass returns against that schema, so it catches a pass that leaves behind a node it should have changed.
 
@@ -61,16 +61,20 @@ A trope's code never joins the row. What a trope's code adds, such as a decorato
 
 A walk over one loom's tree costs far less than reading the loom's lines, so a row of small walks adds little to a keystroke.
 
+## One service runs the row
+
+Each pass is a plain function from one tree to the next. A pass is not an Effect, so its type rules out reading a file, calling the network, and waiting. A pass takes what it needs as arguments, such as the registry of kinds, and it returns a tree whose nodes carry the faults it found.
+
+One service runs the passes in order. It takes the tree the parser built, the `ParsedDocument`, and returns the tree the last pass wrote, the `LoomDocument`. The product pass, the weave, and the editor read the `LoomDocument` and no other tree, so a pass added to the row renames nothing they read.
+
 ## What to work out
 
-- **The service that runs the row.** Loom gives each pass a model and a builder. Whether each small pass is a builder service of its own, or one service runs a list of pure passes, is open.
 - **Splitting the large passes.** The product pass could later split into small passes of its own, for edges, files, and faults. Whether it should is open, and nothing in this chapter depends on it.
 
 ## What this chapter grows into
 
-1. The core language: the Loom AST as a union of tagged node classes in Effect Schema, with a generic fold over it.
-2. The first passes: expanding short forms, claiming kinds, checking parameters, resolving references, and setting data apart.
-3. A schema for each pass's output, and tests that decode each pass's output against it.
-4. `ProductBuilder` and `WeaveBuilder` reading the last pass's tree.
+1. The first passes: expanding short forms, claiming kinds, checking parameters, resolving references, and setting data apart.
+2. A schema for each pass's output, and tests that decode each pass's output against it.
+3. `ProductBuilder` and `WeaveBuilder` reading the last pass's tree.
 
 When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".

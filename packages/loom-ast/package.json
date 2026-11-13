@@ -15,7 +15,8 @@
     "./LoomSymbol": "./src/ast/LoomSymbol.ts",
     "./LoomVirtualCode": "./src/ast/LoomVirtualCode.ts",
     "./Weft": "./src/ast/Weft.ts",
-    "./LoomTokens": "./src/ast/LoomTokens.ts"
+    "./LoomTokens": "./src/ast/LoomTokens.ts",
+    "./TreeFold": "./src/ast/TreeFold.ts"
   },
   "publishConfig": {
     "access": "public"

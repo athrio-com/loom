@@ -1,0 +1,281 @@
+---
+Part II, Chapter 9: A fold over the tree
+Package: packages/loom-ast/
+Language: TypeScript
+---
+
+# A fold over the tree
+
+A pass over a loom's tree changes a few kinds of node and leaves the rest as it found them. A pass that expands a heading's label, say, changes headings, and every weft and token of the loom passes through it untouched. Written by hand, each such pass would repeat one long walk over the whole tree to reach the few nodes it changes.
+
+The `rewritten` function is that walk, written once. A pass hands it a tree and one case for each kind of node the pass changes. The function walks the tree, calls a case wherever a node of its kind stands, and rebuilds every other node around the results. The chapter "Small passes over the tree" describes the passes that use it.
+
+## A node carries a tag
+
+A tree holds three sorts of value. A node is an object with a `type` tag, as every node that the `loomNode` helper builds is. An array holds values in order, as a document holds its sections. Everything else is a plain value: a string, a number, or an object without a tag, such as a position or a health. The fold takes a plain value whole and never looks inside it.
+
+=>
+
+export type Tagged = { readonly type: string }
+
+type Node = Tagged & Readonly<Record<string, unknown>>
+
+const isNode = (value: unknown): value is Node =>
+  typeof value === 'object' && value !== null && 'type' in value && typeof value.type === 'string'
+
+## A pass names its edits
+
+A pass describes its work as edits. An edit pairs a tag with the node the pass writes wherever a node of that tag stands. A pass that expands labels has one edit: under the `LoomHeading` tag, a heading whose braces hold parameters only.
+
+A case carries out one edit. It is a function that takes the node a tree holds under the edit's tag and returns the node the pass writes. The `NodesOf` type gathers every kind of node a tree can hold, at any depth. The `Cases` type uses it to hand each case the exact node its tag names in that tree, so a case written for a heading cannot be filed under the tag of a section.
+
+=>
+
+export type NodesOf<Tree> =
+  Tree extends ReadonlyArray<infer Item>
+    ? NodesOf<Item>
+    : Tree extends Tagged
+      ? Tree | { readonly [Key in keyof Tree]-?: NodesOf<Tree[Key]> }[keyof Tree]
+      : never
+
+export type Cases<Tree, Edits> = {
+  readonly [Tag in keyof Edits]: (
+    node: Extract<NodesOf<Tree>, { readonly type: Tag }>,
+  ) => Edits[Tag]
+}
+
+## The tree a pass writes
+
+The `Rewritten` type is the type of a tree after a pass. A node whose tag has an edit becomes the edit's node. Every other node keeps its fields, each rewritten in turn. A plain value stays as it is.
+
+The compiler works this type out from the tree and the edits. A pass states the tree it writes as its return type, and the pass fails to compile when its edits write any other tree.
+
+=>
+
+export type Rewritten<Tree, Edits> =
+  Tree extends ReadonlyArray<infer Item>
+    ? ReadonlyArray<Rewritten<Item, Edits>>
+    : Tree extends { readonly type: infer Tag }
+      ? Tag extends keyof Edits
+        ? Edits[Tag]
+        : { readonly [Key in keyof Tree]: Rewritten<Tree[Key], Edits> }
+      : Tree
+
+## The walk
+
+The `rewritten` function walks a tree from its root down. It is the one place where the types guard a pass: the function takes the pass's typed cases and returns the typed tree. Inside it, the `walked` function works on values it knows nothing about, and that is what lets one walk serve every tree.
+
+=>
+
+type Case = (node: Node) => unknown
+
+type AnyCases = Readonly<Record<string, Case>>
+
+export const rewritten = <Tree, Edits>(
+  tree: Tree,
+  cases: Cases<Tree, Edits>,
+): Rewritten<Tree, Edits> => walked(tree, cases as AnyCases) as Rewritten<Tree, Edits>
+
+~
+
+The `walked` function meets one of four things:
+
+- **An array.** It walks each item.
+- **A node with a case.** It calls the case and takes what the case returns as it stands. The walk does not enter the returned node, so the pass alone decides what its edit holds.
+- **A node without a case.** It walks each of the node's fields.
+- **A plain value.** It returns the value.
+
+A case is found by its own key alone. The `Record.get` function reads only the keys a pass wrote, so a node tagged `constructor` never meets the method every object inherits under that name.
+
+=>
+
+const walked = (value: unknown, cases: AnyCases): unknown =>
+  Match.value(value).pipe(
+    Match.when(Array.isArray, (items) => walkedItems(items, cases)),
+    Match.when(isNode, (node) =>
+      Option.match(Record.get(cases, node.type), {
+        onSome: (edit) => edit(node),
+        onNone: () => walkedFields(node, cases),
+      }),
+    ),
+    Match.orElse((plain) => plain),
+  )
+
+~
+
+A walk copies nothing it leaves unchanged. The `walkedItems` function returns the array it was given when every item came back as the same object, and the `walkedFields` function does the same for a node. The part of a tree that a pass leaves alone stays the very objects the pass received. A row of passes over a large loom then allocates only what the passes write.
+
+=>
+
+const walkedItems = (items: ReadonlyArray<unknown>, cases: AnyCases): ReadonlyArray<unknown> => {
+  const next = Array.map(items, (item) => walked(item, cases))
+  return Array.every(next, (item, at) => item === items[at]) ? items : next
+}
+
+const walkedFields = (node: Node, cases: AnyCases): Node => {
+  const next = Record.map(node, (field) => walked(field, cases))
+  return Record.every(next, (field, key) => field === node[key])
+    ? node
+    : { ...next, type: node.type }
+}
+
+## What this module draws on
+
+The walk dispatches with Effect's `Match`, finds a case through `Option` and `Record`, and maps arrays with `Array`.
+
+=>
+
+import { Array, Match, Option, Record } from 'effect'
+
+## The module [src/ast/TreeFold.ts]
+
+=>
+
+::[What this module draws on]
+
+::[A node carries a tag]
+
+::[A pass names its edits]
+
+::[The tree a pass writes]
+
+::[The walk]
+
+## Testing the fold
+
+The tests walk a small tree of their own, since the fold knows nothing of Loom's nodes. A root holds branches and one loose leaf, and a branch holds leaves, an optional first leaf, and a plain value that says where the branch stands. The `grown` case is the one edit most tests use: it writes a leaf that has grown.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { rewritten } from '#ast/TreeFold'
+
+type Leaf = { readonly type: 'Leaf'; readonly name: string }
+
+type GrownLeaf = { readonly type: 'Leaf'; readonly name: string; readonly grown: true }
+
+type Branch<Held> = {
+  readonly type: 'Branch'
+  readonly leaves: ReadonlyArray<Held>
+  readonly first?: Held
+  readonly at: { readonly line: number }
+}
+
+type Root<Held, Limb> = {
+  readonly type: 'Root'
+  readonly label: string
+  readonly loose: Held
+  readonly branches: ReadonlyArray<Limb>
+}
+
+const leaf = (name: string): Leaf => ({ type: 'Leaf', name })
+
+const grown = (found: Leaf): GrownLeaf => ({ ...found, grown: true })
+
+const bare: Branch<Leaf> = { type: 'Branch', leaves: [], at: { line: 2 } }
+
+const leafy: Branch<Leaf> = {
+  type: 'Branch',
+  leaves: [leaf('oak'), leaf('ash')],
+  first: leaf('elm'),
+  at: { line: 1 },
+}
+
+const root: Root<Leaf, Branch<Leaf>> = {
+  type: 'Root',
+  label: 'a small tree',
+  loose: leaf('fig'),
+  branches: [leafy, bare],
+}
+
+## A case reaches its nodes wherever they stand
+
+A leaf stands in three places in the tree: in a root's own field, in a branch's array, and in a branch's optional field. One case reaches all three. The result is assigned to the tree the pass claims to write, a root of branches that hold grown leaves, so the test compiles only while the `Rewritten` type works that tree out.
+
+=>
+
+describe('a case', () => {
+  it('rewrites its nodes wherever they stand', () => {
+    const written: Root<GrownLeaf, Branch<GrownLeaf>> = rewritten(root, { Leaf: grown })
+    expect(written.loose).toEqual({ type: 'Leaf', name: 'fig', grown: true })
+    expect(written.branches[0]?.leaves).toEqual([
+      { type: 'Leaf', name: 'oak', grown: true },
+      { type: 'Leaf', name: 'ash', grown: true },
+    ])
+    expect(written.branches[0]?.first).toEqual({ type: 'Leaf', name: 'elm', grown: true })
+  })
+
+  it('leaves every other field as it was', () => {
+    const written = rewritten(root, { Leaf: grown })
+    expect(written.label).toBe('a small tree')
+    expect(written.branches[0]?.at).toEqual({ line: 1 })
+  })
+})
+
+## What a pass leaves alone stays the same object
+
+A pass that changes nothing returns the tree it was given. A pass that changes one branch returns the other branch as the object it received.
+
+=>
+
+describe('what a pass leaves alone', () => {
+  it('is the same tree, when no node has a case', () => {
+    const felled = (twig: never): { readonly type: 'Twig' } => twig
+    expect(rewritten(root, { Twig: felled })).toBe(root)
+  })
+
+  it('is the same object, beside a node that changed', () => {
+    const written = rewritten(root, { Leaf: grown })
+    expect<unknown>(written.branches[1]).toBe(bare)
+    expect<unknown>(written.branches[0]).not.toBe(leafy)
+    expect(written.branches[0]?.at).toBe(leafy.at)
+  })
+})
+
+## A pass owns what it writes
+
+The walk takes what a case returns and does not enter it. A pass with a case for branches and a case for leaves grows the loose leaf, which no branch holds. The leaves inside a branch stay as the branch's case returned them.
+
+=>
+
+describe('what a case returns', () => {
+  it('is not walked again', () => {
+    const kept = (branch: Branch<Leaf>): Branch<Leaf> => branch
+    const written = rewritten(root, { Branch: kept, Leaf: grown })
+    expect(written.loose).toEqual({ type: 'Leaf', name: 'fig', grown: true })
+    expect(written.branches[0]?.leaves).toEqual([leaf('oak'), leaf('ash')])
+  })
+})
+
+## A plain value is taken whole
+
+An object without a tag is a plain value, and the walk never looks inside it. A leaf held by such an object is out of every case's reach. A tag that matches a name every object inherits finds no case either.
+
+=>
+
+describe('a plain value', () => {
+  it('hides the nodes it holds', () => {
+    const wrapped = { type: 'Root' as const, held: { leaf: leaf('yew') } }
+    const written = rewritten(wrapped, { Leaf: grown })
+    expect(written).toBe(wrapped)
+  })
+
+  it('never meets an inherited name', () => {
+    const odd = { type: 'Root' as const, items: [{ type: 'constructor' as const }] }
+    expect(rewritten(odd, { Leaf: grown })).toBe(odd)
+  })
+})
+
+## The fold's tests [test/TreeFold.test.ts]
+
+=>
+
+::[Testing the fold]
+
+::[A case reaches its nodes wherever they stand]
+
+::[What a pass leaves alone stays the same object]
+
+::[A pass owns what it writes]
+
+::[A plain value is taken whole]
