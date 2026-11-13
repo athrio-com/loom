@@ -3,6 +3,7 @@ Part: Work in progress
 Chapter: Parameters in braces
 Status: Planned
 Priority: 2
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -98,20 +99,182 @@ Code often puts a brace right after a name. Go writes a composite literal as a t
 
 ## What the tokeniser reads
 
-The braces of an anchor and of a box already read as a run of tokens: a label alone, or a `Parameters` token whose parameters each hold a key and the values of a list. Loom's own diagnostics place a fault on the exact parameter that is wrong. A heading's specifier still matches one label through the `SpecifierLabelTokenSchema` schema, and it becomes the same run of tokens. The editor colours each token.
+The braces of a heading, an anchor, and a box read as one run of tokens: a label alone, or a `Parameters` token whose parameters each hold a key and the values of a list, as the chapter "The tokeniser stage" describes. Loom's own diagnostics place a fault on the exact parameter that is wrong, and the editor colours each parameter.
 
 ## What to work out
 
 - **Warps.** A value warp, `{{ name [: type] = value }}`, binds a literal that its section's code composes, and nothing checks the value against its type today. Whether warps share this chapter's shapes and types, so that a warp's `: number` is checked, is open.
 - **The frontmatter's names.** The frontmatter names a chapter's language in its `Language` field, and a specifier names a section's in its `lang` key. Whether the two share one name, and one grammar for values, is open.
 
+## Testing a heading's braces
+
+The tests parse one loom at a time, as the tests of boxes do, and read back what a heading's braces say: the kind, the language, the faults, and the language the section composes. A fixture is a heading line, and `parsed` reads it with a line of prose under it. `kindOf` and `langOf` read the kind and the language the heading names, and `faultsOf` gathers the messages of every fault the parse raised, wherever in the tree it sits.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Option } from 'effect'
+import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
+import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
+import { headingKind, headingLang } from '@athrio/loom-ast/LoomTokens'
+import { sectionLanguage } from '#ast/ProductBuilder'
+import { parseDocument, ParseLayer } from './parse'
+
+const parsed = (heading: string): LoomDocument =>
+  Effect.runSync(parseDocument(`${heading}\n\nProse.\n`).pipe(Effect.provide(ParseLayer)))
+
+const sectionOf = (heading: string): LoomSection => parsed(heading).sections[0]!
+
+const kindOf = (heading: string): string | undefined =>
+  Option.getOrUndefined(
+    Option.flatMap(Option.fromNullishOr(sectionOf(heading).heading.specifier), headingKind),
+  )
+
+const langOf = (heading: string): string | undefined =>
+  Option.getOrUndefined(
+    Option.flatMap(Option.fromNullishOr(sectionOf(heading).heading.specifier), headingLang),
+  )
+
+const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (node === null || typeof node !== 'object') return []
+  if (globalThis.Array.isArray(node)) return node.flatMap(diagnosticsIn)
+  const own =
+    'health' in node
+      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health.diagnostics
+      : []
+  return [
+    ...own,
+    ...Object.entries(node).flatMap(([key, value]) =>
+      key === 'health' ? [] : diagnosticsIn(value),
+    ),
+  ]
+}
+
+const faultsOf = (heading: string): ReadonlyArray<string> =>
+  diagnosticsIn(parsed(heading)).map((found) => found.message)
+
+## A label names a kind or a language
+
+A label alone names a kind of section when it is one, in any case of letters, and a language otherwise.
+
+=>
+
+describe("a heading's label", () => {
+  it('names a kind of section, in any case of letters', () => {
+    expect(kindOf('# Install {Tangle}')).toBe('Tangle')
+    expect(kindOf('# Install {tangle}')).toBe('Tangle')
+    expect(langOf('# Install {Tangle}')).toBeUndefined()
+  })
+
+  it('names a language otherwise', () => {
+    expect(langOf('# Build {Bash}')).toBe('Bash')
+    expect(kindOf('# Build {Bash}')).toBeUndefined()
+  })
+})
+
+## Parameters name both
+
+A heading's braces may name a kind and a language at once, each under its key.
+
+=>
+
+describe("a heading's parameters", () => {
+  it('name a kind and a language at once', () => {
+    expect(sectionOf('# Install {kind=Tangle lang=sh}').heading.specifier?.type).toBe('Parameters')
+    expect(kindOf('# Install {kind=Tangle lang=sh}')).toBe('Tangle')
+    expect(langOf('# Install {kind=Tangle lang=sh}')).toBe('sh')
+  })
+})
+
+## What a heading's braces may not hold
+
+A heading takes two keys, `lang` and `kind`, and the kinds the core knows. A key written twice, a key a heading does not take, and a kind the core does not know are each a fault. A label beside parameters is a fault whose message writes it in full under the key it stands for, `kind` for a kind and `lang` for a language. A label that names no kind is a language and raises nothing. A second pair of braces on the line has no place, and the tokeniser faults it.
+
+=>
+
+describe("the faults a heading's braces raise", () => {
+  it('fault a key written twice', () => {
+    expect(faultsOf('# Build {lang=Bash lang=sh}')).toEqual([
+      '`lang` is written twice in these braces. Keep one.',
+    ])
+  })
+
+  it('fault a key a heading does not take', () => {
+    expect(faultsOf('# Build {flavour=dry}')).toEqual([
+      'A heading takes no `flavour` key. It takes `lang` and `kind`.',
+    ])
+  })
+
+  it('fault a kind the core does not know', () => {
+    expect(faultsOf('# Build {kind=Bogus}')).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
+    ])
+  })
+
+  it('write a label beside parameters in full, under the key it stands for', () => {
+    expect(faultsOf('# Build {Bash kind=Tangle}')).toEqual([
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `lang="Bash"`.',
+    ])
+    expect(faultsOf('# Build {Tangle lang=sh}')).toEqual([
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `kind="Tangle"`.',
+    ])
+  })
+
+  it('leave a label that names a language alone', () => {
+    expect(faultsOf('# Build {Bogus}')).toEqual([])
+  })
+
+  it('fault a second pair of braces', () => {
+    expect(faultsOf('# Greeting {Bash} {Tangle}')).toEqual([
+      'This line has no place for `{Tangle}`, so Loom would ignore it. Remove it.',
+    ])
+  })
+})
+
+## The language a heading names
+
+A section composes the language its `lang` names. With no `lang`, it composes the language its kind implies: JSON for a manifest, `concept` for a concept, and the chapter's own language for a `Tangle` section with no package to name a file. A heading that names nothing leaves the section the chapter's language.
+
+=>
+
+describe('the language a heading names', () => {
+  const languageOf = (heading: string): string =>
+    sectionLanguage(sectionOf(heading), 'typescript', Option.none())
+
+  it('is its lang, when it names one', () => {
+    expect(languageOf('# Build {lang=Bash}')).toBe('bash')
+    expect(languageOf('# Install {kind=Tangle lang=sh}')).toBe('sh')
+  })
+
+  it('is the language its kind implies, when it names none', () => {
+    expect(languageOf('# The manifest {kind=Manifest}')).toBe('json')
+    expect(languageOf('# An idea {kind=Concept}')).toBe('concept')
+    expect(languageOf('# Install {Tangle}')).toBe('typescript')
+  })
+
+  it("is the chapter's, when the heading names nothing", () => {
+    expect(languageOf('# Plain')).toBe('typescript')
+  })
+})
+
+## The parameters test file [test/Parameters.test.ts]
+
+=>
+
+::[Testing a heading's braces]
+
+::[A label names a kind or a language]
+
+::[Parameters name both]
+
+::[What a heading's braces may not hold]
+
+::[The language a heading names]
+
 ## What this chapter grows into
 
-1. Specifiers on headings in the tokeniser: parameters with bare, quoted, and list values, and the short form, as the braces of an anchor and of a box already read them.
-2. The faults for a repeated key, a label beside a parameter, and a key that nothing defines on headings, as anchors and boxes already raise them, and the fault for a value of the wrong type.
-3. The key a label stands for on a heading: `kind` or `lang`. On a box and on an anchor, a label already stands for `kind`.
-4. The value types, read through each key's declared type, with completion and hover from the registry.
-5. The keys of the core's own kinds, and the keys a trope's manifest declares for each kind it contributes.
-6. Specifiers in the tree-sitter grammar and in each editor's colouring.
+1. The value types, read through each key's declared type, with completion and hover from the registry, and the fault for a value of the wrong type.
+2. The keys a trope's manifest declares for each kind it contributes.
+3. Specifiers in the tree-sitter grammar and in each editor's colouring.
 
-When specifiers parse with parameters on headings, boxes, and anchors, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.
+When the value types and the keys of tropes land, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

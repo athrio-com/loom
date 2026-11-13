@@ -1316,9 +1316,11 @@ Braces after an anchor hold a label, as `::[Greeting function]{To be settled}` d
 
 `bracesAt` reads the braces. `itemsFrom` reads what they hold as a run of items, each a word of a label or a parameter, up to the closing brace. Braces that hold anything else, such as `X: 1`, or that hold nothing, still read as a label, through `labelBracesAt`, so the label's fault names what is wrong. `braceTokens` gives the opening and closing brace their tokens.
 
-A box's braces follow the same grammar, as the section "A box line" describes, but a box takes other keys and kinds than an anchor does. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds, when one loom alone can tell them. `anchorBraces` holds an anchor's rules and `boxBraces` a box's, and `bracesAt` judges what the braces hold by the rules it is given.
+The braces of a box and of a heading follow the same grammar, as the sections "A box line" and "Scanning a heading" describe, but each bearer takes keys and kinds of its own. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds, when one loom alone can tell them. `labelKey` gives the key a label alone stands for. `anchorBraces` holds an anchor's rules, `boxBraces` a box's, and `headingBraces` a heading's, and `bracesAt` judges what the braces hold by the rules it is given.
 
 An anchor's kinds are the core's own, so the tokeniser judges them. A box's kinds come from the core and from every trope the book holds, and a trope in another loom may declare the kind a box names. So `boxBraces` leaves a box's kind for the corpus to judge, as Part XIII, Tropes, describes.
+
+A label alone on an anchor or a box always stands for `kind`. A label alone on a heading stands for `kind` when it names a kind of section and for `lang` otherwise, as the chapter "The leaf tokens" describes. A heading's kinds are the core's own, so the tokeniser judges the value of a heading's `kind` key, but it never judges a label that stands for `lang` as a kind.
 
 =>
 
@@ -1328,15 +1330,29 @@ type BraceRules = {
   readonly on: BracesOn
   readonly keys: ReadonlyArray<string>
   readonly kinds: Option.Option<ReadonlyArray<string>>
+  readonly labelKey: (label: string) => string
 }
 
 const anchorBraces: BraceRules = {
   on: 'anchor',
   keys: anchorKeys,
   kinds: Option.some(anchorKinds),
+  labelKey: () => 'kind',
 }
 
-const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: Option.none() }
+const boxBraces: BraceRules = {
+  on: 'box',
+  keys: boxKeys,
+  kinds: Option.none(),
+  labelKey: () => 'kind',
+}
+
+const headingBraces: BraceRules = {
+  on: 'heading',
+  keys: headingKeys,
+  kinds: Option.some(sectionKinds),
+  labelKey: (label) => (isKindIn(sectionKinds)(label) ? 'kind' : 'lang'),
+}
 
 type BraceItem =
   | { readonly type: 'word'; readonly word: Span }
@@ -1507,7 +1523,7 @@ const parameterAt = (text: string, at: number): Option.Option<BraceItem> =>
 
 ~
 
-Braces whose items are all words hold a label, which `specifierOf` builds through `constructSpecifier`, as a heading's label is built. A label names the kind of its bearer, so `kindChecked` faults a label that is none of the rules' kinds with `UnknownKind`, when the rules hold kinds. `unknownTo` gives the kinds a label is none of, and `isKindIn` compares in any case of letters. Without the fault, braces such as `{x}` on an anchor would leave the tangle without a word. Braces with a parameter among their items hold `Parameters`, which `parametersOf` builds and judges. `parameterToken` judges each parameter. A key written a second time is a `RepeatedKey` fault, and a key the bearer does not take is an `UnknownKey` fault, each on the key itself. A `kind` whose value is none of the kinds is an `UnknownKind` fault on its value. A run of words beside the parameters is a `LabelBesideParameter` fault, whose fix writes the label in full, and `labelFaults` finds each run. `Array.groupWith` gathers consecutive items of one type, so words that a parameter separates form two runs.
+Braces whose items are all words hold a label, which `specifierOf` builds through `constructSpecifier`. Where a label stands for the `kind` key, `kindChecked` faults a label that is none of the rules' kinds with `UnknownKind`, when the rules hold kinds. `unknownTo` gives the kinds a label is none of, and `isKindIn` compares in any case of letters. Without the fault, braces such as `{x}` on an anchor would leave the tangle without a word. On a heading, `{x}` names the language `x`, and no fault is due. Braces with a parameter among their items hold `Parameters`, which `parametersOf` builds and judges. `parameterToken` judges each parameter. A key written a second time is a `RepeatedKey` fault, and a key the bearer does not take is an `UnknownKey` fault, each on the key itself. A `kind` whose value is none of the kinds is an `UnknownKind` fault on its value. A run of words beside the parameters is a `LabelBesideParameter` fault, whose fix writes the label in full under the key `labelKey` gives it, and `labelFaults` finds each run. `Array.groupWith` gathers consecutive items of one type, so words that a parameter separates form two runs.
 
 =>
 
@@ -1537,7 +1553,9 @@ const kindChecked =
     Option.match(
       Option.filter(
         unknownTo(rules, specifier.label.value),
-        () => specifier.label.health.status === 'ok',
+        () =>
+          rules.labelKey(specifier.label.value) === 'kind' &&
+          specifier.label.health.status === 'ok',
       ),
       {
         onNone: () => specifier,
@@ -1571,7 +1589,7 @@ const parametersOf = (
   const parameters = Array.map(written, (parameter, index) =>
     parameterToken(parameter, Array.take(written, index), lineText, at, rules),
   )
-  const labels = labelFaults(items, at)
+  const labels = labelFaults(items, at, rules)
   const position = span(
     linePosition.start.line,
     open.position.start.offset,
@@ -1655,6 +1673,7 @@ const parameterToken = (
 const labelFaults = (
   items: ReadonlyArray<BraceItem>,
   at: (piece: Span) => Position,
+  rules: BraceRules,
 ): ReadonlyArray<Health> =>
   Array.match(items, {
     onEmpty: (): ReadonlyArray<Health> => [],
@@ -1665,20 +1684,18 @@ const labelFaults = (
         Array.flatMap((run) =>
           Array.match(run, {
             onEmpty: (): ReadonlyArray<Health> => [],
-            onNonEmpty: (words) => [
-              faulty(
-                LabelBesideParameter({
-                  label: Array.join(
-                    words.map((word) => word.value),
-                    ' ',
-                  ),
-                }),
-                {
+            onNonEmpty: (words) => {
+              const label = Array.join(
+                words.map((word) => word.value),
+                ' ',
+              )
+              return [
+                faulty(LabelBesideParameter({ label, key: rules.labelKey(label) }), {
                   start: at(Array.headNonEmpty(words)).start,
                   end: at(Array.lastNonEmpty(words)).end,
-                },
-              ),
-            ],
+                }),
+              ]
+            },
           }),
         ),
       ),
@@ -1915,26 +1932,56 @@ const headingTitle = (
 
 ## Scanning a heading
 
-`scanHeading` builds a heading's subnodes — the language specifier, the sink, and the title — from one line, recording the spans they consume so the title knows where to stop.
+`scanHeading` builds a heading's subnodes, the specifier, the sink, and the title, from one line. It records the spans they consume, so the title knows where to stop.
+
+A heading's specifier opens at the first brace on its line. `headingSpecifier` reads it through `bracesAt` by the rules of a heading, so a heading holds a label or parameters, as an anchor and a box do. Every brace outside the span that `bracesAt` reads stays an unexpected token, which `strayBraces` finds, so `## Greeting {Bash} {Tangle}` faults its second pair of braces. A brace that no closing brace follows reads as a label through `constructSpecifier`, whose missing close reports `expected closing` once.
 
 =>
 
 type HeadingTokens = {
-  readonly specifier: Option.Option<SpecifierToken>
+  readonly specifier: Option.Option<Braces>
   readonly sink: Option.Option<SinkToken>
   readonly title: Option.Option<HeadingTitleToken>
   readonly unexpected: ReadonlyArray<UnexpectedToken>
 }
 
+const strayBraces = (
+  braces: ReadonlyArray<Positioned>,
+  from: number,
+  to: number,
+): ReadonlyArray<UnexpectedToken> =>
+  pipe(
+    braces,
+    Array.filter(
+      (brace) => brace.position.start.offset < from || brace.position.start.offset >= to,
+    ),
+    Array.map(toUnexpected),
+  )
+
+const headingSpecifier = (lineText: string, position: Position): Construction<Braces> => {
+  const opens = scanSpecifierOpen(lineText, position)
+  const closes = scanSpecifierClose(lineText, position)
+  return pipe(
+    Array.head(opens),
+    Option.flatMap((open) =>
+      Option.map(
+        bracesAt(open.position.start.offset, lineText, position, headingBraces),
+        ({ specifier, end }): Construction<Braces> => ({
+          token: Option.some(specifier),
+          unexpected: strayBraces([...opens, ...closes], open.position.start.offset, end),
+        }),
+      ),
+    ),
+    Option.getOrElse((): Construction<Braces> =>
+      constructSpecifier(opens, closes, lineText, position),
+    ),
+  )
+}
+
 const scanHeading = (text: string, position: Position, headingStartEnd: number): HeadingTokens => {
   const lineText = text.slice(position.start.offset, position.end.offset)
 
-  const specResult = constructSpecifier(
-    scanSpecifierOpen(lineText, position),
-    scanSpecifierClose(lineText, position),
-    lineText,
-    position,
-  )
+  const specResult = headingSpecifier(lineText, position)
   const sinkResult = constructSink(
     scanSinkOpen(lineText, position),
     scanSinkClose(lineText, position),
@@ -2041,6 +2088,8 @@ import {
   ParametersTokenSchema,
   anchorKeys,
   anchorKinds,
+  headingKeys,
+  sectionKinds,
   BoxFenceTokenSchema,
   BoxNameTokenSchema,
   BoxTokenSchema,

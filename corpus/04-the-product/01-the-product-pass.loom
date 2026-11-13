@@ -19,7 +19,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array, option, and record combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, `Data` for the tagged answers a reference gets, `Result` for a step that may stop with one of them, and `pipe` for the spine.
 
-From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body wefts a code run is made of, among them the `ArrowWeft` that opens each run. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
+From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` an anchor's parameters arrive in, each a `ParameterToken`, the `SpecifierToken` and `SinkToken` a heading marks its file with, `headingKind` and `headingLang`, which read the kind and the language a heading names, `tangleKind` and `manifestKind`, two of the kinds a section takes, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body wefts a code run is made of, among them the `ArrowWeft` that opens each run. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
 
 The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, an arrow in a section written in prose raises `CodeInProse`, an arrow in a concept raises `CodeInConcept`, an anchor that reaches a concept raises `ConceptWithoutCode`, and a warp raises `UnknownVariable`.
 
@@ -55,8 +55,12 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  headingKind,
+  headingLang,
+  manifestKind,
   referenceKind,
   settleKind,
+  tangleKind,
   type FenceLabelToken,
   type ParameterToken,
   type ParametersToken,
@@ -190,9 +194,9 @@ A tangle sink resolves its language a fourth way: it carries no specifier, only 
 
 A file with no extension takes its whole name as its language, read from the last path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes `license`, and a `.gitignore`, whose one dot only marks it hidden, composes `gitignore`. A chapter that declares the same language can then anchor into it.
 
-One of the core's own specifiers names no language. A `{Manifest}` section composes as JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes.
+A heading's specifier names the section's language under its `lang` key, or a kind of section under its `kind` key, as the chapter "The leaf tokens" describes. A kind implies a language of its own. A `Tangle` section composes the language of the file it writes, and a `Manifest` section composes JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes. Any other kind composes the language named after it, so a `Concept` section composes `concept`. `kindLanguage` gives the language a kind implies.
 
-`sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled.
+`sectionLanguage` resolves any section's language by these rules, in order: the specifier's `lang`, the language the specifier's kind implies, a sink's extension, and the document default. `unmarkedLanguage` gives the last two. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled.
 
 =>
 
@@ -204,32 +208,48 @@ type NameEntry = {
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const specifierLanguage = (
-  label: string,
+const kindLanguage = (
+  kind: string,
   sink: Option.Option<SinkToken>,
   defaultLang: string,
   pkg: Option.Option<string>,
-): string => {
-  const id = label.toLowerCase()
-  if (id === 'tangle')
-    return Option.match(pkg, {
-      onNone: () => defaultLang,
-      onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
-    })
-  if (id === 'manifest') return 'json'
-  return id
-}
+): string =>
+  Match.value(kind).pipe(
+    Match.when(tangleKind, () =>
+      Option.match(pkg, {
+        onNone: () => defaultLang,
+        onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+      }),
+    ),
+    Match.when(manifestKind, () => 'json'),
+    Match.orElse((other) => other.toLowerCase()),
+  )
+
+const unmarkedLanguage = (sink: Option.Option<SinkToken>, defaultLang: string): string =>
+  Option.match(sink, {
+    onNone: () => defaultLang,
+    onSome: (written) => extensionLanguage(written.file.value),
+  })
 
 export const sectionLanguage = (
   section: LoomSection,
   defaultLang: string,
   pkg: Option.Option<string>,
 ): string => {
-  const { specifier, sink } = section.heading
-  if (specifier !== undefined)
-    return specifierLanguage(specifier.label.value, Option.fromNullishOr(sink), defaultLang, pkg)
-  if (sink === undefined) return defaultLang
-  return extensionLanguage(sink.file.value)
+  const sink = Option.fromNullishOr(section.heading.sink)
+  return pipe(
+    Option.fromNullishOr(section.heading.specifier),
+    Option.flatMap((specifier) =>
+      Option.orElse(
+        Option.map(headingLang(specifier), (lang) => lang.toLowerCase()),
+        () =>
+          Option.map(headingKind(specifier), (kind) =>
+            kindLanguage(kind, sink, defaultLang, pkg),
+          ),
+      ),
+    ),
+    Option.getOrElse(() => unmarkedLanguage(sink, defaultLang)),
+  )
 }
 
 const nameIndex = (
@@ -429,8 +449,8 @@ const filePath = (
 const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
   Option.filter(pkg, (p) => !p.endsWith('/'))
 
-const isTangle = (specifier: SpecifierToken): boolean =>
-  specifier.label.value.toLowerCase() === 'tangle'
+const isTangle = (specifier: SpecifierToken | ParametersToken): boolean =>
+  Option.exists(headingKind(specifier), (kind) => kind === tangleKind)
 
 const tangleFile = (
   section: LoomSection,
@@ -458,7 +478,7 @@ A `{Tangle}` with no sink means the chapter's one file. When the `Package` names
 
 A discussion writes no file, as the chapter "Discussions" describes, so the section of a discussion writes nothing whatever its heading says, and `fileInDiscussion` gives a sink or a `{Tangle}` on its heading the `FileInDiscussion` fault. `isDiscussion` tells a discussion by the number its identity line gives it.
 
-`removalOf` gives the span the fix removes: the specifier and the spaces that part it from the sink, so the heading keeps no doubled space.
+`removalOf` gives the span the fix removes: the specifier and the spaces that part it from the sink, so the heading keeps no doubled space. A specifier that holds other parameters beside its `kind`, as `{kind=Tangle lang=sh}` does, keeps them, and the fix removes the `kind` parameter alone, through `parameterSpanOf`.
 
 =>
 
@@ -499,10 +519,25 @@ const fileInDiscussion = (section: LoomSection): Health =>
     },
   )
 
-const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
-  specifier.position.start.offset < sink.position.start.offset
-    ? between(specifier.position.start, sink.position.start)
-    : between(sink.position.end, specifier.position.end)
+const removalOf = (specifier: SpecifierToken | ParametersToken, sink: SinkToken): Position =>
+  Option.getOrElse(kindParameterSpan(specifier), () =>
+    specifier.position.start.offset < sink.position.start.offset
+      ? between(specifier.position.start, sink.position.start)
+      : between(sink.position.end, specifier.position.end),
+  )
+
+const kindParameterSpan = (specifier: SpecifierToken | ParametersToken): Option.Option<Position> =>
+  Match.value(specifier).pipe(
+    Match.when({ type: 'Specifier' }, () => Option.none<Position>()),
+    Match.when({ type: 'Parameters' }, (held) =>
+      pipe(
+        Array.findFirstWithIndex(held.parameters, (parameter) => parameter.key.value === 'kind'),
+        Option.filter(() => held.parameters.length > 1),
+        Option.map(([own, index]) => parameterSpanOf(held, own, index)),
+      ),
+    ),
+    Match.exhaustive,
+  )
 
 ~
 
@@ -510,8 +545,8 @@ A trope's root declares the trope's contract in a section of the `Manifest` kind
 
 =>
 
-export const isManifest = (specifier: SpecifierToken): boolean =>
-  specifier.label.value.toLowerCase() === 'manifest'
+export const isManifest = (specifier: SpecifierToken | ParametersToken): boolean =>
+  Option.exists(headingKind(specifier), (kind) => kind === manifestKind)
 
 const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 
@@ -527,7 +562,7 @@ A section written in prose holds words for a reader and no code. A section is wr
 
 A Markdown file is no exception, because its section is not written in prose. A sink such as `[README.md]` gives its section the `markdown` language, so the section holds the file's text as code, as any other section holds its own.
 
-A concept holds no code either, as the chapter "Concepts" describes. Its `{Concept}` specifier gives its section the `concept` language, which `isConceptLanguage` tells, and `codeInConcept` gives each arrow in it the `CodeInConcept` fault. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
+A concept holds no code either, as the chapter "Concepts" describes. Its kind, `Concept`, gives its section the `concept` language, as the section "Resolving names" describes. `isConceptLanguage` tells that language, and `codeInConcept` gives each arrow in it the `CodeInConcept` fault. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
 
 =>
 

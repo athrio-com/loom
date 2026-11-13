@@ -26,8 +26,12 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  headingKind,
+  headingLang,
+  manifestKind,
   referenceKind,
   settleKind,
+  tangleKind,
   type FenceLabelToken,
   type ParameterToken,
   type ParametersToken,
@@ -149,32 +153,48 @@ type NameEntry = {
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const specifierLanguage = (
-  label: string,
+const kindLanguage = (
+  kind: string,
   sink: Option.Option<SinkToken>,
   defaultLang: string,
   pkg: Option.Option<string>,
-): string => {
-  const id = label.toLowerCase()
-  if (id === 'tangle')
-    return Option.match(pkg, {
-      onNone: () => defaultLang,
-      onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
-    })
-  if (id === 'manifest') return 'json'
-  return id
-}
+): string =>
+  Match.value(kind).pipe(
+    Match.when(tangleKind, () =>
+      Option.match(pkg, {
+        onNone: () => defaultLang,
+        onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+      }),
+    ),
+    Match.when(manifestKind, () => 'json'),
+    Match.orElse((other) => other.toLowerCase()),
+  )
+
+const unmarkedLanguage = (sink: Option.Option<SinkToken>, defaultLang: string): string =>
+  Option.match(sink, {
+    onNone: () => defaultLang,
+    onSome: (written) => extensionLanguage(written.file.value),
+  })
 
 export const sectionLanguage = (
   section: LoomSection,
   defaultLang: string,
   pkg: Option.Option<string>,
 ): string => {
-  const { specifier, sink } = section.heading
-  if (specifier !== undefined)
-    return specifierLanguage(specifier.label.value, Option.fromNullishOr(sink), defaultLang, pkg)
-  if (sink === undefined) return defaultLang
-  return extensionLanguage(sink.file.value)
+  const sink = Option.fromNullishOr(section.heading.sink)
+  return pipe(
+    Option.fromNullishOr(section.heading.specifier),
+    Option.flatMap((specifier) =>
+      Option.orElse(
+        Option.map(headingLang(specifier), (lang) => lang.toLowerCase()),
+        () =>
+          Option.map(headingKind(specifier), (kind) =>
+            kindLanguage(kind, sink, defaultLang, pkg),
+          ),
+      ),
+    ),
+    Option.getOrElse(() => unmarkedLanguage(sink, defaultLang)),
+  )
 }
 
 const nameIndex = (
@@ -348,8 +368,8 @@ const filePath = (
 const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
   Option.filter(pkg, (p) => !p.endsWith('/'))
 
-const isTangle = (specifier: SpecifierToken): boolean =>
-  specifier.label.value.toLowerCase() === 'tangle'
+const isTangle = (specifier: SpecifierToken | ParametersToken): boolean =>
+  Option.exists(headingKind(specifier), (kind) => kind === tangleKind)
 
 const tangleFile = (
   section: LoomSection,
@@ -406,13 +426,28 @@ const fileInDiscussion = (section: LoomSection): Health =>
     },
   )
 
-const removalOf = (specifier: SpecifierToken, sink: SinkToken): Position =>
-  specifier.position.start.offset < sink.position.start.offset
-    ? between(specifier.position.start, sink.position.start)
-    : between(sink.position.end, specifier.position.end)
+const removalOf = (specifier: SpecifierToken | ParametersToken, sink: SinkToken): Position =>
+  Option.getOrElse(kindParameterSpan(specifier), () =>
+    specifier.position.start.offset < sink.position.start.offset
+      ? between(specifier.position.start, sink.position.start)
+      : between(sink.position.end, specifier.position.end),
+  )
 
-export const isManifest = (specifier: SpecifierToken): boolean =>
-  specifier.label.value.toLowerCase() === 'manifest'
+const kindParameterSpan = (specifier: SpecifierToken | ParametersToken): Option.Option<Position> =>
+  Match.value(specifier).pipe(
+    Match.when({ type: 'Specifier' }, () => Option.none<Position>()),
+    Match.when({ type: 'Parameters' }, (held) =>
+      pipe(
+        Array.findFirstWithIndex(held.parameters, (parameter) => parameter.key.value === 'kind'),
+        Option.filter(() => held.parameters.length > 1),
+        Option.map(([own, index]) => parameterSpanOf(held, own, index)),
+      ),
+    ),
+    Match.exhaustive,
+  )
+
+export const isManifest = (specifier: SpecifierToken | ParametersToken): boolean =>
+  Option.exists(headingKind(specifier), (kind) => kind === manifestKind)
 
 const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 

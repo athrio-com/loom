@@ -173,7 +173,7 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
   it('`# Build script {Bash}` carries a language Specifier (not a sink)', () => {
     const build = headingTitled('Build script')
     expect(build?.specifier?.type).toBe('Specifier')
-    expect(build?.specifier?.label.value).toBe('Bash')
+    expect(build?.specifier).toMatchObject({ label: { value: 'Bash' } })
     expect(build?.sink).toBeUndefined()
   })
 
@@ -378,7 +378,10 @@ describe('parseDocument — parse-chain behaviour', () => {
     const doc = buildDocument('# T {L}\n')
     expect(doc.sections).toHaveLength(1)
     expect(doc.sections[0].heading.title?.source).toBe('T')
-    expect(doc.sections[0].heading.specifier?.label.value).toBe('L')
+    expect(doc.sections[0].heading.specifier).toMatchObject({
+      type: 'Specifier',
+      label: { value: 'L' },
+    })
   })
 
   it('a document with no `Language` frontmatter still parses with ok health', () => {
@@ -414,10 +417,11 @@ describe('parseDocument — NOK preservation end-to-end', () => {
 
   it('specifier label with a full stop — bytes preserved in unexpected[], empty value, error health', () => {
     const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Heading {bad.label name}\n')
-    const label = doc.sections[0].heading.specifier!.label
-    expect(label.value).toBe('')
-    expect(label.health.status).toBe('error')
-    expect(label.unexpected?.[0].value).toBe('bad.label name')
+    const specifier = doc.sections[0].heading.specifier
+    const label = specifier?.type === 'Specifier' ? specifier.label : undefined
+    expect(label?.value).toBe('')
+    expect(label?.health.status).toBe('error')
+    expect(label?.unexpected?.[0].value).toBe('bad.label name')
   })
 
   it('unclosed `{` — synthetic SpecifierClose at EOL with `expected closing` diagnostic', () => {

@@ -8,6 +8,9 @@ import { WeftClassifier } from '#ast/WeftClassifier'
 import { normaliseTitle, WeftTokeniser } from '#ast/WeftTokeniser'
 import type { ArrowWeft, HeadingWeft, LoomWeft } from '@athrio/loom-ast/Weft'
 
+const labelOf = (specifier: HeadingWeft['specifier']) =>
+  specifier?.type === 'Specifier' ? specifier.label : undefined
+
 // =============================================================================
 // Harness — drive lines through Classifier → Tokeniser and collect the
 // emitted wefts. Both stages run; the tests assert on the post-Tokeniser
@@ -56,10 +59,10 @@ describe('Tokeniser — scanning + construction (happy paths)', () => {
   it("fills a specifier's open/label/close subnodes from a `{Lang}` source", () => {
     const w = headingAt(tokenise(['# Title {TypeScript}']), 0)
     expect(w.specifier?.open.value).toBe('{')
-    expect(w.specifier?.label.value).toBe('TypeScript')
+    expect(labelOf(w.specifier)?.value).toBe('TypeScript')
     expect(w.specifier?.close.value).toBe('}')
     expect(w.specifier?.open.health).toEqual(okHealth)
-    expect(w.specifier?.label.health).toEqual(okHealth)
+    expect(labelOf(w.specifier)?.health).toEqual(okHealth)
     expect(w.specifier?.close.health).toEqual(okHealth)
   })
 
@@ -78,7 +81,7 @@ describe('Tokeniser — Heading title/specifier filling', () => {
   it('fills the title and specifier when the source provides them', () => {
     const w = headingAt(tokenise(['# Title {TypeScript}']), 0)
     expect(w.title?.source).toBe('Title')
-    expect(w.specifier?.label.value).toBe('TypeScript')
+    expect(labelOf(w.specifier)?.value).toBe('TypeScript')
     expect(w.specifier?.health.status).toBe('ok')
   })
 
@@ -127,14 +130,14 @@ describe('Tokeniser — language specifier vs sink', () => {
   it('`{Bash}` is a language Specifier on `weft.specifier`', () => {
     const w = headingAt(tokenise(['# Build {Bash}']), 0)
     expect(w.specifier?.type).toBe('Specifier')
-    expect(w.specifier?.label.value).toBe('Bash')
+    expect(labelOf(w.specifier)?.value).toBe('Bash')
     expect(w.sink).toBeUndefined()
   })
 
   it('`{Loom}` is a language Specifier on `weft.specifier`', () => {
     const w = headingAt(tokenise(['# Deps {Loom}']), 0)
     expect(w.specifier?.type).toBe('Specifier')
-    expect(w.specifier?.label.value).toBe('Loom')
+    expect(labelOf(w.specifier)?.value).toBe('Loom')
     expect(w.sink).toBeUndefined()
   })
 
@@ -164,7 +167,7 @@ describe('Tokeniser — language specifier vs sink', () => {
   it('a heading may carry both a specifier and a sink', () => {
     const w = headingAt(tokenise(['# Tangle {Bash} [build.sh]']), 0)
     expect(w.specifier?.type).toBe('Specifier')
-    expect(w.specifier?.label.value).toBe('Bash')
+    expect(labelOf(w.specifier)?.value).toBe('Bash')
     expect(w.sink?.type).toBe('Sink')
     expect(w.sink?.file.value).toBe('build.sh')
   })
@@ -210,15 +213,15 @@ describe('Tokeniser — malformed label values', () => {
   it('malformed label Specifier routes the bad text to unexpected', () => {
     const w = headingAt(tokenise(['# Title {bad.lang}']), 0)
     expect(w.specifier?.type).toBe('Specifier')
-    expect(w.specifier?.label.health.status).toBe('error')
-    expect(w.specifier?.label.value).toBe('')
-    expect(w.specifier?.label.unexpected?.[0].value).toBe('bad.lang')
+    expect(labelOf(w.specifier)?.health.status).toBe('error')
+    expect(labelOf(w.specifier)?.value).toBe('')
+    expect(labelOf(w.specifier)?.unexpected?.[0].value).toBe('bad.lang')
   })
 
   it('a label of several words, one space apart, is one label', () => {
     const w = headingAt(tokenise(['# Title {To be settled}']), 0)
-    expect(w.specifier?.label.health.status).toBe('ok')
-    expect(w.specifier?.label.value).toBe('To be settled')
+    expect(labelOf(w.specifier)?.health.status).toBe('ok')
+    expect(labelOf(w.specifier)?.value).toBe('To be settled')
   })
 })
 
@@ -242,7 +245,7 @@ describe('Tokeniser — heading title', () => {
     const w = headingAt(tokenise(['# Title [App.scala] {TypeScript}']), 0)
     expect(w.title?.source).toBe('Title')
     expect(w.sink?.file.value).toBe('App.scala')
-    expect(w.specifier?.label.value).toBe('TypeScript')
+    expect(labelOf(w.specifier)?.value).toBe('TypeScript')
   })
 
   it('has no title when the heading is only the marker and a specifier', () => {

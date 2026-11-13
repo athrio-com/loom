@@ -13,6 +13,7 @@ import {
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
+  ParametersTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,
 } from './LoomTokens'
@@ -21,7 +22,7 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
   title: Schema.optional(HeadingTitleTokenSchema),
-  specifier: Schema.optional(SpecifierTokenSchema),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
   sink: Schema.optional(SinkTokenSchema),
 })
 export type LoomHeading = typeof LoomHeadingSchema.Type

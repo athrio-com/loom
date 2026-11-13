@@ -72,6 +72,13 @@ export const ParametersTokenSchema = loomNode('Parameters', {
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type
 
+export const parameterValue = (specifier: ParametersToken, key: string): Option.Option<string> =>
+  pipe(
+    Array.findFirst(specifier.parameters, (parameter) => parameter.key.value === key),
+    Option.flatMap((parameter) => Array.head(parameter.values)),
+    Option.map((value) => value.value),
+  )
+
 export const settleKind = 'To be settled'
 
 export const referenceKind = 'Reference'
@@ -79,6 +86,41 @@ export const referenceKind = 'Reference'
 export const anchorKinds: ReadonlyArray<string> = [settleKind, referenceKind]
 
 export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
+
+export const tangleKind = 'Tangle'
+
+export const conceptKind = 'Concept'
+
+export const manifestKind = 'Manifest'
+
+export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, manifestKind]
+
+export const headingKeys: ReadonlyArray<string> = ['lang', 'kind']
+
+const sectionKindNamed = (label: string): Option.Option<string> =>
+  Array.findFirst(sectionKinds, (kind) => kind.toLowerCase() === label.toLowerCase())
+
+export const headingKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
+  Match.value(specifier).pipe(
+    Match.when({ type: 'Specifier' }, (labelled) => sectionKindNamed(labelled.label.value)),
+    Match.when({ type: 'Parameters' }, (held) =>
+      Option.map(parameterValue(held, 'kind'), (kind) =>
+        Option.getOrElse(sectionKindNamed(kind), () => kind),
+      ),
+    ),
+    Match.exhaustive,
+  )
+
+export const headingLang = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
+  Match.value(specifier).pipe(
+    Match.when({ type: 'Specifier' }, (labelled) =>
+      Option.filter(Option.some(labelled.label.value), (label) =>
+        Option.isNone(sectionKindNamed(label)),
+      ),
+    ),
+    Match.when({ type: 'Parameters' }, (held) => parameterValue(held, 'lang')),
+    Match.exhaustive,
+  )
 
 export const SinkOpenTokenSchema = loomNode('SinkOpen', {
   value: Schema.Literal('['),
@@ -276,13 +318,7 @@ export const boxKeys: ReadonlyArray<string> = ['kind', 'provides', 'anchors']
 export const specifierKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
   Match.value(specifier).pipe(
     Match.when({ type: 'Specifier' }, (labelled) => Option.some(labelled.label.value)),
-    Match.when({ type: 'Parameters' }, (held) =>
-      pipe(
-        Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
-        Option.flatMap((parameter) => Array.head(parameter.values)),
-        Option.map((value) => value.value),
-      ),
-    ),
+    Match.when({ type: 'Parameters' }, (held) => parameterValue(held, 'kind')),
     Match.exhaustive,
   )
 

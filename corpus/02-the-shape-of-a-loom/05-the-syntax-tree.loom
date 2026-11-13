@@ -10,14 +10,14 @@ Language: TypeScript
 
 ## The heading
 
-A `LoomHeading` is what opens a section. It carries the parts the `HeadingWeft` carried: a `marker`, an optional title, an optional language `specifier`, and an optional `sink`. The marker is a heading's run of `#` marks, or a divider's dashes when a divider opens the section. A division's title is its label, the line of prose directly above the divider, so the heading of a division spans both lines. A bare divider gives a heading with no title. A divider carries no specifier and no sink.
+A `LoomHeading` is what opens a section. It carries the parts the `HeadingWeft` carried: a `marker`, an optional title, an optional `specifier` that names the section's language or kind, and an optional `sink`. The marker is a heading's run of `#` marks, or a divider's dashes when a divider opens the section. A division's title is its label, the line of prose directly above the divider, so the heading of a division spans both lines. A bare divider gives a heading with no title. A divider carries no specifier and no sink.
 
 =>
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
   title: Schema.optional(HeadingTitleTokenSchema),
-  specifier: Schema.optional(SpecifierTokenSchema),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
   sink: Schema.optional(SinkTokenSchema),
 })
 export type LoomHeading = typeof LoomHeadingSchema.Type
@@ -94,6 +94,7 @@ import {
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
+  ParametersTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,
 } from './LoomTokens'

@@ -5,10 +5,12 @@ import {
   type BoxNameToken,
   type BoxToken,
   chapterKind,
+  conceptKind,
   conclusionKind,
   discussionKind,
   type FrontmatterBookToken,
   type FrontmatterEntryToken,
+  headingKind,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,
@@ -888,7 +890,9 @@ export type ConceptRef = {
 }
 
 export const isConceptSection = (section: LoomSection): boolean =>
-  section.heading.specifier?.label.value.toLowerCase() === 'concept'
+  Option.exists(Option.fromNullishOr(section.heading.specifier), (specifier) =>
+    Option.exists(headingKind(specifier), (kind) => kind === conceptKind),
+  )
 
 const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line.source.trim())
 

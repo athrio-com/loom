@@ -324,6 +324,16 @@ describe('a heading marks the file it writes once', () => {
     }),
   )
 
+  it.effect('keeps the other parameters when the fix removes the kind', () =>
+    Effect.gen(function* () {
+      const text = lines('---', 'Language: TypeScript', '---', '', '# Room {kind=Tangle lang=typescript}[room.ts]', '', '=>', '', 'export const r = 1')
+      const found = yield* diagnosed({ '/corpus/room.loom': text }, '/corpus/room.loom')
+      const fault = found.find((one) => one.message.startsWith('The sink `[room.ts]`'))
+      const at = fault!.fixes![0]!.at!
+      expect(text.slice(at.start.offset, at.end.offset)).toBe('kind=Tangle ')
+    }),
+  )
+
   it.effect('faults a {Tangle} whose Package names a folder', () =>
     Effect.gen(function* () {
       const text = lines('---', 'Language: TypeScript', 'Package: out/', '---', '', '# Room {Tangle}', '', '=>', '', 'export const r = 1')

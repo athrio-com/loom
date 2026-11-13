@@ -11,7 +11,7 @@ export type Sibling = 'section' | 'chapter' | 'book'
 
 export type Declaration = { readonly at: Position; readonly text: string }
 
-export type BracesOn = 'anchor' | 'box'
+export type BracesOn = 'anchor' | 'box' | 'heading'
 
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
@@ -47,7 +47,7 @@ export type LoomFault = Data.TaggedEnum<{
   FenceLabelAgainstLanguage: { readonly label: string; readonly language: string }
   StrayFragment: { readonly value: string }
   RepeatedKey: { readonly key: string }
-  LabelBesideParameter: { readonly label: string }
+  LabelBesideParameter: { readonly label: string; readonly key: string }
   UnknownKey: { readonly key: string; readonly keys: ReadonlyArray<string>; readonly on: BracesOn }
   UnknownKind: {
     readonly kind: string
@@ -209,7 +209,11 @@ const rule: Record<MalformedConstruct, string> = {
   anchorName: 'may not contain `]`',
 }
 
-const bearer: Record<BracesOn, string> = { anchor: 'an anchor', box: 'a box' }
+const bearer: Record<BracesOn, string> = {
+  anchor: 'an anchor',
+  box: 'a box',
+  heading: 'a heading',
+}
 
 const exampleName: Record<PointingKind, string> = {
   Chapter: 'Rooms',
@@ -328,9 +332,9 @@ export const describe = (fault: LoomFault): Note =>
     StrayFragment: ({ value }) =>
       error(`This line has no place for \`${value}\`, so Loom would ignore it. Remove it.`),
     RepeatedKey: ({ key }) => error(`\`${key}\` is written twice in these braces. Keep one.`),
-    LabelBesideParameter: ({ label }) =>
+    LabelBesideParameter: ({ label, key }) =>
       error(
-        `A label stands alone only in braces that hold nothing else. Write it in full here, as \`kind="${label}"\`.`,
+        `A label stands alone only in braces that hold nothing else. Write it in full here, as \`${key}="${label}"\`.`,
       ),
     UnknownKey: ({ key, keys, on }) =>
       error(`${cap(bearer[on])} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
@@ -520,8 +524,8 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     Match.tag('SettledLabel', ({ label }): ReadonlyArray<Fix> => [
       { title: 'Remove the `{To be settled}` label', text: '', at: label },
     ]),
-    Match.tag('LabelBesideParameter', ({ label }): ReadonlyArray<Fix> => [
-      { title: `Write \`${label}\` in full`, text: `kind="${label}"` },
+    Match.tag('LabelBesideParameter', ({ label, key }): ReadonlyArray<Fix> => [
+      { title: `Write \`${label}\` in full`, text: `${key}="${label}"` },
     ]),
     Match.tag('StrayTarget', ({ target, at }): ReadonlyArray<Fix> => [
       { title: `Remove \`${target}\``, text: '', at },

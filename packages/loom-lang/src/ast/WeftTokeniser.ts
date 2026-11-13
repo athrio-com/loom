@@ -34,6 +34,8 @@ import {
   ParametersTokenSchema,
   anchorKeys,
   anchorKinds,
+  headingKeys,
+  sectionKinds,
   BoxFenceTokenSchema,
   BoxNameTokenSchema,
   BoxTokenSchema,
@@ -1337,15 +1339,29 @@ type BraceRules = {
   readonly on: BracesOn
   readonly keys: ReadonlyArray<string>
   readonly kinds: Option.Option<ReadonlyArray<string>>
+  readonly labelKey: (label: string) => string
 }
 
 const anchorBraces: BraceRules = {
   on: 'anchor',
   keys: anchorKeys,
   kinds: Option.some(anchorKinds),
+  labelKey: () => 'kind',
 }
 
-const boxBraces: BraceRules = { on: 'box', keys: boxKeys, kinds: Option.none() }
+const boxBraces: BraceRules = {
+  on: 'box',
+  keys: boxKeys,
+  kinds: Option.none(),
+  labelKey: () => 'kind',
+}
+
+const headingBraces: BraceRules = {
+  on: 'heading',
+  keys: headingKeys,
+  kinds: Option.some(sectionKinds),
+  labelKey: (label) => (isKindIn(sectionKinds)(label) ? 'kind' : 'lang'),
+}
 
 type BraceItem =
   | { readonly type: 'word'; readonly word: Span }
@@ -1534,7 +1550,9 @@ const kindChecked =
     Option.match(
       Option.filter(
         unknownTo(rules, specifier.label.value),
-        () => specifier.label.health.status === 'ok',
+        () =>
+          rules.labelKey(specifier.label.value) === 'kind' &&
+          specifier.label.health.status === 'ok',
       ),
       {
         onNone: () => specifier,
@@ -1568,7 +1586,7 @@ const parametersOf = (
   const parameters = Array.map(written, (parameter, index) =>
     parameterToken(parameter, Array.take(written, index), lineText, at, rules),
   )
-  const labels = labelFaults(items, at)
+  const labels = labelFaults(items, at, rules)
   const position = span(
     linePosition.start.line,
     open.position.start.offset,
@@ -1652,6 +1670,7 @@ const parameterToken = (
 const labelFaults = (
   items: ReadonlyArray<BraceItem>,
   at: (piece: Span) => Position,
+  rules: BraceRules,
 ): ReadonlyArray<Health> =>
   Array.match(items, {
     onEmpty: (): ReadonlyArray<Health> => [],
@@ -1662,20 +1681,18 @@ const labelFaults = (
         Array.flatMap((run) =>
           Array.match(run, {
             onEmpty: (): ReadonlyArray<Health> => [],
-            onNonEmpty: (words) => [
-              faulty(
-                LabelBesideParameter({
-                  label: Array.join(
-                    words.map((word) => word.value),
-                    ' ',
-                  ),
-                }),
-                {
+            onNonEmpty: (words) => {
+              const label = Array.join(
+                words.map((word) => word.value),
+                ' ',
+              )
+              return [
+                faulty(LabelBesideParameter({ label, key: rules.labelKey(label) }), {
                   start: at(Array.headNonEmpty(words)).start,
                   end: at(Array.lastNonEmpty(words)).end,
-                },
-              ),
-            ],
+                }),
+              ]
+            },
           }),
         ),
       ),
@@ -1885,21 +1902,49 @@ const headingTitle = (
 }
 
 type HeadingTokens = {
-  readonly specifier: Option.Option<SpecifierToken>
+  readonly specifier: Option.Option<Braces>
   readonly sink: Option.Option<SinkToken>
   readonly title: Option.Option<HeadingTitleToken>
   readonly unexpected: ReadonlyArray<UnexpectedToken>
 }
 
+const strayBraces = (
+  braces: ReadonlyArray<Positioned>,
+  from: number,
+  to: number,
+): ReadonlyArray<UnexpectedToken> =>
+  pipe(
+    braces,
+    Array.filter(
+      (brace) => brace.position.start.offset < from || brace.position.start.offset >= to,
+    ),
+    Array.map(toUnexpected),
+  )
+
+const headingSpecifier = (lineText: string, position: Position): Construction<Braces> => {
+  const opens = scanSpecifierOpen(lineText, position)
+  const closes = scanSpecifierClose(lineText, position)
+  return pipe(
+    Array.head(opens),
+    Option.flatMap((open) =>
+      Option.map(
+        bracesAt(open.position.start.offset, lineText, position, headingBraces),
+        ({ specifier, end }): Construction<Braces> => ({
+          token: Option.some(specifier),
+          unexpected: strayBraces([...opens, ...closes], open.position.start.offset, end),
+        }),
+      ),
+    ),
+    Option.getOrElse((): Construction<Braces> =>
+      constructSpecifier(opens, closes, lineText, position),
+    ),
+  )
+}
+
 const scanHeading = (text: string, position: Position, headingStartEnd: number): HeadingTokens => {
   const lineText = text.slice(position.start.offset, position.end.offset)
 
-  const specResult = constructSpecifier(
-    scanSpecifierOpen(lineText, position),
-    scanSpecifierClose(lineText, position),
-    lineText,
-    position,
-  )
+  const specResult = headingSpecifier(lineText, position)
   const sinkResult = constructSink(
     scanSinkOpen(lineText, position),
     scanSinkClose(lineText, position),

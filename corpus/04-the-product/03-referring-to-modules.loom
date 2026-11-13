@@ -547,7 +547,7 @@ describe('a reference waits for a module nobody has written', () => {
 
 ~
 
-A heading marks its file once. `{Tangle}` beside a sink says twice that the section writes a file, and the fault's fix removes the specifier, so the heading keeps the sink alone. `{Tangle}` under a `Package` that names a folder has no file to mean.
+A heading marks its file once. `{Tangle}` beside a sink says twice that the section writes a file, and the fault's fix removes the specifier, so the heading keeps the sink alone. Braces that hold other parameters beside the kind keep them, and the fix removes the `kind` alone. `{Tangle}` under a `Package` that names a folder has no file to mean.
 
 =>
 
@@ -561,6 +561,16 @@ describe('a heading marks the file it writes once', () => {
       )
       const at = fault!.fixes![0]!.at!
       expect(text.slice(at.start.offset, at.end.offset)).toBe('{Tangle}')
+    }),
+  )
+
+  it.effect('keeps the other parameters when the fix removes the kind', () =>
+    Effect.gen(function* () {
+      const text = lines('---', 'Language: TypeScript', '---', '', '# Room {kind=Tangle lang=typescript}[room.ts]', '', '=>', '', 'export const r = 1')
+      const found = yield* diagnosed({ '/corpus/room.loom': text }, '/corpus/room.loom')
+      const fault = found.find((one) => one.message.startsWith('The sink `[room.ts]`'))
+      const at = fault!.fixes![0]!.at!
+      expect(text.slice(at.start.offset, at.end.offset)).toBe('kind=Tangle ')
     }),
   )
 

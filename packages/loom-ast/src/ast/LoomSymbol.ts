@@ -7,7 +7,12 @@ import {
   type LoomSection,
 } from '#ast/LoomAst'
 import { boxOf, type LoomWeft, type SectionBodyWeft } from '#ast/Weft'
-import { type WarpAnchorToken, type WarpToken } from '#ast/LoomTokens'
+import {
+  type ParametersToken,
+  type SpecifierToken,
+  type WarpAnchorToken,
+  type WarpToken,
+} from '#ast/LoomTokens'
 
 export const SymbolKindSchema = Schema.Literals([
   'headingTitle',
@@ -146,14 +151,24 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterBook', fm.book),
 ]
 
+const specifierSymbols = (specifier: SpecifierToken | ParametersToken): ReadonlyArray<Symbol> =>
+  Match.value(specifier).pipe(
+    Match.when({ type: 'Specifier' }, (labelled) => [at('specifier', labelled.label.position)]),
+    Match.when({ type: 'Parameters' }, (held) =>
+      Array.map(held.parameters, (parameter) => at('specifier', parameter.position)),
+    ),
+    Match.exhaustive,
+  )
+
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...(heading.marker.type === 'Divider' ? [at('divider', heading.marker.position)] : []),
   ...Option.toArray(
     Option.map(Option.fromNullishOr(heading.title), (t) => at('headingTitle', t.position)),
   ),
-  ...Option.toArray(
-    Option.map(Option.fromNullishOr(heading.specifier), (s) => at('specifier', s.label.position)),
-  ),
+  ...Option.match(Option.fromNullishOr(heading.specifier), {
+    onNone: (): ReadonlyArray<Symbol> => [],
+    onSome: specifierSymbols,
+  }),
   ...Option.toArray(Option.map(Option.fromNullishOr(heading.sink), (s) => at('sink', s.position))),
 ]
 

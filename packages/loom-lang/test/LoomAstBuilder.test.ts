@@ -316,7 +316,7 @@ describe('LoomAstBuilder — flat sections', () => {
     const doc = buildAst([mkHeading(1, 'MySection', 'Scala')])
     const [section] = doc.sections
     expect(section.heading.title?.source).toBe('MySection')
-    expect(section.heading.specifier?.label.value).toBe('Scala')
+    expect(section.heading.specifier).toMatchObject({ type: 'Specifier', label: { value: 'Scala' } })
   })
 
   it('a second heading closes the first section and opens a new flat section', () => {

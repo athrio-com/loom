@@ -10,14 +10,14 @@ Language: TypeScript
 
 ## The heading weft
 
-A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` and the `sink` are optional too: the specifier is the language label `{Lang}`, the sink is the bracketed file `[file]`, and a heading may carry either, both, or neither. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
+A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the heading's level, and its optional `title` is the trimmed text after the marker, which names the section once normalised to an identifier. The `specifier` and the `sink` are optional too. The specifier is the pair of braces after the title, holding a label such as `{Bash}` or parameters such as `{kind=Tangle}`, and the sink is a file in square brackets, such as `[main.ts]`. A heading may carry either, both, or neither. The classifier emits the weft with placeholders for the subtokens it has not recognised, and the tokeniser settles them.
 
 =>
 
 export const HeadingWeftSchema = loomNode('HeadingWeft', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  specifier: Schema.optional(SpecifierTokenSchema),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
   sink: Schema.optional(SinkTokenSchema),
 })
 export type HeadingWeft = typeof HeadingWeftSchema.Type
@@ -201,6 +201,7 @@ import {
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
+  ParametersTokenSchema,
   ProseTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,

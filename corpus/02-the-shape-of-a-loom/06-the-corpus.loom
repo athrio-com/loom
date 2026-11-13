@@ -991,7 +991,7 @@ const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<Corp
 
 A concept is a section that defines one idea, and its heading carries the `{Concept}` specifier, as the chapter "Concepts" describes. Its heading is the concept's preferred form. Its first paragraph is its definition, the words a reader sees wherever a link names it. A `Lexical forms:` line, and the list of words under it, give the other forms the prose writes for the idea, such as a plural or a possessive. Each form is a name of the concept, and each one finds it.
 
-A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by its specifier, whatever its case, as the product pass reads a specifier's language. `conceptsOf` reads every concept of a loom.
+A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by the kind its heading names, written `{Concept}` or `{kind=Concept}` in any case of letters, as the chapter "The leaf tokens" describes. `conceptsOf` reads every concept of a loom.
 
 `definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. The definition is read as plain words, for an editor's card or a link's title, so `plainSource` writes each link in a line as the name it gives, without the anchor's marks. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line. `formLinesOf` gives that line together with its items. Those lines name the concept rather than use it, so the editor's reading of plain prose passes over them.
 
@@ -1008,7 +1008,9 @@ export type ConceptRef = {
 }
 
 export const isConceptSection = (section: LoomSection): boolean =>
-  section.heading.specifier?.label.value.toLowerCase() === 'concept'
+  Option.exists(Option.fromNullishOr(section.heading.specifier), (specifier) =>
+    Option.exists(headingKind(specifier), (kind) => kind === conceptKind),
+  )
 
 const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line.source.trim())
 
@@ -3066,7 +3068,7 @@ export const unopenedBookOf = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. `headingKind` reads the kind a heading names, and `conceptKind` tells a concept's section. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
 
 =>
 
@@ -3077,10 +3079,12 @@ import {
   type BoxNameToken,
   type BoxToken,
   chapterKind,
+  conceptKind,
   conclusionKind,
   discussionKind,
   type FrontmatterBookToken,
   type FrontmatterEntryToken,
+  headingKind,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,
