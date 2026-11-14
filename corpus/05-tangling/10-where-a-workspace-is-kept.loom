@@ -18,11 +18,13 @@ The parsed tree is derived. The `LoomCorpusAstBuilder` service builds it from th
 
 ## What a source must answer
 
-The `WorkspaceSource` service is how Loom reaches a workspace. It names each loom by a location, a string that identifies the loom and means nothing to the compiler. It answers two questions that may take time, and five that may not.
+The `WorkspaceSource` service is how Loom reaches a workspace. It names each loom by a location, a string that identifies the loom and means nothing to the compiler. It answers two questions that may take time and five that may not, and it keeps the relations of a workspace.
 
-The first two fetch text. The `open` method hands over a whole `Workspace` value, which holds the settings and the text of every loom. The `read` method hands over one loom's text again after that loom changes. Both may wait on a network, and both fail with the existing `ReadError`.
+The first two fetch text. The `open` method hands over a whole `Workspace` value, which holds the settings, the text of every loom, and the relations kept for them. The `read` method hands over one loom's text again after that loom changes. Both may wait on a network, and both fail with the existing `ReadError`.
 
 The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink of a loom lands, the path the compiler records for the file the sink names. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
+
+Two more methods keep what a workspace holds of its relations, the names of each relation an author approved and the fingerprint approved for it, as the chapter "Fingerprints on relations" describes. The `keptRelationsOf` method hands over what is kept for the workspace a loom belongs to, and gives nothing when the workspace keeps nothing. The `keepRelations` method keeps what it is handed in place of what was kept before. It fails with `RelationsNotKept` when the workspace cannot take them.
 
 A `Location` is a string, the type the corpus model names a loom by, as the chapter "The multi-file AST" describes.
 
@@ -32,6 +34,18 @@ export interface Workspace {
   readonly location: Location
   readonly manifest: Option.Option<WorkspaceManifest>
   readonly looms: ReadonlyMap<Location, string>
+  readonly relations: ReadonlyArray<KeptRelation>
+}
+
+export class RelationsNotKept extends Data.TaggedError('RelationsNotKept')<{
+  readonly workspace: Location
+  readonly cause: unknown
+}> {
+  get message(): string {
+    return `Cannot keep relations for ${this.workspace}: ${
+      this.cause instanceof Error ? this.cause.message : String(this.cause)
+    }`
+  }
 }
 
 export interface WorkspaceSourceApi {
@@ -42,6 +56,11 @@ export interface WorkspaceSourceApi {
   readonly placeOf: (loom: Location, sink: string) => Effect.Effect<Location>
   readonly locationOf: (uri: URI) => Location
   readonly uriOf: (loom: Location) => URI
+  readonly keptRelationsOf: (loom: Location) => Effect.Effect<ReadonlyArray<KeptRelation>>
+  readonly keepRelations: (
+    loom: Location,
+    relations: ReadonlyArray<KeptRelation>,
+  ) => Effect.Effect<void, RelationsNotKept>
 }
 
 ~
@@ -150,8 +169,17 @@ export const FileSystemSource = Layer.effect(
         const looms = yield* Effect.forEach(paths, (loom) =>
           fromDisk(loom).pipe(Effect.map((text) => [loom, text] as const)),
         )
-        return { location: workspace, manifest, looms: new Map(looms) }
+        return {
+          location: workspace,
+          manifest,
+          looms: new Map(looms),
+          relations: yield* relationsIn(workspace),
+        }
       })
+    const workspaceOf = (location: Location): Location =>
+      Option.getOrElse(Option.fromNullishOr(findWorkspace(folderOf(location))), () =>
+        folderOf(location),
+      )
     const source: WorkspaceSourceApi = {
       open,
       read: fromDisk,
@@ -159,11 +187,7 @@ export const FileSystemSource = Layer.effect(
         config
           .resolve(loom)
           .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
-      workspaceOf: (location) =>
-        Option.getOrElse(
-          Option.fromNullishOr(findWorkspace(folderOf(location))),
-          () => folderOf(location),
-        ),
+      workspaceOf,
       placeOf: (loom, sink) =>
         config
           .resolve(loom)
@@ -174,10 +198,63 @@ export const FileSystemSource = Layer.effect(
           ),
       locationOf: locationOfUri,
       uriOf: uriOfLocation,
+      keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
+      keepRelations: (loom, relations) => keepIn(workspaceOf(loom), relations),
     }
     return source
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
+
+## The relations a folder keeps
+
+A folder keeps its relations in the file `.loom/relations.lock`, apart from the `loom.lock` file that a tangle rewrites on every run. The file is JSON. It holds a version and the relations, one to a line, so two authors who approve different looms change different lines.
+
+A relation in the file names its loom by the loom's path within the workspace, so the file means the same on every machine. `relationsIn` reads the file and gives each relation its loom's full path. It gives no relations when the folder has no such file, or when the file does not read as relations. `keepIn` writes the file through `relationsText`, and it makes the `.loom` folder when the workspace has none.
+
+=>
+
+const RelationsFile = Schema.Struct({
+  version: Schema.Number,
+  relations: Schema.Array(KeptRelationSchema),
+})
+
+const relationsPath = (workspace: Location): Path => join(workspace, '.loom', 'relations.lock')
+
+const relationsIn = (workspace: Location): Effect.Effect<ReadonlyArray<KeptRelation>> =>
+  fromDisk(relationsPath(workspace)).pipe(
+    Effect.flatMap((text) =>
+      Effect.try({ try: () => JSON.parse(text) as unknown, catch: (cause) => cause }),
+    ),
+    Effect.flatMap(Schema.decodeUnknownEffect(RelationsFile)),
+    Effect.map((file) =>
+      Array.map(file.relations, (relation) => ({
+        ...relation,
+        loom: join(workspace, relation.loom),
+      })),
+    ),
+    Effect.orElseSucceed((): ReadonlyArray<KeptRelation> => []),
+  )
+
+const relationsText = (workspace: Location, relations: ReadonlyArray<KeptRelation>): string => {
+  const rows = Array.map(
+    relations,
+    (relation) =>
+      `    ${JSON.stringify({ ...relation, loom: relative(workspace, relation.loom) })}`,
+  )
+  return `{\n  "version": 1,\n  "relations": [\n${Array.join(rows, ',\n')}\n  ]\n}\n`
+}
+
+const keepIn = (
+  workspace: Location,
+  relations: ReadonlyArray<KeptRelation>,
+): Effect.Effect<void, RelationsNotKept> =>
+  Effect.try({
+    try: () => {
+      mkdirSync(join(workspace, '.loom'), { recursive: true })
+      writeFileSync(relationsPath(workspace), relationsText(workspace, relations))
+    },
+    catch: (cause) => new RelationsNotKept({ workspace, cause }),
+  })
 
 ## Why the text waits in memory
 
@@ -197,7 +274,7 @@ Remote storage answers two requests, because only the `open` and `read` methods 
 
 A URL names one workspace, and each loom's location is a URL beneath it, ending in `.loom`. Volar's language lookup and the `isLoom` function both read that ending. Every request carries the secret key in an `Authorization: Bearer` header.
 
-A `GET` request on the workspace's URL returns the workspace as JSON. It holds the contract's version, the workspace's manifest, and every loom's text keyed by location.
+A `GET` request on the workspace's URL returns the workspace as JSON. It holds the contract's version, the workspace's manifest, every loom's text keyed by location, and the relations the workspace keeps, when it keeps any. Remote storage takes no write, so the `keepRelations` method fails there with `RelationsNotKept`, and the `keptRelationsOf` method hands over the relations of the workspace last opened.
 
 ```
 {
@@ -219,6 +296,7 @@ export const WorkspaceJson = Schema.Struct({
   contract: Schema.Number,
   manifest: Schema.optional(WorkspaceManifestSchema),
   looms: Schema.Record(Schema.String, Schema.String),
+  relations: Schema.optional(Schema.Array(KeptRelationSchema)),
 })
 
 ~
@@ -253,6 +331,7 @@ const workspaceFrom = (url: string, text: string): Effect.Effect<Workspace, Read
       location: url,
       manifest: Option.fromNullishOr(decoded.manifest),
       looms: new Map(Object.entries(decoded.looms)),
+      relations: decoded.relations ?? [],
     })),
   )
 
@@ -270,6 +349,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
     Effect.gen(function* () {
       const client = yield* HttpClient.HttpClient
       const listed = yield* Ref.make<ReadonlyArray<Location>>([])
+      const kept = yield* Ref.make<ReadonlyArray<KeptRelation>>([])
       const read = (loom: Location): Effect.Effect<string, ReadError> =>
         fetchText(client, address.key, loom)
       const source: WorkspaceSourceApi = {
@@ -277,6 +357,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
           read(workspace).pipe(
             Effect.flatMap((text) => workspaceFrom(workspace, text)),
             Effect.tap((opened) => Ref.set(listed, Array.fromIterable(opened.looms.keys()))),
+            Effect.tap((opened) => Ref.set(kept, opened.relations)),
           ),
         read,
         corpusOf: () => Ref.get(listed),
@@ -284,6 +365,11 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
         placeOf: (_loom, sink) => Effect.succeed(sink),
         locationOf: (uri) => uri.toString(),
         uriOf: (loom) => URI.parse(loom),
+        keptRelationsOf: () => Ref.get(kept),
+        keepRelations: () =>
+          Effect.fail(
+            new RelationsNotKept({ workspace: address.url, cause: 'remote storage takes no write' }),
+          ),
       }
       return source
     }),
@@ -439,7 +525,7 @@ Opening the workspace hands over its manifest and both looms with their text. A 
 
 import { describe, expect, it } from 'bun:test'
 import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
@@ -531,16 +617,46 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
   })
 })
 
+## Testing the relations a folder keeps
+
+A workspace that has kept no relations gives none. Relations that were kept come back as they were, each naming its loom by its full path, and the file names that loom by its path within the workspace.
+
+=>
+
+describe('FileSystemSource — the relations a folder keeps', () => {
+  const keptRelationsOf = (loom: string) =>
+    runtime.runPromise(WorkspaceSource.pipe(Effect.flatMap((s) => s.keptRelationsOf(loom))))
+
+  it('are none before any were kept', async () => {
+    const { book } = workspace()
+    expect(await keptRelationsOf(book)).toEqual([])
+  })
+
+  it('come back as they were kept, and name each loom within the workspace', async () => {
+    const { root, book, chapter } = workspace()
+    const kept = [
+      { loom: chapter, section: 'Chapter', kind: 'link', to: 'Book', fingerprint: 'approved' },
+    ]
+    await runtime.runPromise(
+      WorkspaceSource.pipe(Effect.flatMap((s) => s.keepRelations(book, kept))),
+    )
+    expect(await keptRelationsOf(chapter)).toEqual(kept)
+    expect(readFileSync(join(root, '.loom', 'relations.lock'), 'utf8')).toContain(
+      '"loom":"corpus/part/chapter.loom"',
+    )
+  })
+})
+
 ## What the source draws on
 
 Effect supplies the service, the layer, `Array`, `Option`, `Ref`, and the effect type, with `Schema` for the contract, `Config` for the environment's variables, and `Redacted` for the key. Its `http` module gives the client that remote storage is fetched through. Node's `fs` reads a file and tells a folder from a loom, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type with its schema, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. From the chapter "Build settings for a file" come the `WorkspaceSettings` service, its `FileSystemSettings` layer, and `settingsOfManifest`, which the remote settings read a manifest through. `LoomDiskCache`, from the chapter "The build cache on disk", joins the sources in each environment. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
 
 =>
 
-import { Array, Config, Context, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
+import { Array, Config, Context, Data, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
 import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http'
-import { readFileSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
   defaultCorpus,
@@ -552,6 +668,7 @@ import {
 } from '@athrio/loom-config/LoomConfig'
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { type KeptRelation, KeptRelationSchema } from '#ast/Relations'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
 import { LoomDiskCache } from './LoomDiskCache'
 import {
@@ -571,6 +688,8 @@ import {
 
 ::[Folders as a source]
 
+::[The relations a folder keeps]
+
 ::[The storage contract]
 
 ::[The URL and the key]
@@ -582,6 +701,8 @@ import {
 =>
 
 ::[Testing the file-system source]
+
+::[Testing the relations a folder keeps]
 
 ## The storage stub
 

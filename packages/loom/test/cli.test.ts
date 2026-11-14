@@ -1179,6 +1179,63 @@ describe('loom cli — an ignored loom named directly', () => {
   )
 })
 
+describe('loom cli — approving references', () => {
+  const book = () =>
+    projectWith({
+      'corpus/rules.loom': lines('# Overdrafts', '', 'An overdraft is a balance below zero.'),
+      'corpus/fees.loom': lines('# Fees', '', 'A fee is charged once a month.'),
+      'corpus/billing.loom': lines(
+        '# Billing',
+        '',
+        `Billing follows ${anchor('Overdrafts')}.`,
+        '',
+        `It charges ${anchor('Fees')}.`,
+      ),
+    })
+
+  const keptIn = (dir: string): string =>
+    readFileSync(join(dir, '.loom', 'relations.lock'), 'utf8')
+
+  it(
+    'approves the one reference a line names',
+    () => {
+      const dir = book()
+      const { status, stdout } = loom(['approve', 'corpus/billing.loom:3'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stdout).toContain('loom: approved 1 reference')
+      expect(keptIn(dir)).toContain('"loom":"corpus/billing.loom"')
+      expect(keptIn(dir)).toContain('"kind":"link","to":"Overdrafts"')
+      expect(keptIn(dir)).not.toContain('"to":"Fees"')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'approves every reference of the looms a folder holds',
+    () => {
+      const dir = book()
+      const { status, stdout } = loom(['approve', 'corpus'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stdout).toContain('loom: approved 2 references')
+      expect(keptIn(dir)).toContain('"to":"Fees"')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'says so when a line holds no reference to approve',
+    () => {
+      const dir = book()
+      const { stdout } = loom(['approve', 'corpus/billing.loom:1'], { cwd: dir })
+      expect(stdout).toContain('loom: found no reference to approve at corpus/billing.loom:1')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
 describe('loom cli — format', () => {
   const wrapped = lines('# Notes', '', 'A paragraph that', 'runs over two lines.')
 

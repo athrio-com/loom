@@ -9,24 +9,44 @@ Language: TypeScript
 
 # Fingerprints on relations
 
-A reference ties one place in a book to another. An anchor in code composes a section, and an anchor in prose links to one. The author who wrote the reference read the section it points to as that section stood on the day. When the section changes later, nothing tells the author that the reference may no longer hold.
+A reference is what an author writes to point at a section: an anchor in code, which composes the section, or an anchor in prose, which links to it. The author who wrote the reference read the section as it stood on the day. When the section changes later, nothing tells the author that the reference may no longer hold.
 
-This chapter gives each such tie a fingerprint. Loom records what a section looked like when the author last approved a reference to it, and it reports the reference as drifted once the section no longer matches. So no code and no prose drifts in silence from a section it depends on.
+A relation is the edge Loom derives from a reference, from the place where the reference stands to the section it points to. This chapter gives each relation a fingerprint. Loom keeps what a section looked like when the author last approved a reference to it, and it reports the reference as drifted once the section no longer matches. So no code and no prose drifts in silence from a section it depends on.
 
 ## A relation
 
-A relation is one tie, from a reference to the section it points to. It is found by Loom's own names: the `loom` and the `section` that hold the reference, the `kind` of reference, and the name the reference writes, which the relation keeps as `to`. Beside those names it holds one fact, the `fingerprint` of the section as the author approved it.
+A `Relation` is found by Loom's own names: the `loom` and the `section` that hold the reference, the `kind` of reference, and the name the reference writes, which the relation carries as `to`. Beside its names it says where the reference stands, as `at`, and which section the reference points to, as `target`.
+
+A relation has a status, which Loom works out each time and never stores:
+
+- **`untracked`:** nobody has approved the reference, so Loom keeps no fingerprint for it.
+- **`inStep`:** the section still matches the fingerprint Loom keeps.
+- **`drifted`:** the section no longer matches it.
+
+A `KeptRelation` is what the workspace keeps of a relation: its names, and the `fingerprint` of its section as the author approved it. Nothing else of a relation is kept.
 
 =>
 
-export const RelationSchema = Schema.Struct({
+export const KeptRelationSchema = Schema.Struct({
   loom: Schema.String,
   section: Schema.String,
   kind: Schema.String,
   to: Schema.String,
   fingerprint: Schema.String,
 })
-export type Relation = typeof RelationSchema.Type
+export type KeptRelation = typeof KeptRelationSchema.Type
+
+export type RelationStatus = 'untracked' | 'inStep' | 'drifted'
+
+export type Relation = {
+  readonly loom: Location
+  readonly section: string
+  readonly kind: string
+  readonly to: string
+  readonly at: Position
+  readonly target: SectionRef
+  readonly status: RelationStatus
+}
 
 ## The references that make relations
 
@@ -34,19 +54,11 @@ Two kinds of reference make a relation. An `anchor` is an anchor in code, which 
 
 A reference makes a relation only when it points into another loom. Inside one loom the prose and the code of every section sit together under the author's eyes, and a section that assembles a file refers to every section it composes. A fingerprint there would mark those references at every edit.
 
-A `Reference` is one reference found in a loom: its kind, the section that holds it, the name it writes, where it stands, and the section it points to. The kinds are a table, `relationKinds`, and each entry holds a kind's name and how to find its references in a loom. A further kind of tie joins by adding an entry. `referencesOf` reads every reference of a loom through the table.
+The kinds are a table, `relationKinds`. Each entry holds a kind's name and how to find its references in a loom: for each, the section that holds it, the name it writes, where it stands, and the section it points to. A further kind of reference joins by adding an entry, and the relations it makes are told from the others by their `kind`.
 
 =>
 
-export type Reference = {
-  readonly kind: string
-  readonly section: string
-  readonly to: string
-  readonly at: Position
-  readonly target: SectionRef
-}
-
-type Found = Omit<Reference, 'kind'>
+type Found = Pick<Relation, 'section' | 'to' | 'at' | 'target'>
 
 export type RelationKind = {
   readonly name: string
@@ -124,14 +136,6 @@ export const relationKinds: ReadonlyArray<RelationKind> = [
   { name: 'link', referencesIn: linksIn },
 ]
 
-export const referencesOf = (
-  catalogue: Catalogue,
-  module: LoomModule,
-): ReadonlyArray<Reference> =>
-  Array.flatMap(relationKinds, (kind) =>
-    Array.map(kind.referencesIn(catalogue, module), (found) => ({ ...found, kind: kind.name })),
-  )
-
 ## A fingerprint says whether, never where
 
 The fingerprint of a section is a hash of the section's text, its prose and its code together. Blank lines and spaces at the end of a line do not count, so a section that was only tidied keeps its fingerprint. `fingerprintOf` hashes the text that `settled` gives.
@@ -151,75 +155,124 @@ const settled = (text: string): string =>
 export const fingerprintOf = (section: LoomSection): string =>
   createHash('sha256').update(settled(section.source)).digest('hex')
 
-## Drift
+## The relations of a loom
 
-A relation has drifted when the section it points to no longer matches the fingerprint the relation holds. `driftFaults` gives each drifted reference of a loom the `DriftedReference` fault, on the reference itself. The fault is a warning. A tangle goes ahead all the same, since a drifted reference still composes.
-
-A reference that nobody has approved has no relation, and Loom says nothing about it. So a book that starts to use fingerprints does not light up, and an author takes them up one loom at a time.
-
-Loom keeps a fingerprint and no text, so it can say that a section changed and cannot say what changed. The author reads the section, or asks version control for the difference.
+`relationsOf` derives the relations of a loom: one for each reference the table finds, with the status that the kept relations give it. A relation is matched to what is kept by its names alone, which `keyOf` joins. `statusOf` compares the fingerprint kept under those names, when there is one, with the fingerprint the section has now.
 
 =>
 
-const keyOf = (loom: Location, held: Pick<Relation, 'section' | 'kind' | 'to'>): string =>
-  JSON.stringify([loom, held.section, held.kind, held.to])
+type Named = Pick<Relation, 'loom' | 'section' | 'kind' | 'to'>
+
+const keyOf = (named: Named): string =>
+  JSON.stringify([named.loom, named.section, named.kind, named.to])
+
+const statusOf = (kept: Option.Option<string>, section: LoomSection): RelationStatus =>
+  Option.match(kept, {
+    onNone: () => 'untracked',
+    onSome: (fingerprint) => (fingerprint === fingerprintOf(section) ? 'inStep' : 'drifted'),
+  })
+
+export const relationsOf = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+): ReadonlyArray<Relation> => {
+  const fingerprints = new Map(
+    Array.map(kept, (held) => [keyOf(held), held.fingerprint] as const),
+  )
+  return Array.flatMap(relationKinds, (kind) =>
+    Array.map(kind.referencesIn(catalogue, module), (found): Relation => {
+      const named: Named = {
+        loom: module.path,
+        section: found.section,
+        kind: kind.name,
+        to: found.to,
+      }
+      return {
+        ...named,
+        at: found.at,
+        target: found.target,
+        status: statusOf(
+          Option.fromNullishOr(fingerprints.get(keyOf(named))),
+          found.target.section,
+        ),
+      }
+    }),
+  )
+}
+
+## Drift
+
+`driftFaults` gives each drifted relation of a loom the `DriftedReference` fault, on the reference itself. The fault is a warning. A tangle goes ahead all the same, since a drifted reference still composes.
+
+An untracked relation carries nothing. So a book that starts to use fingerprints does not light up, and an author takes them up one reference at a time.
+
+Loom keeps a fingerprint and no text of its own.
+
+=>
 
 export const driftFaults = (
   catalogue: Catalogue,
   module: LoomModule,
-  kept: ReadonlyArray<Relation>,
-): ReadonlyArray<Diagnostic> => {
-  const approved = new Map(
-    Array.map(kept, (relation) => [keyOf(relation.loom, relation), relation.fingerprint] as const),
-  )
-  return Array.flatMap(referencesOf(catalogue, module), (reference) =>
-    pipe(
-      Option.fromNullishOr(approved.get(keyOf(module.path, reference))),
-      Option.filter((fingerprint) => fingerprint !== fingerprintOf(reference.target.section)),
-      Option.match({
-        onNone: (): ReadonlyArray<Diagnostic> => [],
-        onSome: () => faulty(DriftedReference({ name: reference.to }), reference.at).diagnostics,
-      }),
+  kept: ReadonlyArray<KeptRelation>,
+): ReadonlyArray<Diagnostic> =>
+  pipe(
+    relationsOf(catalogue, module, kept),
+    Array.filter((relation) => relation.status === 'drifted'),
+    Array.flatMap(
+      (relation) => faulty(DriftedReference({ name: relation.to }), relation.at).diagnostics,
     ),
   )
-}
 
 ## Approving
 
-Approving a reference records the fingerprint of its section as the section stands now. The author has read the section and the reference still holds.
+Approving a reference keeps the fingerprint of its section as the section stands now. The author has read the section and the reference still holds.
 
-`approvedRelations` approves every reference of one loom. It gives the relations to keep: one for each reference the loom holds, and the relations of every other loom as they were. A relation of this loom whose reference is gone is not among them, so what is kept holds the references that exist and no history. Two references in one section that write the same name tie the same two places and make one relation. The relations come sorted by their names, so two authors who approve different looms change different lines of the file that keeps them.
+An approval covers the references its author chose and no others. The choice is a test on a relation. `chosenRelations` gives what to keep for each chosen relation of a loom, with the fingerprint its section has now, which `keptOf` reads. Two references in one section that write the same name make one relation, so choosing either of them approves it.
+
+`approvedRelations` gives everything to keep after an approval. That is what was chosen, and beside it every kept relation that still stands: one of another loom, and one of this loom whose reference still exists and was not chosen, drifted or not. A kept relation of the loom whose reference is gone does not stand, so what is kept holds the references that exist and no history. An untracked relation that was not chosen stays untracked.
+
+What is kept comes sorted by its names, so two authors who approve different looms change different lines of the file that keeps it.
 
 =>
 
-const byNames: Order.Order<Relation> = Order.mapInput(Order.String, (relation: Relation) =>
-  keyOf(relation.loom, relation),
-)
+const byNames: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)
+
+const sameNames = (one: Named, other: Named): boolean => keyOf(one) === keyOf(other)
+
+const keptOf = (relation: Relation): KeptRelation => ({
+  loom: relation.loom,
+  section: relation.section,
+  kind: relation.kind,
+  to: relation.to,
+  fingerprint: fingerprintOf(relation.target.section),
+})
+
+export const chosenRelations = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+  chosen: (relation: Relation) => boolean,
+): ReadonlyArray<KeptRelation> =>
+  pipe(
+    Array.filter(relationsOf(catalogue, module, kept), chosen),
+    Array.map(keptOf),
+    Array.dedupeWith(sameNames),
+  )
 
 export const approvedRelations = (
   catalogue: Catalogue,
   module: LoomModule,
-  kept: ReadonlyArray<Relation>,
-): ReadonlyArray<Relation> =>
-  pipe(
-    [
-      ...Array.filter(kept, (relation) => relation.loom !== module.path),
-      ...Array.dedupeWith(
-        Array.map(
-          referencesOf(catalogue, module),
-          (reference): Relation => ({
-            loom: module.path,
-            section: reference.section,
-            kind: reference.kind,
-            to: reference.to,
-            fingerprint: fingerprintOf(reference.target.section),
-          }),
-        ),
-        (one: Relation, other: Relation) => keyOf(one.loom, one) === keyOf(other.loom, other),
-      ),
-    ],
-    Array.sort(byNames),
-  )
+  kept: ReadonlyArray<KeptRelation>,
+  chosen: (relation: Relation) => boolean,
+): ReadonlyArray<KeptRelation> => {
+  const fresh = chosenRelations(catalogue, module, kept, chosen)
+  const present = new Set(Array.map(relationsOf(catalogue, module, kept), keyOf))
+  const stands = (held: KeptRelation): boolean =>
+    held.loom !== module.path ||
+    (present.has(keyOf(held)) && !Array.some(fresh, (approved) => sameNames(approved, held)))
+  return pipe([...Array.filter(kept, stands), ...fresh], Array.sort(byNames))
+}
 
 ## What relations draw on
 
@@ -255,6 +308,8 @@ import { sectionNameOf } from '#ast/ProductBuilder'
 
 ::[A fingerprint says whether, never where]
 
+::[The relations of a loom]
+
 ::[Drift]
 
 ::[Approving]
@@ -266,11 +321,18 @@ The tests build a small book of two looms. The `rules` loom defines overdrafts, 
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Effect, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
+import { mkdtempSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
-import { approvedRelations, driftFaults, fingerprintOf, referencesOf } from '#ast/Relations'
+import { approvedRelations, driftFaults, fingerprintOf, relationsOf } from '#ast/Relations'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { FileSystemSource } from '../src/WorkspaceSource'
 
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
@@ -322,20 +384,22 @@ const bookWith = (definition: string) => {
 
 const first = bookWith('An overdraft is a balance below zero.')
 
+const every = (): boolean => true
+
 ## A reference into another loom makes a relation
 
-The `billing` loom holds an anchor and a link to a section of the `rules` loom, and each is a reference. A loom whose anchor points to one of its own sections holds none.
+The `billing` loom holds an anchor and a link to a section of the `rules` loom, and each makes a relation, untracked until someone approves it. A loom whose anchor points to one of its own sections has none.
 
 =>
 
 describe('the references of a loom', () => {
   it('are its anchors and links that point into another loom', () => {
-    const found = referencesOf(first.catalogue, first.billing)
-    expect(found.map((reference) => [reference.kind, reference.to])).toEqual([
-      ['anchor', 'Overdrafts'],
-      ['link', 'Overdrafts'],
+    const found = relationsOf(first.catalogue, first.billing, [])
+    expect(found.map((relation) => [relation.kind, relation.to, relation.status])).toEqual([
+      ['anchor', 'Overdrafts', 'untracked'],
+      ['link', 'Overdrafts', 'untracked'],
     ])
-    expect(found.map((reference) => reference.target.module)).toEqual([rulesPath, rulesPath])
+    expect(found.map((relation) => relation.target.module)).toEqual([rulesPath, rulesPath])
   })
 
   it('leave out a reference to a section of the same loom', () => {
@@ -355,7 +419,7 @@ describe('the references of a loom', () => {
       anchor('Overdrafts'),
     )
     const modules = corpusOf({ [billingPath]: alone })
-    expect(referencesOf(catalogueOf(modules), modules.get(billingPath)!)).toEqual([])
+    expect(relationsOf(catalogueOf(modules), modules.get(billingPath)!, [])).toEqual([])
   })
 })
 
@@ -387,12 +451,12 @@ describe('the fingerprint of a section', () => {
 
 ## Drift shows only on what was approved
 
-A reference nobody approved is silent. An approved reference is silent while its section stands as approved, and carries a warning once the section changes.
+A reference nobody approved is silent. An approved reference is in step while its section stands as approved. It is drifted once the section changes, and then it carries a warning.
 
 =>
 
 describe('drift', () => {
-  const approved = approvedRelations(first.catalogue, first.billing, [])
+  const approved = approvedRelations(first.catalogue, first.billing, [], every)
 
   const changed = bookWith('An overdraft is a balance below the agreed limit.')
 
@@ -402,9 +466,15 @@ describe('drift', () => {
 
   it('says nothing while the section stands as approved', () => {
     expect(driftFaults(first.catalogue, first.billing, approved)).toEqual([])
+    expect(
+      relationsOf(first.catalogue, first.billing, approved).map((relation) => relation.status),
+    ).toEqual(['inStep', 'inStep'])
   })
 
   it('warns on each approved reference once the section changes', () => {
+    expect(
+      relationsOf(changed.catalogue, changed.billing, approved).map((relation) => relation.status),
+    ).toEqual(['drifted', 'drifted'])
     const faults = driftFaults(changed.catalogue, changed.billing, approved)
     expect(faults.map((fault) => [fault.severity, fault.message])).toEqual([
       [
@@ -419,14 +489,14 @@ describe('drift', () => {
   })
 
   it('is cleared by approving again', () => {
-    const again = approvedRelations(changed.catalogue, changed.billing, approved)
+    const again = approvedRelations(changed.catalogue, changed.billing, approved, every)
     expect(driftFaults(changed.catalogue, changed.billing, again)).toEqual([])
   })
 })
 
 ## Approval keeps the references that exist
 
-Approving a loom records one relation for each of its references, and leaves the relations of other looms as they were. A relation of the loom whose reference is gone is dropped.
+Approving every reference of a loom records one relation for each, and leaves the relations of other looms as they were. A relation of the loom whose reference is gone is dropped.
 
 =>
 
@@ -441,7 +511,7 @@ describe('approving a loom', () => {
 
   const gone = { ...elsewhere, loom: billingPath, section: 'Billing', to: 'Fees' }
 
-  const approved = approvedRelations(first.catalogue, first.billing, [elsewhere, gone])
+  const approved = approvedRelations(first.catalogue, first.billing, [elsewhere, gone], every)
 
   it('records one relation for each reference, sorted by their names', () => {
     expect(approved.map((relation) => [relation.loom, relation.kind, relation.to])).toEqual([
@@ -460,6 +530,93 @@ describe('approving a loom', () => {
   })
 })
 
+## An approval covers what was chosen
+
+An approval of one reference leaves every other reference as it was. A reference that was not chosen keeps a drifted relation drifted, and one nobody tracked stays untracked.
+
+=>
+
+describe('approving one reference', () => {
+  const isAnchor = (relation: { readonly kind: string }): boolean => relation.kind === 'anchor'
+
+  const changed = bookWith('An overdraft is a balance below the agreed limit.')
+
+  it('starts tracking that reference alone', () => {
+    const approved = approvedRelations(first.catalogue, first.billing, [], isAnchor)
+    expect(approved.map((relation) => relation.kind)).toEqual(['anchor'])
+  })
+
+  it('leaves another drifted reference drifted', () => {
+    const before = approvedRelations(first.catalogue, first.billing, [], every)
+    const after = approvedRelations(changed.catalogue, changed.billing, before, isAnchor)
+    const faults = driftFaults(changed.catalogue, changed.billing, after)
+    expect(faults.length).toBe(1)
+  })
+})
+
+## Drift among a loom's problems
+
+The compiler shows drift with a loom's other problems. Its `approve` verb keeps the relations of a loom in the workspace, and its `diagnose` verb judges the loom against what the workspace keeps, as the chapter "The compile layer" describes. The cases keep a book in a temporary folder, so the relations land in a real `.loom/relations.lock` file. `driftIn` approves or not, then gathers the drift a loom shows.
+
+=>
+
+const compilerOver = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(Option.none()),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+describe("drift among a loom's problems", () => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-relations-')))
+  const rulesAt = join(folder, 'rules.loom')
+  const billingAt = join(folder, 'billing.loom')
+
+  const bookOf = (definition: string) => ({ [rulesAt]: rules(definition), [billingAt]: billing })
+
+  const driftIn = (definition: string, approving: boolean) =>
+    Effect.runPromise(
+      LoomCompiler.pipe(
+        Effect.tap((compiler) =>
+          approving ? Effect.asVoid(compiler.approve(billingAt, every)) : Effect.void,
+        ),
+        Effect.flatMap((compiler) => compiler.diagnose(billingAt)),
+        Effect.map((found) =>
+          found.filter((fault) => fault.message.includes('has changed since')).length,
+        ),
+        Effect.provide(compilerOver(bookOf(definition))),
+      ),
+    )
+
+  it('shows nothing before a loom is approved, or while its sections stand', async () => {
+    expect(await driftIn('An overdraft is a balance below zero.', false)).toBe(0)
+    expect(await driftIn('An overdraft is a balance below zero.', true)).toBe(0)
+  })
+
+  it('shows each approved reference once its section changes, until approved again', async () => {
+    expect(await driftIn('An overdraft is a balance below the agreed limit.', false)).toBe(2)
+    expect(await driftIn('An overdraft is a balance below the agreed limit.', true)).toBe(0)
+  })
+})
+
 ## The relations tests [test/Relations.test.ts]
 
 =>
@@ -474,13 +631,17 @@ describe('approving a loom', () => {
 
 ::[Approval keeps the references that exist]
 
+::[An approval covers what was chosen]
+
+::[Drift among a loom's problems]
+
 ## Where relations are kept
 
 Relations are kept in the workspace, in the file `.loom/relations.lock`, apart from `loom.lock`. A tangle rewrites `loom.lock` on every run, while a relation changes only when an author approves, so keeping them apart keeps both files' differences small.
 
-The file is JSON, one entry for each relation, in the order `approvedRelations` gives. Loom reads and writes it through the `WorkspaceSource` service, as the chapter "Where a workspace is kept" describes, so remote storage keeps relations beside the looms.
+The file is JSON, one line for each relation, in the order `approvedRelations` gives. Loom reads and writes it through the `WorkspaceSource` service, as the chapter "Where a workspace is kept" describes. Remote storage hands relations over with a workspace and takes no write.
 
-`loom approve <loom>` approves every reference of one loom and writes the file. In the editor, a quick fix on a drifted reference approves that one reference.
+`loom approve` names what to approve by a path, from one reference up to the corpus, and writes the file, as the chapter "The command-line program" describes. `billing.loom:12` is the reference on a line, `billing.loom` is every reference of a loom, and a folder is every reference of the looms it holds.
 
 ## A reference renamed by hand
 
@@ -488,7 +649,8 @@ A relation is found by its names, so a reference that changes its name leaves it
 
 ## What this chapter grows into
 
-1. The file that keeps relations, read and written through `WorkspaceSource`.
-2. Drift among a loom's problems, in the editor and in the CLI.
-3. `loom approve <loom>`, and the editor's quick fix for one reference.
-4. The editor's rename of a section, which rewrites the references to it, carrying their relations along.
+1. `loom review [path]`, which lists the drifted references under a path, grouped by the section that changed. In a terminal it walks through them, with the difference in each section, and for an agent it prints the same list as JSON.
+2. The approved text of a section, read back from git for that difference and kept nowhere else. The fingerprint tells which version of the section was approved.
+3. Levels of strictness, which say whether drift only warns or also fails a command.
+4. In the editor: what changed, on hover over a drifted reference, a quick fix that approves one reference, and one that starts tracking a reference.
+5. The editor's rename of a section, which rewrites the references to it, carrying their relations along.

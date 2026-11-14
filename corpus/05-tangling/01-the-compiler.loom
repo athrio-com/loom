@@ -19,7 +19,7 @@ A module this process has never built may still be waiting on disk. `loadOne` ha
 
 The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's product as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the edited file alone, so the next projection rebuilds only what changed. A file that draws in the edited one keeps its build, because a cross-file anchor is inlined when a file is projected, not when it is built.
 
-The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `hover` gives the card of the concept a link or a heading under the cursor names. A plain word that the loom's vocabulary recognises as a concept answers these three like a link to the concept, as the chapter "The scope of a concept" describes, and the references of a concept take in every word that recognises it. `links` offers, for a word that two concepts claim, a link to each of them, written with the workspace's anchor delimiters, and `moves` gives the scopes a concept may move up to from its heading. `symbols` gives the concepts of a workspace whose names hold a query, for the editor's symbol search. It takes no loom, so it builds the corpus that the source lists from a place in the workspace. `rename` gathers the title and anchors a rename rewrites together, and for a concept the edit that keeps its old name as a form, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it parses both, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. `completions` gives the labels an anchor takes while the cursor stands between its braces, each with the span it replaces, so the editor completes a label as the author types it. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `approve` approves the relations of a loom that its caller chose, as their sections stand now, and keeps their fingerprints in the workspace, as the chapter "Fingerprints on relations" describes. It gives back what it kept for them. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `hover` gives the card of the concept a link or a heading under the cursor names. A plain word that the loom's vocabulary recognises as a concept answers these three like a link to the concept, as the chapter "The scope of a concept" describes, and the references of a concept take in every word that recognises it. `links` offers, for a word that two concepts claim, a link to each of them, written with the workspace's anchor delimiters, and `moves` gives the scopes a concept may move up to from its heading. `symbols` gives the concepts of a workspace whose names hold a query, for the editor's symbol search. It takes no loom, so it builds the corpus that the source lists from a place in the workspace. `rename` gathers the title and anchors a rename rewrites together, and for a concept the edit that keeps its old name as a form, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it parses both, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. `completions` gives the labels an anchor takes while the cursor stands between its braces, each with the span it replaces, so the editor completes a label as the author types it. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
 
 Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `hover`, `links`, `moves`, `symbols`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `completions`, `reach`, `weave`, and `summaries` read the parse and the corpus graph, since Loom health, navigation, colour, completion, placement, the woven page, and the summaries that boxes copy need no product. `contracts` reads the product too, since a contract binds the anchor's edge to the section it reaches, and so does `promised`, since a promise rides on the edges a root's composition follows. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
 
@@ -196,7 +196,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.flatMap(([modules, installed]) => {
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed)),
+              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed, [])),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -279,15 +279,37 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
-        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
-          Effect.map(([modules, installed]) =>
+        Effect.all([
+          buildCorpus(documents, path),
+          installedKinds(path),
+          workspaces.keptRelationsOf(path),
+        ]).pipe(
+          Effect.map(([modules, installed, relations]) =>
             pipe(
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
-                onSome: (module) => corpusDiagnostics(modules, installed)(module),
+                onSome: (module) => corpusDiagnostics(modules, installed, relations)(module),
               }),
             ),
+          ),
+        ),
+
+      approve: (
+        path: Location,
+        chosen: (relation: Relation) => boolean,
+      ): Effect.Effect<ReadonlyArray<KeptRelation>, RelationsNotKept> =>
+        Effect.all([buildCorpus(documents, path), workspaces.keptRelationsOf(path)]).pipe(
+          Effect.flatMap(([modules, kept]) =>
+            Option.match(Option.fromNullishOr(modules.get(path)), {
+              onNone: () => Effect.succeed<ReadonlyArray<KeptRelation>>([]),
+              onSome: (module) => {
+                const catalogue = catalogueOf(modules)
+                return workspaces
+                  .keepRelations(path, approvedRelations(catalogue, module, kept, chosen))
+                  .pipe(Effect.as(chosenRelations(catalogue, module, kept, chosen)))
+              },
+            }),
           ),
         ),
 
@@ -637,6 +659,8 @@ A box's kind needs the corpus as well, since a trope anywhere in the book may de
 
 A trope's boundary needs the corpus too, since the chapters that reach a trope may lie anywhere in the book. `corpusDiagnostics` derives every trope's boundary once, through `boundariesOf`, from the tropes the registry gathered, and `boundaryFaults` judges each module against them. A reach across a boundary to a chapter a trope keeps private is an error, and stops a tangle, as do faulty entries and tropes rooted in each other. A trope with no root, and a chapter a trope reaches without the chapter naming it, are notes.
 
+A drifted reference needs the corpus as well, since the section a reference points to lies in another loom. `driftFaults` judges a module's relations against what the workspace keeps of them, as the chapter "Fingerprints on relations" describes. Drift is a warning, and a tangle gates on errors alone, so the tangle hands in no relations and reads no file for them.
+
 =>
 
 const loomName = (loom: Location): string => loom.slice(loom.lastIndexOf('/') + 1)
@@ -710,7 +734,11 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
       faulty(StaleSummary({ of, name: title, summary, at: body }), name.position),
   })
 
-const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
+const corpusDiagnostics = (
+  modules: Modules,
+  installed: ReadonlyArray<DeclaredKind>,
+  relations: ReadonlyArray<KeptRelation>,
+) => {
   const catalogue = catalogueOf(modules)
   const landing = landingOf(catalogue, modules)
   const kinds = declaredKindsOf(modules, catalogue, installed)
@@ -725,6 +753,7 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
     ...bookFaults(catalogue, module),
     ...linkFaults(catalogue, module),
     ...kindFaults(kinds, module),
+    ...driftFaults(catalogue, module, relations),
     ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
@@ -1429,6 +1458,13 @@ import {
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import {
+  approvedRelations,
+  chosenRelations,
+  driftFaults,
+  type KeptRelation,
+  type Relation,
+} from '#ast/Relations'
 import { TropePackages } from './TropePackages'
 import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
 import {
@@ -1461,7 +1497,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { WorkspaceSettings } from './WorkspaceSettings'
-import { WorkspaceSource } from './WorkspaceSource'
+import { type RelationsNotKept, WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'

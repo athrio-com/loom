@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
@@ -89,5 +89,29 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(await read(loose.loom)).toBe('# Loose\n')
     await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.forget(book))))
     expect(await read(book)).toBe('# Rewritten\n')
+  })
+})
+
+describe('FileSystemSource — the relations a folder keeps', () => {
+  const keptRelationsOf = (loom: string) =>
+    runtime.runPromise(WorkspaceSource.pipe(Effect.flatMap((s) => s.keptRelationsOf(loom))))
+
+  it('are none before any were kept', async () => {
+    const { book } = workspace()
+    expect(await keptRelationsOf(book)).toEqual([])
+  })
+
+  it('come back as they were kept, and name each loom within the workspace', async () => {
+    const { root, book, chapter } = workspace()
+    const kept = [
+      { loom: chapter, section: 'Chapter', kind: 'link', to: 'Book', fingerprint: 'approved' },
+    ]
+    await runtime.runPromise(
+      WorkspaceSource.pipe(Effect.flatMap((s) => s.keepRelations(book, kept))),
+    )
+    expect(await keptRelationsOf(chapter)).toEqual(kept)
+    expect(readFileSync(join(root, '.loom', 'relations.lock'), 'utf8')).toContain(
+      '"loom":"corpus/part/chapter.loom"',
+    )
   })
 })

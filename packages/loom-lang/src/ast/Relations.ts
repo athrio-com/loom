@@ -14,24 +14,28 @@ import {
 import { DriftedReference, faulty } from '#ast/LoomFault'
 import { sectionNameOf } from '#ast/ProductBuilder'
 
-export const RelationSchema = Schema.Struct({
+export const KeptRelationSchema = Schema.Struct({
   loom: Schema.String,
   section: Schema.String,
   kind: Schema.String,
   to: Schema.String,
   fingerprint: Schema.String,
 })
-export type Relation = typeof RelationSchema.Type
+export type KeptRelation = typeof KeptRelationSchema.Type
 
-export type Reference = {
-  readonly kind: string
+export type RelationStatus = 'untracked' | 'inStep' | 'drifted'
+
+export type Relation = {
+  readonly loom: Location
   readonly section: string
+  readonly kind: string
   readonly to: string
   readonly at: Position
   readonly target: SectionRef
+  readonly status: RelationStatus
 }
 
-type Found = Omit<Reference, 'kind'>
+type Found = Pick<Relation, 'section' | 'to' | 'at' | 'target'>
 
 export type RelationKind = {
   readonly name: string
@@ -97,14 +101,6 @@ export const relationKinds: ReadonlyArray<RelationKind> = [
   { name: 'link', referencesIn: linksIn },
 ]
 
-export const referencesOf = (
-  catalogue: Catalogue,
-  module: LoomModule,
-): ReadonlyArray<Reference> =>
-  Array.flatMap(relationKinds, (kind) =>
-    Array.map(kind.referencesIn(catalogue, module), (found) => ({ ...found, kind: kind.name })),
-  )
-
 const settled = (text: string): string =>
   pipe(
     text.split('\n'),
@@ -116,54 +112,93 @@ const settled = (text: string): string =>
 export const fingerprintOf = (section: LoomSection): string =>
   createHash('sha256').update(settled(section.source)).digest('hex')
 
-const keyOf = (loom: Location, held: Pick<Relation, 'section' | 'kind' | 'to'>): string =>
-  JSON.stringify([loom, held.section, held.kind, held.to])
+type Named = Pick<Relation, 'loom' | 'section' | 'kind' | 'to'>
+
+const keyOf = (named: Named): string =>
+  JSON.stringify([named.loom, named.section, named.kind, named.to])
+
+const statusOf = (kept: Option.Option<string>, section: LoomSection): RelationStatus =>
+  Option.match(kept, {
+    onNone: () => 'untracked',
+    onSome: (fingerprint) => (fingerprint === fingerprintOf(section) ? 'inStep' : 'drifted'),
+  })
+
+export const relationsOf = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+): ReadonlyArray<Relation> => {
+  const fingerprints = new Map(
+    Array.map(kept, (held) => [keyOf(held), held.fingerprint] as const),
+  )
+  return Array.flatMap(relationKinds, (kind) =>
+    Array.map(kind.referencesIn(catalogue, module), (found): Relation => {
+      const named: Named = {
+        loom: module.path,
+        section: found.section,
+        kind: kind.name,
+        to: found.to,
+      }
+      return {
+        ...named,
+        at: found.at,
+        target: found.target,
+        status: statusOf(
+          Option.fromNullishOr(fingerprints.get(keyOf(named))),
+          found.target.section,
+        ),
+      }
+    }),
+  )
+}
 
 export const driftFaults = (
   catalogue: Catalogue,
   module: LoomModule,
-  kept: ReadonlyArray<Relation>,
-): ReadonlyArray<Diagnostic> => {
-  const approved = new Map(
-    Array.map(kept, (relation) => [keyOf(relation.loom, relation), relation.fingerprint] as const),
-  )
-  return Array.flatMap(referencesOf(catalogue, module), (reference) =>
-    pipe(
-      Option.fromNullishOr(approved.get(keyOf(module.path, reference))),
-      Option.filter((fingerprint) => fingerprint !== fingerprintOf(reference.target.section)),
-      Option.match({
-        onNone: (): ReadonlyArray<Diagnostic> => [],
-        onSome: () => faulty(DriftedReference({ name: reference.to }), reference.at).diagnostics,
-      }),
+  kept: ReadonlyArray<KeptRelation>,
+): ReadonlyArray<Diagnostic> =>
+  pipe(
+    relationsOf(catalogue, module, kept),
+    Array.filter((relation) => relation.status === 'drifted'),
+    Array.flatMap(
+      (relation) => faulty(DriftedReference({ name: relation.to }), relation.at).diagnostics,
     ),
   )
-}
 
-const byNames: Order.Order<Relation> = Order.mapInput(Order.String, (relation: Relation) =>
-  keyOf(relation.loom, relation),
-)
+const byNames: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)
+
+const sameNames = (one: Named, other: Named): boolean => keyOf(one) === keyOf(other)
+
+const keptOf = (relation: Relation): KeptRelation => ({
+  loom: relation.loom,
+  section: relation.section,
+  kind: relation.kind,
+  to: relation.to,
+  fingerprint: fingerprintOf(relation.target.section),
+})
+
+export const chosenRelations = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+  chosen: (relation: Relation) => boolean,
+): ReadonlyArray<KeptRelation> =>
+  pipe(
+    Array.filter(relationsOf(catalogue, module, kept), chosen),
+    Array.map(keptOf),
+    Array.dedupeWith(sameNames),
+  )
 
 export const approvedRelations = (
   catalogue: Catalogue,
   module: LoomModule,
-  kept: ReadonlyArray<Relation>,
-): ReadonlyArray<Relation> =>
-  pipe(
-    [
-      ...Array.filter(kept, (relation) => relation.loom !== module.path),
-      ...Array.dedupeWith(
-        Array.map(
-          referencesOf(catalogue, module),
-          (reference): Relation => ({
-            loom: module.path,
-            section: reference.section,
-            kind: reference.kind,
-            to: reference.to,
-            fingerprint: fingerprintOf(reference.target.section),
-          }),
-        ),
-        (one: Relation, other: Relation) => keyOf(one.loom, one) === keyOf(other.loom, other),
-      ),
-    ],
-    Array.sort(byNames),
-  )
+  kept: ReadonlyArray<KeptRelation>,
+  chosen: (relation: Relation) => boolean,
+): ReadonlyArray<KeptRelation> => {
+  const fresh = chosenRelations(catalogue, module, kept, chosen)
+  const present = new Set(Array.map(relationsOf(catalogue, module, kept), keyOf))
+  const stands = (held: KeptRelation): boolean =>
+    held.loom !== module.path ||
+    (present.has(keyOf(held)) && !Array.some(fresh, (approved) => sameNames(approved, held)))
+  return pipe([...Array.filter(kept, stands), ...fresh], Array.sort(byNames))
+}

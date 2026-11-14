@@ -87,6 +87,13 @@ import {
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import {
+  approvedRelations,
+  chosenRelations,
+  driftFaults,
+  type KeptRelation,
+  type Relation,
+} from '#ast/Relations'
 import { TropePackages } from './TropePackages'
 import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
 import {
@@ -119,7 +126,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { WorkspaceSettings } from './WorkspaceSettings'
-import { WorkspaceSource } from './WorkspaceSource'
+import { type RelationsNotKept, WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
@@ -211,7 +218,11 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
       faulty(StaleSummary({ of, name: title, summary, at: body }), name.position),
   })
 
-const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKind>) => {
+const corpusDiagnostics = (
+  modules: Modules,
+  installed: ReadonlyArray<DeclaredKind>,
+  relations: ReadonlyArray<KeptRelation>,
+) => {
   const catalogue = catalogueOf(modules)
   const landing = landingOf(catalogue, modules)
   const kinds = declaredKindsOf(modules, catalogue, installed)
@@ -226,6 +237,7 @@ const corpusDiagnostics = (modules: Modules, installed: ReadonlyArray<DeclaredKi
     ...bookFaults(catalogue, module),
     ...linkFaults(catalogue, module),
     ...kindFaults(kinds, module),
+    ...driftFaults(catalogue, module, relations),
     ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
@@ -908,7 +920,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.flatMap(([modules, installed]) => {
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed)),
+              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed, [])),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -991,15 +1003,37 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
-        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
-          Effect.map(([modules, installed]) =>
+        Effect.all([
+          buildCorpus(documents, path),
+          installedKinds(path),
+          workspaces.keptRelationsOf(path),
+        ]).pipe(
+          Effect.map(([modules, installed, relations]) =>
             pipe(
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
-                onSome: (module) => corpusDiagnostics(modules, installed)(module),
+                onSome: (module) => corpusDiagnostics(modules, installed, relations)(module),
               }),
             ),
+          ),
+        ),
+
+      approve: (
+        path: Location,
+        chosen: (relation: Relation) => boolean,
+      ): Effect.Effect<ReadonlyArray<KeptRelation>, RelationsNotKept> =>
+        Effect.all([buildCorpus(documents, path), workspaces.keptRelationsOf(path)]).pipe(
+          Effect.flatMap(([modules, kept]) =>
+            Option.match(Option.fromNullishOr(modules.get(path)), {
+              onNone: () => Effect.succeed<ReadonlyArray<KeptRelation>>([]),
+              onSome: (module) => {
+                const catalogue = catalogueOf(modules)
+                return workspaces
+                  .keepRelations(path, approvedRelations(catalogue, module, kept, chosen))
+                  .pipe(Effect.as(chosenRelations(catalogue, module, kept, chosen)))
+              },
+            }),
           ),
         ),
 

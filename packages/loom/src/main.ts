@@ -34,7 +34,12 @@ import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
-import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
+import {
+  DocumentSource,
+  LoomCompiler,
+  type TangledFile,
+  type TangleError,
+} from '@athrio/loom-lang/LoomCompiler'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
@@ -152,6 +157,35 @@ const refresh = (file: string) =>
           discard: true,
         })
       : Console.log('loom: every box is in step')
+  })
+
+const chosenAt = (
+  target: string,
+): { readonly path: string; readonly line: Option.Option<number> } =>
+  Option.match(Option.fromNullishOr(/^(.*):(\d+)$/.exec(target)), {
+    onNone: () => ({ path: target, line: Option.none<number>() }),
+    onSome: (found) => ({ path: found[1] ?? target, line: Option.some(Number(found[2])) }),
+  })
+
+const onLine =
+  (line: Option.Option<number>) =>
+  (reference: { readonly at: { readonly start: { readonly line: number } } }): boolean =>
+    Option.match(line, {
+      onNone: () => true,
+      onSome: (named) => reference.at.start.line === named,
+    })
+
+const approve = (target: string) =>
+  Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const formatter = yield* LoomFormatter
+    const { path, line } = chosenAt(target)
+    const looms = yield* formatter.looms(resolvePath(process.cwd(), path))
+    const approved = yield* Effect.forEach(looms, (loom) => compiler.approve(loom, onLine(line)))
+    const count = Array.flatten(approved).length
+    yield* count === 0
+      ? Console.log(`loom: found no reference to approve at ${target}`)
+      : Console.log(`loom: approved ${count} ${count === 1 ? 'reference' : 'references'}`)
   })
 
 const format = (path: string, check: boolean) =>
@@ -1238,6 +1272,10 @@ const refreshCommand = Command.make('refresh', { path: Argument.String('path') }
   refresh(path),
 )
 
+const approveCommand = Command.make('approve', { path: Argument.String('path') }, ({ path }) =>
+  approve(path),
+)
+
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.Directory('dir')) },
@@ -1281,6 +1319,7 @@ const loom = Command.make('loom').pipe(
     orphansCommand,
     weaveCommand,
     refreshCommand,
+    approveCommand,
     formatCommand,
     initCommand,
     addCommand,
@@ -1299,6 +1338,7 @@ const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomSummaries.layer),
+  Effect.provide(LoomCompiler.layer),
   Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(LanguagePackages.layer),

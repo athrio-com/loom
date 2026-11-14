@@ -1,7 +1,7 @@
-import { Array, Config, Context, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
+import { Array, Config, Context, Data, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
 import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http'
-import { readFileSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
   defaultCorpus,
@@ -13,6 +13,7 @@ import {
 } from '@athrio/loom-config/LoomConfig'
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { type KeptRelation, KeptRelationSchema } from '#ast/Relations'
 import { holds, loomsIn, projectIn, type Path } from './LoomProject'
 import { LoomDiskCache } from './LoomDiskCache'
 import {
@@ -26,6 +27,18 @@ export interface Workspace {
   readonly location: Location
   readonly manifest: Option.Option<WorkspaceManifest>
   readonly looms: ReadonlyMap<Location, string>
+  readonly relations: ReadonlyArray<KeptRelation>
+}
+
+export class RelationsNotKept extends Data.TaggedError('RelationsNotKept')<{
+  readonly workspace: Location
+  readonly cause: unknown
+}> {
+  get message(): string {
+    return `Cannot keep relations for ${this.workspace}: ${
+      this.cause instanceof Error ? this.cause.message : String(this.cause)
+    }`
+  }
 }
 
 export interface WorkspaceSourceApi {
@@ -36,6 +49,11 @@ export interface WorkspaceSourceApi {
   readonly placeOf: (loom: Location, sink: string) => Effect.Effect<Location>
   readonly locationOf: (uri: URI) => Location
   readonly uriOf: (loom: Location) => URI
+  readonly keptRelationsOf: (loom: Location) => Effect.Effect<ReadonlyArray<KeptRelation>>
+  readonly keepRelations: (
+    loom: Location,
+    relations: ReadonlyArray<KeptRelation>,
+  ) => Effect.Effect<void, RelationsNotKept>
 }
 
 export class WorkspaceSource extends Context.Service<WorkspaceSource>()('WorkspaceSource', {
@@ -98,8 +116,17 @@ export const FileSystemSource = Layer.effect(
         const looms = yield* Effect.forEach(paths, (loom) =>
           fromDisk(loom).pipe(Effect.map((text) => [loom, text] as const)),
         )
-        return { location: workspace, manifest, looms: new Map(looms) }
+        return {
+          location: workspace,
+          manifest,
+          looms: new Map(looms),
+          relations: yield* relationsIn(workspace),
+        }
       })
+    const workspaceOf = (location: Location): Location =>
+      Option.getOrElse(Option.fromNullishOr(findWorkspace(folderOf(location))), () =>
+        folderOf(location),
+      )
     const source: WorkspaceSourceApi = {
       open,
       read: fromDisk,
@@ -107,11 +134,7 @@ export const FileSystemSource = Layer.effect(
         config
           .resolve(loom)
           .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
-      workspaceOf: (location) =>
-        Option.getOrElse(
-          Option.fromNullishOr(findWorkspace(folderOf(location))),
-          () => folderOf(location),
-        ),
+      workspaceOf,
       placeOf: (loom, sink) =>
         config
           .resolve(loom)
@@ -122,15 +145,61 @@ export const FileSystemSource = Layer.effect(
           ),
       locationOf: locationOfUri,
       uriOf: uriOfLocation,
+      keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
+      keepRelations: (loom, relations) => keepIn(workspaceOf(loom), relations),
     }
     return source
   }),
 ).pipe(Layer.provide(LoomConfig.layer))
 
+const RelationsFile = Schema.Struct({
+  version: Schema.Number,
+  relations: Schema.Array(KeptRelationSchema),
+})
+
+const relationsPath = (workspace: Location): Path => join(workspace, '.loom', 'relations.lock')
+
+const relationsIn = (workspace: Location): Effect.Effect<ReadonlyArray<KeptRelation>> =>
+  fromDisk(relationsPath(workspace)).pipe(
+    Effect.flatMap((text) =>
+      Effect.try({ try: () => JSON.parse(text) as unknown, catch: (cause) => cause }),
+    ),
+    Effect.flatMap(Schema.decodeUnknownEffect(RelationsFile)),
+    Effect.map((file) =>
+      Array.map(file.relations, (relation) => ({
+        ...relation,
+        loom: join(workspace, relation.loom),
+      })),
+    ),
+    Effect.orElseSucceed((): ReadonlyArray<KeptRelation> => []),
+  )
+
+const relationsText = (workspace: Location, relations: ReadonlyArray<KeptRelation>): string => {
+  const rows = Array.map(
+    relations,
+    (relation) =>
+      `    ${JSON.stringify({ ...relation, loom: relative(workspace, relation.loom) })}`,
+  )
+  return `{\n  "version": 1,\n  "relations": [\n${Array.join(rows, ',\n')}\n  ]\n}\n`
+}
+
+const keepIn = (
+  workspace: Location,
+  relations: ReadonlyArray<KeptRelation>,
+): Effect.Effect<void, RelationsNotKept> =>
+  Effect.try({
+    try: () => {
+      mkdirSync(join(workspace, '.loom'), { recursive: true })
+      writeFileSync(relationsPath(workspace), relationsText(workspace, relations))
+    },
+    catch: (cause) => new RelationsNotKept({ workspace, cause }),
+  })
+
 export const WorkspaceJson = Schema.Struct({
   contract: Schema.Number,
   manifest: Schema.optional(WorkspaceManifestSchema),
   looms: Schema.Record(Schema.String, Schema.String),
+  relations: Schema.optional(Schema.Array(KeptRelationSchema)),
 })
 
 const fetchText = (
@@ -159,6 +228,7 @@ const workspaceFrom = (url: string, text: string): Effect.Effect<Workspace, Read
       location: url,
       manifest: Option.fromNullishOr(decoded.manifest),
       looms: new Map(Object.entries(decoded.looms)),
+      relations: decoded.relations ?? [],
     })),
   )
 
@@ -168,6 +238,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
     Effect.gen(function* () {
       const client = yield* HttpClient.HttpClient
       const listed = yield* Ref.make<ReadonlyArray<Location>>([])
+      const kept = yield* Ref.make<ReadonlyArray<KeptRelation>>([])
       const read = (loom: Location): Effect.Effect<string, ReadError> =>
         fetchText(client, address.key, loom)
       const source: WorkspaceSourceApi = {
@@ -175,6 +246,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
           read(workspace).pipe(
             Effect.flatMap((text) => workspaceFrom(workspace, text)),
             Effect.tap((opened) => Ref.set(listed, Array.fromIterable(opened.looms.keys()))),
+            Effect.tap((opened) => Ref.set(kept, opened.relations)),
           ),
         read,
         corpusOf: () => Ref.get(listed),
@@ -182,6 +254,11 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
         placeOf: (_loom, sink) => Effect.succeed(sink),
         locationOf: (uri) => uri.toString(),
         uriOf: (loom) => URI.parse(loom),
+        keptRelationsOf: () => Ref.get(kept),
+        keepRelations: () =>
+          Effect.fail(
+            new RelationsNotKept({ workspace: address.url, cause: 'remote storage takes no write' }),
+          ),
       }
       return source
     }),
