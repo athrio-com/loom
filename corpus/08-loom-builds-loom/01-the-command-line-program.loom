@@ -169,6 +169,68 @@ const approve = (target: string) =>
       : Console.log(`loom: approved ${count} ${count === 1 ? 'reference' : 'references'}`)
   })
 
+## Reviewing what drifted
+
+The `review` command lists the approved references that have drifted, so an author or an agent can read what changed and approve again. It takes the path `approve` takes: a loom, a loom and a line, or a folder. With no path it reviews every loom under the working directory.
+
+The compiler gives the relations of each loom the path covers. `driftsIn` groups the drifted ones by the section that changed, as the chapter "Fingerprints on relations" describes. The path says where the references stand, so a changed section may lie in a loom outside it.
+
+`reviewedFrom` writes one group the way the command shows it. The changed section goes by its title and its loom. Each reference goes by the path and line that `approve` takes, as `at`, beside the `kind` of its relation and the name the reference writes, as `to`. Paths are written from the working directory.
+
+`reviewText` gives what the command prints. For a person it is `driftText` for each changed section, a line for the section with a line for each reference beneath it, and a blank line between two sections. With `--json` it is the same groups as JSON, for an agent. When nothing has drifted the command says so, and the JSON is an empty list.
+
+=>
+
+type Reviewed = {
+  readonly loom: string
+  readonly section: string
+  readonly references: ReadonlyArray<{
+    readonly at: string
+    readonly kind: string
+    readonly to: string
+  }>
+}
+
+const reviewedFrom =
+  (cwd: string) =>
+  (drift: Drift): Reviewed => ({
+    loom: relative(cwd, drift.loom),
+    section: drift.section,
+    references: Array.map(drift.relations, (relation) => ({
+      at: `${relative(cwd, relation.loom)}:${relation.at.start.line}`,
+      kind: relation.kind,
+      to: relation.to,
+    })),
+  })
+
+const driftText = (drift: Reviewed): string =>
+  Array.join(
+    [
+      `\`${drift.section}\` in ${drift.loom} has changed since these references to it were approved:`,
+      ...Array.map(drift.references, (reference) => `  ${reference.at}  ${reference.kind}`),
+    ],
+    '\n',
+  )
+
+const reviewText = (drifts: ReadonlyArray<Reviewed>, json: boolean): string =>
+  Match.value({ json, drifted: Array.isReadonlyArrayNonEmpty(drifts) }).pipe(
+    Match.when({ json: true }, () => JSON.stringify(drifts, null, 2)),
+    Match.when({ drifted: false }, () => 'loom: no approved reference has drifted'),
+    Match.orElse(() => Array.join(Array.map(drifts, driftText), '\n\n')),
+  )
+
+const review = (target: Option.Option<string>, json: boolean) =>
+  Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const formatter = yield* LoomFormatter
+    const cwd = process.cwd()
+    const { path, line } = chosenAt(Option.getOrElse(target, () => '.'))
+    const looms = yield* formatter.looms(resolvePath(cwd, path))
+    const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
+    const drifts = driftsIn(Array.filter(Array.flatten(relations), onLine(line)))
+    yield* Console.log(reviewText(Array.map(drifts, reviewedFrom(cwd)), json))
+  })
+
 ## Formatting looms
 
 The `format` command formats looms the way an editor formats the one it has open: every prose paragraph on one line, and every code section laid out by its language's formatter. It takes a file or a folder, resolves it against the working directory, and lets `LoomFormatter` name the looms the path covers. Each loom it changes is rewritten in place and reported. With `--check` it rewrites nothing. It names each loom that would change, and exits non-zero when any would, so a CI step can hold a project to its format.
@@ -1543,7 +1605,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is sixteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is seventeen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom review [path]` lists the approved references that have drifted under a path, grouped by the section that changed, and with `--json` prints the list for an agent. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1579,6 +1641,15 @@ const refreshCommand = Command.make('refresh', { path: Argument.String('path') }
 
 const approveCommand = Command.make('approve', { path: Argument.String('path') }, ({ path }) =>
   approve(path),
+)
+
+const reviewCommand = Command.make(
+  'review',
+  {
+    path: Argument.optional(Argument.String('path')),
+    json: Flag.Boolean('json').pipe(Flag.withDefault(false)),
+  },
+  ({ path, json }) => review(path, json),
 )
 
 const initCommand = Command.make(
@@ -1625,6 +1696,7 @@ const loom = Command.make('loom').pipe(
     weaveCommand,
     refreshCommand,
     approveCommand,
+    reviewCommand,
     formatCommand,
     initCommand,
     addCommand,
@@ -1667,9 +1739,9 @@ The program is built on Effect, a functional TypeScript library for composing an
 
 Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
 
-For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
+For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references and keeps the relations; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
 From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
@@ -1708,7 +1780,7 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, resolve as resolvePath } from 'node:path'
+import { delimiter, dirname, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import {
@@ -1718,6 +1790,7 @@ import {
   type TangleError,
 } from '@athrio/loom-lang/LoomCompiler'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
+import { type Drift, driftsIn } from '@athrio/loom-lang/ast/Relations'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
@@ -1766,6 +1839,8 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 ::[Refreshing the summaries]
 
 ::[Approving a loom's references]
+
+::[Reviewing what drifted]
 
 ::[Formatting looms]
 

@@ -1236,6 +1236,62 @@ describe('loom cli — approving references', () => {
   )
 })
 
+describe('loom cli — reviewing what drifted', () => {
+  const approvedBook = (): string => {
+    const dir = projectWith({
+      'corpus/fees.loom': lines('# Fees', '', 'A fee is charged once a month.'),
+      'corpus/billing.loom': lines('# Billing', '', `It charges ${anchor('Fees')}.`),
+    })
+    loom(['approve', 'corpus'], { cwd: dir })
+    return dir
+  }
+
+  const changeFees = (dir: string): void =>
+    writeFileSync(
+      join(dir, 'corpus', 'fees.loom'),
+      lines('# Fees', '', 'A fee is charged twice a month.'),
+    )
+
+  it(
+    'lists each drifted reference under the section that changed',
+    () => {
+      const dir = approvedBook()
+      expect(loom(['review'], { cwd: dir }).stdout).toContain(
+        'loom: no approved reference has drifted',
+      )
+      changeFees(dir)
+      const { status, stdout } = loom(['review', 'corpus'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stdout).toContain(
+        '`Fees` in corpus/fees.loom has changed since these references to it were approved:',
+      )
+      expect(stdout).toContain('  corpus/billing.loom:3  link')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'prints the same groups as JSON, and reviews one line when the path names it',
+    () => {
+      const dir = approvedBook()
+      changeFees(dir)
+      expect(JSON.parse(loom(['review', '--json'], { cwd: dir }).stdout)).toEqual([
+        {
+          loom: 'corpus/fees.loom',
+          section: 'Fees',
+          references: [{ at: 'corpus/billing.loom:3', kind: 'link', to: 'Fees' }],
+        },
+      ])
+      expect(
+        JSON.parse(loom(['review', 'corpus/billing.loom:1', '--json'], { cwd: dir }).stdout),
+      ).toEqual([])
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
 describe('loom cli — format', () => {
   const wrapped = lines('# Notes', '', 'A paragraph that', 'runs over two lines.')
 

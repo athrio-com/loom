@@ -93,6 +93,7 @@ import {
   driftFaults,
   type KeptRelation,
   type Relation,
+  relationsOf,
 } from '#ast/Relations'
 import { TropePackages } from './TropePackages'
 import { boundariesOf, boundaryFaults } from '#ast/TropeBoundaries'
@@ -1033,6 +1034,16 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   .keepRelations(path, approvedRelations(catalogue, module, kept, chosen))
                   .pipe(Effect.as(chosenRelations(catalogue, module, kept, chosen)))
               },
+            }),
+          ),
+        ),
+
+      relations: (path: Location): Effect.Effect<ReadonlyArray<Relation>> =>
+        Effect.all([buildCorpus(documents, path), workspaces.keptRelationsOf(path)]).pipe(
+          Effect.map(([modules, kept]) =>
+            Option.match(Option.fromNullishOr(modules.get(path)), {
+              onNone: () => [],
+              onSome: (module) => relationsOf(catalogueOf(modules), module, kept),
             }),
           ),
         ),

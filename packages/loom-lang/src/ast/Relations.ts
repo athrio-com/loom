@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Array, Match, Option, Order, pipe, Schema } from 'effect'
+import { Array, Match, Option, Order, pipe, Record, Schema } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
@@ -163,6 +163,29 @@ export const driftFaults = (
     Array.flatMap(
       (relation) => faulty(DriftedReference({ name: relation.to }), relation.at).diagnostics,
     ),
+  )
+
+export type Drift = {
+  readonly loom: Location
+  readonly section: string
+  readonly relations: ReadonlyArray<Relation>
+}
+
+const changedSection = (relation: Relation): string =>
+  JSON.stringify([relation.target.module, sectionNameOf(relation.target.section)])
+
+const titleOf = (section: LoomSection): string =>
+  section.heading.title?.source ?? sectionNameOf(section)
+
+export const driftsIn = (relations: ReadonlyArray<Relation>): ReadonlyArray<Drift> =>
+  pipe(
+    Array.filter(relations, (relation) => relation.status === 'drifted'),
+    Array.groupBy(changedSection),
+    Record.values,
+    Array.map((drifted): Drift => {
+      const { target } = Array.headNonEmpty(drifted)
+      return { loom: target.module, section: titleOf(target.section), relations: drifted }
+    }),
   )
 
 const byNames: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)

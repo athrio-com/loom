@@ -6,7 +6,13 @@ import { join } from 'node:path'
 import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
-import { approvedRelations, driftFaults, fingerprintOf, relationsOf } from '#ast/Relations'
+import {
+  approvedRelations,
+  driftFaults,
+  driftsIn,
+  fingerprintOf,
+  relationsOf,
+} from '#ast/Relations'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
@@ -151,6 +157,26 @@ describe('drift', () => {
   it('is cleared by approving again', () => {
     const again = approvedRelations(changed.catalogue, changed.billing, approved, every)
     expect(driftFaults(changed.catalogue, changed.billing, again)).toEqual([])
+  })
+})
+
+describe('a review of drift', () => {
+  const approved = approvedRelations(first.catalogue, first.billing, [], every)
+
+  const changed = bookWith('An overdraft is a balance below the agreed limit.')
+
+  it('groups the drifted relations under the section that changed', () => {
+    const drifts = driftsIn(relationsOf(changed.catalogue, changed.billing, approved))
+    expect(drifts.map((drift) => [drift.loom, drift.section])).toEqual([[rulesPath, 'Overdrafts']])
+    expect(drifts[0]?.relations.map((relation) => relation.kind)).toEqual(['anchor', 'link'])
+  })
+
+  it('holds nothing while every section stands as approved', () => {
+    expect(driftsIn(relationsOf(first.catalogue, first.billing, approved))).toEqual([])
+  })
+
+  it('holds nothing for references nobody approved', () => {
+    expect(driftsIn(relationsOf(changed.catalogue, changed.billing, []))).toEqual([])
   })
 })
 

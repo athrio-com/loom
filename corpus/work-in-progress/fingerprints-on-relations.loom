@@ -207,7 +207,7 @@ export const relationsOf = (
 
 An untracked relation carries nothing. So a book that starts to use fingerprints does not light up, and an author takes them up one reference at a time.
 
-Loom keeps a fingerprint and no text of its own.
+Loom keeps a fingerprint and no text of its own. So it says that a section changed, and never what changed in it. The author reads the section as it stands now, and a book kept under git shows there what the section said before.
 
 =>
 
@@ -222,6 +222,37 @@ export const driftFaults = (
     Array.flatMap(
       (relation) => faulty(DriftedReference({ name: relation.to }), relation.at).diagnostics,
     ),
+  )
+
+## What changed, and what it left behind
+
+A fault stands on each drifted reference, which suits an author who is reading the loom that holds it. An author who reviews asks the opposite question: which sections changed, and what did each leave behind. One changed section may have drifted many references, in many looms.
+
+A `Drift` answers for one changed section. It names the section by its loom and by its title as the author wrote it, and it holds the relations that drifted from the section. `driftsIn` groups the drifted relations it is handed by the section they point to, and passes the others by. The relations may come from any number of looms, so a review of a folder groups across all of them. The groups come in the order their first relation was handed in.
+
+=>
+
+export type Drift = {
+  readonly loom: Location
+  readonly section: string
+  readonly relations: ReadonlyArray<Relation>
+}
+
+const changedSection = (relation: Relation): string =>
+  JSON.stringify([relation.target.module, sectionNameOf(relation.target.section)])
+
+const titleOf = (section: LoomSection): string =>
+  section.heading.title?.source ?? sectionNameOf(section)
+
+export const driftsIn = (relations: ReadonlyArray<Relation>): ReadonlyArray<Drift> =>
+  pipe(
+    Array.filter(relations, (relation) => relation.status === 'drifted'),
+    Array.groupBy(changedSection),
+    Record.values,
+    Array.map((drifted): Drift => {
+      const { target } = Array.headNonEmpty(drifted)
+      return { loom: target.module, section: titleOf(target.section), relations: drifted }
+    }),
   )
 
 ## Approving
@@ -276,12 +307,12 @@ export const approvedRelations = (
 
 ## What relations draw on
 
-The corpus model gives the catalogue, a loom's module, the links of a section, and the two functions that resolve a name and an anchor to a section. The product pass gives a section's name, and the fault catalog gives `faulty` and the `DriftedReference` fault. Node's `createHash` computes the hash. Effect supplies `Schema` for the relation, and `Array`, `Match`, `Option`, `Order`, and `pipe` for the rest.
+The corpus model gives the catalogue, a loom's module, the links of a section, and the two functions that resolve a name and an anchor to a section. The product pass gives a section's name, and the fault catalog gives `faulty` and the `DriftedReference` fault. Node's `createHash` computes the hash. Effect supplies `Schema` for the relation, and `Array`, `Match`, `Option`, `Order`, `Record`, and `pipe` for the rest.
 
 =>
 
 import { createHash } from 'node:crypto'
-import { Array, Match, Option, Order, pipe, Schema } from 'effect'
+import { Array, Match, Option, Order, pipe, Record, Schema } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
@@ -312,6 +343,8 @@ import { sectionNameOf } from '#ast/ProductBuilder'
 
 ::[Drift]
 
+::[What changed, and what it left behind]
+
 ::[Approving]
 
 ## Testing relations
@@ -328,7 +361,13 @@ import { join } from 'node:path'
 import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
-import { approvedRelations, driftFaults, fingerprintOf, relationsOf } from '#ast/Relations'
+import {
+  approvedRelations,
+  driftFaults,
+  driftsIn,
+  fingerprintOf,
+  relationsOf,
+} from '#ast/Relations'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
@@ -554,6 +593,32 @@ describe('approving one reference', () => {
   })
 })
 
+## A review groups drift by the section that changed
+
+Both references of the `billing` loom point to one section, so its change makes one group that holds the two. The group names the section as its heading writes it. Relations that are in step, or that nobody approved, make no group.
+
+=>
+
+describe('a review of drift', () => {
+  const approved = approvedRelations(first.catalogue, first.billing, [], every)
+
+  const changed = bookWith('An overdraft is a balance below the agreed limit.')
+
+  it('groups the drifted relations under the section that changed', () => {
+    const drifts = driftsIn(relationsOf(changed.catalogue, changed.billing, approved))
+    expect(drifts.map((drift) => [drift.loom, drift.section])).toEqual([[rulesPath, 'Overdrafts']])
+    expect(drifts[0]?.relations.map((relation) => relation.kind)).toEqual(['anchor', 'link'])
+  })
+
+  it('holds nothing while every section stands as approved', () => {
+    expect(driftsIn(relationsOf(first.catalogue, first.billing, approved))).toEqual([])
+  })
+
+  it('holds nothing for references nobody approved', () => {
+    expect(driftsIn(relationsOf(changed.catalogue, changed.billing, []))).toEqual([])
+  })
+})
+
 ## Drift among a loom's problems
 
 The compiler shows drift with a loom's other problems. Its `approve` verb keeps the relations of a loom in the workspace, and its `diagnose` verb judges the loom against what the workspace keeps, as the chapter "The compile layer" describes. The cases keep a book in a temporary folder, so the relations land in a real `.loom/relations.lock` file. `driftIn` approves or not, then gathers the drift a loom shows.
@@ -629,6 +694,8 @@ describe("drift among a loom's problems", () => {
 
 ::[Drift shows only on what was approved]
 
+::[A review groups drift by the section that changed]
+
 ::[Approval keeps the references that exist]
 
 ::[An approval covers what was chosen]
@@ -643,14 +710,14 @@ The file is JSON, one line for each relation, in the order `approvedRelations` g
 
 `loom approve` names what to approve by a path, from one reference up to the corpus, and writes the file, as the chapter "The command-line program" describes. `billing.loom:12` is the reference on a line, `billing.loom` is every reference of a loom, and a folder is every reference of the looms it holds.
 
+`loom review` takes the same path and lists what has drifted under it, one group for each changed section. With `--json` it prints the same groups for an agent, and each reference in them carries the path and line that `loom approve` takes.
+
 ## A reference renamed by hand
 
 A relation is found by its names, so a reference that changes its name leaves its relation behind. The renamed reference has no relation, and Loom says nothing about it, as it says nothing about any reference nobody approved. The author chose to change the reference. The next approval of the loom drops the relation left behind and records the reference under its new name.
 
 ## What this chapter grows into
 
-1. `loom review [path]`, which lists the drifted references under a path, grouped by the section that changed. In a terminal it walks through them, with the difference in each section, and for an agent it prints the same list as JSON.
-2. The approved text of a section, read back from git for that difference and kept nowhere else. The fingerprint tells which version of the section was approved.
-3. Levels of strictness, which say whether drift only warns or also fails a command.
-4. In the editor: what changed, on hover over a drifted reference, a quick fix that approves one reference, and one that starts tracking a reference.
-5. The editor's rename of a section, which rewrites the references to it, carrying their relations along.
+1. Levels of strictness, which say whether drift only warns or also fails a command.
+2. In the editor: a quick fix that approves one reference, and one that starts tracking a reference.
+3. The editor's rename of a section, which rewrites the references to it, carrying their relations along.

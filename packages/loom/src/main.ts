@@ -31,7 +31,7 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, resolve as resolvePath } from 'node:path'
+import { delimiter, dirname, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import {
@@ -41,6 +41,7 @@ import {
   type TangleError,
 } from '@athrio/loom-lang/LoomCompiler'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
+import { type Drift, driftsIn } from '@athrio/loom-lang/ast/Relations'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
@@ -186,6 +187,56 @@ const approve = (target: string) =>
     yield* count === 0
       ? Console.log(`loom: found no reference to approve at ${target}`)
       : Console.log(`loom: approved ${count} ${count === 1 ? 'reference' : 'references'}`)
+  })
+
+type Reviewed = {
+  readonly loom: string
+  readonly section: string
+  readonly references: ReadonlyArray<{
+    readonly at: string
+    readonly kind: string
+    readonly to: string
+  }>
+}
+
+const reviewedFrom =
+  (cwd: string) =>
+  (drift: Drift): Reviewed => ({
+    loom: relative(cwd, drift.loom),
+    section: drift.section,
+    references: Array.map(drift.relations, (relation) => ({
+      at: `${relative(cwd, relation.loom)}:${relation.at.start.line}`,
+      kind: relation.kind,
+      to: relation.to,
+    })),
+  })
+
+const driftText = (drift: Reviewed): string =>
+  Array.join(
+    [
+      `\`${drift.section}\` in ${drift.loom} has changed since these references to it were approved:`,
+      ...Array.map(drift.references, (reference) => `  ${reference.at}  ${reference.kind}`),
+    ],
+    '\n',
+  )
+
+const reviewText = (drifts: ReadonlyArray<Reviewed>, json: boolean): string =>
+  Match.value({ json, drifted: Array.isReadonlyArrayNonEmpty(drifts) }).pipe(
+    Match.when({ json: true }, () => JSON.stringify(drifts, null, 2)),
+    Match.when({ drifted: false }, () => 'loom: no approved reference has drifted'),
+    Match.orElse(() => Array.join(Array.map(drifts, driftText), '\n\n')),
+  )
+
+const review = (target: Option.Option<string>, json: boolean) =>
+  Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const formatter = yield* LoomFormatter
+    const cwd = process.cwd()
+    const { path, line } = chosenAt(Option.getOrElse(target, () => '.'))
+    const looms = yield* formatter.looms(resolvePath(cwd, path))
+    const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
+    const drifts = driftsIn(Array.filter(Array.flatten(relations), onLine(line)))
+    yield* Console.log(reviewText(Array.map(drifts, reviewedFrom(cwd)), json))
   })
 
 const format = (path: string, check: boolean) =>
@@ -1276,6 +1327,15 @@ const approveCommand = Command.make('approve', { path: Argument.String('path') }
   approve(path),
 )
 
+const reviewCommand = Command.make(
+  'review',
+  {
+    path: Argument.optional(Argument.String('path')),
+    json: Flag.Boolean('json').pipe(Flag.withDefault(false)),
+  },
+  ({ path, json }) => review(path, json),
+)
+
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.Directory('dir')) },
@@ -1320,6 +1380,7 @@ const loom = Command.make('loom').pipe(
     weaveCommand,
     refreshCommand,
     approveCommand,
+    reviewCommand,
     formatCommand,
     initCommand,
     addCommand,
