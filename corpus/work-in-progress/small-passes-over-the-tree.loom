@@ -288,7 +288,9 @@ const unclaimed =
 
 The third pass checks what braces hold against what their bearer takes. Each bearer of braces takes keys of its own, which the chapter "The leaf tokens" lists: a heading takes `lang` and `kind`, an anchor takes `kind` and `provides`, and a box takes `kind`, `provides`, and `anchors`. A key the bearer does not take is an `UnknownKey` fault. A key written a second time in one pair of braces is a `RepeatedKey` fault, and that is the one fault such a key carries, whatever else is wrong with it. Each of the two stands on the key itself.
 
-An anchor's `kind` takes one of an anchor's own kinds, `To be settled` or `Reference`. A value that names neither is an `UnknownKind` fault on the value, whether the author wrote it as a parameter or as a label alone. Without the fault, braces such as `{x}` after an anchor would leave the tangle without a word. A box's kind is for the corpus to judge, since a trope in another loom may declare it, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `Takes` holds kinds for an anchor alone.
+An anchor's `kind` takes one of an anchor's own kinds, `To be settled` or `Module`. A value that names neither is an `UnknownKind` fault on the value, whether the author wrote it as a parameter or as a label alone. Without the fault, braces such as `{x}` after an anchor would leave the tangle without a word.
+
+A value may also be a name the kind went by before, as `Reference` is a former name of `Module`. Such a value is a `RenamedKind` fault, which names the kind as it is written now and offers a fix that writes it. A box's kind is for the corpus to judge, since a trope in another loom may declare it, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `Takes` holds kinds for an anchor alone.
 
 The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` hands the fold a case for each bearer of braces: a heading, an anchor, and a box.
 
@@ -317,7 +319,7 @@ export const checkedDocument = (claimed: ClaimedDocument): ClaimedDocument =>
 
 ~
 
-`faultedBraces` judges one pair of braces, parameters or a label. `parameterFault` judges one parameter against what the bearer takes and against the parameters written before it. `unknownKind` finds the first value that names none of the bearer's kinds, when the bearer has kinds of its own.
+`faultedBraces` judges one pair of braces, parameters or a label. `parameterFault` judges one parameter against what the bearer takes and against the parameters written before it. `unknownKind` finds the first value that names none of the bearer's kinds, when the bearer has kinds of its own. `kindFault` gives the fault of such a value: `RenamedKind` when `renamedTo` knows the value as a former name, and `UnknownKind` otherwise.
 
 =>
 
@@ -332,11 +334,17 @@ const faultedBraces =
 
 type Valued = { readonly value: string; readonly position: Position }
 
+const kindFault = (takes: Takes, kinds: ReadonlyArray<string>, kind: string): LoomFault =>
+  Option.match(renamedTo(kind), {
+    onNone: () => UnknownKind({ kind, kinds, on: takes.on }),
+    onSome: (now) => RenamedKind({ kind, now }),
+  })
+
 const unknownKind = (takes: Takes, values: ReadonlyArray<Valued>): Option.Option<Health> =>
   Option.flatMap(takes.kinds, (kinds) =>
     Option.map(
       Array.findFirst(values, (stated) => Option.isNone(kindNamed(kinds)(stated.value))),
-      (stated) => faulty(UnknownKind({ kind: stated.value, kinds, on: takes.on }), stated.position),
+      (stated) => faulty(kindFault(takes, kinds, stated.value), stated.position),
     ),
   )
 
@@ -425,7 +433,7 @@ const judged =
 
 ## What the row draws on
 
-The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens and the label rule from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, and `Array`, `Match`, `Option`, and `pipe` for the passes.
+The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, and `Array`, `Match`, `Option`, and `pipe` for the passes.
 
 =>
 
@@ -456,6 +464,7 @@ import {
   ParameterValueTokenSchema,
   type ParametersToken,
   ParametersTokenSchema,
+  renamedTo,
   sectionKinds,
   type SpecifierLabelToken,
   type SpecifierToken,
@@ -466,6 +475,8 @@ import {
   type BracesOn,
   faulty,
   LabelBesideParameter,
+  type LoomFault,
+  RenamedKind,
   RepeatedKey,
   UnknownKey,
   UnknownKind,
@@ -497,13 +508,13 @@ import {
 
 The tests read one loom the way a build does: they parse it and run the row over the tree. `built` gives the document, `bracesOf` gives the braces of its first heading, and `statedBy` lists what those braces state, each key with its value. `textAt` reads the text a position covers, so a test can check that a parameter points at the author's own words.
 
-`anchorIn` gives the first anchor of a section's code, and `boxIn` the box a line opens. `greeting` builds an anchor with braces from its pieces, so the code of this chapter holds no anchor of its own. `messagesIn` gathers the messages of the faults that stand in a pair of braces: on its parameters, on a label beside them, or on its label alone.
+`anchorIn` gives the first anchor of a section's code, and `boxIn` the box a line opens. `greeting` builds an anchor with braces from its pieces, so the code of this chapter holds no anchor of its own. `messagesIn` gathers the messages of the faults that stand in a pair of braces: on its parameters, on a label beside them, or on its label alone. `fixesIn` gathers the fixes those faults offer.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
 import { Effect, Match, Schema } from 'effect'
-import type { Health, Position } from '@athrio/loom-ast/LoomNode'
+import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import type { ParametersToken, SpecifierToken } from '@athrio/loom-ast/LoomTokens'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
@@ -544,6 +555,11 @@ const judgedIn = (
 
 const messagesIn = (braces: SpecifierToken | ParametersToken | undefined): ReadonlyArray<string> =>
   judgedIn(braces).flatMap((judged) => judged.health.diagnostics.map((found) => found.message))
+
+const fixesIn = (braces: SpecifierToken | ParametersToken | undefined): ReadonlyArray<Fix> =>
+  judgedIn(braces).flatMap((judged) =>
+    judged.health.diagnostics.flatMap((found) => found.fixes ?? []),
+  )
 
 ## A label becomes a parameter
 
@@ -724,7 +740,7 @@ describe('checking the keys of braces', () => {
   })
 
   it('gives a repeated key the fault for the repeat alone', () => {
-    expect(messagesIn(anchorIn(greeting('{kind=Reference kind=Bogus}'))?.specifier)).toEqual([
+    expect(messagesIn(anchorIn(greeting('{kind=Module kind=Bogus}'))?.specifier)).toEqual([
       '`kind` is written twice in these braces. Keep one.',
     ])
   })
@@ -740,7 +756,7 @@ describe('checking the keys of braces', () => {
 
 ## An anchor's kind is one of its own
 
-An anchor's kind is `To be settled` or `Reference`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A box's kind is left for the book to judge.
+An anchor's kind is `To be settled` or `Module`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A kind written by its former name gets a fault of its own, whose fix writes the present name over the former one. A box's kind is left for the book to judge.
 
 =>
 
@@ -748,14 +764,14 @@ describe("the kind an anchor's braces name", () => {
   it('faults a label that names no kind of anchor, and fails the anchor', () => {
     const anchor = anchorIn(greeting('{x}'))
     expect(messagesIn(anchor?.specifier)).toEqual([
-      'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `x` kind. It takes `To be settled` and `Module`.',
     ])
     expect(anchor?.health.status).toBe('error')
   })
 
   it('faults a parameter that names no kind of anchor', () => {
     expect(messagesIn(anchorIn(greeting('{kind=Term}'))?.specifier)).toEqual([
-      'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Term` kind. It takes `To be settled` and `Module`.',
     ])
   })
 
@@ -763,6 +779,21 @@ describe("the kind an anchor's braces name", () => {
     const anchor = anchorIn(greeting('{to be settled}'))
     expect(messagesIn(anchor?.specifier)).toEqual([])
     expect(anchor?.health.status).toBe('ok')
+  })
+
+  it('tells the author the present name of a kind written by its former name', () => {
+    const anchor = anchorIn(greeting('{Reference}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([
+      'The `Reference` kind is now called `Module`. Write `Module`.',
+    ])
+    expect(fixesIn(anchor?.specifier)).toEqual([{ title: 'Write `Module`', text: 'Module' }])
+    expect(anchor?.health.status).toBe('error')
+  })
+
+  it('knows a former name written as a parameter, in any case of letters', () => {
+    expect(messagesIn(anchorIn(greeting('{kind=reference provides=greet}'))?.specifier)).toEqual([
+      'The `reference` kind is now called `Module`. Write `Module`.',
+    ])
   })
 
   it("leaves a box's kind for the book to judge", () => {

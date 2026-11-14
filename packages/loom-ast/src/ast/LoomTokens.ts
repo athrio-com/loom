@@ -82,9 +82,19 @@ export const parameterValue = (specifier: ParametersToken, key: string): Option.
 
 export const settleKind = 'To be settled'
 
-export const referenceKind = 'Reference'
+export const moduleKind = 'Module'
 
-export const anchorKinds: ReadonlyArray<string> = [settleKind, referenceKind]
+export const anchorKinds: ReadonlyArray<string> = [settleKind, moduleKind]
+
+export const formerAnchorKinds: ReadonlyArray<{ readonly was: string; readonly now: string }> = [
+  { was: 'Reference', now: moduleKind },
+]
+
+export const renamedTo = (word: string): Option.Option<string> =>
+  pipe(
+    Array.findFirst(formerAnchorKinds, (kind) => Option.isSome(kindNamed([kind.was])(word))),
+    Option.map((kind) => kind.now),
+  )
 
 export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
 

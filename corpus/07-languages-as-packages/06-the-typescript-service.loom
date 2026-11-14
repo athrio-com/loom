@@ -14,7 +14,7 @@ Besides the questions a type checker answers, the service answers three about th
 
 The service also formats TypeScript. It lays a composed root out with Prettier, and Loom's formatter maps the result back to the sections the root was composed from.
 
-And it writes the path a reference names, as the chapter "Referring to modules" describes, from the file the import stands in to the file the reference names.
+And it writes the path a module anchor names, as the chapter "Referring to modules" describes, from the file the import stands in to the file the module anchor names.
 
 ## Finding a root's project
 
@@ -655,7 +655,7 @@ export const lowerPromised = (
 
 ## Writing a module's path
 
-Once Loom knows the file a reference names, the service writes the specifier from the file the import stands in. `moduleSpecifier` answers for the TypeScript family of languages, the ones `tsExtension` names, and declines every other. It writes a quoted path, relative to the importing file's folder, opening with `./` when it does not climb out of it, as `'./room.js'` and `'../lib/format.js'` do.
+Once Loom knows the file a module anchor names, the service writes the specifier from the file the import stands in. `moduleSpecifier` answers for the TypeScript family of languages, the ones `tsExtension` names, and declines every other. It writes a quoted path, relative to the importing file's folder, opening with `./` when it does not climb out of it, as `'./room.js'` and `'../lib/format.js'` do.
 
 The extension follows the project's own settings for the importing file, the options its `tsconfig.json` sets, before Loom forces anything for the editor. A project that allows importing a `.ts` file, with `allowImportingTsExtensions` or `rewriteRelativeImportExtensions`, keeps the file's own extension. Any other project imports the JavaScript the compiler emits, so `emittedExtension` turns `.ts` and `.tsx` into `.js`, `.mts` into `.mjs`, and `.cts` into `.cjs`. A module in another language, such as a `.json` file, keeps its extension. A file that no `tsconfig.json` governs follows the compiler's defaults, which import the emitted JavaScript. `specifierConfig` finds each importing file's `tsconfig.json` the way the editor plugin does, once per folder.
 
@@ -787,7 +787,7 @@ const keepsTsExtension = (config: string): boolean =>
 
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a reference names.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a module anchor names.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 

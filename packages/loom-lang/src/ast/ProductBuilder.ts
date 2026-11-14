@@ -29,7 +29,7 @@ import {
 import {
   headingLang,
   manifestKind,
-  referenceKind,
+  moduleKind,
   settleKind,
   tangleKind,
   type FenceLabelToken,
@@ -591,8 +591,8 @@ const bindAnchor =
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
     const value = values.get(name)
-    const refersHere = value === undefined && isReference(anchor)
-    if (anchor.target !== undefined && !refersHere) {
+    const namesModule = value === undefined && isModuleAnchor(anchor)
+    if (anchor.target !== undefined && !namesModule) {
       return blankFragment(anchor.position, stray(anchor.target))
     }
     const label = settleKindOf(anchor)
@@ -600,7 +600,7 @@ const bindAnchor =
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
-    if (refersHere) return referenceOf(index, modulePath, anchor, label, provides)
+    if (namesModule) return moduleRefOf(index, modulePath, anchor, label, provides)
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => openRef(name, at, label, provides),
       onNonEmpty: (entry, rest) =>
@@ -620,7 +620,7 @@ const bindAnchor =
     })
   }
 
-const referenceOf = (
+const moduleRefOf = (
   index: NameIndex,
   modulePath: string,
   anchor: WarpAnchorToken,
@@ -628,7 +628,7 @@ const referenceOf = (
   provides: ReadonlyArray<Provided>,
 ): Part => {
   const name = anchor.name.value
-  const reference = (target: Option.Option<SectionId>): ModuleRef =>
+  const refTo = (target: Option.Option<SectionId>): ModuleRef =>
     ModuleRefSchema.make({
       name,
       target,
@@ -642,10 +642,10 @@ const referenceOf = (
       provides,
     })
   return Array.matchLeft(index.get(name) ?? [], {
-    onEmpty: () => reference(Option.none()),
+    onEmpty: () => refTo(Option.none()),
     onNonEmpty: (entry, rest) =>
       rest.length === 0
-        ? reference(Option.some({ path: modulePath, name: entry.name }))
+        ? refTo(Option.some({ path: modulePath, name: entry.name }))
         : blankFragment(
             anchor.position,
             ambiguous(name, anchor.name.position, rest.length + 1, []),
@@ -660,15 +660,15 @@ const isKind =
 
 const isSettleKind = isKind(settleKind)
 
-const isReference = (anchor: WarpAnchorToken): boolean =>
+const isModuleAnchor = (anchor: WarpAnchorToken): boolean =>
   Match.value(anchor.specifier).pipe(
-    Match.when({ type: 'Specifier' }, (specifier) => isKind(referenceKind)(specifier.label.value)),
+    Match.when({ type: 'Specifier' }, (specifier) => isKind(moduleKind)(specifier.label.value)),
     Match.when({ type: 'Parameters' }, (specifier) =>
       Array.some(
         specifier.parameters,
         (parameter) =>
           parameter.key.value === 'kind' &&
-          Array.some(parameter.values, (kind) => isKind(referenceKind)(kind.value)),
+          Array.some(parameter.values, (kind) => isKind(moduleKind)(kind.value)),
       ),
     ),
     Match.orElse(() => false),
@@ -793,7 +793,7 @@ export const crossFileFaults = (
           ),
           Match.when(
             { type: 'ModuleRef' },
-            (ref) => referenceHealth(catalogue, modules, landing, module, host, ref).diagnostics,
+            (ref) => moduleRefHealth(catalogue, modules, landing, module, host, ref).diagnostics,
           ),
           Match.orElse((): ReadonlyArray<Diagnostic> => []),
         ),
@@ -801,7 +801,7 @@ export const crossFileFaults = (
     ),
   )
 
-const referenceHealth = (
+const moduleRefHealth = (
   catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   landing: Landing,
@@ -809,7 +809,7 @@ const referenceHealth = (
   host: Code,
   ref: ModuleRef,
 ): Health =>
-  Referred.$match(referredFileOf(catalogue, modules, landing, module, host, ref), {
+  ModuleFile.$match(moduleFileOf(catalogue, modules, landing, module, host, ref), {
     Named: () => okHealth,
     Unsettled: ({ declared }) => faulty(UnsettledModule({ name: ref.name, declared }), ref.anchor),
     Faulted: ({ health }) => health,
@@ -986,33 +986,33 @@ export interface Landed {
   readonly file: File
 }
 
-export type Referred = Data.TaggedEnum<{
+export type ModuleFile = Data.TaggedEnum<{
   Named: { readonly landed: Landed }
   Unsettled: { readonly declared: boolean }
   Faulted: { readonly health: Health }
 }>
 
-export const Referred = Data.taggedEnum<Referred>()
+export const ModuleFile = Data.taggedEnum<ModuleFile>()
 
-type ReferredNode = Data.TaggedEnum<{
+type ModuleNode = Data.TaggedEnum<{
   Chapter: { readonly module: LoomModule }
   Section: { readonly id: SectionId }
 }>
 
-const ReferredNode = Data.taggedEnum<ReferredNode>()
+const ModuleNode = Data.taggedEnum<ModuleNode>()
 
-export const referredFileOf = (
+export const moduleFileOf = (
   catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   landing: Landing,
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
-): Referred =>
+): ModuleFile =>
   Result.match(referredNodeOf(catalogue, module, host, ref), {
     onFailure: (stopped) => stopped,
     onSuccess: (node) =>
-      ReferredNode.$match(node, {
+      ModuleNode.$match(node, {
         Chapter: ({ module: chapter }) => chapterFile(ref, filesOf(chapter)),
         Section: ({ id }) => sectionFile(modules, landing, host, ref, id),
       }),
@@ -1023,22 +1023,22 @@ const referredNodeOf = (
   module: LoomModule,
   host: Code,
   ref: ModuleRef,
-): Result.Result<ReferredNode, Referred> =>
+): Result.Result<ModuleNode, ModuleFile> =>
   Option.match(ref.target, {
-    onSome: (id) => Result.succeed(ReferredNode.Section({ id })),
+    onSome: (id) => Result.succeed(ModuleNode.Section({ id })),
     onNone: () => {
       const trails = trailsOf(catalogue, module.path, ref.name)
       return Array.matchLeft(trails, {
         onEmpty: () =>
           Result.fail(
             isMeant(ref)
-              ? Referred.Unsettled({ declared: false })
-              : Referred.Faulted({ health: unresolvedHealth(module, host, ref.name, ref.anchor) }),
+              ? ModuleFile.Unsettled({ declared: false })
+              : ModuleFile.Faulted({ health: unresolvedHealth(module, host, ref.name, ref.anchor) }),
           ),
         onNonEmpty: (trail, rest) =>
           rest.length > 0
             ? Result.fail(
-                Referred.Faulted({
+                ModuleFile.Faulted({
                   health: ambiguous(
                     ref.name,
                     ref.anchor,
@@ -1052,24 +1052,24 @@ const referredNodeOf = (
     },
   })
 
-const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ReferredNode, Referred> =>
+const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ModuleNode, ModuleFile> =>
   Match.value(place).pipe(
     Match.tag('Chapter', ({ chapter }) =>
-      Result.succeed(ReferredNode.Chapter({ module: chapter.module })),
+      Result.succeed(ModuleNode.Chapter({ module: chapter.module })),
     ),
     Match.tag('Section', ({ ref: reached }) =>
       Result.succeed(
-        ReferredNode.Section({
+        ModuleNode.Section({
           id: { path: reached.module, name: sectionNameOf(reached.section) },
         }),
       ),
     ),
-    Match.tag('Box', () => Result.fail(Referred.Unsettled({ declared: true }))),
+    Match.tag('Box', () => Result.fail(ModuleFile.Unsettled({ declared: true }))),
     Match.tag('Book', () =>
-      Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+      Result.fail(ModuleFile.Faulted({ health: unresolved(ref.name, ref.anchor) })),
     ),
     Match.tag('Part', () =>
-      Result.fail(Referred.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+      Result.fail(ModuleFile.Faulted({ health: unresolved(ref.name, ref.anchor) })),
     ),
     Match.exhaustive,
   )
@@ -1091,20 +1091,20 @@ const fileNames = (files: ReadonlyArray<Landed>): ReadonlyArray<string> => {
   )
 }
 
-const chapterFile = (ref: ModuleRef, files: ReadonlyArray<Landed>): Referred =>
+const chapterFile = (ref: ModuleRef, files: ReadonlyArray<Landed>): ModuleFile =>
   Array.isReadonlyArrayNonEmpty(files)
     ? fileAmong(ref, files)
-    : Referred.Unsettled({ declared: true })
+    : ModuleFile.Unsettled({ declared: true })
 
-const fileAmong = (ref: ModuleRef, files: Array.NonEmptyReadonlyArray<Landed>): Referred =>
+const fileAmong = (ref: ModuleRef, files: Array.NonEmptyReadonlyArray<Landed>): ModuleFile =>
   Option.match(ref.file, {
     onSome: (written) =>
       Option.match(
         Array.findFirst(files, (landed) => isNamed(landed.file.path, written.name)),
         {
-          onSome: (landed) => Referred.Named({ landed }),
+          onSome: (landed) => ModuleFile.Named({ landed }),
           onNone: () =>
-            Referred.Faulted({
+            ModuleFile.Faulted({
               health: faulty(
                 NoSuchFile({
                   name: ref.name,
@@ -1119,8 +1119,8 @@ const fileAmong = (ref: ModuleRef, files: Array.NonEmptyReadonlyArray<Landed>): 
       ),
     onNone: () =>
       files.length === 1
-        ? Referred.Named({ landed: Array.headNonEmpty(files) })
-        : Referred.Faulted({
+        ? ModuleFile.Named({ landed: Array.headNonEmpty(files) })
+        : ModuleFile.Faulted({
             health: faulty(
               SeveralFiles({ name: ref.name, files: fileNames(files), at: ref.slot }),
               ref.anchor,
@@ -1142,7 +1142,7 @@ const sectionFile = (
   host: Code,
   ref: ModuleRef,
   id: SectionId,
-): Referred => {
+): ModuleFile => {
   const own = pipe(
     Option.match(Option.fromNullishOr(modules.get(id.path)), {
       onNone: (): ReadonlyArray<Landed> => [],
@@ -1153,7 +1153,7 @@ const sectionFile = (
   if (Array.isReadonlyArrayNonEmpty(own)) return fileAmong(ref, own)
   return Option.match(ref.file, {
     onSome: (written) =>
-      Referred.Faulted({
+      ModuleFile.Faulted({
         health: faulty(
           NoSuchFile({ name: ref.name, file: written.name, files: [], at: written.at }),
           ref.anchor,
@@ -1163,7 +1163,7 @@ const sectionFile = (
   })
 }
 
-const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId): Referred => {
+const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId): ModuleFile => {
   const lands = landedIn(landing, id)
   const here = landedIn(landing, host.origin)
   const inHere = (landed: Landed): boolean => Array.some(here, (one) => sameFile(one, landed))
@@ -1171,9 +1171,9 @@ const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId)
   return Option.match(
     Option.filter(sole, (landed) => !inHere(landed)),
     {
-      onSome: (landed) => Referred.Named({ landed }),
+      onSome: (landed) => ModuleFile.Named({ landed }),
       onNone: () =>
-        Referred.Faulted({
+        ModuleFile.Faulted({
           health: faulty(
             SectionWithoutFile({
               name: ref.name,
@@ -1187,7 +1187,7 @@ const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId)
   )
 }
 
-export const holdsReferences = (modules: ReadonlyMap<string, LoomModule>): boolean =>
+export const holdsModuleRefs = (modules: ReadonlyMap<string, LoomModule>): boolean =>
   Array.some(Array.fromIterable(modules.values()), (module) =>
     Array.some(module.product.code, (code) =>
       Array.some(code.fragments, (part) => part.type === 'ModuleRef'),
@@ -1227,7 +1227,7 @@ export const landingOf = (
   catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
 ): Landing =>
-  holdsReferences(modules)
+  holdsModuleRefs(modules)
     ? pipe(
         Array.fromIterable(modules.values()),
         Array.flatMap(filesOf),

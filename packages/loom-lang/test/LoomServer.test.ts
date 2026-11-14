@@ -864,10 +864,10 @@ describe('LoomServer — a label as it is typed', () => {
           },
         },
         {
-          label: 'Reference',
+          label: 'Module',
           textEdit: {
             range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
-            newText: 'Reference',
+            newText: 'Module',
           },
         },
       ])

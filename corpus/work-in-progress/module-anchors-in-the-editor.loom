@@ -1,0 +1,44 @@
+---
+Part: Work in progress
+Chapter: Module anchors in the editor and in other languages
+Status: Planned
+Priority: 3
+Language: TypeScript
+---
+
+# Module anchors in the editor and in other languages
+
+The chapter "Referring to modules" lets an import name its module by its place in the book, with an anchor of the `Module` kind. The TypeScript package writes the path into the tangled file and into the code the editor checks. This draft carries the module anchor further: into the editor's own features, onto the woven page, to the boxes and trope boxes of the chapters "Names through the book" and "A trope in the text", and into languages other than TypeScript.
+
+## Tropes and boxes as module anchors
+
+A trope box is the box Part XIII, Chapter 3, "A trope in the text", builds, a box of the `Trope` kind whose `anchors` parameter names the section or chapter that holds the trope. The trope box itself neither names a module nor composes. The code anchor that names the trope box does one or the other, by the anchor's own kind, so `import greet from ::[Greeting]{Module}` names a module. Once the trope anchors a section or a chapter, the module anchor fits that target as it fits any other. While the trope anchors nothing, the module anchor should get a module the editor serves in the trope's place, and a composing anchor composes nothing.
+
+A module anchor that names a box whose chapter is not written, or a trope that points nowhere, is not at fault. The box and the trope are each unsettled, as the chapter "Names through the book" describes. The module anchor resolves, and the editor collects the module's contract from the code that uses it and from the names a `provides` parameter states.
+
+## Other languages
+
+The Python package writes a dotted module name rather than a quoted path, for `import` and for `from … import`. Each language package reads its own preferences, as the TypeScript package reads its compiler options.
+
+Some languages tie modules to the folders they live in, and their packages need to know the layout. Go imports a package by its directory and needs no import at all within one package. Rust follows the tree of `mod` declarations. Java requires a package declaration that matches the directory. Loom owns the layout, so each package can be told it. Each such language is a package of its own to write, after TypeScript and Python.
+
+## The editor
+
+Typing `::[` in code opens a list of the names in reach. For a module anchor, the list offers the chapters and sections that emit files, each with the files it emits.
+
+A module anchor navigates and renames as a composing anchor does. Go-to-definition on the name opens the module's root section, and on the file, the sink that writes it. Renaming a chapter or a file rewrites every module anchor that names it.
+
+A module anchor gives the editor a dependency it lacked. A loom that holds a module anchor depends on the module by name, whether or not the module exists yet. When a module appears, changes, or disappears, the editor knows which open looms to check again, among them the looms that name a module nobody has written yet.
+
+## The woven page
+
+The woven page renders a module anchor as a link that reads as the module's name and leads to its root section, as it renders a composing anchor in code today.
+
+## What this chapter grows into
+
+The design lands in steps, each one useful on its own.
+
+1. The editor: the list of names in reach, navigation, rename, and checking again the looms that name a changed module.
+2. The woven link.
+3. Tropes and boxes as module anchors.
+4. Packages for Python, then for the languages that tie modules to the layout.

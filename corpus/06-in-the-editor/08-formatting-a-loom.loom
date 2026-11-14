@@ -803,7 +803,7 @@ const placedIn = (
 
 A section formatted on its own reads well by itself, but the file it tangles into has the last word. So after the sections are formatted the pass composes every root again and asks the language's formatter to read it. A root that the formatter can no longer read puts back every section it composes. The check is the formatter's own parse, so it holds whatever the language: code that composed before composes after.
 
-A root that names a section in another loom, or a part that failed to compose, has a gap where that code goes, and the pass reads only this one file. So does a root that refers to a module, since the pass writes no path for the reference. Such a root is not checked, and its sections stand on the checks made while they were formatted alone.
+A root that names a section in another loom, or a part that failed to compose, has a gap where that code goes, and the pass reads only this one file. So does a root that holds a module anchor, since the pass writes no path for the module anchor. Such a root is not checked, and its sections stand on the checks made while they were formatted alone.
 
 =>
 

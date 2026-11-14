@@ -58,7 +58,7 @@ The de re walk inlines a section's fragments. `inlineComposed` folds them left t
 
 `inlinePart` handles each fragment. A `Fragment` becomes a `product` leaf, and a composing edge is bound, followed, and inlined, contributing nothing when its target is unresolved, missing, or cyclic. It learns which loom holds the edge from the section being folded, the `owner`, because an open edge resolves its name from there. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
 
-A reference, a `ModuleRef`, composes no code. It writes the path to the module it names, the specifier the language package wrote, and `Specifiers` hands the walk those specifiers. The compiler works them out before it projects, because finding the file a reference names, placing it, and asking the package all take effects, and the walk is pure. A reference with no specifier writes nothing. The specifier maps onto the anchor's name, although the two differ in length, so an error the language reports on the specifier lands on the anchor that wrote it. `noSpecifiers` gives no reference a specifier, for a projection that writes none.
+A module anchor, which the product pass binds as a `ModuleRef`, composes no code. It writes the path to the module it names, the specifier the language package wrote, and `Specifiers` hands the walk those specifiers. The compiler works them out before it projects, because finding the file a module anchor names, placing it, and asking the package all take effects, and the walk is pure. A module anchor with no specifier writes nothing. The specifier maps onto the anchor's name, although the two differ in length, so an error the language reports on the specifier lands on the anchor that wrote it. `noSpecifiers` gives no module anchor a specifier, for a projection that writes none.
 
 A leaf maps to its origin only when its section lives in the file being projected, the `home` file the walk carries down from its root. A mapping is a span in that one file's source, while a `Fragment`'s origin is a span in the file its own section came from. So a block that a cross-file anchor pulls in still lands in the code, and the product type-checks whole, but the block maps nowhere in the home file. Its own file projects it again, with mappings of its own, and an edit to that block belongs there.
 
@@ -183,7 +183,7 @@ A tangle writes no file whose composition reaches a section that holds no code y
 
 An edge stops short in two ways. It reaches a section whose `Code` holds no fragments, a section declared but not yet written. Or it binds to nothing while its anchor promises the section, with the `{To be settled}` label or by stating what the section provides, so the section is not declared at all. `isMeant` asks whether an edge promises its section. An edge that binds to nothing without a promise is a fault the diagnostics already raise, so the walk passes it by. A section the walk has already entered is not entered again, which ends a cycle.
 
-A reference stops short when the module it names is to be settled: a chapter that emits no file yet, or a name nobody has declared that its anchor promises. `unsettledReference` asks the product pass's `referredFileOf`, and reports the reference with `reference` set, and `declared` saying whether its name finds a chapter or a section. A sinkless section's landing decides only which file it names, never whether a module is to be settled, so the walk hands in an empty landing. The walk never follows a reference, since the code it names lands in another file.
+A module anchor stops short when the module it names is to be settled: a chapter that emits no file yet, or a name nobody has declared that its anchor promises. `unsettledModuleRef` asks the product pass's `moduleFileOf`. It reports the module anchor with `moduleAnchor` set, and with `declared` saying whether its name finds a chapter or a section. A sinkless section's landing decides only which file it names, never whether a module is to be settled, so the walk hands in an empty landing. The walk never follows a module anchor, since the code it names lands in another file.
 
 =>
 
@@ -193,7 +193,7 @@ export type Unsettled = {
   readonly name: string
   readonly section: Option.Option<SectionId>
   readonly provides: ReadonlyArray<Provided>
-  readonly reference: boolean
+  readonly moduleAnchor: boolean
   readonly declared: boolean
 }
 
@@ -203,18 +203,18 @@ const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId
   name: ref.name,
   section,
   provides: ref.provides,
-  reference: false,
+  moduleAnchor: false,
   declared: Option.isSome(section),
 })
 
-const unsettledReference = (
+const unsettledModuleRef = (
   modules: ReadonlyMap<Location, LoomModule>,
   catalogue: Catalogue,
   host: Code,
   ref: ModuleRef,
 ): Option.Option<Unsettled> =>
   Option.flatMap(Option.fromNullishOr(modules.get(host.origin.path)), (module) =>
-    Referred.$match(referredFileOf(catalogue, modules, {}, module, host, ref), {
+    ModuleFile.$match(moduleFileOf(catalogue, modules, {}, module, host, ref), {
       Unsettled: ({ declared }) =>
         Option.some<Unsettled>({
           path: host.origin.path,
@@ -222,7 +222,7 @@ const unsettledReference = (
           name: ref.name,
           section: Option.none(),
           provides: ref.provides,
-          reference: true,
+          moduleAnchor: true,
           declared,
         }),
       Named: () => Option.none(),
@@ -260,7 +260,7 @@ const unsettledFrom =
       Match.value(part).pipe(
         Match.when({ type: 'Fragment' }, (): ReadonlyArray<Unsettled> => []),
         Match.when({ type: 'ModuleRef' }, (ref) =>
-          Option.toArray(unsettledReference(modules, catalogue, node, ref)),
+          Option.toArray(unsettledModuleRef(modules, catalogue, node, ref)),
         ),
         Match.when({ type: 'NameRef' }, (ref) =>
           Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
@@ -289,25 +289,25 @@ export const unsettledIn = (
 ): ReadonlyArray<Unsettled> =>
   unsettledFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
-## The references a composition holds
+## The module anchors a composition holds
 
-A root's composition may hold references in its own code and in the code of every section it composes, and each needs a specifier before the root is projected. `referencesIn` walks the composition as `unsettledIn` does and gathers each `Reference`: the reference, the section that holds it as its `host`, and the loom that holds the host as its `owner`. The compiler works out a specifier for each one, written from the file the root lands in.
+A root's composition may hold module anchors in its own code and in the code of every section it composes, and each needs a specifier before the root is projected. `moduleRefsIn` walks the composition as `unsettledIn` does and gathers a `HeldModuleRef` for each one: the module anchor as its `ref`, the section that holds the module anchor as its `host`, and the loom that holds the host as its `owner`. The compiler works out a specifier for each one, written from the file the root lands in.
 
 =>
 
-export interface Reference {
+export interface HeldModuleRef {
   readonly owner: Location
   readonly host: Code
   readonly ref: ModuleRef
 }
 
-const referencesFrom =
+const moduleRefsFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
-  (node: Code): ReadonlyArray<Reference> =>
+  (node: Code): ReadonlyArray<HeldModuleRef> =>
     Array.flatMap(node.fragments, (part) =>
       Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<Reference> => []),
-        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<Reference> => [
+        Match.when({ type: 'Fragment' }, (): ReadonlyArray<HeldModuleRef> => []),
+        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<HeldModuleRef> => [
           { owner: node.origin.path, host: node, ref },
         ]),
         Match.when({ type: 'NameRef' }, (ref) =>
@@ -316,22 +316,22 @@ const referencesFrom =
             Option.filter((reached) => !seen.has(keyOf(reached))),
             Option.flatMap((reached) =>
               Option.map(lookup(modules, reached), (code) =>
-                referencesFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
+                moduleRefsFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
               ),
             ),
-            Option.getOrElse((): ReadonlyArray<Reference> => []),
+            Option.getOrElse((): ReadonlyArray<HeldModuleRef> => []),
           ),
         ),
         Match.exhaustive,
       ),
     )
 
-export const referencesIn = (
+export const moduleRefsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: Code,
   catalogue: Catalogue = catalogueOf(modules),
-): ReadonlyArray<Reference> =>
-  referencesFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
+): ReadonlyArray<HeldModuleRef> =>
+  moduleRefsFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
 ## What an anchor says its section provides
 
@@ -339,7 +339,7 @@ An anchor may state the names its section provides, as `::[Greeting function]{pr
 
 `contractsIn` gathers the contracts of one loom. It walks every composing edge the loom's product holds, and `contractOf` builds the contract of one from the `provides` names the reference records. It adds the contract of each trope box the loom holds, which `tropeContractOf` builds from the corpus's `tropeContractsIn`: the code of the trope's entry point against the names the box promises. `writtenSpan` runs from the section's first fragment of code to its last. Only a section that holds code of its own has names to compare, so a section to be settled, one that is missing, or one that only composes others holds no contract. The span covers the section's own code alone, so a name that a section it composes declares is not among the names the section provides.
 
-A reference states the names its module provides the same way, as `import { greet } from ::[Greetings]{provides=greet}` does, and its contract covers the file it names. `moduleContractOf` builds it once the product pass's `referredFileOf` finds the file. A module is the file's root and every section the root composes, so `composedSpan` runs from the first fragment of code among them to the last, over the sections that live in the root's own loom, which `composedOf` gathers. A section of the file that another loom holds lies outside that span, so a name only such a section declares reads as missing. A reference whose module is to be settled, or one a fault stops, holds no contract. `contractsIn` reads the corpus's `Landing` once for every reference in the loom.
+A module anchor states the names its module provides the same way, as `import { greet } from ::[Greetings]{provides=greet}` does, and its contract covers the file it names. `moduleContractOf` builds it once the product pass's `moduleFileOf` finds the file. A module is the file's root and every section the root composes, so `composedSpan` runs from the first fragment of code among them to the last, over the sections that live in the root's own loom, which `composedOf` gathers. A section of the file that another loom holds lies outside that span, so a name only such a section declares reads as missing. A module anchor whose module is to be settled, or one a fault stops, holds no contract. `contractsIn` reads the corpus's `Landing` once for every module anchor in the loom.
 
 =>
 
@@ -440,8 +440,8 @@ const moduleContractOf = (
 ): Option.Option<Contract> =>
   Option.gen(function* () {
     const provides = yield* Option.liftPredicate(ref.provides, Array.isReadonlyArrayNonEmpty)
-    const landed = yield* Referred.$match(
-      referredFileOf(catalogue, modules, landing, module, host, ref),
+    const landed = yield* ModuleFile.$match(
+      moduleFileOf(catalogue, modules, landing, module, host, ref),
       {
         Named: ({ landed }) => Option.some(landed),
         Unsettled: () => Option.none(),
@@ -647,11 +647,11 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 
 `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. It takes the corpus's `Catalogue` for the open references it binds. A caller that projects many sections over one corpus builds the book once and passes it in, and any other caller lets `fromProduct` build it.
 
-`fromProduct` finds a section by its identity, then hands it to `fromCode`, the same pass started from a `Code` in hand. A tangle sink already holds its own `Code`, so the compiler composes a sink through `fromCode` and never looks the section up again by name. Both take the `Specifiers` the root's references write, and a caller with none to write leaves them out.
+`fromProduct` finds a section by its identity, then hands it to `fromCode`, the same pass started from a `Code` in hand. A tangle sink already holds its own `Code`, so the compiler composes a sink through `fromCode` and never looks the section up again by name. Both take the `Specifiers` the root's module anchors write, and a caller with none to write leaves them out.
 
 `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
-`rootNamesAt` names a file's composition roots — the sections no composing edge in the file folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A reference to a module folds nothing in, so it demotes nothing. A composing edge to a section in the same file demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. A reference into another file demotes nothing here, because its target belongs to that other file, which names its own roots. The sections left over, named by no same-file reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
+`rootNamesAt` names a file's composition roots — the sections no composing edge in the file folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A module anchor folds nothing in, so it demotes nothing. A composing edge to a section in the same file demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. A reference into another file demotes nothing here, because its target belongs to that other file, which names its own roots. The sections left over, named by no same-file reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
 =>
 
@@ -800,7 +800,7 @@ export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuild
 
 ## What this module draws on
 
-Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, `Match` to tell a fragment from a composing edge and a reference, and `Effect` itself for the service. The de re node types, the `Part` that unites them, `keyOf`, and `isMeant` come from `ProductAst`, with the `Provided` names an edge records, `Position` from the foundation, and the `LoomModule` and `Location` the resolution walks from the corpus model, with the `Catalogue` an open edge resolves through and `catalogueOf`, which builds it. The product pass's `targetOf` binds an open edge, for the walk and for a contract alike, and its `referredFileOf`, with the `Referred` it answers, tells whether a reference's module is to be settled and which file a reference's contract covers, over the `Landing` that `landingOf` builds. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
+Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, `Match` to tell a fragment from a composing edge and a module anchor, and `Effect` itself for the service. The de re node types, the `Part` that unites them, `keyOf`, and `isMeant` come from `ProductAst`, with the `Provided` names an edge records, `Position` from the foundation, and the `LoomModule` and `Location` the resolution walks from the corpus model, with the `Catalogue` an open edge resolves through and `catalogueOf`, which builds it. The product pass's `targetOf` binds an open edge, for the walk and for a contract alike, and its `moduleFileOf`, with the `ModuleFile` it answers, tells whether a module anchor's module is to be settled and which file a module anchor's contract covers, over the `Landing` that `landingOf` builds. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
 
 =>
 
@@ -829,8 +829,8 @@ import {
 import {
   type Landing,
   landingOf,
-  Referred,
-  referredFileOf,
+  ModuleFile,
+  moduleFileOf,
   sectionNameOf,
   targetOf,
 } from '#ast/ProductBuilder'
@@ -856,7 +856,7 @@ import {
 
 ::[What a composition leaves to be settled]
 
-::[The references a composition holds]
+::[The module anchors a composition holds]
 
 ::[What an anchor says its section provides]
 

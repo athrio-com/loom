@@ -23,8 +23,8 @@ import {
 import {
   type Landing,
   landingOf,
-  Referred,
-  referredFileOf,
+  ModuleFile,
+  moduleFileOf,
   sectionNameOf,
   targetOf,
 } from '#ast/ProductBuilder'
@@ -185,7 +185,7 @@ export type Unsettled = {
   readonly name: string
   readonly section: Option.Option<SectionId>
   readonly provides: ReadonlyArray<Provided>
-  readonly reference: boolean
+  readonly moduleAnchor: boolean
   readonly declared: boolean
 }
 
@@ -195,18 +195,18 @@ const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId
   name: ref.name,
   section,
   provides: ref.provides,
-  reference: false,
+  moduleAnchor: false,
   declared: Option.isSome(section),
 })
 
-const unsettledReference = (
+const unsettledModuleRef = (
   modules: ReadonlyMap<Location, LoomModule>,
   catalogue: Catalogue,
   host: Code,
   ref: ModuleRef,
 ): Option.Option<Unsettled> =>
   Option.flatMap(Option.fromNullishOr(modules.get(host.origin.path)), (module) =>
-    Referred.$match(referredFileOf(catalogue, modules, {}, module, host, ref), {
+    ModuleFile.$match(moduleFileOf(catalogue, modules, {}, module, host, ref), {
       Unsettled: ({ declared }) =>
         Option.some<Unsettled>({
           path: host.origin.path,
@@ -214,7 +214,7 @@ const unsettledReference = (
           name: ref.name,
           section: Option.none(),
           provides: ref.provides,
-          reference: true,
+          moduleAnchor: true,
           declared,
         }),
       Named: () => Option.none(),
@@ -252,7 +252,7 @@ const unsettledFrom =
       Match.value(part).pipe(
         Match.when({ type: 'Fragment' }, (): ReadonlyArray<Unsettled> => []),
         Match.when({ type: 'ModuleRef' }, (ref) =>
-          Option.toArray(unsettledReference(modules, catalogue, node, ref)),
+          Option.toArray(unsettledModuleRef(modules, catalogue, node, ref)),
         ),
         Match.when({ type: 'NameRef' }, (ref) =>
           Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
@@ -281,19 +281,19 @@ export const unsettledIn = (
 ): ReadonlyArray<Unsettled> =>
   unsettledFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
-export interface Reference {
+export interface HeldModuleRef {
   readonly owner: Location
   readonly host: Code
   readonly ref: ModuleRef
 }
 
-const referencesFrom =
+const moduleRefsFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
-  (node: Code): ReadonlyArray<Reference> =>
+  (node: Code): ReadonlyArray<HeldModuleRef> =>
     Array.flatMap(node.fragments, (part) =>
       Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<Reference> => []),
-        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<Reference> => [
+        Match.when({ type: 'Fragment' }, (): ReadonlyArray<HeldModuleRef> => []),
+        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<HeldModuleRef> => [
           { owner: node.origin.path, host: node, ref },
         ]),
         Match.when({ type: 'NameRef' }, (ref) =>
@@ -302,22 +302,22 @@ const referencesFrom =
             Option.filter((reached) => !seen.has(keyOf(reached))),
             Option.flatMap((reached) =>
               Option.map(lookup(modules, reached), (code) =>
-                referencesFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
+                moduleRefsFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
               ),
             ),
-            Option.getOrElse((): ReadonlyArray<Reference> => []),
+            Option.getOrElse((): ReadonlyArray<HeldModuleRef> => []),
           ),
         ),
         Match.exhaustive,
       ),
     )
 
-export const referencesIn = (
+export const moduleRefsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   root: Code,
   catalogue: Catalogue = catalogueOf(modules),
-): ReadonlyArray<Reference> =>
-  referencesFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
+): ReadonlyArray<HeldModuleRef> =>
+  moduleRefsFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
 export type Contract = {
   readonly section: string
@@ -416,8 +416,8 @@ const moduleContractOf = (
 ): Option.Option<Contract> =>
   Option.gen(function* () {
     const provides = yield* Option.liftPredicate(ref.provides, Array.isReadonlyArrayNonEmpty)
-    const landed = yield* Referred.$match(
-      referredFileOf(catalogue, modules, landing, module, host, ref),
+    const landed = yield* ModuleFile.$match(
+      moduleFileOf(catalogue, modules, landing, module, host, ref),
       {
         Named: ({ landed }) => Option.some(landed),
         Unsettled: () => Option.none(),

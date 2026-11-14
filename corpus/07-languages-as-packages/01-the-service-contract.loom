@@ -106,9 +106,9 @@ export interface FormatRequest {
 
 ## Writing a module's path
 
-An anchor of the `Reference` kind names a module, the file another section tangles to, as `import { roomBuilder } from ::[Room's 2d system]{Reference}` does, and composes nothing. Loom finds the file the reference names and where it lands, but the path the import writes belongs to the language. A TypeScript import writes a quoted path, and a Python import writes a dotted name.
+An anchor of the `Module` kind names a module, the file another section tangles to, as `import { roomBuilder } from ::[Room's 2d system]{Module}` does, and composes nothing. Loom finds the file the module anchor names and where it lands, but the path the import writes belongs to the language. A TypeScript import writes a quoted path, and a Python import writes a dotted name.
 
-So the language package writes it. `moduleSpecifier` takes a `SpecifierRequest`: the `language` of the code the import stands in, the `loom` the reference stands in, the file the import stands in as `from`, and the file the reference names as `to`, each the path that file tangles to. It answers with the specifier's whole text, its quotes included, such as `'./room.js'`. A package that does not serve the language answers nothing, so the next package can answer.
+So the language package writes it. `moduleSpecifier` takes a `SpecifierRequest`: the `language` of the code the import stands in, the `loom` the module anchor stands in, the file the import stands in as `from`, and the file the module anchor names as `to`, each the path that file tangles to. It answers with the specifier's whole text, its quotes included, such as `'./room.js'`. A package that does not serve the language answers nothing, so the next package can answer.
 
 =>
 

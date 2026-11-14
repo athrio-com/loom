@@ -96,7 +96,7 @@ describe('a code anchor composes a section from another loom', () => {
         '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
       }
       expect(yield* refusal(files, '/corpus/hello.loom')).toContain(
-        '/corpus/hello.loom:6: Only a reference names a file, and this anchor composes code. Remove `(greeting.loom)`.',
+        '/corpus/hello.loom:6: Only an anchor of the `Module` kind names a file, and this anchor composes code. Remove `(greeting.loom)`.',
       )
       const [diagnostic] = yield* LoomCompiler.pipe(
         Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
@@ -584,12 +584,12 @@ describe("completing an anchor's label", () => {
       const closed = helloAnchoring(`${anchor('Greeting')}{To b}`)
       expect(yield* complete(closed, closed.indexOf('To b') + 4)).toEqual([
         { label: 'To be settled', range: at(13, 17), text: 'To be settled' },
-        { label: 'Reference', range: at(13, 17), text: 'Reference' },
+        { label: 'Module', range: at(13, 17), text: 'Module' },
       ])
       const open = helloAnchoring(`${anchor('Greeting')}{`)
       expect(yield* complete(open, open.indexOf('{') + 1)).toEqual([
         { label: 'To be settled', range: at(13, 13), text: 'To be settled}' },
-        { label: 'Reference', range: at(13, 13), text: 'Reference}' },
+        { label: 'Module', range: at(13, 13), text: 'Module}' },
       ])
       expect(yield* complete(closed, closed.indexOf('Greeting') + 2)).toEqual([])
     }),
@@ -782,13 +782,13 @@ describe('a section composed into itself', () => {
           '# Main [main.ts]',
           '',
           '=>',
-          `${anchor('Helper')}{Reference}`,
+          `${anchor('Helper')}{Module}`,
           'const main = 1',
           '',
           '## Helper [helper.ts]',
           '',
           '=>',
-          `${anchor('Main')}{Reference}`,
+          `${anchor('Main')}{Module}`,
           'const helper = 1',
         ),
       }

@@ -54,6 +54,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly kinds: ReadonlyArray<string>
     readonly on: BracesOn
   }
+  RenamedKind: { readonly kind: string; readonly now: string }
   MissingSymbol: { readonly name: string; readonly section: string; readonly trope?: string }
   KeyOutsideTrope: { readonly key: string }
   StrayTarget: { readonly target: string; readonly at: Position }
@@ -135,6 +136,7 @@ export const {
   LabelBesideParameter,
   UnknownKey,
   UnknownKind,
+  RenamedKind,
   MissingSymbol,
   StrayTarget,
   NoSuchFile,
@@ -280,7 +282,7 @@ const emitted = (files: ReadonlyArray<string>): string =>
   Array.isReadonlyArrayNonEmpty(files) ? `It emits ${fileList(files)}.` : 'It emits no file of its own.'
 
 const composeInstead =
-  'Take `Reference` off the anchor and move it out of the import, so it composes the section.'
+  'Take `Module` off the anchor and move it out of the import, so it composes the section.'
 
 export const describe = (fault: LoomFault): Note =>
   Match.valueTags(fault, {
@@ -342,6 +344,8 @@ export const describe = (fault: LoomFault): Note =>
       error(`${cap(bearer[on])} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
     UnknownKind: ({ kind, kinds, on }) =>
       error(`${cap(bearer[on])} takes no \`${kind}\` kind. It takes ${knownList(kinds)}.`),
+    RenamedKind: ({ kind, now }) =>
+      error(`The \`${kind}\` kind is now called \`${now}\`. Write \`${now}\`.`),
     MissingSymbol: ({ name, section, trope }) =>
       error(
         trope === undefined
@@ -349,7 +353,9 @@ export const describe = (fault: LoomFault): Note =>
           : `\`${section}\` declares no \`${name}\`, though the \`${trope}\` trope promises it. Declare it in \`${section}\`, or take it out of \`provides\` on the trope box.`,
       ),
     StrayTarget: ({ target }) =>
-      error(`Only a reference names a file, and this anchor composes code. Remove \`${target}\`.`),
+      error(
+        `Only an anchor of the \`Module\` kind names a file, and this anchor composes code. Remove \`${target}\`.`,
+      ),
     NoSuchFile: ({ name, file, files }) =>
       error(`\`${name}\` emits no \`${file}\`. ${emitted(files)}`),
     SeveralFiles: ({ name, files }) =>
@@ -362,7 +368,7 @@ export const describe = (fault: LoomFault): Note =>
           Match.when(
             { here: true },
             () =>
-              `\`${name}\` lands in the file this reference stands in, so no path can name it. ${composeInstead}`,
+              `\`${name}\` lands in the file this anchor stands in, so no path can name it. ${composeInstead}`,
           ),
           Match.when(
             { count: 0 },
@@ -378,8 +384,8 @@ export const describe = (fault: LoomFault): Note =>
     UnsettledModule: ({ name, declared }) =>
       information(
         declared
-          ? `\`${name}\` emits no file yet, so this reference names no module.`
-          : `Nothing is called \`${name}\` yet, so this reference names no module.`,
+          ? `\`${name}\` emits no file yet, so this anchor names no module.`
+          : `Nothing is called \`${name}\` yet, so this anchor names no module.`,
       ),
     SpecifierUnknown: ({ name, language, reason }) =>
       error(`The ${language} package can't write the path to \`${name}\`. ${reason}`),
@@ -530,6 +536,9 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
     ]),
     Match.tag('LabelBesideParameter', ({ label, key }): ReadonlyArray<Fix> => [
       { title: `Write \`${label}\` in full`, text: `${key}="${label}"` },
+    ]),
+    Match.tag('RenamedKind', ({ now }): ReadonlyArray<Fix> => [
+      { title: `Write \`${now}\``, text: now },
     ]),
     Match.tag('StrayTarget', ({ target, at }): ReadonlyArray<Fix> => [
       { title: `Remove \`${target}\``, text: '', at },

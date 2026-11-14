@@ -25,6 +25,7 @@ import {
   ParameterValueTokenSchema,
   type ParametersToken,
   ParametersTokenSchema,
+  renamedTo,
   sectionKinds,
   type SpecifierLabelToken,
   type SpecifierToken,
@@ -35,6 +36,8 @@ import {
   type BracesOn,
   faulty,
   LabelBesideParameter,
+  type LoomFault,
+  RenamedKind,
   RepeatedKey,
   UnknownKey,
   UnknownKind,
@@ -242,11 +245,17 @@ const faultedBraces =
 
 type Valued = { readonly value: string; readonly position: Position }
 
+const kindFault = (takes: Takes, kinds: ReadonlyArray<string>, kind: string): LoomFault =>
+  Option.match(renamedTo(kind), {
+    onNone: () => UnknownKind({ kind, kinds, on: takes.on }),
+    onSome: (now) => RenamedKind({ kind, now }),
+  })
+
 const unknownKind = (takes: Takes, values: ReadonlyArray<Valued>): Option.Option<Health> =>
   Option.flatMap(takes.kinds, (kinds) =>
     Option.map(
       Array.findFirst(values, (stated) => Option.isNone(kindNamed(kinds)(stated.value))),
-      (stated) => faulty(UnknownKind({ kind: stated.value, kinds, on: takes.on }), stated.position),
+      (stated) => faulty(kindFault(takes, kinds, stated.value), stated.position),
     ),
   )
 

@@ -45,14 +45,14 @@ A key appears once in a specifier. A second `locale=` in one specifier is a faul
 
 A specifier that holds a single parameter may drop the key and the equals sign, and write the value alone. That lone value is the specifier's label. `{Bash}` on a heading is the short form of `{lang=Bash}`, and `{Mermaid}` on a box is the short form of `{kind=Mermaid}`.
 
-The short form serves one parameter and no more. A specifier with two or more parameters writes each of them in full, so a label beside a parameter is a fault. `{Reference provides=greet}` is a fault, and `{kind=Reference provides=greet}` is its correct form. A reader of a full specifier never has to guess which key a bare word stands for.
+The short form serves one parameter and no more. A specifier with two or more parameters writes each of them in full, so a label beside a parameter is a fault. `{Module provides=greet}` is a fault, and `{kind=Module provides=greet}` is its correct form. A reader of a full specifier never has to guess which key a bare word stands for.
 
 A label may run to several words, separated by single spaces, as `{To be settled}` does. A specifier with no equals sign in it holds one label, so its words never read as several parameters. In the full form the same value is quoted: `{kind="To be settled" provides=greet}`.
 
 The place where a specifier stands decides which key its label stands for:
 
 - **On a box,** a label is the box's `kind`.
-- **On an anchor,** a label is the `kind` of thing the anchor refers to. `To be settled` marks a section nobody has written yet, as the chapter "Names through the book" describes, and `Reference` marks an anchor that names a module, as the chapter "Referring to modules" describes.
+- **On an anchor,** a label is the `kind` of thing the anchor refers to. `To be settled` marks a section nobody has written yet, as the chapter "Names through the book" describes, and `Module` marks an anchor that names a module, as the chapter "Referring to modules" describes.
 - **On a heading,** a label is the section's `kind` when it names a kind of section, one of the core's, such as `Tangle` or `Concept`, or one a trope declares. Any other label is the `lang` of the section's code, since every other label on a heading names a language.
 
 The `lang` key names the language that code is written in, the one meaning Loom gives the word language. A trope that needs the language its readers read names it a locale, under a key of its own, and never `lang`.

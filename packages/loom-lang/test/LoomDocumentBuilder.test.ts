@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Effect, Match, Schema } from 'effect'
-import type { Health, Position } from '@athrio/loom-ast/LoomNode'
+import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import type { ParametersToken, SpecifierToken } from '@athrio/loom-ast/LoomTokens'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
@@ -41,6 +41,11 @@ const judgedIn = (
 
 const messagesIn = (braces: SpecifierToken | ParametersToken | undefined): ReadonlyArray<string> =>
   judgedIn(braces).flatMap((judged) => judged.health.diagnostics.map((found) => found.message))
+
+const fixesIn = (braces: SpecifierToken | ParametersToken | undefined): ReadonlyArray<Fix> =>
+  judgedIn(braces).flatMap((judged) =>
+    judged.health.diagnostics.flatMap((found) => found.fixes ?? []),
+  )
 
 describe("expanding a heading's label", () => {
   it('writes a language in full', () => {
@@ -179,7 +184,7 @@ describe('checking the keys of braces', () => {
   })
 
   it('gives a repeated key the fault for the repeat alone', () => {
-    expect(messagesIn(anchorIn(greeting('{kind=Reference kind=Bogus}'))?.specifier)).toEqual([
+    expect(messagesIn(anchorIn(greeting('{kind=Module kind=Bogus}'))?.specifier)).toEqual([
       '`kind` is written twice in these braces. Keep one.',
     ])
   })
@@ -197,14 +202,14 @@ describe("the kind an anchor's braces name", () => {
   it('faults a label that names no kind of anchor, and fails the anchor', () => {
     const anchor = anchorIn(greeting('{x}'))
     expect(messagesIn(anchor?.specifier)).toEqual([
-      'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `x` kind. It takes `To be settled` and `Module`.',
     ])
     expect(anchor?.health.status).toBe('error')
   })
 
   it('faults a parameter that names no kind of anchor', () => {
     expect(messagesIn(anchorIn(greeting('{kind=Term}'))?.specifier)).toEqual([
-      'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Term` kind. It takes `To be settled` and `Module`.',
     ])
   })
 
@@ -212,6 +217,21 @@ describe("the kind an anchor's braces name", () => {
     const anchor = anchorIn(greeting('{to be settled}'))
     expect(messagesIn(anchor?.specifier)).toEqual([])
     expect(anchor?.health.status).toBe('ok')
+  })
+
+  it('tells the author the present name of a kind written by its former name', () => {
+    const anchor = anchorIn(greeting('{Reference}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([
+      'The `Reference` kind is now called `Module`. Write `Module`.',
+    ])
+    expect(fixesIn(anchor?.specifier)).toEqual([{ title: 'Write `Module`', text: 'Module' }])
+    expect(anchor?.health.status).toBe('error')
+  })
+
+  it('knows a former name written as a parameter, in any case of letters', () => {
+    expect(messagesIn(anchorIn(greeting('{kind=reference provides=greet}'))?.specifier)).toEqual([
+      'The `reference` kind is now called `Module`. Write `Module`.',
+    ])
   })
 
   it("leaves a box's kind for the book to judge", () => {

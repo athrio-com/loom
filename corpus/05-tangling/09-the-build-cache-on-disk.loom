@@ -238,7 +238,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
 
 ## What the module draws on
 
-Effect supplies the service, its layer, `Array`, `Option` and `pipe` for the steps, and `Match` to tell one kind of edge from another. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Location`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, with the `WrittenFile` a reference names, and the `Position` of a label. `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to.
+Effect supplies the service, its layer, `Array`, `Option` and `pipe` for the steps, and `Match` to tell one kind of edge from another. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Location`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, with the `WrittenFile` a module anchor names, and the `Position` of a label. `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to.
 
 =>
 

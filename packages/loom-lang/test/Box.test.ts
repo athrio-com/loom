@@ -164,7 +164,7 @@ describe('the braces on a box', () => {
       ),
     ).map((d) => d.message)
     expect(found).toContain(
-      'An anchor takes no `Mermaid` kind. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Mermaid` kind. It takes `To be settled` and `Module`.',
     )
   })
 })

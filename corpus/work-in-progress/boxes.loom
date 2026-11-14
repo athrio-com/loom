@@ -217,7 +217,7 @@ describe('an opening line', () => {
 
 ## The keys and kinds a box takes
 
-A box writes its braces as an anchor does, but the two take different words in them. A box takes three keys, `kind`, `provides`, and `anchors`, so any other key on a box is a fault, and the book judges which kinds take the last two. A box's kind is judged against the whole book, since a trope in another loom may declare it, as Part XIII, Tropes, describes, so the parse of one loom leaves a box's kind alone. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Reference`, and the parse judges them.
+A box writes its braces as an anchor does, but the two take different words in them. A box takes three keys, `kind`, `provides`, and `anchors`, so any other key on a box is a fault, and the book judges which kinds take the last two. A box's kind is judged against the whole book, since a trope in another loom may declare it, as Part XIII, Tropes, describes, so the parse of one loom leaves a box's kind alone. An anchor's braces answer to the anchor's own list, which holds the kinds `To be settled` and `Module`, and the parse judges them.
 
 =>
 
@@ -254,7 +254,7 @@ describe('the braces on a box', () => {
       ),
     ).map((d) => d.message)
     expect(found).toContain(
-      'An anchor takes no `Mermaid` kind. It takes `To be settled` and `Reference`.',
+      'An anchor takes no `Mermaid` kind. It takes `To be settled` and `Module`.',
     )
   })
 })

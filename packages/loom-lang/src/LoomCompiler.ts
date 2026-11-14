@@ -58,11 +58,11 @@ import {
 import {
   compositionCycles,
   crossFileFaults,
-  holdsReferences,
+  holdsModuleRefs,
   type Landing,
   landingOf,
-  Referred,
-  referredFileOf,
+  ModuleFile,
+  moduleFileOf,
   unusedSections,
   usedSections,
 } from '#ast/ProductBuilder'
@@ -111,8 +111,8 @@ import {
   fromCode,
   fromProduct,
   noSpecifiers,
-  type Reference,
-  referencesIn,
+  type HeldModuleRef,
+  moduleRefsIn,
   type Specifiers,
   type Unsettled,
   unsettledIn,
@@ -319,7 +319,7 @@ const unsettledFailures = (
         unsettled,
         (one) =>
           faulty(
-            one.reference
+            one.moduleAnchor
               ? UnsettledModule({ name: one.name, declared: one.declared })
               : UnsettledSection({ name: one.name, declared: one.declared }),
             one.anchor,
@@ -367,19 +367,19 @@ const nothingWritten: Written = { specifiers: new Map(), unwritten: [] }
 
 const specifierKey = (owner: Location, at: Position): string => `${owner}#${at.start.offset}`
 
-const writtenOf = (reference: Reference, text: string): Written => ({
-  specifiers: new Map([[specifierKey(reference.owner, reference.ref.anchor), text]]),
+const writtenOf = (held: HeldModuleRef, text: string): Written => ({
+  specifiers: new Map([[specifierKey(held.owner, held.ref.anchor), text]]),
   unwritten: [],
 })
 
-const unwrittenOf = (reference: Reference, reason: string): Written => ({
+const unwrittenOf = (held: HeldModuleRef, reason: string): Written => ({
   specifiers: new Map(),
   unwritten: [
     {
-      path: reference.owner,
+      path: held.owner,
       diagnostic: faultAt(
-        SpecifierUnknown({ name: reference.ref.name, language: reference.host.languageId, reason }),
-        reference.ref.anchor,
+        SpecifierUnknown({ name: held.ref.name, language: held.host.languageId, reason }),
+        held.ref.anchor,
       ),
     },
   ],
@@ -785,33 +785,33 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       })
 
     const writtenFor: WrittenFor = (modules, catalogue, landing, root, from) =>
-      Effect.forEach(referencesIn(modules, root, catalogue), (reference) =>
+      Effect.forEach(moduleRefsIn(modules, root, catalogue), (held) =>
         pipe(
-          Option.fromNullishOr(modules.get(reference.owner)),
+          Option.fromNullishOr(modules.get(held.owner)),
           Option.map((module) =>
-            referredFileOf(catalogue, modules, landing, module, reference.host, reference.ref),
+            moduleFileOf(catalogue, modules, landing, module, held.host, held.ref),
           ),
-          Option.filter(Referred.$is('Named')),
+          Option.filter(ModuleFile.$is('Named')),
           Option.match({
             onNone: () => Effect.succeed(nothingWritten),
             onSome: ({ landed }) =>
               workspaces.placeOf(landed.loom, landed.file.path).pipe(
                 Effect.flatMap((to) =>
                   specifierOf({
-                    language: reference.host.languageId,
-                    loom: reference.owner,
+                    language: held.host.languageId,
+                    loom: held.owner,
                     from,
                     to,
                   }),
                 ),
                 Effect.map(
                   Option.match({
-                    onNone: () => unwrittenOf(reference, 'No package writes its paths.'),
-                    onSome: (text) => writtenOf(reference, text),
+                    onNone: () => unwrittenOf(held, 'No package writes its paths.'),
+                    onSome: (text) => writtenOf(held, text),
                   }),
                 ),
                 Effect.catchTag('ServiceError', (error) =>
-                  Effect.succeed(unwrittenOf(reference, error.reason)),
+                  Effect.succeed(unwrittenOf(held, error.reason)),
                 ),
               ),
           }),
@@ -831,7 +831,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       modules: Modules,
       entry: LoomModule,
     ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
-      if (!holdsReferences(modules)) return Effect.succeed(new Map())
+      if (!holdsModuleRefs(modules)) return Effect.succeed(new Map())
       const catalogue = catalogueOf(modules)
       const landing = landingOf(catalogue, modules)
       return Effect.forEach(entry.product.code, (root) =>

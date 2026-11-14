@@ -15,8 +15,8 @@ const lines = (...all: ReadonlyArray<string>): string => `${all.join('\n')}\n`
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
-const reference = (name: string, file = ''): string =>
-  `${anchor(name)}${file === '' ? '' : `(${file})`}{Reference}`
+const moduleAnchor = (name: string, file = ''): string =>
+  `${anchor(name)}${file === '' ? '' : `(${file})`}{Module}`
 
 const plainPaths: LanguagePackagesApi = {
   hold: () => Effect.void,
@@ -67,7 +67,7 @@ const room = lines(
   'export const roomBuilder = { createNewRoom: () => ({ ghosts: 0 }) }',
 )
 
-const interiorWith = (reference: string): string =>
+const interiorWith = (specifier: string): string =>
   lines(
     '---',
     'Language: TypeScript',
@@ -78,7 +78,7 @@ const interiorWith = (reference: string): string =>
     '',
     '=>',
     '',
-    `import { roomBuilder } from ${reference}`,
+    `import { roomBuilder } from ${specifier}`,
     '',
     'export const spookyRoom = roomBuilder.createNewRoom()',
   )
@@ -102,13 +102,13 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
 const messagesOf = (files: Record<string, string>, entry: string) =>
   Effect.map(diagnosed(files, entry), (found) => Array.map(found, (one) => one.message))
 
-describe('an anchor of the Reference kind refers to the module', () => {
+describe('an anchor of the Module kind names its module', () => {
   it.effect('writes the path to the file the name finds', () =>
     Effect.gen(function* () {
       const files = yield* tangled(
         {
           '/corpus/room.loom': room,
-          '/corpus/interior.loom': interiorWith(reference("Room's 2d system")),
+          '/corpus/interior.loom': interiorWith(moduleAnchor("Room's 2d system")),
         },
         '/corpus/interior.loom',
       )
@@ -159,11 +159,11 @@ const rooms = lines(
   'export const roomBuilder = { createNewRoom: () => ({ open: true }) }',
 )
 
-describe('a reference picks one of the files a chapter emits', () => {
+describe('a module anchor picks one of the files a chapter emits', () => {
   it.effect('asks for a file when the chapter emits several', () =>
     Effect.gen(function* () {
       const found = yield* diagnosed(
-        { '/corpus/rooms.loom': rooms, '/corpus/interior.loom': interiorWith(reference('Rooms')) },
+        { '/corpus/rooms.loom': rooms, '/corpus/interior.loom': interiorWith(moduleAnchor('Rooms')) },
         '/corpus/interior.loom',
       )
       expect(found.map((one) => one.message)).toEqual([
@@ -178,7 +178,7 @@ describe('a reference picks one of the files a chapter emits', () => {
       const files = yield* tangled(
         {
           '/corpus/rooms.loom': rooms,
-          '/corpus/interior.loom': interiorWith(reference('Rooms', 'door.ts')),
+          '/corpus/interior.loom': interiorWith(moduleAnchor('Rooms', 'door.ts')),
         },
         '/corpus/interior.loom',
       )
@@ -192,7 +192,7 @@ describe('a reference picks one of the files a chapter emits', () => {
         yield* messagesOf(
           {
             '/corpus/rooms.loom': rooms,
-            '/corpus/interior.loom': interiorWith(reference('Rooms', 'window.ts')),
+            '/corpus/interior.loom': interiorWith(moduleAnchor('Rooms', 'window.ts')),
           },
           '/corpus/interior.loom',
         ),
@@ -240,7 +240,7 @@ const importingHelpers = (composed: boolean): string =>
     '=>',
     '',
     ...(composed ? [anchor('Utilities, Helpers'), ''] : []),
-    `import { helper } from ${reference('Utilities, Helpers')}`,
+    `import { helper } from ${moduleAnchor('Utilities, Helpers')}`,
   )
 
 describe('a section with no sink names the file it lands in', () => {
@@ -266,7 +266,7 @@ describe('a section with no sink names the file it lands in', () => {
           '/corpus/interior.loom',
         ),
       ).toEqual([
-        '`Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+        '`Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Module` off the anchor and move it out of the import, so it composes the section.',
       ])
       expect(
         yield* messagesOf(
@@ -274,18 +274,18 @@ describe('a section with no sink names the file it lands in', () => {
           '/corpus/interior.loom',
         ),
       ).toEqual([
-        '`Utilities, Helpers` lands in the file this reference stands in, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+        '`Utilities, Helpers` lands in the file this anchor stands in, so no path can name it. Take `Module` off the anchor and move it out of the import, so it composes the section.',
       ])
     }),
   )
 })
 
-describe('a reference waits for a module nobody has written', () => {
+describe('a module anchor waits for a module nobody has written', () => {
   it.effect('reports a name that finds nothing', () =>
     Effect.gen(function* () {
       expect(
         yield* messagesOf(
-          { '/corpus/interior.loom': interiorWith(reference('Nowhere')) },
+          { '/corpus/interior.loom': interiorWith(moduleAnchor('Nowhere')) },
           '/corpus/interior.loom',
         ),
       ).toEqual([
@@ -298,12 +298,12 @@ describe('a reference waits for a module nobody has written', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/interior.loom': interiorWith(
-          `${anchor('Nowhere')}{kind=Reference provides=roomBuilder}`,
+          `${anchor('Nowhere')}{kind=Module provides=roomBuilder}`,
         ),
       }
       const found = yield* diagnosed(files, '/corpus/interior.loom')
       expect(found.map((one) => [one.severity, one.message])).toEqual([
-        ['info', 'Nothing is called `Nowhere` yet, so this reference names no module.'],
+        ['info', 'Nothing is called `Nowhere` yet, so this anchor names no module.'],
       ])
       const refusal = yield* Effect.flip(tangled(files, '/corpus/interior.loom'))
       expect(refusal.message).toContain('Nothing is called `Nowhere` yet')
@@ -348,7 +348,7 @@ describe('the editor sees the path the tangle writes', () => {
   const files = {
     '/corpus/room.loom': room,
     '/corpus/interior.loom': interiorWith(
-      `${anchor("Room's 2d system")}{kind=Reference provides=roomBuilder}`,
+      `${anchor("Room's 2d system")}{kind=Module provides=roomBuilder}`,
     ),
   }
 
@@ -365,7 +365,7 @@ describe('the editor sees the path the tangle writes', () => {
     }).pipe(Effect.provide(compilerOver(files))),
   )
 
-  it.effect('holds a contract over the file a reference names', () =>
+  it.effect('holds a contract over the file a module anchor names', () =>
     Effect.gen(function* () {
       const compiler = yield* LoomCompiler
       const [contract] = yield* compiler.contracts('/corpus/interior.loom')
@@ -403,7 +403,7 @@ const workspaceWith = (looms: Record<string, string>): string => {
   return workspace
 }
 
-describe('the TypeScript service writes a reference end to end', () => {
+describe('the TypeScript service writes a module anchor end to end', () => {
   let teardown: () => void = () => undefined
   beforeAll(() => {
     teardown = serviceStore()
@@ -416,7 +416,7 @@ describe('the TypeScript service writes a reference end to end', () => {
       Effect.gen(function* () {
         const workspace = workspaceWith({
           'room.loom': room,
-          'interior.loom': interiorWith(reference("Room's 2d system")),
+          'interior.loom': interiorWith(moduleAnchor("Room's 2d system")),
         })
         const compiler = yield* LoomCompiler
         const files = yield* compiler.tangle(join(workspace, 'corpus', 'interior.loom'))

@@ -12,7 +12,7 @@ An import's path belongs to the tangled output. The author has to know where eac
 
 The path also hides a dependency from Loom. It sits inside a string the language owns, so Loom cannot tell that one loom relies on another.
 
-A reference lets an import name its module the way an anchor names a section: by the module's place in the book. The import stays in the code, because only the language's own service can check it, for example whether the module exports the name the code asks for. Loom writes the path, and the tangled code carries an ordinary import with no trace of Loom.
+A module anchor is an anchor of the `Module` kind, written inside an import where the path would stand. It lets the import name its module the way an anchor names a section, by the module's place in the book. The import stays in the code, because only the language's own service can check it, for example whether the module exports the name the code asks for. Loom writes the path, and the tangled code carries an ordinary import with no trace of Loom.
 
 ## A module is a file the book emits
 
@@ -26,7 +26,7 @@ A heading carries one of the two marks, never both. The `{Tangle}` specifier and
 
 ## Naming a module in code
 
-An import names its module with an anchor that stands where the import's path would stand, and the anchor's `Reference` kind says that it refers:
+An import names its module with an anchor that stands where the import's path would stand, and the anchor's `Module` kind says that it names a module:
 
 ```
 ## Interior
@@ -34,27 +34,27 @@ An import names its module with an anchor that stands where the import's path wo
 The room is built empty, and everything else is added to it.
 
 =>
-import { roomBuilder } from ::[Room's 2d system]{Reference}
+import { roomBuilder } from ::[Room's 2d system]{Module}
 
 const spookyRoom = roomBuilder.createNewRoom()
 ```
 
-A referring anchor is written like a composing one, yet the two do different work. A composing anchor draws code in place, and the code becomes part of the file being written. A referring anchor names a file, and the code stays in that other file.
+A module anchor is written like a composing anchor, yet the two do different work. A composing anchor draws code in place, and the code becomes part of the file being written. A module anchor names a file, and the code stays in that other file.
 
-The kind tells the two apart, and the author writes it. Loom treats code as opaque text, in every language, so it cannot tell for itself where an import's path goes. The kind is written `{Reference}` alone in the anchor's braces, or `kind=Reference` beside other parameters, as `{kind=Reference provides=roomBuilder}` does. An anchor with no such kind composes, wherever it stands.
+The kind tells the two apart, and the author writes it. Loom treats code as opaque text, in every language, so it cannot tell for itself where an import's path goes. The kind is written `{Module}` alone in the anchor's braces, or `kind=Module` beside other parameters, as `{kind=Module provides=roomBuilder}` does. An anchor with no such kind composes, wherever it stands.
 
 The name finds a chapter or a section nearest first, by the rule every name follows. What the name finds must fit the kind of anchor:
 
 - **An anchor that composes** takes a section's code, or a chapter's opening section.
-- **A reference** takes the file a chapter emits, or the file a section's sink writes. A section with no sink gives the one file it lands in, the file of the root that composes it.
+- **A module anchor** takes the file a chapter emits, or the file a section's sink writes. A section with no sink gives the one file it lands in, the file of the root that composes it.
 
-A reference usually names the chapter, not the section that holds the sink. Code moves between sections as the prose is revised, while the chapter that emits the file stays put.
+A module anchor usually names the chapter, not the section that holds the sink. Code moves between sections as the prose is revised, while the chapter that emits the file stays put.
 
-A chapter that emits several files leaves the reference to pick one. The reference names the file in parentheses, with the extension written exactly as the sink declares it, as in `::[Room's 2d system](room.ts)`. An author may name the file even when the chapter emits only one, so the reader sees which file the code depends on without leaving the page. The file must then be one that the node the name finds emits: a file written by a sink on the node's own heading, or on a section inside it. A composing anchor names no file, so parentheses after a composing anchor raise the `StrayTarget` fault.
+A chapter that emits several files leaves the module anchor to pick one. The module anchor names the file in parentheses, with the extension written exactly as the sink declares it, as in `::[Room's 2d system](room.ts)`. An author may name the file even when the chapter emits only one, so the reader sees which file the code depends on without leaving the page. The file must then be one that the node the name finds emits: a file written by a sink on the node's own heading, or on a section inside it. A composing anchor names no file, so parentheses after a composing anchor raise the `StrayTarget` fault.
 
 ## Writing the import
 
-The reference stands where the language expects a module specifier, and the language package writes the specifier in its language's form. Loom knows the file the reference names and where it lands, but only the package knows how its language writes a path.
+The module anchor stands where the language expects a module specifier, and the language package writes the specifier in its language's form. Loom knows the file the module anchor names and where it lands, but only the package knows how its language writes a path.
 
 ```
 import { roomBuilder } from './room.js'
@@ -62,30 +62,30 @@ import { roomBuilder } from './room.js'
 
 The TypeScript package writes a quoted path from the importing file to the emitted file, since Loom knows where both land. The extension follows the project's TypeScript settings: `./room.ts` where the compiler options allow importing a `.ts` file, and `./room.js` where they expect the emitted JavaScript.
 
-The editor projects the same import into the code it hands the language service. The service then checks the import as it checks any other: whether the module exists, whether it exports `roomBuilder`, and what type `roomBuilder` has. An error the service reports on the specifier maps back onto the reference in the loom.
+The editor projects the same import into the code it hands the language service. The service then checks the import as it checks any other: whether the module exists, whether it exports `roomBuilder`, and what type `roomBuilder` has. An error the service reports on the specifier maps back onto the module anchor in the loom.
 
-## When a reference cannot be written
+## When a module anchor cannot be written
 
-A reference fails in four ways, and each failure is a Loom fault at the reference:
+A module anchor fails in four ways, and each failure is a Loom fault at the module anchor:
 
-- **The name matches nothing.** The `UnresolvedAnchor` fault reports it. The reference waits for its name as a forward reference, so the fault clears the moment the module is written.
-- **The node emits no such file, or several.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses, or the reference names no file and the node emits more than one. The `NoSuchFile` and `SeveralFiles` faults list the files the node does emit, and offer to name each one. A chapter that emits no file at all yet is not at fault. Its module is to be settled, and the reference carries the `UnsettledModule` note, as does a name nobody has written yet when the reference promises the module by stating what it provides, as `{kind=Reference provides=roomBuilder}` does.
-- **The section has no file to name.** A reference names a section with no sink, and the section lands in no file, in several, or in the very file the reference stands in. No path can be written, and the author most likely meant to compose the section, so the `SectionWithoutFile` fault says to take the `Reference` kind off and let the anchor compose.
-- **The module lacks a name it should provide.** The reference lists names in its `provides` parameter, and the file it names does not declare every one of them. The `MissingSymbol` fault names each one the file lacks.
+- **The name matches nothing.** The `UnresolvedAnchor` fault reports it. The module anchor waits for its name, and the fault clears the moment a module of that name is written.
+- **The node emits no such file, or several.** The name finds a chapter or a section, but no sink inside it writes the file in the parentheses, or the module anchor names no file and the node emits more than one. The `NoSuchFile` and `SeveralFiles` faults list the files the node does emit, and offer to name each one. A chapter that emits no file at all yet is not at fault. Its module is to be settled, and the module anchor carries the `UnsettledModule` note, as does a name nobody has written yet when the module anchor promises the module by stating what it provides, as `{kind=Module provides=roomBuilder}` does.
+- **The section has no file to name.** A module anchor names a section with no sink, and the section lands in no file, in several, or in the very file the module anchor stands in. No path can be written, and the author most likely meant to compose the section, so the `SectionWithoutFile` fault says to take the `Module` kind off and let the anchor compose.
+- **The module lacks a name it should provide.** The module anchor lists names in its `provides` parameter, and the file it names does not declare every one of them. The `MissingSymbol` fault names each one the file lacks.
 
 The language package can fail too. When it cannot write a path, or the language has no package to write one, the `SpecifierUnknown` fault stops the tangle, since the file would import nothing.
 
 ## Libraries outside the book
 
-An import of a library outside the book stays an ordinary import, such as `import { Effect } from 'effect'`. Loom adds nothing to it, because the library's path belongs to the language and not to the book. A plain import of a tangled file keeps working too, so a loom can move to references one import at a time.
+An import of a library outside the book stays an ordinary import, such as `import { Effect } from 'effect'`. Loom adds nothing to it, because the library's path belongs to the language and not to the book. A plain import of a tangled file keeps working too, so a loom can move to module anchors one import at a time.
 
 ## Asking the language packages
 
-`LanguagePackages` is how the compiler asks a loom's language packages to write the path a reference names. Each package answers through the `moduleSpecifier` of the contract, as the chapter "The Loom language-service contract" describes. The service asks every package the loom's workspace activates and takes the first answer, since a package declines a language it does not serve. A question no package answers has no answer, and the compiler leaves the path unwritten.
+`LanguagePackages` is how the compiler asks a loom's language packages to write the path a module anchor names. Each package answers through the `moduleSpecifier` of the contract, as the chapter "The Loom language-service contract" describes. The service asks every package the loom's workspace activates and takes the first answer, since a package declines a language it does not serve. A question no package answers has no answer, and the compiler leaves the path unwritten.
 
 The packages of a workspace are the ones its configuration activates, loaded from the workspace's store by `loadActive`. `packagesOf` finds the workspace a loom belongs to, through the `LoomConfig` service, and the packages the service holds for it. `hold` keeps a workspace's packages, so the service asks them without loading them again.
 
-Loading a package takes an import, which waits, and the editor projects a loom, with the paths its references write, inside a synchronous hook that cannot wait. So the service comes in two layers. The `layer` the CLI runs loads a workspace's packages the first time a loom of that workspace asks, through `loaded`, which installs the host runtime the packages share first. It imports the loader only then, so a command that asks no package never loads one. The `held` layer the language server runs loads nothing. The server loads each workspace's packages for its plugins as it meets the workspace, and hands them to `hold` before any loom of the workspace is projected.
+Loading a package takes an import, which waits, and the editor projects a loom, with the paths its module anchors write, inside a synchronous hook that cannot wait. So the service comes in two layers. The `layer` the CLI runs loads a workspace's packages the first time a loom of that workspace asks, through `loaded`, which installs the host runtime the packages share first. It imports the loader only then, so a command that asks no package never loads one. The `held` layer the language server runs loads nothing. The server loads each workspace's packages for its plugins as it meets the workspace, and hands them to `hold` before any loom of the workspace is projected.
 
 `firstAnswer` asks each package that takes the question, in the order the workspace activates them, and keeps the first answer.
 
@@ -200,11 +200,11 @@ import {
 
 ::[Asking the language packages]
 
-## Testing a reference
+## Testing a module anchor
 
 These cases build small corpora in memory and ask the compiler about them. `compilerOver` serves the looms of a record through a stand-in source and the settings a TypeScript workspace gives. It hands the compiler a `LanguagePackages` service, by default `plainPaths`, a stand-in package whose specifier is the plain relative path between the two files. The stand-in keeps the cases about Loom's half of the work, and the last case loads the real TypeScript service instead.
 
-`room` is a loom that tangles `room.ts` from its one `{Tangle}` section, `Room's 2d system`. `interiorWith` is a loom that tangles `interior.ts` and imports `roomBuilder` from whatever anchor it is handed. `anchor` builds an anchor from its pieces, so the code of this chapter holds none, and `reference` builds one of the `Reference` kind, with a file in parentheses when the case names one. `tangled`, `diagnosed`, and `messagesOf` ask the compiler for a tangle and a loom's diagnostics.
+`room` is a loom that tangles `room.ts` from its one `{Tangle}` section, `Room's 2d system`. `interiorWith` is a loom that tangles `interior.ts` and imports `roomBuilder` from whatever anchor it is handed. `anchor` builds an anchor from its pieces, so the code of this chapter holds none, and `moduleAnchor` builds an anchor of the `Module` kind, with a file in parentheses when the case names one. `tangled`, `diagnosed`, and `messagesOf` ask the compiler for a tangle and a loom's diagnostics.
 
 =>
 
@@ -225,8 +225,8 @@ const lines = (...all: ReadonlyArray<string>): string => `${all.join('\n')}\n`
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
-const reference = (name: string, file = ''): string =>
-  `${anchor(name)}${file === '' ? '' : `(${file})`}{Reference}`
+const moduleAnchor = (name: string, file = ''): string =>
+  `${anchor(name)}${file === '' ? '' : `(${file})`}{Module}`
 
 const plainPaths: LanguagePackagesApi = {
   hold: () => Effect.void,
@@ -277,7 +277,7 @@ const room = lines(
   'export const roomBuilder = { createNewRoom: () => ({ ghosts: 0 }) }',
 )
 
-const interiorWith = (reference: string): string =>
+const interiorWith = (specifier: string): string =>
   lines(
     '---',
     'Language: TypeScript',
@@ -288,7 +288,7 @@ const interiorWith = (reference: string): string =>
     '',
     '=>',
     '',
-    `import { roomBuilder } from ${reference}`,
+    `import { roomBuilder } from ${specifier}`,
     '',
     'export const spookyRoom = roomBuilder.createNewRoom()',
   )
@@ -314,17 +314,17 @@ const messagesOf = (files: Record<string, string>, entry: string) =>
 
 ~
 
-A reference tangles to the path of the file it names, and the code of that file stays out of the importing file. An anchor with no kind composes the section, as an anchor always did, even where an import's path would go.
+A module anchor tangles to the path of the file it names, and the code of that file stays out of the importing file. An anchor with no kind composes the section, as an anchor always did, even where an import's path would go.
 
 =>
 
-describe('an anchor of the Reference kind refers to the module', () => {
+describe('an anchor of the Module kind names its module', () => {
   it.effect('writes the path to the file the name finds', () =>
     Effect.gen(function* () {
       const files = yield* tangled(
         {
           '/corpus/room.loom': room,
-          '/corpus/interior.loom': interiorWith(reference("Room's 2d system")),
+          '/corpus/interior.loom': interiorWith(moduleAnchor("Room's 2d system")),
         },
         '/corpus/interior.loom',
       )
@@ -352,7 +352,7 @@ describe('an anchor of the Reference kind refers to the module', () => {
 
 ~
 
-A chapter that emits two files leaves the reference to pick one. `rooms` is such a chapter: its `Package` is a folder, and its sections `The room` and `The door` each write a file into it. A reference that names neither raises `SeveralFiles`, with a fix that names each file. A reference that names `door.ts` in parentheses tangles to the door's file. A reference that names a file the chapter does not emit raises `NoSuchFile`, which lists the files it does emit.
+A chapter that emits two files leaves the module anchor to pick one. `rooms` is such a chapter: its `Package` is a folder, and its sections `The room` and `The door` each write a file into it. A module anchor that names neither raises `SeveralFiles`, with a fix that names each file. A module anchor that names `door.ts` in parentheses tangles to the door's file. A module anchor that names a file the chapter does not emit raises `NoSuchFile`, which lists the files it does emit.
 
 =>
 
@@ -381,11 +381,11 @@ const rooms = lines(
   'export const roomBuilder = { createNewRoom: () => ({ open: true }) }',
 )
 
-describe('a reference picks one of the files a chapter emits', () => {
+describe('a module anchor picks one of the files a chapter emits', () => {
   it.effect('asks for a file when the chapter emits several', () =>
     Effect.gen(function* () {
       const found = yield* diagnosed(
-        { '/corpus/rooms.loom': rooms, '/corpus/interior.loom': interiorWith(reference('Rooms')) },
+        { '/corpus/rooms.loom': rooms, '/corpus/interior.loom': interiorWith(moduleAnchor('Rooms')) },
         '/corpus/interior.loom',
       )
       expect(found.map((one) => one.message)).toEqual([
@@ -400,7 +400,7 @@ describe('a reference picks one of the files a chapter emits', () => {
       const files = yield* tangled(
         {
           '/corpus/rooms.loom': rooms,
-          '/corpus/interior.loom': interiorWith(reference('Rooms', 'door.ts')),
+          '/corpus/interior.loom': interiorWith(moduleAnchor('Rooms', 'door.ts')),
         },
         '/corpus/interior.loom',
       )
@@ -414,7 +414,7 @@ describe('a reference picks one of the files a chapter emits', () => {
         yield* messagesOf(
           {
             '/corpus/rooms.loom': rooms,
-            '/corpus/interior.loom': interiorWith(reference('Rooms', 'window.ts')),
+            '/corpus/interior.loom': interiorWith(moduleAnchor('Rooms', 'window.ts')),
           },
           '/corpus/interior.loom',
         ),
@@ -425,7 +425,7 @@ describe('a reference picks one of the files a chapter emits', () => {
 
 ~
 
-A section with no sink gives the path to the one file it lands in. `Helpers` is such a section, in the chapter `Utilities`, which emits no file. Another loom reaches the section through its chapter, as `Utilities, Helpers`. The bundle composes it into `bundle.ts`, so a reference to it names the bundle. Without the bundle, `Helpers` lands in no file. When the importing loom composes `Helpers` itself, it lands in the very file the reference stands in. Neither path can be written, so both raise `SectionWithoutFile`.
+A section with no sink gives the path to the one file it lands in. `Helpers` is such a section, in the chapter `Utilities`, which emits no file. Another loom reaches the section through its chapter, as `Utilities, Helpers`. The bundle composes it into `bundle.ts`, so a module anchor that names `Helpers` writes the path to `bundle.ts`. Without the bundle, `Helpers` lands in no file. When the importing loom composes `Helpers` itself, it lands in the very file the module anchor stands in. Neither path can be written, so both raise `SectionWithoutFile`.
 
 =>
 
@@ -468,7 +468,7 @@ const importingHelpers = (composed: boolean): string =>
     '=>',
     '',
     ...(composed ? [anchor('Utilities, Helpers'), ''] : []),
-    `import { helper } from ${reference('Utilities, Helpers')}`,
+    `import { helper } from ${moduleAnchor('Utilities, Helpers')}`,
   )
 
 describe('a section with no sink names the file it lands in', () => {
@@ -494,7 +494,7 @@ describe('a section with no sink names the file it lands in', () => {
           '/corpus/interior.loom',
         ),
       ).toEqual([
-        '`Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+        '`Utilities, Helpers` has no sink and lands in no file, so no path can name it. Take `Module` off the anchor and move it out of the import, so it composes the section.',
       ])
       expect(
         yield* messagesOf(
@@ -502,7 +502,7 @@ describe('a section with no sink names the file it lands in', () => {
           '/corpus/interior.loom',
         ),
       ).toEqual([
-        '`Utilities, Helpers` lands in the file this reference stands in, so no path can name it. Take `Reference` off the anchor and move it out of the import, so it composes the section.',
+        '`Utilities, Helpers` lands in the file this anchor stands in, so no path can name it. Take `Module` off the anchor and move it out of the import, so it composes the section.',
       ])
     }),
   )
@@ -510,16 +510,16 @@ describe('a section with no sink names the file it lands in', () => {
 
 ~
 
-A reference whose name finds nothing is unresolved, like any anchor. A reference that promises its module by stating what it provides, as `{kind=Reference provides=roomBuilder}` does, waits for it instead: it carries the `UnsettledModule` note, and the tangle refuses the file, since the file would import nothing.
+A module anchor whose name finds nothing is unresolved, like any anchor. A module anchor that promises its module by stating what it provides, as `{kind=Module provides=roomBuilder}` does, waits for it instead: it carries the `UnsettledModule` note, and the tangle refuses the file, since the file would import nothing.
 
 =>
 
-describe('a reference waits for a module nobody has written', () => {
+describe('a module anchor waits for a module nobody has written', () => {
   it.effect('reports a name that finds nothing', () =>
     Effect.gen(function* () {
       expect(
         yield* messagesOf(
-          { '/corpus/interior.loom': interiorWith(reference('Nowhere')) },
+          { '/corpus/interior.loom': interiorWith(moduleAnchor('Nowhere')) },
           '/corpus/interior.loom',
         ),
       ).toEqual([
@@ -532,12 +532,12 @@ describe('a reference waits for a module nobody has written', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/interior.loom': interiorWith(
-          `${anchor('Nowhere')}{kind=Reference provides=roomBuilder}`,
+          `${anchor('Nowhere')}{kind=Module provides=roomBuilder}`,
         ),
       }
       const found = yield* diagnosed(files, '/corpus/interior.loom')
       expect(found.map((one) => [one.severity, one.message])).toEqual([
-        ['info', 'Nothing is called `Nowhere` yet, so this reference names no module.'],
+        ['info', 'Nothing is called `Nowhere` yet, so this anchor names no module.'],
       ])
       const refusal = yield* Effect.flip(tangled(files, '/corpus/interior.loom'))
       expect(refusal.message).toContain('Nothing is called `Nowhere` yet')
@@ -586,7 +586,7 @@ describe('a heading marks the file it writes once', () => {
 
 ~
 
-The editor sees what the tangle writes. The projection of `interior.loom` holds the path to `room.ts` where the anchor stood, and maps the path back onto the anchor's name, so an error the language reports on the path lands on the reference. A reference that states what its module provides holds a contract over the file it names, so the editor can raise `MissingSymbol` for a name the module lacks.
+The editor sees what the tangle writes. The projection of `interior.loom` holds the path to `room.ts` where the anchor stood, and maps the path back onto the anchor's name, so an error the language reports on the path lands on the module anchor. A module anchor that states what its module provides holds a contract over the file it names, so the editor can raise `MissingSymbol` for a name the module lacks.
 
 =>
 
@@ -594,7 +594,7 @@ describe('the editor sees the path the tangle writes', () => {
   const files = {
     '/corpus/room.loom': room,
     '/corpus/interior.loom': interiorWith(
-      `${anchor("Room's 2d system")}{kind=Reference provides=roomBuilder}`,
+      `${anchor("Room's 2d system")}{kind=Module provides=roomBuilder}`,
     ),
   }
 
@@ -611,7 +611,7 @@ describe('the editor sees the path the tangle writes', () => {
     }).pipe(Effect.provide(compilerOver(files))),
   )
 
-  it.effect('holds a contract over the file a reference names', () =>
+  it.effect('holds a contract over the file a module anchor names', () =>
     Effect.gen(function* () {
       const compiler = yield* LoomCompiler
       const [contract] = yield* compiler.contracts('/corpus/interior.loom')
@@ -655,7 +655,7 @@ const workspaceWith = (looms: Record<string, string>): string => {
   return workspace
 }
 
-describe('the TypeScript service writes a reference end to end', () => {
+describe('the TypeScript service writes a module anchor end to end', () => {
   let teardown: () => void = () => undefined
   beforeAll(() => {
     teardown = serviceStore()
@@ -668,7 +668,7 @@ describe('the TypeScript service writes a reference end to end', () => {
       Effect.gen(function* () {
         const workspace = workspaceWith({
           'room.loom': room,
-          'interior.loom': interiorWith(reference("Room's 2d system")),
+          'interior.loom': interiorWith(moduleAnchor("Room's 2d system")),
         })
         const compiler = yield* LoomCompiler
         const files = yield* compiler.tangle(join(workspace, 'corpus', 'interior.loom'))
@@ -680,7 +680,7 @@ describe('the TypeScript service writes a reference end to end', () => {
 
 ~
 
-The language server runs the `held` layer, which never loads a package. Until the server holds a workspace's packages, a question about a loom of that workspace gets no answer, and the reference's path stays unwritten. Once the server holds them, the service asks them. The case holds a stand-in package that writes one path for every reference.
+The language server runs the `held` layer, which never loads a package. Until the server holds a workspace's packages, a question about a loom of that workspace gets no answer, and the module anchor's path stays unwritten. Once the server holds them, the service asks them. The case holds a stand-in package that writes one path for every module anchor.
 
 =>
 
@@ -714,4 +714,4 @@ describe('the held layer answers from the packages the server holds', () => {
 
 =>
 
-::[Testing a reference]
+::[Testing a module anchor]
