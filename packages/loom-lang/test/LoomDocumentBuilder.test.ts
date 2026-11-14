@@ -102,6 +102,71 @@ describe('a kind nothing declares', () => {
   })
 })
 
+describe('checking the keys of braces', () => {
+  const messagesIn = (braces: { readonly type: string } | undefined): ReadonlyArray<string> =>
+    braces?.type === 'Parameters'
+      ? (braces as ParametersToken).parameters.flatMap((parameter) =>
+          parameter.health.diagnostics.map((found) => found.message),
+        )
+      : []
+
+  const greeting = (braces: string): string => `::${'['}Greeting]${braces}`
+
+  const anchorIn = (line: string) =>
+    built(`# A\n\n=>\n\n${line}\n`).sections[0]?.code.flatMap((weft) => weft.anchors)[0]
+
+  const boxIn = (line: string) =>
+    built(`# A\n\n${line}\nBody.\n:::\n`).sections[0]?.preamble.flatMap((weft) =>
+      weft.box ? [weft.box] : [],
+    )[0]
+
+  it("faults a key a heading does not take, and fails the heading's braces", () => {
+    const heading = built('# Build {flavour=dry}\n\nProse.\n').sections[0]?.heading
+    expect(messagesIn(heading?.specifier)).toEqual([
+      'A heading takes no `flavour` key. It takes `lang` and `kind`.',
+    ])
+    expect(heading?.specifier?.health.status).toBe('error')
+    expect(heading?.health.status).toBe('error')
+  })
+
+  it('faults a key written twice', () => {
+    expect(messagesIn(bracesOf('# Build {lang=Bash lang=sh}'))).toEqual([
+      '`lang` is written twice in these braces. Keep one.',
+    ])
+  })
+
+  it("checks an anchor's keys, and fails the anchor", () => {
+    const anchor = anchorIn(greeting('{provides=a colour=red}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([
+      'An anchor takes no `colour` key. It takes `kind` and `provides`.',
+    ])
+    expect(anchor?.health.status).toBe('error')
+    expect(messagesIn(anchorIn(greeting('{provides=a provides=b}'))?.specifier)).toEqual([
+      '`provides` is written twice in these braces. Keep one.',
+    ])
+  })
+
+  it("checks a box's keys", () => {
+    expect(messagesIn(boxIn('::: Cells {kind=Note width=480}')?.specifier)).toEqual([
+      'A box takes no `width` key. It takes `kind`, `provides`, and `anchors`.',
+    ])
+  })
+
+  it('gives a repeated key the fault for the repeat alone', () => {
+    expect(messagesIn(anchorIn(greeting('{kind=Reference kind=Bogus}'))?.specifier)).toEqual([
+      '`kind` is written twice in these braces. Keep one.',
+    ])
+  })
+
+  it('leaves sound braces as they were', () => {
+    const text = '# Build {kind=Tangle lang=sh}\n\nProse.\n'
+    const parsed = Effect.runSync(parsedDocument(text).pipe(Effect.provide(ParseLayer)))
+    expect<unknown>(built(text).sections[0]?.heading.specifier).toEqual(
+      parsed.sections[0]?.heading.specifier,
+    )
+  })
+})
+
 describe('the tree the row writes', () => {
   const text = '# Build {Bash}\n\nProse.\n\n# Install {kind=Tangle lang=sh}\n\nProse.\n'
   const decoded = Schema.decodeUnknownSync(LoomDocumentSchema)

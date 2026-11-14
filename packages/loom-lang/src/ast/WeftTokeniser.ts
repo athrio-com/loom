@@ -32,16 +32,13 @@ import {
   ParameterTokenSchema,
   ParameterValueTokenSchema,
   ParametersTokenSchema,
-  anchorKeys,
   anchorKinds,
-  headingKeys,
   kindNamed,
   labelKey,
   sectionKinds,
   BoxFenceTokenSchema,
   BoxNameTokenSchema,
   BoxTokenSchema,
-  boxKeys,
   type BoxNameToken,
   type BoxToken,
   AnchorCloseTokenSchema,
@@ -94,10 +91,8 @@ import {
   NestedBox,
   MalformedLabel,
   MissingWarpValue,
-  RepeatedKey,
   StrayFragment,
   UnclosedDelimiter,
-  UnknownKey,
   UnknownKind,
   type EmptyConstruct,
   type MalformedConstruct,
@@ -1339,28 +1334,24 @@ type Span = { readonly start: number; readonly end: number; readonly value: stri
 
 type BraceRules = {
   readonly on: BracesOn
-  readonly keys: ReadonlyArray<string>
   readonly kinds: Option.Option<ReadonlyArray<string>>
   readonly labelKey: (label: string) => string
 }
 
 const anchorBraces: BraceRules = {
   on: 'anchor',
-  keys: anchorKeys,
   kinds: Option.some(anchorKinds),
   labelKey: () => 'kind',
 }
 
 const boxBraces: BraceRules = {
   on: 'box',
-  keys: boxKeys,
   kinds: Option.none(),
   labelKey: () => 'kind',
 }
 
 const headingBraces: BraceRules = {
   on: 'heading',
-  keys: headingKeys,
   kinds: Option.none(),
   labelKey: labelKey(sectionKinds),
 }
@@ -1580,8 +1571,8 @@ const parametersOf = (
   const at = (piece: Span): Position =>
     span(linePosition.start.line, lineStart + piece.start, lineStart + piece.end)
   const written = Array.getSomes(Array.map(items, parameterOf))
-  const parameters = Array.map(written, (parameter, index) =>
-    parameterToken(parameter, Array.take(written, index), lineText, at, rules),
+  const parameters = Array.map(written, (parameter) =>
+    parameterToken(parameter, lineText, at, rules),
   )
   const labels = labelFaults(items, at, rules)
   const position = span(
@@ -1612,7 +1603,6 @@ const parameterOf = (item: BraceItem): Option.Option<WrittenParameter> =>
 
 const parameterToken = (
   parameter: WrittenParameter,
-  earlier: ReadonlyArray<WrittenParameter>,
   lineText: string,
   at: (piece: Span) => Position,
   rules: BraceRules,
@@ -1625,24 +1615,14 @@ const parameterToken = (
       ),
     ),
   )
-  const health = Match.value({
-    repeated: Array.some(earlier, (before) => before.key.value === key),
-    known: Array.contains(rules.keys, key),
-    kind: key === 'kind',
-  }).pipe(
-    Match.when({ repeated: true }, () => faulty(RepeatedKey({ key }), at(parameter.key))),
-    Match.when({ known: false }, () =>
-      faulty(UnknownKey({ key, keys: rules.keys, on: rules.on }), at(parameter.key)),
-    ),
-    Match.when({ kind: true }, () =>
-      Option.match(strange, {
-        onNone: () => okHealth,
-        onSome: ({ value, kinds }) =>
-          faulty(UnknownKind({ kind: value.value, kinds, on: rules.on }), at(value)),
-      }),
-    ),
-    Match.orElse(() => okHealth),
-  )
+  const health =
+    key === 'kind'
+      ? Option.match(strange, {
+          onNone: () => okHealth,
+          onSome: ({ value, kinds }) =>
+            faulty(UnknownKind({ kind: value.value, kinds, on: rules.on }), at(value)),
+        })
+      : okHealth
   return ParameterTokenSchema.make({
     position: at(parameter.whole),
     source: parameter.whole.value,

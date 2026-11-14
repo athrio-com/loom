@@ -740,9 +740,6 @@ describe('Tokeniser — braces after an anchor', () => {
       'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
     ])
     expect(labelMessages('p := ::[Point]{}')).toEqual(['These braces are empty. Write a label in them, or remove them.'])
-    expect(messages('::[Point]{colour=red}')).toEqual([
-      'An anchor takes no `colour` key. It takes `kind` and `provides`.',
-    ])
     expect(messages('::[Point]{kind=Term}')).toEqual([
       'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
     ])
@@ -798,13 +795,9 @@ describe('Tokeniser — braces after an anchor', () => {
     expect(anchorIn('::[Greeting]{To be settled provides=greet}').health.status).toBe('error')
   })
 
-  it('faults a repeated key and a key no anchor takes', () => {
-    expect(messages('::[Greeting]{provides=a provides=b}')).toEqual([
-      '`provides` is written twice in these braces. Keep one.',
-    ])
-    expect(messages('::[Greeting]{provides=a colour=red}')).toEqual([
-      'An anchor takes no `colour` key. It takes `kind` and `provides`.',
-    ])
+  it('leaves the keys to the pass that checks parameters', () => {
+    expect(messages('::[Greeting]{provides=a provides=b}')).toEqual([])
+    expect(messages('::[Greeting]{provides=a colour=red}')).toEqual([])
   })
 
   it('reads braces after an anchor in prose the same way', () => {
