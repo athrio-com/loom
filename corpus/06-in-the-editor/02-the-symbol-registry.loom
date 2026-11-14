@@ -139,7 +139,7 @@ export interface Symbol {
 
 ## Classifying a document
 
-`symbolsOf` reads every symbol a document declares, in one pass. Every warp is a `warpDef`. An anchor is a `warpAnchor` when its name matches a warp in scope — the warps its section and the document preamble declare — and a `sectionAnchor` otherwise, since only a warp resolves within the section while a title resolves across the corpus. A heading contributes its title, specifier, and sink, and a division its dashes as well; a code block its arrow or tilde. A specifier that holds a label is one symbol, and a specifier that holds parameters is one symbol for each parameter, which `specifierSymbols` reads. The frontmatter contributes its title, its part, its field values, the names its `Entries:` line lists, its `Rooted in:` value, and its `Book:` value, and a line that opens a box the box's name, which `boxSymbols` reads. `symbolAt` finds the symbol a cursor rests in, so navigation asks the table which kind it is before resolving.
+`symbolsOf` reads every symbol a document declares, in one pass. Every warp is a `warpDef`. An anchor is a `warpAnchor` when its name matches a warp in scope — the warps its section and the document preamble declare — and a `sectionAnchor` otherwise, since only a warp resolves within the section while a title resolves across the corpus. A heading contributes its title, specifier, and sink, and a division its dashes as well; a code block its arrow or tilde. A heading's specifier is one symbol for each parameter it holds, which `specifierSymbols` reads. A label the author wrote alone is one such parameter. The frontmatter contributes its title, its part, its field values, the names its `Entries:` line lists, its `Rooted in:` value, and its `Book:` value, and a line that opens a box the box's name, which `boxSymbols` reads. `symbolAt` finds the symbol a cursor rests in, so navigation asks the table which kind it is before resolving.
 
 =>
 
@@ -173,14 +173,8 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterBook', fm.book),
 ]
 
-const specifierSymbols = (specifier: SpecifierToken | ParametersToken): ReadonlyArray<Symbol> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) => [at('specifier', labelled.label.position)]),
-    Match.when({ type: 'Parameters' }, (held) =>
-      Array.map(held.parameters, (parameter) => at('specifier', parameter.position)),
-    ),
-    Match.exhaustive,
-  )
+const specifierSymbols = (held: ParametersToken): ReadonlyArray<Symbol> =>
+  Array.map(held.parameters, (parameter) => at('specifier', parameter.position))
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...(heading.marker.type === 'Divider' ? [at('divider', heading.marker.position)] : []),
@@ -265,7 +259,6 @@ import {
 import { boxOf, type LoomWeft, type SectionBodyWeft } from '#ast/Weft'
 import {
   type ParametersToken,
-  type SpecifierToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'

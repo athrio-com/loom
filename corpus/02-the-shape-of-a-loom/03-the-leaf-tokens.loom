@@ -126,11 +126,7 @@ export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
 
 A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys.
 
-The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`.
-
-A label alone stands for one of the two keys, and the label itself decides which. A label that names a kind of section stands for `kind`, so `{Tangle}` is the short form of `{kind=Tangle}`. Any other label names a language and stands for `lang`, so `{Bash}` is the short form of `{lang=Bash}`. A kind is matched in any case of letters, so `{tangle}` names the `Tangle` kind.
-
-`headingKind` reads the kind a heading's specifier names, and `headingLang` reads the language. Each gives nothing when the specifier does not name it, so `{Tangle}` names no language and `{Bash}` names no kind.
+The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
 
 =>
 
@@ -144,30 +140,37 @@ export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, man
 
 export const headingKeys: ReadonlyArray<string> = ['lang', 'kind']
 
-const sectionKindNamed = (label: string): Option.Option<string> =>
-  Array.findFirst(sectionKinds, (kind) => kind.toLowerCase() === label.toLowerCase())
+export const kindNamed =
+  (kinds: ReadonlyArray<string>) =>
+  (name: string): Option.Option<string> =>
+    Array.findFirst(kinds, (kind) => kind.toLowerCase() === name.toLowerCase())
 
-export const headingKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) => sectionKindNamed(labelled.label.value)),
-    Match.when({ type: 'Parameters' }, (held) =>
-      Option.map(parameterValue(held, 'kind'), (kind) =>
-        Option.getOrElse(sectionKindNamed(kind), () => kind),
-      ),
-    ),
-    Match.exhaustive,
+~
+
+A label alone stands for one of the two keys, and the label itself decides which. A label that names a kind of section stands for `kind`, so `{Tangle}` is the short form of `{kind=Tangle}`. Any other label names a language and stands for `lang`, so `{Bash}` is the short form of `{lang=Bash}`.
+
+`labelKey` gives the key a label stands for, among the kinds it is handed. The rule is written here once. The tokeniser asks it when it faults a label beside parameters, and the pass that expands short forms asks it when it writes a label in full.
+
+=>
+
+export const labelKey =
+  (kinds: ReadonlyArray<string>) =>
+  (label: string): 'kind' | 'lang' =>
+    Option.isSome(kindNamed(kinds)(label)) ? 'kind' : 'lang'
+
+~
+
+That pass writes every label of a heading in full, as the chapter "Small passes over the tree" describes, so a heading's braces hold parameters by the time anything reads what they say. `headingKind` reads the kind the parameters name, and `headingLang` reads the language. Each gives nothing when the braces do not name it, so `{lang=Bash}` names no kind.
+
+=>
+
+export const headingKind = (held: ParametersToken): Option.Option<string> =>
+  Option.map(parameterValue(held, 'kind'), (kind) =>
+    Option.getOrElse(kindNamed(sectionKinds)(kind), () => kind),
   )
 
-export const headingLang = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) =>
-      Option.filter(Option.some(labelled.label.value), (label) =>
-        Option.isNone(sectionKindNamed(label)),
-      ),
-    ),
-    Match.when({ type: 'Parameters' }, (held) => parameterValue(held, 'lang')),
-    Match.exhaustive,
-  )
+export const headingLang = (held: ParametersToken): Option.Option<string> =>
+  parameterValue(held, 'lang')
 
 ## Sinks
 

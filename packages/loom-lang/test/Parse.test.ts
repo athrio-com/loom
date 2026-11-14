@@ -6,11 +6,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import {
-  LoomDocumentSchema,
-  type LoomDocument,
-  type LoomHeading,
+  ParsedDocumentSchema,
+  type ParsedDocument,
+  type ParsedHeading,
 } from '@athrio/loom-ast/LoomAst'
-import { parseDocument, ParseLayer } from './parse'
+import { parsedDocument, ParseLayer } from './parse'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomWeftSchema, type LoomWeft } from '@athrio/loom-ast/Weft'
@@ -23,7 +23,7 @@ import { LoomWeftSchema, type LoomWeft } from '@athrio/loom-ast/Weft'
 //
 //   Classifier Stage — LoomSourceRanges → WeftClassifier
 //   Tokeniser Stage  — Classifier output → WeftTokeniser
-//   AST Stage        — full parse chain via parseDocument(text) → LoomDocument
+//   AST Stage        — full parse chain via parsedDocument(text) → ParsedDocument
 //
 // The model is flat: a frontmatter block (declaring `Scala` as the primary
 // language), a Document Preamble (the prose before the first heading), and a
@@ -38,7 +38,7 @@ const sampleLoom = readFileSync(fixturePath, 'utf8')
 // The heading's title token source — the human-facing title, used to
 // find tagless Sections (whose tag is named after the title). The token is
 // already trimmed by the Tokeniser; absent titles read as "".
-const headingText = (_text: string, heading: LoomHeading): string =>
+const headingText = (_text: string, heading: ParsedHeading): string =>
   heading.title?.source ?? ''
 
 const classifyText = (text: string): ReadonlyArray<LoomWeft> =>
@@ -77,8 +77,8 @@ const tokeniseText = (text: string): ReadonlyArray<LoomWeft> =>
     ),
   )
 
-const buildDocument = (text: string): LoomDocument =>
-  Effect.runSync(parseDocument(text).pipe(Effect.provide(ParseLayer)))
+const buildDocument = (text: string): ParsedDocument =>
+  Effect.runSync(parsedDocument(text).pipe(Effect.provide(ParseLayer)))
 
 // =============================================================================
 // Classifier Stage — coverage of every probe kind, line accounting, schema
@@ -137,7 +137,7 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
   const headings = () => filterByType('HeadingWeft')
   const headingTitled = (title: string) =>
     headings().find(
-      (h) => headingText(sampleLoom, h as unknown as LoomHeading) === title,
+      (h) => headingText(sampleLoom, h as unknown as ParsedHeading) === title,
     )
 
   it('emits one weft per source line', () => {
@@ -259,7 +259,7 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
 
   it('packages the fixture as a schema-valid LoomDocument', () => {
     expect(doc.type).toBe('LoomDocument')
-    expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
+    expect(Schema.is(ParsedDocumentSchema)(doc)).toBe(true)
   })
 
   it('the `Language: Scala` frontmatter keeps document health `ok`', () => {
@@ -346,7 +346,7 @@ describe('parseDocument — parse-chain behaviour', () => {
 
   it('MixedEOL recovery produces a schema-valid LoomDocument', () => {
     const doc = buildDocument('a\r\nb\nc')
-    expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
+    expect(Schema.is(ParsedDocumentSchema)(doc)).toBe(true)
   })
 
   it('handles empty source — one Document-Preamble weft, no Sections', () => {
@@ -402,7 +402,7 @@ describe('parseDocument — parse-chain behaviour', () => {
 // parseDocument — NOK preservation end-to-end. Malformed source flows through
 // the chain; the Tokeniser keeps rejected bytes in `unexpected[]` and flips the
 // affected leaf to error health, the AstBuilder forwards them onto the
-// resulting `LoomHeading`. Container nodes stay `okHealth`. A heading with no
+// resulting `ParsedHeading`. Container nodes stay `okHealth`. A heading with no
 // specifier is NOT an error — it is named after its title.
 // =============================================================================
 
@@ -458,7 +458,7 @@ describe('parseDocument — NOK preservation end-to-end', () => {
     ]
     for (const text of malformed) {
       const doc = buildDocument(text)
-      expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
+      expect(Schema.is(ParsedDocumentSchema)(doc)).toBe(true)
     }
   })
 })

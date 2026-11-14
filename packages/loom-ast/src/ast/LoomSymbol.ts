@@ -9,7 +9,6 @@ import {
 import { boxOf, type LoomWeft, type SectionBodyWeft } from '#ast/Weft'
 import {
   type ParametersToken,
-  type SpecifierToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
@@ -151,14 +150,8 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterBook', fm.book),
 ]
 
-const specifierSymbols = (specifier: SpecifierToken | ParametersToken): ReadonlyArray<Symbol> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) => [at('specifier', labelled.label.position)]),
-    Match.when({ type: 'Parameters' }, (held) =>
-      Array.map(held.parameters, (parameter) => at('specifier', parameter.position)),
-    ),
-    Match.exhaustive,
-  )
+const specifierSymbols = (held: ParametersToken): ReadonlyArray<Symbol> =>
+  Array.map(held.parameters, (parameter) => at('specifier', parameter.position))
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...(heading.marker.type === 'Divider' ? [at('divider', heading.marker.position)] : []),

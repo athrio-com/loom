@@ -1,13 +1,13 @@
 import { Array, Context, Data, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import {
-  LoomDocumentSchema,
+  ParsedDocumentSchema,
   LoomFrontmatterSchema,
-  LoomHeadingSchema,
-  LoomSectionSchema,
-  type LoomDocument,
+  ParsedHeadingSchema,
+  ParsedSectionSchema,
+  type ParsedDocument,
   type LoomFrontmatter,
-  type LoomHeading,
-  type LoomSection,
+  type ParsedHeading,
+  type ParsedSection,
 } from '@athrio/loom-ast/LoomAst'
 import {
   boxKind,
@@ -48,7 +48,7 @@ import {
 
 export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBuilder', {
   make: Effect.succeed({
-    build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
+    build: (source: Stream.Stream<LoomWeft>): Effect.Effect<ParsedDocument> =>
       Stream.runCollect(source).pipe(
         Effect.map((wefts) =>
           makeDocument(
@@ -233,7 +233,7 @@ const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
   w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
 
-type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
+type TopLevelNode = FrontmatterWeft | PreambleWeft | ParsedSection
 
 type LabelLine = PreambleWeft | ProseWeft
 
@@ -290,7 +290,7 @@ const sectionChunk =
   (discussion: boolean) =>
   (
     group: Array.NonEmptyReadonlyArray<LoomWeft>,
-  ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+  ): readonly [Option.Option<ParsedSection>, ReadonlyArray<LoomWeft>] => {
     const opened = openerOf(group)
     const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
     const end = pipe(
@@ -321,7 +321,7 @@ const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode>
 type DocumentBuilder = {
   readonly frontmatter: ReadonlyArray<FrontmatterWeft>
   readonly preamble: ReadonlyArray<PreambleWeft>
-  readonly sections: ReadonlyArray<LoomSection>
+  readonly sections: ReadonlyArray<ParsedSection>
 }
 
 const initialDocument: DocumentBuilder = {
@@ -352,13 +352,13 @@ const buildSection = (
   opener: Opener,
   body: ReadonlyArray<LoomWeft>,
   discussion: boolean,
-): LoomSection => {
+): ParsedSection => {
   const h = headingOf(opener)
   const topic = discussion && opener._tag === 'Division'
   const judged = judgeConclusions(judgeLoomBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
-  return LoomSectionSchema.make({
+  return ParsedSectionSchema.make({
     position: spanFrom(h.position, preamble, code),
     source: sourceOf(h, preamble, code),
     health: okHealth,
@@ -368,10 +368,10 @@ const buildSection = (
   })
 }
 
-const headingOf = (opener: Opener): LoomHeading =>
+const headingOf = (opener: Opener): ParsedHeading =>
   Opener.$match(opener, {
     Heading: ({ heading }) =>
-      LoomHeadingSchema.make({
+      ParsedHeadingSchema.make({
         position: heading.position,
         source: heading.source,
         health: heading.health,
@@ -398,8 +398,8 @@ const titleOfLabel = (line: LabelLine): HeadingTitleToken => {
   })
 }
 
-const divisionHeadingOf = (divider: DividerWeft, label: Option.Option<LabelLine>): LoomHeading =>
-  LoomHeadingSchema.make({
+const divisionHeadingOf = (divider: DividerWeft, label: Option.Option<LabelLine>): ParsedHeading =>
+  ParsedHeadingSchema.make({
     position: {
       start: Option.match(label, {
         onNone: () => divider.position.start,
@@ -499,9 +499,9 @@ const documentSpan = (db: DocumentBuilder): Position => {
     : { start: all[0].position.start, end: all[all.length - 1].position.end }
 }
 
-const makeDocument = (db: DocumentBuilder): LoomDocument => {
+const makeDocument = (db: DocumentBuilder): ParsedDocument => {
   const position = documentSpan(db)
-  return LoomDocumentSchema.make({
+  return ParsedDocumentSchema.make({
     position,
     source: sourceOf(db.frontmatter, db.preamble, db.sections),
     health: okHealth,
@@ -511,7 +511,7 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   })
 }
 
-export const emptyDocument = (text: string, message: string): LoomDocument => {
+export const emptyDocument = (text: string, message: string): ParsedDocument => {
   const position: Position = {
     start: { line: 1, offset: 0 },
     end: { line: 1, offset: text.length },
@@ -529,7 +529,7 @@ export const emptyDocument = (text: string, message: string): LoomDocument => {
   }
 }
 
-export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument =>
+export const emptyDocumentFor = (text: string, err: MixedEOL): ParsedDocument =>
   emptyDocument(
     text,
     `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,

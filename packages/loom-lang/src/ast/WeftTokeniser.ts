@@ -35,6 +35,8 @@ import {
   anchorKeys,
   anchorKinds,
   headingKeys,
+  kindNamed,
+  labelKey,
   sectionKinds,
   BoxFenceTokenSchema,
   BoxNameTokenSchema,
@@ -1360,7 +1362,7 @@ const headingBraces: BraceRules = {
   on: 'heading',
   keys: headingKeys,
   kinds: Option.some(sectionKinds),
-  labelKey: (label) => (isKindIn(sectionKinds)(label) ? 'kind' : 'lang'),
+  labelKey: labelKey(sectionKinds),
 }
 
 type BraceItem =
@@ -1395,11 +1397,6 @@ const isWord = (item: BraceItem): boolean => item.type === 'word'
 
 const wordOf = (item: BraceItem): Option.Option<Span> =>
   item.type === 'word' ? Option.some(item.word) : Option.none()
-
-const isKindIn =
-  (kinds: ReadonlyArray<string>) =>
-  (label: string): boolean =>
-    Array.some(kinds, (kind) => kind.toLowerCase() === label.toLowerCase())
 
 const braceTokens = (
   openAt: number,
@@ -1542,7 +1539,7 @@ const specifierOf = (
 }
 
 const unknownTo = (rules: BraceRules, kind: string): Option.Option<ReadonlyArray<string>> =>
-  Option.filter(rules.kinds, (kinds) => !isKindIn(kinds)(kind))
+  Option.filter(rules.kinds, (kinds) => Option.isNone(kindNamed(kinds)(kind)))
 
 const kindChecked =
   (rules: BraceRules) =>

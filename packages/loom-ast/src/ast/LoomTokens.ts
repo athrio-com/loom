@@ -97,30 +97,23 @@ export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, man
 
 export const headingKeys: ReadonlyArray<string> = ['lang', 'kind']
 
-const sectionKindNamed = (label: string): Option.Option<string> =>
-  Array.findFirst(sectionKinds, (kind) => kind.toLowerCase() === label.toLowerCase())
+export const kindNamed =
+  (kinds: ReadonlyArray<string>) =>
+  (name: string): Option.Option<string> =>
+    Array.findFirst(kinds, (kind) => kind.toLowerCase() === name.toLowerCase())
 
-export const headingKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) => sectionKindNamed(labelled.label.value)),
-    Match.when({ type: 'Parameters' }, (held) =>
-      Option.map(parameterValue(held, 'kind'), (kind) =>
-        Option.getOrElse(sectionKindNamed(kind), () => kind),
-      ),
-    ),
-    Match.exhaustive,
+export const labelKey =
+  (kinds: ReadonlyArray<string>) =>
+  (label: string): 'kind' | 'lang' =>
+    Option.isSome(kindNamed(kinds)(label)) ? 'kind' : 'lang'
+
+export const headingKind = (held: ParametersToken): Option.Option<string> =>
+  Option.map(parameterValue(held, 'kind'), (kind) =>
+    Option.getOrElse(kindNamed(sectionKinds)(kind), () => kind),
   )
 
-export const headingLang = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) =>
-      Option.filter(Option.some(labelled.label.value), (label) =>
-        Option.isNone(sectionKindNamed(label)),
-      ),
-    ),
-    Match.when({ type: 'Parameters' }, (held) => parameterValue(held, 'lang')),
-    Match.exhaustive,
-  )
+export const headingLang = (held: ParametersToken): Option.Option<string> =>
+  parameterValue(held, 'lang')
 
 export const SinkOpenTokenSchema = loomNode('SinkOpen', {
   value: Schema.Literal('['),

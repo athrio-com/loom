@@ -1316,7 +1316,7 @@ Braces after an anchor hold a label, as `::[Greeting function]{To be settled}` d
 
 `bracesAt` reads the braces. `itemsFrom` reads what they hold as a run of items, each a word of a label or a parameter, up to the closing brace. Braces that hold anything else, such as `X: 1`, or that hold nothing, still read as a label, through `labelBracesAt`, so the label's fault names what is wrong. `braceTokens` gives the opening and closing brace their tokens.
 
-The braces of a box and of a heading follow the same grammar, as the sections "A box line" and "Scanning a heading" describe, but each bearer takes keys and kinds of its own. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds, when one loom alone can tell them. `labelKey` gives the key a label alone stands for. `anchorBraces` holds an anchor's rules, `boxBraces` a box's, and `headingBraces` a heading's, and `bracesAt` judges what the braces hold by the rules it is given.
+The braces of a box and of a heading follow the same grammar, as the sections "A box line" and "Scanning a heading" describe, but each bearer takes keys and kinds of its own. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds, when one loom alone can tell them. `labelKey` gives the key a label alone stands for, and a heading's rules take it from the `labelKey` function of the chapter "The leaf tokens", where the rule is written once. `anchorBraces` holds an anchor's rules, `boxBraces` a box's, and `headingBraces` a heading's, and `bracesAt` judges what the braces hold by the rules it is given.
 
 An anchor's kinds are the core's own, so the tokeniser judges them. A box's kinds come from the core and from every trope the book holds, and a trope in another loom may declare the kind a box names. So `boxBraces` leaves a box's kind for the corpus to judge, as Part XIII, Tropes, describes.
 
@@ -1351,7 +1351,7 @@ const headingBraces: BraceRules = {
   on: 'heading',
   keys: headingKeys,
   kinds: Option.some(sectionKinds),
-  labelKey: (label) => (isKindIn(sectionKinds)(label) ? 'kind' : 'lang'),
+  labelKey: labelKey(sectionKinds),
 }
 
 type BraceItem =
@@ -1386,11 +1386,6 @@ const isWord = (item: BraceItem): boolean => item.type === 'word'
 
 const wordOf = (item: BraceItem): Option.Option<Span> =>
   item.type === 'word' ? Option.some(item.word) : Option.none()
-
-const isKindIn =
-  (kinds: ReadonlyArray<string>) =>
-  (label: string): boolean =>
-    Array.some(kinds, (kind) => kind.toLowerCase() === label.toLowerCase())
 
 const braceTokens = (
   openAt: number,
@@ -1523,7 +1518,7 @@ const parameterAt = (text: string, at: number): Option.Option<BraceItem> =>
 
 ~
 
-Braces whose items are all words hold a label, which `specifierOf` builds through `constructSpecifier`. Where a label stands for the `kind` key, `kindChecked` faults a label that is none of the rules' kinds with `UnknownKind`, when the rules hold kinds. `unknownTo` gives the kinds a label is none of, and `isKindIn` compares in any case of letters. Without the fault, braces such as `{x}` on an anchor would leave the tangle without a word. On a heading, `{x}` names the language `x`, and no fault is due. Braces with a parameter among their items hold `Parameters`, which `parametersOf` builds and judges. `parameterToken` judges each parameter. A key written a second time is a `RepeatedKey` fault, and a key the bearer does not take is an `UnknownKey` fault, each on the key itself. A `kind` whose value is none of the kinds is an `UnknownKind` fault on its value. A run of words beside the parameters is a `LabelBesideParameter` fault, whose fix writes the label in full under the key `labelKey` gives it, and `labelFaults` finds each run. `Array.groupWith` gathers consecutive items of one type, so words that a parameter separates form two runs.
+Braces whose items are all words hold a label, which `specifierOf` builds through `constructSpecifier`. Where a label stands for the `kind` key, `kindChecked` faults a label that is none of the rules' kinds with `UnknownKind`, when the rules hold kinds. `unknownTo` gives the kinds a label is none of, and `kindNamed` matches a kind in any case of letters. Without the fault, braces such as `{x}` on an anchor would leave the tangle without a word. On a heading, `{x}` names the language `x`, and no fault is due. Braces with a parameter among their items hold `Parameters`, which `parametersOf` builds and judges. `parameterToken` judges each parameter. A key written a second time is a `RepeatedKey` fault, and a key the bearer does not take is an `UnknownKey` fault, each on the key itself. A `kind` whose value is none of the kinds is an `UnknownKind` fault on its value. A run of words beside the parameters is a `LabelBesideParameter` fault, whose fix writes the label in full under the key `labelKey` gives it, and `labelFaults` finds each run. `Array.groupWith` gathers consecutive items of one type, so words that a parameter separates form two runs.
 
 =>
 
@@ -1545,7 +1540,7 @@ const specifierOf = (
 }
 
 const unknownTo = (rules: BraceRules, kind: string): Option.Option<ReadonlyArray<string>> =>
-  Option.filter(rules.kinds, (kinds) => !isKindIn(kinds)(kind))
+  Option.filter(rules.kinds, (kinds) => Option.isNone(kindNamed(kinds)(kind)))
 
 const kindChecked =
   (rules: BraceRules) =>
@@ -2089,6 +2084,8 @@ import {
   anchorKeys,
   anchorKinds,
   headingKeys,
+  kindNamed,
+  labelKey,
   sectionKinds,
   BoxFenceTokenSchema,
   BoxNameTokenSchema,

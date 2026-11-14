@@ -3,9 +3,9 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { Schema } from 'effect'
 import {
-  LoomDocumentSchema,
-  LoomHeadingSchema,
-  LoomSectionSchema,
+  ParsedDocumentSchema,
+  ParsedHeadingSchema,
+  ParsedSectionSchema,
 } from '#ast/LoomAst'
 import { okHealth, type Position } from '#ast/LoomNode'
 
@@ -102,7 +102,7 @@ const specifier = (label: string) => ({
 describe('LoomHeading.marker', () => {
   it('accepts a heading whose marker is a heading start', () => {
     expect(
-      Schema.is(LoomHeadingSchema)({
+      Schema.is(ParsedHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
@@ -116,7 +116,7 @@ describe('LoomHeading.marker', () => {
 
   it('rejects a heading whose marker has the wrong type discriminator', () => {
     expect(
-      Schema.is(LoomHeadingSchema)({
+      Schema.is(ParsedHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
@@ -128,7 +128,7 @@ describe('LoomHeading.marker', () => {
 
   it('accepts a heading carrying a file Sink in the `sink` slot', () => {
     expect(
-      Schema.is(LoomHeadingSchema)({
+      Schema.is(ParsedHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
@@ -144,7 +144,7 @@ describe('LoomHeading.marker', () => {
 describe('LoomHeading.title', () => {
   it('accepts a heading with no title (opens straight into a sink)', () => {
     expect(
-      Schema.is(LoomHeadingSchema)({
+      Schema.is(ParsedHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
@@ -157,7 +157,7 @@ describe('LoomHeading.title', () => {
 
   it('accepts a heading carrying a single title token', () => {
     expect(
-      Schema.is(LoomHeadingSchema)({
+      Schema.is(ParsedHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
@@ -171,7 +171,7 @@ describe('LoomHeading.title', () => {
 
   it('rejects a wrong-kind token in the `title` slot', () => {
     expect(
-      Schema.is(LoomHeadingSchema)({
+      Schema.is(ParsedHeadingSchema)({
         type: 'LoomHeading',
         position: pos,
         source: src,
@@ -220,7 +220,7 @@ const section = () => ({
 describe('LoomDocument', () => {
   it('accepts an empty document (both slots empty)', () => {
     expect(
-      Schema.is(LoomDocumentSchema)({
+      Schema.is(ParsedDocumentSchema)({
         type: 'LoomDocument',
         position: pos,
         source: src,
@@ -233,7 +233,7 @@ describe('LoomDocument', () => {
 
   it('accepts PreambleWefts in `preamble`', () => {
     expect(
-      Schema.is(LoomDocumentSchema)({
+      Schema.is(ParsedDocumentSchema)({
         type: 'LoomDocument',
         position: pos,
         source: src,
@@ -246,7 +246,7 @@ describe('LoomDocument', () => {
 
   it('accepts LoomSections in `sections`', () => {
     expect(
-      Schema.is(LoomDocumentSchema)({
+      Schema.is(ParsedDocumentSchema)({
         type: 'LoomDocument',
         position: pos,
         source: src,
@@ -259,7 +259,7 @@ describe('LoomDocument', () => {
 
   it('rejects a non-PreambleWeft (e.g. a bare object with wrong type) in `preamble`', () => {
     expect(
-      Schema.is(LoomDocumentSchema)({
+      Schema.is(ParsedDocumentSchema)({
         type: 'LoomDocument',
         position: pos,
         source: src,
@@ -272,7 +272,7 @@ describe('LoomDocument', () => {
 
   it('rejects a non-Section (e.g. an object with no heading) in `sections`', () => {
     expect(
-      Schema.is(LoomDocumentSchema)({
+      Schema.is(ParsedDocumentSchema)({
         type: 'LoomDocument',
         position: pos,
         source: src,
@@ -285,7 +285,7 @@ describe('LoomDocument', () => {
 
   it('rejects a document with the old three-slot shape (wefts/sections/chapters)', () => {
     expect(
-      Schema.is(LoomDocumentSchema)({
+      Schema.is(ParsedDocumentSchema)({
         type: 'LoomDocument',
         position: pos,
         source: src,
@@ -304,12 +304,12 @@ describe('LoomDocument', () => {
 
 describe('LoomSection — body shape', () => {
   it('accepts heading + empty preamble + empty code', () => {
-    expect(Schema.is(LoomSectionSchema)(section())).toBe(true)
+    expect(Schema.is(ParsedSectionSchema)(section())).toBe(true)
   })
 
   it('accepts a section with preamble wefts', () => {
     expect(
-      Schema.is(LoomSectionSchema)({
+      Schema.is(ParsedSectionSchema)({
         ...section(),
         preamble: [preambleWeft()],
       }),
@@ -318,7 +318,7 @@ describe('LoomSection — body shape', () => {
 
   it('rejects a section without a heading', () => {
     expect(
-      Schema.is(LoomSectionSchema)({
+      Schema.is(ParsedSectionSchema)({
         type: 'LoomSection',
         position: pos,
         health: okHealth,

@@ -6,38 +6,40 @@ Language: TypeScript
 
 # The container nodes
 
-`LoomAst` defines the container nodes — the tree the parse pipeline builds from a file's wefts. A `LoomDocument` holds one `LoomSection` per heading or divider, and each section holds a `LoomHeading` plus its body wefts. The tree is flat: heading level is for the reader, never nesting, and a division stands between the sections around it rather than holding them.
+`LoomAst` defines the container nodes, the tree of one loom. The tree comes in two states. The parser builds the first from a file's wefts: a `ParsedDocument` holds one `ParsedSection` per heading or divider, and each section holds a `ParsedHeading` plus its body wefts. A row of small passes then rewrites that tree, as the chapter "Small passes over the tree" describes. The tree the last pass writes is the `LoomDocument`, and the product pass, the weave, and the editor read that tree and no other.
+
+The tree is flat in both states. Heading level is for the reader, never nesting, and a division stands between the sections around it rather than holding them.
 
 ## The heading
 
-A `LoomHeading` is what opens a section. It carries the parts the `HeadingWeft` carried: a `marker`, an optional title, an optional `specifier` that names the section's language or kind, and an optional `sink`. The marker is a heading's run of `#` marks, or a divider's dashes when a divider opens the section. A division's title is its label, the line of prose directly above the divider, so the heading of a division spans both lines. A bare divider gives a heading with no title. A divider carries no specifier and no sink.
+A `ParsedHeading` is what opens a section. It carries the parts the `HeadingWeft` carried: a `marker`, an optional title, an optional `specifier`, and an optional `sink`. The `specifier` is the heading's braces as the author wrote them, one label or parameters in full, and they name the section's language, its kind, or both. The marker is a heading's run of `#` marks, or a divider's dashes when a divider opens the section. A division's title is its label, the line of prose directly above the divider, so the heading of a division spans both lines. A bare divider gives a heading with no title. A divider carries no specifier and no sink.
 
 =>
 
-export const LoomHeadingSchema = loomNode('LoomHeading', {
+export const ParsedHeadingSchema = loomNode('LoomHeading', {
   marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
   title: Schema.optional(HeadingTitleTokenSchema),
   specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
   sink: Schema.optional(SinkTokenSchema),
 })
-export type LoomHeading = typeof LoomHeadingSchema.Type
+export type ParsedHeading = typeof ParsedHeadingSchema.Type
 
 ## The section
 
-A `LoomSection` is one structural unit, opened by a heading at any level or by a divider. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order.
+A `ParsedSection` is one structural unit, opened by a heading at any level or by a divider. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order.
 
 =>
 
-export const LoomSectionSchema = loomNode('LoomSection', {
-  heading: LoomHeadingSchema,
+export const ParsedSectionSchema = loomNode('LoomSection', {
+  heading: ParsedHeadingSchema,
   preamble: Schema.Array(PreambleWeftSchema),
   code: Schema.Array(SectionBodyWeftSchema),
 })
-export type LoomSection = typeof LoomSectionSchema.Type
+export type ParsedSection = typeof ParsedSectionSchema.Type
 
 ## The frontmatter
 
-A `LoomFrontmatter` is a chapter's opening block, parsed. It carries the membership line's `part`, `partName`, `chapter` or `discussion`, and `title`, the `trope` the loom roots or the `rootedIn` it belongs to, the `entries` a trope's root lists, the `book` the loom belongs to, and the block's fields: the `package` a `{Tangle}` section writes to, the `language` its sections inherit, and the `status` and `priority` a roadmap reads. A numbered part fills `part`; a numberless one fills `partName` alone. Every slot is optional, so a partial block still parses to a node the diagnostics can fault, and a file with no block has no frontmatter at all.
+A `LoomFrontmatter` is a chapter's opening block, parsed. No pass changes it, so it is the same node in both states of the tree. It carries the membership line's `part`, `partName`, `chapter` or `discussion`, and `title`, the `trope` the loom roots or the `rootedIn` it belongs to, the `entries` a trope's root lists, the `book` the loom belongs to, and the block's fields: the `package` a `{Tangle}` section writes to, the `language` its sections inherit, and the `status` and `priority` a roadmap reads. A numbered part fills `part`; a numberless one fills `partName` alone. Every slot is optional, so a partial block still parses to a node the diagnostics can fault, and a file with no block has no frontmatter at all.
 
 A loom whose block names a `discussion` is a discussion rather than a chapter, as the chapter "Discussions" describes. A loom whose block names a `trope` is a chapter of that trope, as Part XIII, Tropes, describes. A loom whose block names a `book` and no place in it opens that book, as the chapter "Books" describes.
 
@@ -62,16 +64,57 @@ export type LoomFrontmatter = typeof LoomFrontmatterSchema.Type
 
 ## The document
 
-A `LoomDocument` is the root, the implicit module named by its file. Its `frontmatter` is the opening block, when the file has one; its `preamble` is the run of wefts between that block and the first heading — carrying any value Warps; and its `sections` are the flat list that follows. Every slot may be empty.
+A `ParsedDocument` is the root, the implicit module named by its file. Its `frontmatter` is the opening block, when the file has one; its `preamble` is the run of wefts between that block and the first heading — carrying any value Warps; and its `sections` are the flat list that follows. Every slot may be empty.
 
 =>
 
-export const LoomDocumentSchema = loomNode('LoomDocument', {
+export const ParsedDocumentSchema = loomNode('LoomDocument', {
   frontmatter: Schema.optional(LoomFrontmatterSchema),
   preamble: Schema.Array(PreambleWeftSchema),
-  sections: Schema.Array(LoomSectionSchema),
+  sections: Schema.Array(ParsedSectionSchema),
 })
-export type LoomDocument = typeof LoomDocumentSchema.Type
+export type ParsedDocument = typeof ParsedDocumentSchema.Type
+
+## The tree after a pass
+
+A pass states its work as an edit of the tree before it. Each node the pass changes gets a schema of its own: the earlier node's fields, with the changed fields written over them. The nodes that hold a changed node follow, up to the document.
+
+The pass that expands short forms writes every label of a heading in full. After it, a heading's `specifier` holds parameters only, so no later reader meets a label on a heading. `ExpandedHeadingSchema` is that edit, and `ExpandedSectionSchema` and `ExpandedDocumentSchema` hold it.
+
+=>
+
+export const ExpandedHeadingSchema = Schema.Struct({
+  ...ParsedHeadingSchema.fields,
+  specifier: Schema.optional(ParametersTokenSchema),
+})
+export type ExpandedHeading = typeof ExpandedHeadingSchema.Type
+
+export const ExpandedSectionSchema = Schema.Struct({
+  ...ParsedSectionSchema.fields,
+  heading: ExpandedHeadingSchema,
+})
+export type ExpandedSection = typeof ExpandedSectionSchema.Type
+
+export const ExpandedDocumentSchema = Schema.Struct({
+  ...ParsedDocumentSchema.fields,
+  sections: Schema.Array(ExpandedSectionSchema),
+})
+export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
+
+## The tree every reader takes
+
+The `LoomDocument` is the tree the last pass of the row writes. Its nodes carry the names every reader after the row uses: `LoomHeading`, `LoomSection`, and `LoomDocument`. The last pass is the one that expands short forms. A pass added to the row takes these names for its own tree, so no reader is renamed.
+
+=>
+
+export const LoomHeadingSchema = ExpandedHeadingSchema
+export type LoomHeading = ExpandedHeading
+
+export const LoomSectionSchema = ExpandedSectionSchema
+export type LoomSection = ExpandedSection
+
+export const LoomDocumentSchema = ExpandedDocumentSchema
+export type LoomDocument = ExpandedDocument
 
 ## What this module draws on
 
@@ -113,3 +156,7 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 ::[The frontmatter]
 
 ::[The document]
+
+::[The tree after a pass]
+
+::[The tree every reader takes]

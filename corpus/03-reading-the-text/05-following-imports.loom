@@ -6,7 +6,7 @@ Language: TypeScript
 
 # Building one module
 
-`LoomCorpusAstBuilder` compiles one `.loom` file. It runs the file through every pass in turn — read its bytes, parse, build the product — and returns a `LoomModule`: the parsed document beside its `product`, the author's code with each anchor resolved to an edge. The product is built here, straight from the parse; nothing stands between the document and its product.
+`LoomCorpusAstBuilder` compiles one `.loom` file. It runs the file through every pass in turn: it reads the file's bytes, parses them into a tree, runs the row of small passes over the tree, and builds the product. It returns a `LoomModule`: the document beside its `product`, the author's code with each anchor resolved to an edge.
 
 It builds that one module and no more. It discovers no corpus and keeps no cache — `LoomCompiler` does both, listing the file's sibling looms and memoising each result in `LoomMemo`. A cross-file `::[…]` reference stays unresolved here as well. It is inlined later, at projection, by `fromProduct`.
 
@@ -40,9 +40,9 @@ export class ReadError extends Data.TaggedError('ReadError')<{
 
 ## The chain of passes
 
-`build` runs one file through the whole chain, each pass consuming the one before it. `parsed` reads the file and parses it: `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `LoomDocument`. `build` then runs `ProductBuilder` over the document to compose its `product`, and stops there. The passes are peers here — no pass hides another behind a single call. Three settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, the primary language `ProductBuilder` falls back to, and the workspace variables it interpolates into a warp's value.
+`build` runs one file through the whole chain, each pass consuming the one before it. `parsed` reads the file and parses it: `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `ParsedDocument`. `build` hands that tree to `LoomDocumentBuilder`, which runs the row of small passes and returns the `LoomDocument`, as the chapter "Small passes over the tree" describes. `build` then runs `ProductBuilder` over the document to compose its `product`, and stops there. The passes are peers here — no pass hides another behind a single call. Three settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, the primary language `ProductBuilder` falls back to, and the workspace variables it interpolates into a warp's value.
 
-The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parsed` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `build` runs the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
+The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parsed` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `build` runs the small passes and the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
 
 =>
 
@@ -54,13 +54,14 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
       const classify = yield* WeftClassifier
       const tokenise = yield* WeftTokeniser
       const astBuilder = yield* LoomAstBuilder
+      const documents = yield* LoomDocumentBuilder
       const products = yield* ProductBuilder
 
       const parsed = (
         source: Source,
         path: Location,
         delims: AnchorDelims,
-      ): Effect.Effect<{ readonly text: string; readonly doc: LoomDocument }> =>
+      ): Effect.Effect<{ readonly text: string; readonly tree: ParsedDocument }> =>
         source.read(path).pipe(
           Effect.flatMap((text) => {
             const onBadDelims = (err: InvalidAnchorDelims) =>
@@ -82,11 +83,11 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                 WhitespaceAnchorDelims: onBadDelims,
                 ReservedAnchorDelims: onBadDelims,
               }),
-              Effect.map((doc) => ({ text, doc })),
+              Effect.map((tree) => ({ text, tree })),
             )
           }),
           Effect.catchTag('ReadError', (err) =>
-            Effect.succeed({ text: '', doc: emptyDocument('', err.message) }),
+            Effect.succeed({ text: '', tree: emptyDocument('', err.message) }),
           ),
         )
 
@@ -98,7 +99,8 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         variables: Record<string, string> = {},
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
-          const { text, doc } = yield* parsed(source, path, delims)
+          const { text, tree } = yield* parsed(source, path, delims)
+          const doc = documents.build(tree)
           const product = yield* products.build(doc, path, primaryLanguage, variables)
           return { path, text, doc, product }
         })
@@ -114,6 +116,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         WeftClassifier.layer,
         WeftTokeniser.layer,
         LoomAstBuilder.layer,
+        LoomDocumentBuilder.layer,
         ProductBuilder.layer,
       ),
     ),
@@ -122,7 +125,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
 ## What the builder draws on
 
-The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `ProductBuilder` for the product pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Location` types name what `parsed` returns, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `LoomDocumentBuilder` for the row of small passes and `ProductBuilder` for the product pass. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `ParsedDocument`, `LoomModule`, and `Location` types name what `parsed` returns, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
 
 =>
 
@@ -137,7 +140,8 @@ import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
-import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import type { ParsedDocument } from '@athrio/loom-ast/LoomAst'
+import { LoomDocumentBuilder } from '#ast/LoomDocumentBuilder'
 import { ProductBuilder } from '#ast/ProductBuilder'
 import type { LoomModule, Location } from '@athrio/loom-ast/LoomCorpusAst'
 

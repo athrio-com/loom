@@ -9,7 +9,8 @@ import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
-import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import type { ParsedDocument } from '@athrio/loom-ast/LoomAst'
+import { LoomDocumentBuilder } from '#ast/LoomDocumentBuilder'
 import { ProductBuilder } from '#ast/ProductBuilder'
 import type { LoomModule, Location } from '@athrio/loom-ast/LoomCorpusAst'
 
@@ -37,13 +38,14 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
       const classify = yield* WeftClassifier
       const tokenise = yield* WeftTokeniser
       const astBuilder = yield* LoomAstBuilder
+      const documents = yield* LoomDocumentBuilder
       const products = yield* ProductBuilder
 
       const parsed = (
         source: Source,
         path: Location,
         delims: AnchorDelims,
-      ): Effect.Effect<{ readonly text: string; readonly doc: LoomDocument }> =>
+      ): Effect.Effect<{ readonly text: string; readonly tree: ParsedDocument }> =>
         source.read(path).pipe(
           Effect.flatMap((text) => {
             const onBadDelims = (err: InvalidAnchorDelims) =>
@@ -65,11 +67,11 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                 WhitespaceAnchorDelims: onBadDelims,
                 ReservedAnchorDelims: onBadDelims,
               }),
-              Effect.map((doc) => ({ text, doc })),
+              Effect.map((tree) => ({ text, tree })),
             )
           }),
           Effect.catchTag('ReadError', (err) =>
-            Effect.succeed({ text: '', doc: emptyDocument('', err.message) }),
+            Effect.succeed({ text: '', tree: emptyDocument('', err.message) }),
           ),
         )
 
@@ -81,7 +83,8 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         variables: Record<string, string> = {},
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
-          const { text, doc } = yield* parsed(source, path, delims)
+          const { text, tree } = yield* parsed(source, path, delims)
+          const doc = documents.build(tree)
           const product = yield* products.build(doc, path, primaryLanguage, variables)
           return { path, text, doc, product }
         })
@@ -97,6 +100,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         WeftClassifier.layer,
         WeftTokeniser.layer,
         LoomAstBuilder.layer,
+        LoomDocumentBuilder.layer,
         ProductBuilder.layer,
       ),
     ),

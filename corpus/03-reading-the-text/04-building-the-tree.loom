@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The document builder
 
-`LoomAstBuilder` is the final parse stage: `build` turns a stream of wefts into a `LoomDocument`. A weft before the first heading stands at the document's top level, as frontmatter or preamble; a heading gathers the body wefts up to the next heading into a section. `build` groups the wefts along that line, then folds each group into the document. The module also holds `emptyDocument`, the empty error-carrying tree a caller falls back to when it cannot produce a real one.
+`LoomAstBuilder` is the final parse stage: `build` turns a stream of wefts into a `ParsedDocument`. A weft before the first heading stands at the document's top level, as frontmatter or preamble; a heading gathers the body wefts up to the next heading into a section. `build` groups the wefts along that line, then folds each group into the document. The module also holds `emptyDocument`, the empty error-carrying tree a caller falls back to when it cannot produce a real one.
 
 ## The build
 
@@ -16,7 +16,7 @@ Grouping a heading with its body means looking ahead to the next heading, so `bu
 
 export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBuilder', {
   make: Effect.succeed({
-    build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
+    build: (source: Stream.Stream<LoomWeft>): Effect.Effect<ParsedDocument> =>
       Stream.runCollect(source).pipe(
         Effect.map((wefts) =>
           makeDocument(
@@ -231,7 +231,7 @@ const warnDividerAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<L
 
 ## Grouping the wefts
 
-`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest one opener at a time: each `sectionChunk` takes an opener and the body wefts up to the next one, and `buildSection` turns them into a `LoomSection`. The `isHeading`, `isDivider`, `isSectionBody`, and `isPreamble` predicates classify each weft.
+`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest one opener at a time: each `sectionChunk` takes an opener and the body wefts up to the next one, and `buildSection` turns them into a `ParsedSection`. The `isHeading`, `isDivider`, `isSectionBody`, and `isPreamble` predicates classify each weft.
 
 An opener is a heading or a division, and `Opener` names the two. A division opens with a divider. When the line directly above the divider is a line of prose, that line labels the division, so the label opens the chunk together with its divider and no longer counts as prose of the section above. `isLabelLine` tells such a line: a preamble or prose line with words on it, which is no box line and no fence. `labelsAt` tells a label from the divider below it, and `opensSection` tells where the next chunk begins. `openerOf` reads the opener at the head of a chunk, with the number of lines it spans, one for a heading or a bare divider and two for a labelled one. A chunk always begins where the previous one ended, at an opener, so `openerOf` finds one in a well-formed file. `namesDiscussion` tells from the frontmatter whether the loom is a discussion, which every chunk is told, since a division of a discussion is a topic.
 
@@ -253,7 +253,7 @@ const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
   w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
 
-type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
+type TopLevelNode = FrontmatterWeft | PreambleWeft | ParsedSection
 
 type LabelLine = PreambleWeft | ProseWeft
 
@@ -310,7 +310,7 @@ const sectionChunk =
   (discussion: boolean) =>
   (
     group: Array.NonEmptyReadonlyArray<LoomWeft>,
-  ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+  ): readonly [Option.Option<ParsedSection>, ReadonlyArray<LoomWeft>] => {
     const opened = openerOf(group)
     const width = Option.match(opened, { onNone: () => 1, onSome: ([, lines]) => lines })
     const end = pipe(
@@ -340,14 +340,14 @@ const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode>
 
 ## Folding into the document
 
-The fold routes each peeled node. `appendToDocument` appends a `LoomSection` to the document's sections, a `PreambleWeft` to its preamble, and a `FrontmatterWeft` to its frontmatter, starting from the empty `initialDocument`.
+The fold routes each peeled node. `appendToDocument` appends a `ParsedSection` to the document's sections, a `PreambleWeft` to its preamble, and a `FrontmatterWeft` to its frontmatter, starting from the empty `initialDocument`.
 
 =>
 
 type DocumentBuilder = {
   readonly frontmatter: ReadonlyArray<FrontmatterWeft>
   readonly preamble: ReadonlyArray<PreambleWeft>
-  readonly sections: ReadonlyArray<LoomSection>
+  readonly sections: ReadonlyArray<ParsedSection>
 }
 
 const initialDocument: DocumentBuilder = {
@@ -376,7 +376,7 @@ const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBui
 
 ## Building a section
 
-`buildSection` turns an opener and its body chunk into a `LoomSection`: it judges the boxes that point to a loom and the conclusions in the body, the latter by whether the section is a topic of a discussion, partitions the body into preamble and code wefts, then derives the section's source and span. `headingOf` lifts an opener to a `LoomHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+`buildSection` turns an opener and its body chunk into a `ParsedSection`: it judges the boxes that point to a loom and the conclusions in the body, the latter by whether the section is a topic of a discussion, partitions the body into preamble and code wefts, then derives the section's source and span. `headingOf` lifts an opener to a `ParsedHeading`. A heading weft gives its own parts, its run of `#` marks as the marker. A division gives the divider's dashes as the marker and its label as the title, through `divisionHeadingOf`, and its source and span run from the label to the dashes, so no line of the loom goes missing. `titleOfLabel` trims the label's line to the words on it; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
 
 =>
 
@@ -384,13 +384,13 @@ const buildSection = (
   opener: Opener,
   body: ReadonlyArray<LoomWeft>,
   discussion: boolean,
-): LoomSection => {
+): ParsedSection => {
   const h = headingOf(opener)
   const topic = discussion && opener._tag === 'Division'
   const judged = judgeConclusions(judgeLoomBoxes(body), topic)
   const preamble = judged.filter(isPreamble)
   const code = judged.filter(isSectionBody)
-  return LoomSectionSchema.make({
+  return ParsedSectionSchema.make({
     position: spanFrom(h.position, preamble, code),
     source: sourceOf(h, preamble, code),
     health: okHealth,
@@ -400,10 +400,10 @@ const buildSection = (
   })
 }
 
-const headingOf = (opener: Opener): LoomHeading =>
+const headingOf = (opener: Opener): ParsedHeading =>
   Opener.$match(opener, {
     Heading: ({ heading }) =>
-      LoomHeadingSchema.make({
+      ParsedHeadingSchema.make({
         position: heading.position,
         source: heading.source,
         health: heading.health,
@@ -430,8 +430,8 @@ const titleOfLabel = (line: LabelLine): HeadingTitleToken => {
   })
 }
 
-const divisionHeadingOf = (divider: DividerWeft, label: Option.Option<LabelLine>): LoomHeading =>
-  LoomHeadingSchema.make({
+const divisionHeadingOf = (divider: DividerWeft, label: Option.Option<LabelLine>): ParsedHeading =>
+  ParsedHeadingSchema.make({
     position: {
       start: Option.match(label, {
         onNone: () => divider.position.start,
@@ -534,7 +534,7 @@ const frontmatterField = (
 
 ## Assembling the document
 
-`makeDocument` assembles the final `LoomDocument` from the folded frontmatter, preamble, and sections, building the frontmatter block through `makeFrontmatter`. `documentSpan` spans the whole, from the first node to the last. A document needs no `lang` Warp: a section without one inherits the workspace's primary language, so an absent declaration is no fault.
+`makeDocument` assembles the final `ParsedDocument` from the folded frontmatter, preamble, and sections, building the frontmatter block through `makeFrontmatter`. `documentSpan` spans the whole, from the first node to the last. A document needs no `lang` Warp: a section without one inherits the workspace's primary language, so an absent declaration is no fault.
 
 =>
 
@@ -549,9 +549,9 @@ const documentSpan = (db: DocumentBuilder): Position => {
     : { start: all[0].position.start, end: all[all.length - 1].position.end }
 }
 
-const makeDocument = (db: DocumentBuilder): LoomDocument => {
+const makeDocument = (db: DocumentBuilder): ParsedDocument => {
   const position = documentSpan(db)
-  return LoomDocumentSchema.make({
+  return ParsedDocumentSchema.make({
     position,
     source: sourceOf(db.frontmatter, db.preamble, db.sections),
     health: okHealth,
@@ -569,7 +569,7 @@ Some failures leave the chain with no tree to fold. `emptyDocument` is the recov
 
 =>
 
-export const emptyDocument = (text: string, message: string): LoomDocument => {
+export const emptyDocument = (text: string, message: string): ParsedDocument => {
   const position: Position = {
     start: { line: 1, offset: 0 },
     end: { line: 1, offset: text.length },
@@ -587,7 +587,7 @@ export const emptyDocument = (text: string, message: string): LoomDocument => {
   }
 }
 
-export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument =>
+export const emptyDocumentFor = (text: string, err: MixedEOL): ParsedDocument =>
   emptyDocument(
     text,
     `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
@@ -612,14 +612,14 @@ Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it
 
 import { Array, Context, Data, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import {
-  LoomDocumentSchema,
+  ParsedDocumentSchema,
   LoomFrontmatterSchema,
-  LoomHeadingSchema,
-  LoomSectionSchema,
-  type LoomDocument,
+  ParsedHeadingSchema,
+  ParsedSectionSchema,
+  type ParsedDocument,
   type LoomFrontmatter,
-  type LoomHeading,
-  type LoomSection,
+  type ParsedHeading,
+  type ParsedSection,
 } from '@athrio/loom-ast/LoomAst'
 import {
   boxKind,

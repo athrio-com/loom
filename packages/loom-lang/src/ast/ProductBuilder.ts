@@ -36,7 +36,6 @@ import {
   type ParameterToken,
   type ParametersToken,
   type SinkToken,
-  type SpecifierToken,
   type WarpAnchorTargetToken,
   type WarpAnchorToken,
   type WarpToken,
@@ -368,8 +367,8 @@ const filePath = (
 const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
   Option.filter(pkg, (p) => !p.endsWith('/'))
 
-const isTangle = (specifier: SpecifierToken | ParametersToken): boolean =>
-  Option.exists(headingKind(specifier), (kind) => kind === tangleKind)
+const isTangle = (held: ParametersToken): boolean =>
+  Option.exists(headingKind(held), (kind) => kind === tangleKind)
 
 const tangleFile = (
   section: LoomSection,
@@ -426,28 +425,22 @@ const fileInDiscussion = (section: LoomSection): Health =>
     },
   )
 
-const removalOf = (specifier: SpecifierToken | ParametersToken, sink: SinkToken): Position =>
+const removalOf = (specifier: ParametersToken, sink: SinkToken): Position =>
   Option.getOrElse(kindParameterSpan(specifier), () =>
     specifier.position.start.offset < sink.position.start.offset
       ? between(specifier.position.start, sink.position.start)
       : between(sink.position.end, specifier.position.end),
   )
 
-const kindParameterSpan = (specifier: SpecifierToken | ParametersToken): Option.Option<Position> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, () => Option.none<Position>()),
-    Match.when({ type: 'Parameters' }, (held) =>
-      pipe(
-        Array.findFirstWithIndex(held.parameters, (parameter) => parameter.key.value === 'kind'),
-        Option.filter(() => held.parameters.length > 1),
-        Option.map(([own, index]) => parameterSpanOf(held, own, index)),
-      ),
-    ),
-    Match.exhaustive,
+const kindParameterSpan = (held: ParametersToken): Option.Option<Position> =>
+  pipe(
+    Array.findFirstWithIndex(held.parameters, (parameter) => parameter.key.value === 'kind'),
+    Option.filter(() => held.parameters.length > 1),
+    Option.map(([own, index]) => parameterSpanOf(held, own, index)),
   )
 
-export const isManifest = (specifier: SpecifierToken | ParametersToken): boolean =>
-  Option.exists(headingKind(specifier), (kind) => kind === manifestKind)
+export const isManifest = (held: ParametersToken): boolean =>
+  Option.exists(headingKind(held), (kind) => kind === manifestKind)
 
 const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 

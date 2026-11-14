@@ -19,20 +19,20 @@ import {
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
-export const LoomHeadingSchema = loomNode('LoomHeading', {
+export const ParsedHeadingSchema = loomNode('LoomHeading', {
   marker: Schema.Union([HeadingStartTokenSchema, DividerTokenSchema]),
   title: Schema.optional(HeadingTitleTokenSchema),
   specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, ParametersTokenSchema])),
   sink: Schema.optional(SinkTokenSchema),
 })
-export type LoomHeading = typeof LoomHeadingSchema.Type
+export type ParsedHeading = typeof ParsedHeadingSchema.Type
 
-export const LoomSectionSchema = loomNode('LoomSection', {
-  heading: LoomHeadingSchema,
+export const ParsedSectionSchema = loomNode('LoomSection', {
+  heading: ParsedHeadingSchema,
   preamble: Schema.Array(PreambleWeftSchema),
   code: Schema.Array(SectionBodyWeftSchema),
 })
-export type LoomSection = typeof LoomSectionSchema.Type
+export type ParsedSection = typeof ParsedSectionSchema.Type
 
 export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   part: Schema.optional(FrontmatterPartTokenSchema),
@@ -51,9 +51,36 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
 })
 export type LoomFrontmatter = typeof LoomFrontmatterSchema.Type
 
-export const LoomDocumentSchema = loomNode('LoomDocument', {
+export const ParsedDocumentSchema = loomNode('LoomDocument', {
   frontmatter: Schema.optional(LoomFrontmatterSchema),
   preamble: Schema.Array(PreambleWeftSchema),
-  sections: Schema.Array(LoomSectionSchema),
+  sections: Schema.Array(ParsedSectionSchema),
 })
-export type LoomDocument = typeof LoomDocumentSchema.Type
+export type ParsedDocument = typeof ParsedDocumentSchema.Type
+
+export const ExpandedHeadingSchema = Schema.Struct({
+  ...ParsedHeadingSchema.fields,
+  specifier: Schema.optional(ParametersTokenSchema),
+})
+export type ExpandedHeading = typeof ExpandedHeadingSchema.Type
+
+export const ExpandedSectionSchema = Schema.Struct({
+  ...ParsedSectionSchema.fields,
+  heading: ExpandedHeadingSchema,
+})
+export type ExpandedSection = typeof ExpandedSectionSchema.Type
+
+export const ExpandedDocumentSchema = Schema.Struct({
+  ...ParsedDocumentSchema.fields,
+  sections: Schema.Array(ExpandedSectionSchema),
+})
+export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
+
+export const LoomHeadingSchema = ExpandedHeadingSchema
+export type LoomHeading = ExpandedHeading
+
+export const LoomSectionSchema = ExpandedSectionSchema
+export type LoomSection = ExpandedSection
+
+export const LoomDocumentSchema = ExpandedDocumentSchema
+export type LoomDocument = ExpandedDocument

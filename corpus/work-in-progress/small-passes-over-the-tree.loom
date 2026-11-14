@@ -3,6 +3,7 @@ Part: Work in progress
 Chapter: Small passes over the tree
 Status: Planned
 Priority: 2
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -67,14 +68,277 @@ Each pass is a plain function from one tree to the next. A pass is not an Effect
 
 One service runs the passes in order. It takes the tree the parser built, the `ParsedDocument`, and returns the tree the last pass wrote, the `LoomDocument`. The product pass, the weave, and the editor read the `LoomDocument` and no other tree, so a pass added to the row renames nothing they read.
 
+`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn, and it gives the first pass the core's own kinds of section.
+
+=>
+
+export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
+  'LoomDocumentBuilder',
+  {
+    make: Effect.succeed({
+      build: (parsed: ParsedDocument): LoomDocument => expandedDocument(sectionKinds)(parsed),
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## Expanding short forms
+
+The first pass writes every label of a heading in full. A label that names a kind of section states the `kind`, and any other label states the `lang`, by the rule the chapter "The leaf tokens" gives. So `{Bash}` becomes `{lang=Bash}` and `{Tangle}` becomes `{kind=Tangle}`. After the pass a heading's braces hold parameters only.
+
+The rule asks whether a label names a kind, so the pass takes the kinds a label may name. `expandedDocument` hands the fold one case, for a heading. It returns the `ExpandedDocument`, whose schema the chapter "The container nodes" defines.
+
+=>
+
+export const expandedDocument =
+  (kinds: ReadonlyArray<string>) =>
+  (parsed: ParsedDocument): ExpandedDocument =>
+    rewritten(parsed, { LoomHeading: expandedHeading(kinds) })
+
+## A label written in full
+
+`expandedHeading` writes a heading's braces as parameters, through `inFull`. Braces that hold parameters already pass through as they are. Braces that hold a label become a `Parameters` token with one parameter, which `labelParameter` builds from the key the label stands for and the label as its value.
+
+That parameter has no key in the text. Its key token stands at the start of the label and has no width, so a colour or a fault placed on the parameter lands on the author's own words.
+
+A label the tokeniser could not read states nothing, and `expandedLabel` gives it no parameters. The label's fault and the text the tokeniser rejected move to the braces themselves, so the author still sees both.
+
+=>
+
+const expandedHeading =
+  (kinds: ReadonlyArray<string>) =>
+  (heading: ParsedHeading): ExpandedHeading => ({
+    ...heading,
+    specifier: Option.getOrUndefined(
+      Option.map(Option.fromNullishOr(heading.specifier), inFull(kinds)),
+    ),
+  })
+
+const inFull =
+  (kinds: ReadonlyArray<string>) =>
+  (specifier: SpecifierToken | ParametersToken): ParametersToken =>
+    Match.value(specifier).pipe(
+      Match.when({ type: 'Parameters' }, (held) => held),
+      Match.when({ type: 'Specifier' }, expandedLabel(kinds)),
+      Match.exhaustive,
+    )
+
+const expandedLabel =
+  (kinds: ReadonlyArray<string>) =>
+  (labelled: SpecifierToken): ParametersToken =>
+    ParametersTokenSchema.make({
+      position: labelled.position,
+      source: labelled.source,
+      health: {
+        status: labelled.health.status,
+        diagnostics: [...labelled.health.diagnostics, ...labelled.label.health.diagnostics],
+      },
+      unexpected: [...(labelled.unexpected ?? []), ...(labelled.label.unexpected ?? [])],
+      open: labelled.open,
+      parameters:
+        labelled.label.health.status === 'ok' ? [labelParameter(kinds)(labelled.label)] : [],
+      close: labelled.close,
+    })
+
+const labelParameter =
+  (kinds: ReadonlyArray<string>) =>
+  (label: SpecifierLabelToken): ParameterToken =>
+    ParameterTokenSchema.make({
+      position: label.position,
+      source: label.source,
+      health: okHealth,
+      key: ParameterKeyTokenSchema.make({
+        position: { start: label.position.start, end: label.position.start },
+        source: '',
+        health: okHealth,
+        value: labelKey(kinds)(label.value),
+      }),
+      values: [
+        ParameterValueTokenSchema.make({
+          position: label.position,
+          source: label.source,
+          health: okHealth,
+          value: label.value,
+        }),
+      ],
+    })
+
+## What the row draws on
+
+The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens and the label rule from the chapter "The leaf tokens". Effect supplies `Context` and `Layer` for the service, and `Match` and `Option` for the passes.
+
+=>
+
+import { Context, Effect, Layer, Match, Option } from 'effect'
+import { okHealth } from '@athrio/loom-ast/LoomNode'
+import type {
+  ExpandedDocument,
+  ExpandedHeading,
+  LoomDocument,
+  ParsedDocument,
+  ParsedHeading,
+} from '@athrio/loom-ast/LoomAst'
+import {
+  labelKey,
+  ParameterKeyTokenSchema,
+  type ParameterToken,
+  ParameterTokenSchema,
+  ParameterValueTokenSchema,
+  type ParametersToken,
+  ParametersTokenSchema,
+  sectionKinds,
+  type SpecifierLabelToken,
+  type SpecifierToken,
+} from '@athrio/loom-ast/LoomTokens'
+import { rewritten } from '@athrio/loom-ast/TreeFold'
+
+## The row's module [src/ast/LoomDocumentBuilder.ts]
+
+=>
+
+::[What the row draws on]
+
+::[One service runs the row]
+
+::[Expanding short forms]
+
+::[A label written in full]
+
+## Testing the first pass
+
+The tests read one loom the way a build does: they parse it and run the row over the tree. `built` gives the document, `bracesOf` gives the braces of its first heading, and `statedBy` lists what those braces state, each key with its value. `textAt` reads the text a position covers, so a test can check that a parameter points at the author's own words.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Schema } from 'effect'
+import type { Position } from '@athrio/loom-ast/LoomNode'
+import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import type { ParametersToken } from '@athrio/loom-ast/LoomTokens'
+import { parseDocument, parsedDocument, ParseLayer } from './parse'
+
+const built = (text: string): LoomDocument =>
+  Effect.runSync(parseDocument(text).pipe(Effect.provide(ParseLayer)))
+
+const bracesOf = (heading: string): ParametersToken | undefined =>
+  built(`${heading}\n\nProse.\n`).sections[0]?.heading.specifier
+
+const statedBy = (heading: string): ReadonlyArray<readonly [string, string | undefined]> =>
+  (bracesOf(heading)?.parameters ?? []).map(
+    (parameter) => [parameter.key.value, parameter.values[0]?.value] as const,
+  )
+
+const textAt = (text: string, position: Position): string =>
+  text.slice(position.start.offset, position.end.offset)
+
+## A label becomes a parameter
+
+A label that names a language becomes a `lang` parameter, and a label that names a kind becomes a `kind` parameter, in any case of letters. A language named by two words stays one parameter. Parameters the author wrote in full stay as they are.
+
+=>
+
+describe("expanding a heading's label", () => {
+  it('writes a language in full', () => {
+    expect(statedBy('# Build {Bash}')).toEqual([['lang', 'Bash']])
+  })
+
+  it('writes a kind in full, in any case of letters', () => {
+    expect(statedBy('# Install {Tangle}')).toEqual([['kind', 'Tangle']])
+    expect(statedBy('# Install {tangle}')).toEqual([['kind', 'tangle']])
+  })
+
+  it('keeps a language of two words whole', () => {
+    expect(statedBy('# Build {Emacs Lisp}')).toEqual([['lang', 'Emacs Lisp']])
+  })
+
+  it('leaves parameters as the author wrote them', () => {
+    expect(statedBy('# Install {kind=Tangle lang=sh}')).toEqual([
+      ['kind', 'Tangle'],
+      ['lang', 'sh'],
+    ])
+  })
+})
+
+## A written parameter points at the author's words
+
+The parameter the pass writes covers the label in the loom. Its key covers nothing, and stands where the label starts.
+
+=>
+
+describe('a parameter the pass writes', () => {
+  const text = '# Install {Tangle}\n\nProse.\n'
+  const [kind] = built(text).sections[0]?.heading.specifier?.parameters ?? []
+
+  it('covers the label the author wrote', () => {
+    expect(kind && textAt(text, kind.position)).toBe('Tangle')
+  })
+
+  it('has a key with no width, where the label starts', () => {
+    expect(kind?.key.source).toBe('')
+    expect(kind?.key.position.start.offset).toBe(kind?.position.start.offset)
+    expect(kind?.key.position.end.offset).toBe(kind?.position.start.offset)
+  })
+})
+
+## A label nobody could read keeps its fault
+
+Empty braces hold a label the tokeniser faults. The pass gives such braces no parameters, and the fault stays on the braces.
+
+=>
+
+describe('a label the tokeniser could not read', () => {
+  it('states nothing and keeps its fault', () => {
+    const braces = bracesOf('# Build {}')
+    expect(braces?.parameters).toEqual([])
+    expect(braces?.health.diagnostics.map((found) => found.message)).toEqual([
+      'These braces are empty. Write a label in them, or remove them.',
+    ])
+  })
+})
+
+## The row writes the tree it claims
+
+The tree the row returns decodes against the schema of the `LoomDocument`. The tree the parser built does not, while a heading in it still holds a label. So the test fails for a pass that leaves a label behind.
+
+=>
+
+describe('the tree the row writes', () => {
+  const text = '# Build {Bash}\n\nProse.\n\n# Install {kind=Tangle lang=sh}\n\nProse.\n'
+  const decoded = Schema.decodeUnknownSync(LoomDocumentSchema)
+
+  it('decodes as a LoomDocument', () => {
+    expect(() => decoded(built(text))).not.toThrow()
+  })
+
+  it('differs from the tree the parser built', () => {
+    const parsed = Effect.runSync(parsedDocument(text).pipe(Effect.provide(ParseLayer)))
+    expect(() => decoded(parsed)).toThrow()
+  })
+})
+
+## The row's tests [test/LoomDocumentBuilder.test.ts]
+
+=>
+
+::[Testing the first pass]
+
+::[A label becomes a parameter]
+
+::[A written parameter points at the author's words]
+
+::[A label nobody could read keeps its fault]
+
+::[The row writes the tree it claims]
+
 ## What to work out
 
 - **Splitting the large passes.** The product pass could later split into small passes of its own, for edges, files, and faults. Whether it should is open, and nothing in this chapter depends on it.
 
 ## What this chapter grows into
 
-1. The first passes: expanding short forms, claiming kinds, checking parameters, resolving references, and setting data apart.
-2. A schema for each pass's output, and tests that decode each pass's output against it.
-3. `ProductBuilder` and `WeaveBuilder` reading the last pass's tree.
+1. The first pass for the braces of a box and of an anchor, which still hold labels.
+2. The passes that follow: claiming kinds, checking parameters, resolving references, and setting data apart. With them the tokeniser stops judging keys and kinds and reads the shape of braces alone.
+3. A schema for the output of each of those passes, and a test that decodes the output against it.
 
 When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".
