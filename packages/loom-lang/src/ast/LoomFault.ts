@@ -103,6 +103,7 @@ export type LoomFault = Data.TaggedEnum<{
   PrivateEntry: { readonly name: string; readonly trope: string }
   UnsettledMember: { readonly trope: string }
   UnusedSection: { readonly name: string }
+  DriftedReference: { readonly name: string }
   ReachingInside: {
     readonly trope: string
     readonly chapter: string
@@ -169,6 +170,7 @@ export const {
   PrivateEntry,
   UnsettledMember,
   UnusedSection,
+  DriftedReference,
   ReachingInside,
   ConclusionOutsideTopic,
   SecondConclusion,
@@ -425,6 +427,8 @@ export const describe = (fault: LoomFault): Note =>
           : `Chapter \`${chapter}\` is private to the \`${trope}\` trope, which has no entries yet.`,
       ),
     UnusedSection: ({ name }) => warning(`\`${name}\` is never used across the corpus.`),
+    DriftedReference: ({ name }) =>
+      warning(`\`${name}\` has changed since this reference to it was approved.`),
     FileInDiscussion: () =>
       error(
         'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
