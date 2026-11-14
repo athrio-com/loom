@@ -15,6 +15,7 @@ import {
 import {
   type Catalogue,
   conceptsCalled,
+  isConceptSection,
   type Location,
   type LoomModule,
   pathsTo,
@@ -26,7 +27,6 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
-  headingKind,
   headingLang,
   manifestKind,
   referenceKind,
@@ -149,6 +149,7 @@ type NameEntry = {
   readonly pos: Position
   readonly language: string
   readonly written: boolean
+  readonly concept: boolean
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -157,16 +158,18 @@ const kindLanguage = (
   sink: Option.Option<SinkToken>,
   defaultLang: string,
   pkg: Option.Option<string>,
-): string =>
+): Option.Option<string> =>
   Match.value(kind).pipe(
     Match.when(tangleKind, () =>
-      Option.match(pkg, {
-        onNone: () => defaultLang,
-        onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
-      }),
+      Option.some(
+        Option.match(pkg, {
+          onNone: () => defaultLang,
+          onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+        }),
+      ),
     ),
-    Match.when(manifestKind, () => 'json'),
-    Match.orElse((other) => other.toLowerCase()),
+    Match.when(manifestKind, () => Option.some('json')),
+    Match.orElse(() => Option.none()),
   )
 
 const unmarkedLanguage = (sink: Option.Option<SinkToken>, defaultLang: string): string =>
@@ -182,14 +185,11 @@ export const sectionLanguage = (
 ): string => {
   const sink = Option.fromNullishOr(section.heading.sink)
   return pipe(
-    Option.fromNullishOr(section.heading.specifier),
-    Option.flatMap((specifier) =>
-      Option.orElse(
-        Option.map(headingLang(specifier), (lang) => lang.toLowerCase()),
-        () =>
-          Option.map(headingKind(specifier), (kind) =>
-            kindLanguage(kind, sink, defaultLang, pkg),
-          ),
+    Option.flatMap(Option.fromNullishOr(section.heading.specifier), headingLang),
+    Option.map((lang) => lang.toLowerCase()),
+    Option.orElse(() =>
+      Option.flatMap(Option.fromNullishOr(section.kind), (kind) =>
+        kindLanguage(kind, sink, defaultLang, pkg),
       ),
     ),
     Option.getOrElse(() => unmarkedLanguage(sink, defaultLang)),
@@ -214,6 +214,7 @@ const nameIndex = (
               pos: title.position,
               language: sectionLanguage(s, defaultLang, pkg),
               written: Array.isReadonlyArrayNonEmpty(codeRuns(s.code)),
+              concept: isConceptSection(s),
             },
           ] as const,
       ),
@@ -336,7 +337,7 @@ const buildSection =
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
-        codeInConcept(section, languageId),
+        codeInConcept(section),
       ],
       okHealth,
       withHealth,
@@ -367,8 +368,10 @@ const filePath = (
 const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
   Option.filter(pkg, (p) => !p.endsWith('/'))
 
-const isTangle = (held: ParametersToken): boolean =>
-  Option.exists(headingKind(held), (kind) => kind === tangleKind)
+const isTangle = (section: LoomSection): boolean => section.kind === tangleKind
+
+const tangleMark = (section: LoomSection): Option.Option<ParametersToken> =>
+  Option.filter(Option.fromNullishOr(section.heading.specifier), () => isTangle(section))
 
 const tangleFile = (
   section: LoomSection,
@@ -378,8 +381,8 @@ const tangleFile = (
   const sink = Option.fromNullishOr(section.heading.sink)
   const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
     onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
-    onSome: (spec) =>
-      Match.value({ tangle: isTangle(spec), sunk: Option.isSome(sink) }).pipe(
+    onSome: () =>
+      Match.value({ tangle: isTangle(section), sunk: Option.isSome(sink) }).pipe(
         Match.when({ tangle: true, sunk: true }, () => filePath(pkg, sink)),
         Match.when({ tangle: true }, () => singleFile(pkg)),
         Match.orElse(() => Option.none<string>()),
@@ -389,7 +392,7 @@ const tangleFile = (
 }
 
 const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health =>
-  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle), {
+  Option.match(tangleMark(section), {
     onNone: () => okHealth,
     onSome: (specifier) =>
       Option.match(Option.fromNullishOr(section.heading.sink), {
@@ -416,9 +419,7 @@ const isDiscussion = (doc: LoomDocument): boolean => doc.frontmatter?.discussion
 
 const fileInDiscussion = (section: LoomSection): Health =>
   Option.match(
-    Option.orElse(Option.fromNullishOr(section.heading.sink), () =>
-      Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle),
-    ),
+    Option.orElse(Option.fromNullishOr(section.heading.sink), () => tangleMark(section)),
     {
       onNone: () => okHealth,
       onSome: (mark) => faulty(FileInDiscussion(), mark.position),
@@ -439,23 +440,23 @@ const kindParameterSpan = (held: ParametersToken): Option.Option<Position> =>
     Option.map(([own, index]) => parameterSpanOf(held, own, index)),
   )
 
-export const isManifest = (held: ParametersToken): boolean =>
-  Option.exists(headingKind(held), (kind) => kind === manifestKind)
+export const isManifest = (section: LoomSection): boolean => section.kind === manifestKind
 
 const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 
 const manifestOutsideTrope = (section: LoomSection): Health =>
-  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {
-    onNone: () => okHealth,
-    onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
-  })
+  Option.match(
+    Option.filter(Option.fromNullishOr(section.heading.specifier), () => isManifest(section)),
+    {
+      onNone: () => okHealth,
+      onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
+    },
+  )
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
 
-const isConceptLanguage = (languageId: string): boolean => languageId === 'concept'
-
-const codeInConcept = (section: LoomSection, languageId: string): Health =>
-  isConceptLanguage(languageId)
+const codeInConcept = (section: LoomSection): Health =>
+  isConceptSection(section)
     ? pipe(
         Array.filter(section.code, isArrow),
         Array.map((weft) => faulty(CodeInConcept(), weft.arrow.position)),
@@ -726,7 +727,7 @@ const localHealth = (
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept: isConceptLanguage(entry.language),
+    concept: entry.concept,
     written: entry.written,
     sameLanguage: entry.language === host,
   }).pipe(
@@ -866,18 +867,24 @@ const trailHealth = (
   trail: Trail,
 ): Health =>
   Option.match(
-    Option.flatMap(sectionOf(trail), (reached) => codeOf(modules, reached)),
+    Option.flatMap(sectionOf(trail), (reached) =>
+      Option.map(codeOf(modules, reached), (code) => ({
+        code,
+        concept: isConceptSection(reached.section),
+      })),
+    ),
     {
       onNone: () =>
         Array.lastNonEmpty(trail).place._tag === 'Box'
           ? faulty(UnsettledSection({ name: ref.name, declared: true }), ref.anchor)
           : unresolved(ref.name, ref.anchor),
-      onSome: (code) =>
+      onSome: ({ code, concept }) =>
         reachedHealth(
           ref.name,
           ref.anchor,
           host.languageId,
           code,
+          concept,
           Array.lastNonEmpty(trail).place._tag === 'Chapter',
           ref.toBeSettled,
         ),
@@ -889,11 +896,12 @@ const reachedHealth = (
   at: Position,
   host: string,
   code: Code,
+  concept: boolean,
   whole: boolean,
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept: isConceptLanguage(code.languageId),
+    concept,
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
@@ -1368,7 +1376,7 @@ export const unusedSections = (usage: Usage, module: LoomModule): ReadonlyArray<
           ),
         ),
         Array.filter(
-          (section) => !Option.exists(Option.fromNullishOr(section.heading.specifier), isManifest),
+          (section) => !isManifest(section),
         ),
         Array.flatMap((section) =>
           Option.match(Option.fromNullishOr(section.heading.title), {

@@ -1318,7 +1318,7 @@ Braces after an anchor hold a label, as `::[Greeting function]{To be settled}` d
 
 The braces of a box and of a heading follow the same grammar, as the sections "A box line" and "Scanning a heading" describe, but each bearer takes keys and kinds of its own. `BraceRules` holds what one bearer of braces takes: `on` names the bearer, `keys` its keys, and `kinds` its kinds, when one loom alone can tell them. `labelKey` gives the key a label alone stands for, and a heading's rules take it from the `labelKey` function of the chapter "The leaf tokens", where the rule is written once. `anchorBraces` holds an anchor's rules, `boxBraces` a box's, and `headingBraces` a heading's, and `bracesAt` judges what the braces hold by the rules it is given.
 
-An anchor's kinds are the core's own, so the tokeniser judges them. A box's kinds come from the core and from every trope the book holds, and a trope in another loom may declare the kind a box names. So `boxBraces` leaves a box's kind for the corpus to judge, as Part XIII, Tropes, describes.
+An anchor's kinds are the core's own, so the tokeniser judges them. A box's kinds come from the core and from every trope the book holds, and a trope in another loom may declare the kind a box names. So `boxBraces` leaves a box's kind for the corpus to judge, as Part XIII, Tropes, describes. A heading's kind is claimed by a pass of its own, which faults a kind the core does not know, as the chapter "Small passes over the tree" describes. So `headingBraces` holds no kinds either.
 
 A label alone on an anchor or a box always stands for `kind`. A label alone on a heading stands for `kind` when it names a kind of section and for `lang` otherwise, as the chapter "The leaf tokens" describes. A heading's kinds are the core's own, so the tokeniser judges the value of a heading's `kind` key, but it never judges a label that stands for `lang` as a kind.
 
@@ -1350,7 +1350,7 @@ const boxBraces: BraceRules = {
 const headingBraces: BraceRules = {
   on: 'heading',
   keys: headingKeys,
-  kinds: Option.some(sectionKinds),
+  kinds: Option.none(),
   labelKey: labelKey(sectionKinds),
 }
 

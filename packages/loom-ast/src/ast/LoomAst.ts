@@ -76,11 +76,23 @@ export const ExpandedDocumentSchema = Schema.Struct({
 })
 export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
 
+export const ClaimedSectionSchema = Schema.Struct({
+  ...ExpandedSectionSchema.fields,
+  kind: Schema.optional(Schema.String),
+})
+export type ClaimedSection = typeof ClaimedSectionSchema.Type
+
+export const ClaimedDocumentSchema = Schema.Struct({
+  ...ExpandedDocumentSchema.fields,
+  sections: Schema.Array(ClaimedSectionSchema),
+})
+export type ClaimedDocument = typeof ClaimedDocumentSchema.Type
+
 export const LoomHeadingSchema = ExpandedHeadingSchema
 export type LoomHeading = ExpandedHeading
 
-export const LoomSectionSchema = ExpandedSectionSchema
-export type LoomSection = ExpandedSection
+export const LoomSectionSchema = ClaimedSectionSchema
+export type LoomSection = ClaimedSection
 
-export const LoomDocumentSchema = ExpandedDocumentSchema
-export type LoomDocument = ExpandedDocument
+export const LoomDocumentSchema = ClaimedDocumentSchema
+export type LoomDocument = ClaimedDocument

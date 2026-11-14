@@ -66,6 +66,42 @@ describe('a label the tokeniser could not read', () => {
   })
 })
 
+describe('claiming a kind', () => {
+  const kindOf = (heading: string): string | undefined =>
+    built(`${heading}\n\nProse.\n`).sections[0]?.kind
+
+  it('claims the kind a label names', () => {
+    expect(kindOf('# Install {Tangle}')).toBe('Tangle')
+    expect(kindOf('# An idea {concept}')).toBe('Concept')
+  })
+
+  it('claims the kind a parameter names', () => {
+    expect(kindOf('# Install {kind=tangle lang=sh}')).toBe('Tangle')
+  })
+
+  it('claims nothing for a language, or for no braces', () => {
+    expect(kindOf('# Build {Bash}')).toBeUndefined()
+    expect(kindOf('# Plain')).toBeUndefined()
+  })
+})
+
+describe('a kind nothing declares', () => {
+  const heading = built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.heading
+  const [parameter] = heading?.specifier?.parameters ?? []
+
+  it('claims nothing', () => {
+    expect(built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.kind).toBeUndefined()
+  })
+
+  it('is a fault on the value that names it', () => {
+    expect(parameter?.health.diagnostics.map((found) => found.message)).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
+    ])
+    expect(heading?.specifier?.health.status).toBe('error')
+    expect(heading?.health.status).toBe('error')
+  })
+})
+
 describe('the tree the row writes', () => {
   const text = '# Build {Bash}\n\nProse.\n\n# Install {kind=Tangle lang=sh}\n\nProse.\n'
   const decoded = Schema.decodeUnknownSync(LoomDocumentSchema)

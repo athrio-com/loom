@@ -68,7 +68,7 @@ Each pass is a plain function from one tree to the next. A pass is not an Effect
 
 One service runs the passes in order. It takes the tree the parser built, the `ParsedDocument`, and returns the tree the last pass wrote, the `LoomDocument`. The product pass, the weave, and the editor read the `LoomDocument` and no other tree, so a pass added to the row renames nothing they read.
 
-`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn, and it gives the first pass the core's own kinds of section.
+`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn, and it gives the passes the core's own kinds of section.
 
 =>
 
@@ -76,7 +76,8 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
   {
     make: Effect.succeed({
-      build: (parsed: ParsedDocument): LoomDocument => expandedDocument(sectionKinds)(parsed),
+      build: (parsed: ParsedDocument): LoomDocument =>
+        pipe(parsed, expandedDocument(sectionKinds), claimedDocument(sectionKinds)),
     }),
   },
 ) {
@@ -164,26 +165,103 @@ const labelParameter =
       ],
     })
 
-## What the row draws on
+## Claiming kinds
 
-The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens and the label rule from the chapter "The leaf tokens". Effect supplies `Context` and `Layer` for the service, and `Match` and `Option` for the passes.
+The second pass gives each section the kind its heading names. A heading names a kind under its `kind` key, which the first pass has written in full. The pass looks the name up among the kinds it is handed, in any case of letters, and the section carries the kind under the name the core gives it. So `{tangle}` and `{kind=Tangle}` both claim `Tangle`. Every later reader takes a section's kind from the section, and none reads it from the braces.
+
+`claimedDocument` hands the fold one case, for a section. `kindStated` finds the parameter that names a kind and the value it holds. A section whose heading names no kind passes through as it is.
 
 =>
 
-import { Context, Effect, Layer, Match, Option } from 'effect'
+export const claimedDocument =
+  (kinds: ReadonlyArray<string>) =>
+  (expanded: ExpandedDocument): ClaimedDocument =>
+    rewritten(expanded, { LoomSection: claimedSection(kinds) })
+
+type KindStated = {
+  readonly held: ParametersToken
+  readonly parameter: ParameterToken
+  readonly value: ParameterValueToken
+}
+
+const kindStated = (heading: ExpandedHeading): Option.Option<KindStated> =>
+  pipe(
+    Option.fromNullishOr(heading.specifier),
+    Option.flatMap((held) =>
+      pipe(
+        Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
+        Option.flatMap((parameter) =>
+          Option.map(Array.head(parameter.values), (value) => ({ held, parameter, value })),
+        ),
+      ),
+    ),
+  )
+
+const claimedSection =
+  (kinds: ReadonlyArray<string>) =>
+  (section: ExpandedSection): ClaimedSection =>
+    Option.match(kindStated(section.heading), {
+      onNone: () => section,
+      onSome: (stated) =>
+        Option.match(kindNamed(kinds)(stated.value.value), {
+          onSome: (kind) => ({ ...section, kind }),
+          onNone: () => ({ ...section, heading: unclaimed(kinds)(section.heading, stated) }),
+        }),
+    })
+
+## A kind nothing declares
+
+A kind that is none of the kinds the pass was handed claims nothing, and the section has no kind. `unclaimed` gives the value that names it the `UnknownKind` fault, whose message lists the kinds a heading takes. The fault stands on the parameter, and the braces and the heading take its status, as they do for a fault the tokeniser raises.
+
+The pass is the one place that judges a heading's kind. The tokeniser reads a heading's braces without judging the kind they name.
+
+=>
+
+const unclaimed =
+  (kinds: ReadonlyArray<string>) =>
+  (heading: ExpandedHeading, stated: KindStated): ExpandedHeading => {
+    const fault = faulty(
+      UnknownKind({ kind: stated.value.value, kinds, on: 'heading' }),
+      stated.value.position,
+    )
+    return {
+      ...heading,
+      health: { ...heading.health, status: fault.status },
+      specifier: {
+        ...stated.held,
+        health: { ...stated.held.health, status: fault.status },
+        parameters: Array.map(stated.held.parameters, (parameter) =>
+          parameter === stated.parameter ? { ...parameter, health: fault } : parameter,
+        ),
+      },
+    }
+  }
+
+## What the row draws on
+
+The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens and the label rule from the chapter "The leaf tokens". The fault catalog gives `faulty` and the `UnknownKind` fault. Effect supplies `Context` and `Layer` for the service, and `Array`, `Match`, `Option`, and `pipe` for the passes.
+
+=>
+
+import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
 import { okHealth } from '@athrio/loom-ast/LoomNode'
 import type {
+  ClaimedDocument,
+  ClaimedSection,
   ExpandedDocument,
   ExpandedHeading,
+  ExpandedSection,
   LoomDocument,
   ParsedDocument,
   ParsedHeading,
 } from '@athrio/loom-ast/LoomAst'
 import {
+  kindNamed,
   labelKey,
   ParameterKeyTokenSchema,
   type ParameterToken,
   ParameterTokenSchema,
+  type ParameterValueToken,
   ParameterValueTokenSchema,
   type ParametersToken,
   ParametersTokenSchema,
@@ -192,6 +270,7 @@ import {
   type SpecifierToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
+import { faulty, UnknownKind } from '#ast/LoomFault'
 
 ## The row's module [src/ast/LoomDocumentBuilder.ts]
 
@@ -204,6 +283,10 @@ import { rewritten } from '@athrio/loom-ast/TreeFold'
 ::[Expanding short forms]
 
 ::[A label written in full]
+
+::[Claiming kinds]
+
+::[A kind nothing declares]
 
 ## Testing the first pass
 
@@ -297,6 +380,54 @@ describe('a label the tokeniser could not read', () => {
   })
 })
 
+## A section carries the kind it claimed
+
+A section claims a kind by a label or by a parameter, in any case of letters, and carries the core's name for it. A heading that names a language alone, or nothing, claims no kind.
+
+=>
+
+describe('claiming a kind', () => {
+  const kindOf = (heading: string): string | undefined =>
+    built(`${heading}\n\nProse.\n`).sections[0]?.kind
+
+  it('claims the kind a label names', () => {
+    expect(kindOf('# Install {Tangle}')).toBe('Tangle')
+    expect(kindOf('# An idea {concept}')).toBe('Concept')
+  })
+
+  it('claims the kind a parameter names', () => {
+    expect(kindOf('# Install {kind=tangle lang=sh}')).toBe('Tangle')
+  })
+
+  it('claims nothing for a language, or for no braces', () => {
+    expect(kindOf('# Build {Bash}')).toBeUndefined()
+    expect(kindOf('# Plain')).toBeUndefined()
+  })
+})
+
+## A kind nothing declares is a fault
+
+A kind the core does not know claims nothing. Its value carries the fault, and the braces and the heading carry its status.
+
+=>
+
+describe('a kind nothing declares', () => {
+  const heading = built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.heading
+  const [parameter] = heading?.specifier?.parameters ?? []
+
+  it('claims nothing', () => {
+    expect(built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.kind).toBeUndefined()
+  })
+
+  it('is a fault on the value that names it', () => {
+    expect(parameter?.health.diagnostics.map((found) => found.message)).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
+    ])
+    expect(heading?.specifier?.health.status).toBe('error')
+    expect(heading?.health.status).toBe('error')
+  })
+})
+
 ## The row writes the tree it claims
 
 The tree the row returns decodes against the schema of the `LoomDocument`. The tree the parser built does not, while a heading in it still holds a label. So the test fails for a pass that leaves a label behind.
@@ -329,6 +460,10 @@ describe('the tree the row writes', () => {
 
 ::[A label nobody could read keeps its fault]
 
+::[A section carries the kind it claimed]
+
+::[A kind nothing declares is a fault]
+
 ::[The row writes the tree it claims]
 
 ## What to work out
@@ -338,7 +473,7 @@ describe('the tree the row writes', () => {
 ## What this chapter grows into
 
 1. The first pass for the braces of a box and of an anchor, which still hold labels.
-2. The passes that follow: claiming kinds, checking parameters, resolving references, and setting data apart. With them the tokeniser stops judging keys and kinds and reads the shape of braces alone.
+2. The passes that follow: checking parameters, resolving references, and setting data apart. With the pass that checks parameters, the tokeniser stops judging keys and reads the shape of braces alone.
 3. A schema for the output of each of those passes, and a test that decodes the output against it.
 
 When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".

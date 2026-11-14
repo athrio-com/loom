@@ -107,11 +107,6 @@ export const labelKey =
   (label: string): 'kind' | 'lang' =>
     Option.isSome(kindNamed(kinds)(label)) ? 'kind' : 'lang'
 
-export const headingKind = (held: ParametersToken): Option.Option<string> =>
-  Option.map(parameterValue(held, 'kind'), (kind) =>
-    Option.getOrElse(kindNamed(sectionKinds)(kind), () => kind),
-  )
-
 export const headingLang = (held: ParametersToken): Option.Option<string> =>
   parameterValue(held, 'lang')
 

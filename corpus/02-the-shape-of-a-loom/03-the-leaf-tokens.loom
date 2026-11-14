@@ -160,14 +160,9 @@ export const labelKey =
 
 ~
 
-That pass writes every label of a heading in full, as the chapter "Small passes over the tree" describes, so a heading's braces hold parameters by the time anything reads what they say. `headingKind` reads the kind the parameters name, and `headingLang` reads the language. Each gives nothing when the braces do not name it, so `{lang=Bash}` names no kind.
+That pass writes every label of a heading in full, as the chapter "Small passes over the tree" describes, so a heading's braces hold parameters by the time anything reads what they say. `headingLang` reads the language the parameters name, and gives nothing when they name none. The kind is not read here. The pass that claims kinds gives each section the kind its heading names, and every reader takes the kind from the section.
 
 =>
-
-export const headingKind = (held: ParametersToken): Option.Option<string> =>
-  Option.map(parameterValue(held, 'kind'), (kind) =>
-    Option.getOrElse(kindNamed(sectionKinds)(kind), () => kind),
-  )
 
 export const headingLang = (held: ParametersToken): Option.Option<string> =>
   parameterValue(held, 'lang')

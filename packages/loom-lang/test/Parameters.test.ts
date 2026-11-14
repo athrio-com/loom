@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { Effect, Option } from 'effect'
 import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
-import { headingKind, headingLang } from '@athrio/loom-ast/LoomTokens'
+import { headingLang } from '@athrio/loom-ast/LoomTokens'
 import { sectionLanguage } from '#ast/ProductBuilder'
 import { parseDocument, ParseLayer } from './parse'
 
@@ -11,10 +11,7 @@ const parsed = (heading: string): LoomDocument =>
 
 const sectionOf = (heading: string): LoomSection => parsed(heading).sections[0]!
 
-const kindOf = (heading: string): string | undefined =>
-  Option.getOrUndefined(
-    Option.flatMap(Option.fromNullishOr(sectionOf(heading).heading.specifier), headingKind),
-  )
+const kindOf = (heading: string): string | undefined => sectionOf(heading).kind
 
 const langOf = (heading: string): string | undefined =>
   Option.getOrUndefined(
@@ -110,8 +107,11 @@ describe('the language a heading names', () => {
 
   it('is the language its kind implies, when it names none', () => {
     expect(languageOf('# The manifest {kind=Manifest}')).toBe('json')
-    expect(languageOf('# An idea {kind=Concept}')).toBe('concept')
     expect(languageOf('# Install {Tangle}')).toBe('typescript')
+  })
+
+  it("is the chapter's for a concept, whose kind implies none", () => {
+    expect(languageOf('# An idea {kind=Concept}')).toBe('typescript')
   })
 
   it("is the chapter's, when the heading names nothing", () => {

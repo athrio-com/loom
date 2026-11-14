@@ -10,7 +10,6 @@ import {
   discussionKind,
   type FrontmatterBookToken,
   type FrontmatterEntryToken,
-  headingKind,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,
@@ -889,10 +888,7 @@ export type ConceptRef = {
   readonly definition: string
 }
 
-export const isConceptSection = (section: LoomSection): boolean =>
-  Option.exists(Option.fromNullishOr(section.heading.specifier), (specifier) =>
-    Option.exists(headingKind(specifier), (kind) => kind === conceptKind),
-  )
+export const isConceptSection = (section: LoomSection): boolean => section.kind === conceptKind
 
 const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line.source.trim())
 

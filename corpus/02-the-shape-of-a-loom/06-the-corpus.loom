@@ -991,7 +991,7 @@ const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<Corp
 
 A concept is a section that defines one idea, and its heading carries the `{Concept}` specifier, as the chapter "Concepts" describes. Its heading is the concept's preferred form. Its first paragraph is its definition, the words a reader sees wherever a link names it. A `Lexical forms:` line, and the list of words under it, give the other forms the prose writes for the idea, such as a plural or a possessive. Each form is a name of the concept, and each one finds it.
 
-A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by the kind its heading names, written `{Concept}` or `{kind=Concept}` in any case of letters, as the chapter "The leaf tokens" describes. `conceptsOf` reads every concept of a loom.
+A `ConceptRef` holds what a lookup and the editor need of one concept: its loom, its section, its heading's title as its `name`, its `forms`, each with the span its words take in the loom, and its `definition`. `isConceptSection` tells a concept's section by the kind it claimed. A heading claims the kind with `{Concept}` or `{kind=Concept}`, in any case of letters, as the chapter "Small passes over the tree" describes. `conceptsOf` reads every concept of a loom.
 
 `definitionLinesOf` gives the lines of a concept's first paragraph, its boxes aside, up to a blank line or the `Lexical forms:` line, and `definitionOf` joins them into text. The definition is read as plain words, for an editor's card or a link's title, so `plainSource` writes each link in a line as the name it gives, without the anchor's marks. `formsLineOf` finds the `Lexical forms:` line, which `isFormsLine` tells, and `formsOf` reads the list items under it, one form for each, as `formOf` reads it from its line. `formLinesOf` gives that line together with its items. Those lines name the concept rather than use it, so the editor's reading of plain prose passes over them.
 
@@ -1007,10 +1007,7 @@ export type ConceptRef = {
   readonly definition: string
 }
 
-export const isConceptSection = (section: LoomSection): boolean =>
-  Option.exists(Option.fromNullishOr(section.heading.specifier), (specifier) =>
-    Option.exists(headingKind(specifier), (kind) => kind === conceptKind),
-  )
+export const isConceptSection = (section: LoomSection): boolean => section.kind === conceptKind
 
 const isFormsLine = (line: LoomWeft): boolean => /^Lexical forms:\s*$/.test(line.source.trim())
 
@@ -3084,7 +3081,6 @@ import {
   discussionKind,
   type FrontmatterBookToken,
   type FrontmatterEntryToken,
-  headingKind,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,

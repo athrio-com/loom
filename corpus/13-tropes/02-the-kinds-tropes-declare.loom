@@ -77,9 +77,7 @@ export const tropesOf = (modules: ReadonlyMap<Location, LoomModule>): ReadonlyAr
 }
 
 const manifestSectionsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
-  Array.filter(module.doc.sections, (section) =>
-    Option.exists(Option.fromNullishOr(section.heading.specifier), isManifest),
-  )
+  Array.filter(module.doc.sections, isManifest)
 
 type Read = { readonly manifest: TropeManifest; readonly at: Position }
 

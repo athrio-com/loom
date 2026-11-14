@@ -1361,7 +1361,7 @@ const boxBraces: BraceRules = {
 const headingBraces: BraceRules = {
   on: 'heading',
   keys: headingKeys,
-  kinds: Option.some(sectionKinds),
+  kinds: Option.none(),
   labelKey: labelKey(sectionKinds),
 }
 

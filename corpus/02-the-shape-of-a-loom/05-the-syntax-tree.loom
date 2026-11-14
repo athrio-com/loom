@@ -101,20 +101,38 @@ export const ExpandedDocumentSchema = Schema.Struct({
 })
 export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
 
+~
+
+The pass that claims kinds gives a section the kind its heading names, when the core knows that kind. `ClaimedSectionSchema` adds the `kind` field. It holds the kind under the name the core gives it, so a heading that writes `{kind=tangle}` claims `Tangle`. A section whose heading names no kind, or names one the core does not know, has no `kind`. `ClaimedDocumentSchema` holds the claimed sections.
+
+=>
+
+export const ClaimedSectionSchema = Schema.Struct({
+  ...ExpandedSectionSchema.fields,
+  kind: Schema.optional(Schema.String),
+})
+export type ClaimedSection = typeof ClaimedSectionSchema.Type
+
+export const ClaimedDocumentSchema = Schema.Struct({
+  ...ExpandedDocumentSchema.fields,
+  sections: Schema.Array(ClaimedSectionSchema),
+})
+export type ClaimedDocument = typeof ClaimedDocumentSchema.Type
+
 ## The tree every reader takes
 
-The `LoomDocument` is the tree the last pass of the row writes. Its nodes carry the names every reader after the row uses: `LoomHeading`, `LoomSection`, and `LoomDocument`. The last pass is the one that expands short forms. A pass added to the row takes these names for its own tree, so no reader is renamed.
+The `LoomDocument` is the tree the last pass of the row writes. Its nodes carry the names every reader after the row uses: `LoomHeading`, `LoomSection`, and `LoomDocument`. The last pass is the one that claims kinds. So a `LoomSection` carries its kind, and its `LoomHeading` is the heading the pass before it wrote. A pass added to the row takes these names for its own tree, so no reader is renamed.
 
 =>
 
 export const LoomHeadingSchema = ExpandedHeadingSchema
 export type LoomHeading = ExpandedHeading
 
-export const LoomSectionSchema = ExpandedSectionSchema
-export type LoomSection = ExpandedSection
+export const LoomSectionSchema = ClaimedSectionSchema
+export type LoomSection = ClaimedSection
 
-export const LoomDocumentSchema = ExpandedDocumentSchema
-export type LoomDocument = ExpandedDocument
+export const LoomDocumentSchema = ClaimedDocumentSchema
+export type LoomDocument = ClaimedDocument
 
 ## What this module draws on
 

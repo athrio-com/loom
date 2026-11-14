@@ -1,17 +1,22 @@
-import { Context, Effect, Layer, Match, Option } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
 import { okHealth } from '@athrio/loom-ast/LoomNode'
 import type {
+  ClaimedDocument,
+  ClaimedSection,
   ExpandedDocument,
   ExpandedHeading,
+  ExpandedSection,
   LoomDocument,
   ParsedDocument,
   ParsedHeading,
 } from '@athrio/loom-ast/LoomAst'
 import {
+  kindNamed,
   labelKey,
   ParameterKeyTokenSchema,
   type ParameterToken,
   ParameterTokenSchema,
+  type ParameterValueToken,
   ParameterValueTokenSchema,
   type ParametersToken,
   ParametersTokenSchema,
@@ -20,12 +25,14 @@ import {
   type SpecifierToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
+import { faulty, UnknownKind } from '#ast/LoomFault'
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
   {
     make: Effect.succeed({
-      build: (parsed: ParsedDocument): LoomDocument => expandedDocument(sectionKinds)(parsed),
+      build: (parsed: ParsedDocument): LoomDocument =>
+        pipe(parsed, expandedDocument(sectionKinds), claimedDocument(sectionKinds)),
     }),
   },
 ) {
@@ -94,3 +101,59 @@ const labelParameter =
         }),
       ],
     })
+
+export const claimedDocument =
+  (kinds: ReadonlyArray<string>) =>
+  (expanded: ExpandedDocument): ClaimedDocument =>
+    rewritten(expanded, { LoomSection: claimedSection(kinds) })
+
+type KindStated = {
+  readonly held: ParametersToken
+  readonly parameter: ParameterToken
+  readonly value: ParameterValueToken
+}
+
+const kindStated = (heading: ExpandedHeading): Option.Option<KindStated> =>
+  pipe(
+    Option.fromNullishOr(heading.specifier),
+    Option.flatMap((held) =>
+      pipe(
+        Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
+        Option.flatMap((parameter) =>
+          Option.map(Array.head(parameter.values), (value) => ({ held, parameter, value })),
+        ),
+      ),
+    ),
+  )
+
+const claimedSection =
+  (kinds: ReadonlyArray<string>) =>
+  (section: ExpandedSection): ClaimedSection =>
+    Option.match(kindStated(section.heading), {
+      onNone: () => section,
+      onSome: (stated) =>
+        Option.match(kindNamed(kinds)(stated.value.value), {
+          onSome: (kind) => ({ ...section, kind }),
+          onNone: () => ({ ...section, heading: unclaimed(kinds)(section.heading, stated) }),
+        }),
+    })
+
+const unclaimed =
+  (kinds: ReadonlyArray<string>) =>
+  (heading: ExpandedHeading, stated: KindStated): ExpandedHeading => {
+    const fault = faulty(
+      UnknownKind({ kind: stated.value.value, kinds, on: 'heading' }),
+      stated.value.position,
+    )
+    return {
+      ...heading,
+      health: { ...heading.health, status: fault.status },
+      specifier: {
+        ...stated.held,
+        health: { ...stated.held.health, status: fault.status },
+        parameters: Array.map(stated.held.parameters, (parameter) =>
+          parameter === stated.parameter ? { ...parameter, health: fault } : parameter,
+        ),
+      },
+    }
+  }

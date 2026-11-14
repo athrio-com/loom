@@ -19,7 +19,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array, option, and record combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, `Data` for the tagged answers a reference gets, `Result` for a step that may stop with one of them, and `pipe` for the spine.
 
-From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` that an anchor's parameters and a heading's braces arrive in, each parameter a `ParameterToken`, the `SinkToken` a heading marks its file with, `headingKind` and `headingLang`, which read the kind and the language a heading names, `tangleKind` and `manifestKind`, two of the kinds a section takes, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body wefts a code run is made of, among them the `ArrowWeft` that opens each run. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
+From the Loom side come the document and section types, the warp and anchor tokens a section carries, the `ParametersToken` that an anchor's parameters and a heading's braces arrive in, each parameter a `ParameterToken`, the `SinkToken` a heading marks its file with, `headingLang`, which reads the language a heading names, `tangleKind` and `manifestKind`, two of the kinds a section claims, `settleKind`, the kind that marks a section to be settled, `referenceKind`, the kind that marks a reference, and the section-body wefts a code run is made of, among them the `ArrowWeft` that opens each run. The tokeniser's `normaliseTitle` folds a heading into the name that identifies its section.
 
 The fault catalog gives `faulty` and the faults this pass raises. An anchor raises `UnresolvedAnchor`, with the `Declaration` it offers, `AmbiguousAnchor`, `ChapterWithoutCode`, `CompositionCycle`, `CrossLanguageAnchor`, `StrayTarget` on the `WarpAnchorTargetToken` it writes, and the `UnsettledSection` and `SettledLabel` notes. A reference raises `NoSuchFile`, `SeveralFiles`, `SectionWithoutFile`, and the `UnsettledModule` note. A section's name raises `DuplicateName`, a section whose code no file includes raises `UnusedSection`, a fence's label raises `FenceLabelAgainstLanguage` on the `FenceLabelToken`, a heading's marks raise `TangleBesideSink` and `TangleWithoutFile`, an arrow in a section written in prose raises `CodeInProse`, an arrow in a concept raises `CodeInConcept`, an anchor that reaches a concept raises `ConceptWithoutCode`, and a warp raises `UnknownVariable`.
 
@@ -44,6 +44,7 @@ import {
 import {
   type Catalogue,
   conceptsCalled,
+  isConceptSection,
   type Location,
   type LoomModule,
   pathsTo,
@@ -55,7 +56,6 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
-  headingKind,
   headingLang,
   manifestKind,
   referenceKind,
@@ -193,9 +193,9 @@ A tangle sink resolves its language a fourth way: it carries no specifier, only 
 
 A file with no extension takes its whole name as its language, read from the last path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes `license`, and a `.gitignore`, whose one dot only marks it hidden, composes `gitignore`. A chapter that declares the same language can then anchor into it.
 
-A heading's specifier names the section's language under its `lang` key, or a kind of section under its `kind` key, as the chapter "The leaf tokens" describes. A kind implies a language of its own. A `Tangle` section composes the language of the file it writes, and a `Manifest` section composes JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes. Any other kind composes the language named after it, so a `Concept` section composes `concept`. `kindLanguage` gives the language a kind implies.
+A heading's specifier names the section's language under its `lang` key, as the chapter "The leaf tokens" describes, and a section carries the kind it claimed, as the chapter "Small passes over the tree" describes. Two kinds imply a language of their own. A `Tangle` section composes the language of the file it writes, and a `Manifest` section composes JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes. A `Concept` section holds no code, so its kind implies no language. `kindLanguage` gives the language a kind implies, when it implies one.
 
-`sectionLanguage` resolves any section's language by these rules, in order: the specifier's `lang`, the language the specifier's kind implies, a sink's extension, and the document default. `unmarkedLanguage` gives the last two. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled.
+`sectionLanguage` resolves any section's language by these rules, in order: the specifier's `lang`, the language the section's kind implies, a sink's extension, and the document default. `unmarkedLanguage` gives the last two. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled. And it records whether the section is a concept, which holds no code to compose.
 
 =>
 
@@ -204,6 +204,7 @@ type NameEntry = {
   readonly pos: Position
   readonly language: string
   readonly written: boolean
+  readonly concept: boolean
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -212,16 +213,18 @@ const kindLanguage = (
   sink: Option.Option<SinkToken>,
   defaultLang: string,
   pkg: Option.Option<string>,
-): string =>
+): Option.Option<string> =>
   Match.value(kind).pipe(
     Match.when(tangleKind, () =>
-      Option.match(pkg, {
-        onNone: () => defaultLang,
-        onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
-      }),
+      Option.some(
+        Option.match(pkg, {
+          onNone: () => defaultLang,
+          onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+        }),
+      ),
     ),
-    Match.when(manifestKind, () => 'json'),
-    Match.orElse((other) => other.toLowerCase()),
+    Match.when(manifestKind, () => Option.some('json')),
+    Match.orElse(() => Option.none()),
   )
 
 const unmarkedLanguage = (sink: Option.Option<SinkToken>, defaultLang: string): string =>
@@ -237,14 +240,11 @@ export const sectionLanguage = (
 ): string => {
   const sink = Option.fromNullishOr(section.heading.sink)
   return pipe(
-    Option.fromNullishOr(section.heading.specifier),
-    Option.flatMap((specifier) =>
-      Option.orElse(
-        Option.map(headingLang(specifier), (lang) => lang.toLowerCase()),
-        () =>
-          Option.map(headingKind(specifier), (kind) =>
-            kindLanguage(kind, sink, defaultLang, pkg),
-          ),
+    Option.flatMap(Option.fromNullishOr(section.heading.specifier), headingLang),
+    Option.map((lang) => lang.toLowerCase()),
+    Option.orElse(() =>
+      Option.flatMap(Option.fromNullishOr(section.kind), (kind) =>
+        kindLanguage(kind, sink, defaultLang, pkg),
       ),
     ),
     Option.getOrElse(() => unmarkedLanguage(sink, defaultLang)),
@@ -269,6 +269,7 @@ const nameIndex = (
               pos: title.position,
               language: sectionLanguage(s, defaultLang, pkg),
               written: Array.isReadonlyArrayNonEmpty(codeRuns(s.code)),
+              concept: isConceptSection(s),
             },
           ] as const,
       ),
@@ -409,7 +410,7 @@ const buildSection =
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
-        codeInConcept(section, languageId),
+        codeInConcept(section),
       ],
       okHealth,
       withHealth,
@@ -421,7 +422,7 @@ const buildSection =
 
 ~
 
-`tangleFile` decides whether a section names a file, and `filePath` decides where. A heading names a file with one of two marks. A `[file]` sink names the file itself. A `{Tangle}` specifier names the chapter's one file, the file the frontmatter's `Package` names when it names a file rather than a folder, and `singleFile` reads that file. Any other specifier is a language label, so the section composes in place and writes nothing.
+`tangleFile` decides whether a section names a file, and `filePath` decides where. A heading names a file with one of two marks. A `[file]` sink names the file itself. A `{Tangle}` specifier names the chapter's one file, the file the frontmatter's `Package` names when it names a file rather than a folder, and `singleFile` reads that file. Any other specifier is a language label, so the section composes in place and writes nothing. `isTangle` tells a section that claimed the `Tangle` kind, and `tangleMark` gives the braces that claimed it, where a fault about the mark belongs.
 
 `filePath` resolves where a sink's file lands. Under a frontmatter `Package` the file lands there, where `tangleFilePath` appends the `[file]` tag to a directory package and passes a file package through unchanged. Under no package the sink names the file by itself, and the compiler resolves where it lands. So the smallest program that tangles is a heading with a sink, an arrow, and its code: `# Hi there! [mini.ts]` writes `mini.ts`, its language read from the extension.
 
@@ -448,8 +449,10 @@ const filePath = (
 const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
   Option.filter(pkg, (p) => !p.endsWith('/'))
 
-const isTangle = (held: ParametersToken): boolean =>
-  Option.exists(headingKind(held), (kind) => kind === tangleKind)
+const isTangle = (section: LoomSection): boolean => section.kind === tangleKind
+
+const tangleMark = (section: LoomSection): Option.Option<ParametersToken> =>
+  Option.filter(Option.fromNullishOr(section.heading.specifier), () => isTangle(section))
 
 const tangleFile = (
   section: LoomSection,
@@ -459,8 +462,8 @@ const tangleFile = (
   const sink = Option.fromNullishOr(section.heading.sink)
   const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
     onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
-    onSome: (spec) =>
-      Match.value({ tangle: isTangle(spec), sunk: Option.isSome(sink) }).pipe(
+    onSome: () =>
+      Match.value({ tangle: isTangle(section), sunk: Option.isSome(sink) }).pipe(
         Match.when({ tangle: true, sunk: true }, () => filePath(pkg, sink)),
         Match.when({ tangle: true }, () => singleFile(pkg)),
         Match.orElse(() => Option.none<string>()),
@@ -482,7 +485,7 @@ A discussion writes no file, as the chapter "Discussions" describes, so the sect
 =>
 
 const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health =>
-  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle), {
+  Option.match(tangleMark(section), {
     onNone: () => okHealth,
     onSome: (specifier) =>
       Option.match(Option.fromNullishOr(section.heading.sink), {
@@ -509,9 +512,7 @@ const isDiscussion = (doc: LoomDocument): boolean => doc.frontmatter?.discussion
 
 const fileInDiscussion = (section: LoomSection): Health =>
   Option.match(
-    Option.orElse(Option.fromNullishOr(section.heading.sink), () =>
-      Option.filter(Option.fromNullishOr(section.heading.specifier), isTangle),
-    ),
+    Option.orElse(Option.fromNullishOr(section.heading.sink), () => tangleMark(section)),
     {
       onNone: () => okHealth,
       onSome: (mark) => faulty(FileInDiscussion(), mark.position),
@@ -534,20 +535,22 @@ const kindParameterSpan = (held: ParametersToken): Option.Option<Position> =>
 
 ~
 
-A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a trope chapter, so a manifest in any other loom belongs to nothing, a member of the trope included. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells the specifier, and `isTrope` tells a trope chapter.
+A trope's root declares the trope's contract in a section of the `Manifest` kind, as Part XIII, Tropes, describes. The root is a trope chapter, so a manifest in any other loom belongs to nothing, a member of the trope included. `manifestOutsideTrope` gives such a `{Manifest}` heading the `ManifestOutsideTrope` fault, and Loom reads nothing from the section. `isManifest` tells a section that claimed the kind, and `isTrope` tells a trope chapter.
 
 =>
 
-export const isManifest = (held: ParametersToken): boolean =>
-  Option.exists(headingKind(held), (kind) => kind === manifestKind)
+export const isManifest = (section: LoomSection): boolean => section.kind === manifestKind
 
 const isTrope = (doc: LoomDocument): boolean => doc.frontmatter?.trope !== undefined
 
 const manifestOutsideTrope = (section: LoomSection): Health =>
-  Option.match(Option.filter(Option.fromNullishOr(section.heading.specifier), isManifest), {
-    onNone: () => okHealth,
-    onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
-  })
+  Option.match(
+    Option.filter(Option.fromNullishOr(section.heading.specifier), () => isManifest(section)),
+    {
+      onNone: () => okHealth,
+      onSome: (specifier) => faulty(ManifestOutsideTrope(), specifier.position),
+    },
+  )
 
 ## Prose holds no code
 
@@ -555,16 +558,14 @@ A section written in prose holds words for a reader and no code. A section is wr
 
 A Markdown file is no exception, because its section is not written in prose. A sink such as `[README.md]` gives its section the `markdown` language, so the section holds the file's text as code, as any other section holds its own.
 
-A concept holds no code either, as the chapter "Concepts" describes. Its kind, `Concept`, gives its section the `concept` language, as the section "Resolving names" describes. `isConceptLanguage` tells that language, and `codeInConcept` gives each arrow in it the `CodeInConcept` fault. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
+A concept holds no code either, as the chapter "Concepts" describes. `isConceptSection` tells a section that claimed the `Concept` kind, and `codeInConcept` gives each arrow in such a section the `CodeInConcept` fault. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
 
 =>
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
 
-const isConceptLanguage = (languageId: string): boolean => languageId === 'concept'
-
-const codeInConcept = (section: LoomSection, languageId: string): Health =>
-  isConceptLanguage(languageId)
+const codeInConcept = (section: LoomSection): Health =>
+  isConceptSection(section)
     ? pipe(
         Array.filter(section.code, isArrow),
         Array.map((weft) => faulty(CodeInConcept(), weft.arrow.position)),
@@ -869,7 +870,7 @@ const localHealth = (
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept: isConceptLanguage(entry.language),
+    concept: entry.concept,
     written: entry.written,
     sameLanguage: entry.language === host,
   }).pipe(
@@ -969,7 +970,7 @@ const referenceHealth = (
 
 An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. A name that is a form of a concept names that concept, which holds no code, so the anchor carries the `ConceptWithoutCode` fault, which names the concept by its heading. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved, and `unresolvedHealth` raises the fault, for a composing edge and a reference alike. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
-The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions of that `Code` in turn: whether it is a concept, whether it is written, whether its language is the host's, and whether the anchor's label has outlived its use. A concept holds no code to compose, so an anchor that reaches one carries the `ConceptWithoutCode` fault, here and in the anchor's own loom alike.
+The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions in turn: whether the section it reached is a concept, whether its `Code` is written, whether its language is the host's, and whether the anchor's label has outlived its use. A concept holds no code to compose, so an anchor that reaches one carries the `ConceptWithoutCode` fault, here and in the anchor's own loom alike.
 
 `declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. `headingMarkOf` gives that level's run of `#` marks, and a division, which a divider opens, counts as a heading of the second level, as Markdown reads a line underlined with dashes. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
@@ -1027,18 +1028,24 @@ const trailHealth = (
   trail: Trail,
 ): Health =>
   Option.match(
-    Option.flatMap(sectionOf(trail), (reached) => codeOf(modules, reached)),
+    Option.flatMap(sectionOf(trail), (reached) =>
+      Option.map(codeOf(modules, reached), (code) => ({
+        code,
+        concept: isConceptSection(reached.section),
+      })),
+    ),
     {
       onNone: () =>
         Array.lastNonEmpty(trail).place._tag === 'Box'
           ? faulty(UnsettledSection({ name: ref.name, declared: true }), ref.anchor)
           : unresolved(ref.name, ref.anchor),
-      onSome: (code) =>
+      onSome: ({ code, concept }) =>
         reachedHealth(
           ref.name,
           ref.anchor,
           host.languageId,
           code,
+          concept,
           Array.lastNonEmpty(trail).place._tag === 'Chapter',
           ref.toBeSettled,
         ),
@@ -1050,11 +1057,12 @@ const reachedHealth = (
   at: Position,
   host: string,
   code: Code,
+  concept: boolean,
   whole: boolean,
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept: isConceptLanguage(code.languageId),
+    concept,
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
@@ -1579,7 +1587,7 @@ export const unusedSections = (usage: Usage, module: LoomModule): ReadonlyArray<
           ),
         ),
         Array.filter(
-          (section) => !Option.exists(Option.fromNullishOr(section.heading.specifier), isManifest),
+          (section) => !isManifest(section),
         ),
         Array.flatMap((section) =>
           Option.match(Option.fromNullishOr(section.heading.title), {
