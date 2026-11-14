@@ -1392,7 +1392,7 @@ describe('loom cli — approving references', () => {
 
 ## Reviewing what drifted
 
-`loom review` lists the approved references whose sections have changed, one group for each changed section. The cases approve a book, change the section that one of its looms points to, and review. With `--json` the same groups come as JSON, and each reference carries the path and line that `loom approve` takes. A path with a line reviews the references on that line alone.
+`loom review` lists the approved references whose sections have changed, one group for each changed section. The cases approve a book, change the section that one of its looms points to, and review. With `--json` the same groups come as JSON, and each reference carries the path and line that `loom approve` takes. A path with a line reviews the references on that line alone. With `--check` the command fails once anything has drifted.
 
 =>
 
@@ -1416,12 +1416,13 @@ describe('loom cli — reviewing what drifted', () => {
     'lists each drifted reference under the section that changed',
     () => {
       const dir = approvedBook()
-      expect(loom(['review'], { cwd: dir }).stdout).toContain(
-        'loom: no approved reference has drifted',
-      )
+      const before = loom(['review', '--check'], { cwd: dir })
+      expect(before.stdout).toContain('loom: no approved reference has drifted')
+      expect(before.status).toBe(0)
       changeFees(dir)
       const { status, stdout } = loom(['review', 'corpus'], { cwd: dir })
       expect(status).toBe(0)
+      expect(loom(['review', '--check'], { cwd: dir }).status).toBe(1)
       expect(stdout).toContain(
         '`Fees` in corpus/fees.loom has changed since these references to it were approved:',
       )

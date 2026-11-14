@@ -710,7 +710,7 @@ The file is JSON, one line for each relation, in the order `approvedRelations` g
 
 `loom approve` names what to approve by a path, from one reference up to the corpus, and writes the file, as the chapter "The command-line program" describes. `billing.loom:12` is the reference on a line, `billing.loom` is every reference of a loom, and a folder is every reference of the looms it holds.
 
-`loom review` takes the same path and lists what has drifted under it, one group for each changed section. With `--json` it prints the same groups for an agent, and each reference in them carries the path and line that `loom approve` takes.
+`loom review` takes the same path and lists what has drifted under it, one group for each changed section. With `--json` it prints the same groups for an agent, and each reference in them carries the path and line that `loom approve` takes. With `--check` it fails when anything has drifted, so a CI step can hold a book to its approvals.
 
 ## A reference renamed by hand
 
@@ -718,6 +718,5 @@ A relation is found by its names, so a reference that changes its name leaves it
 
 ## What this chapter grows into
 
-1. Levels of strictness, which say whether drift only warns or also fails a command.
-2. In the editor: a quick fix that approves one reference, and one that starts tracking a reference.
-3. The editor's rename of a section, which rewrites the references to it, carrying their relations along.
+1. In the editor: a quick fix that approves one reference, and one that starts tracking a reference.
+2. The editor's rename of a section, which rewrites the references to it, carrying their relations along.

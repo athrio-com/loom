@@ -1256,12 +1256,13 @@ describe('loom cli — reviewing what drifted', () => {
     'lists each drifted reference under the section that changed',
     () => {
       const dir = approvedBook()
-      expect(loom(['review'], { cwd: dir }).stdout).toContain(
-        'loom: no approved reference has drifted',
-      )
+      const before = loom(['review', '--check'], { cwd: dir })
+      expect(before.stdout).toContain('loom: no approved reference has drifted')
+      expect(before.status).toBe(0)
       changeFees(dir)
       const { status, stdout } = loom(['review', 'corpus'], { cwd: dir })
       expect(status).toBe(0)
+      expect(loom(['review', '--check'], { cwd: dir }).status).toBe(1)
       expect(stdout).toContain(
         '`Fees` in corpus/fees.loom has changed since these references to it were approved:',
       )

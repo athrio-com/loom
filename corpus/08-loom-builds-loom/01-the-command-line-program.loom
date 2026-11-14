@@ -179,6 +179,8 @@ The compiler gives the relations of each loom the path covers. `driftsIn` groups
 
 `reviewText` gives what the command prints. For a person it is `driftText` for each changed section, a line for the section with a line for each reference beneath it, and a blank line between two sections. With `--json` it is the same groups as JSON, for an agent. When nothing has drifted the command says so, and the JSON is an empty list.
 
+With `--check` the command exits non-zero when anything has drifted. A CI step can then hold a book to its approvals, as `loom format --check` holds it to its format.
+
 =>
 
 type Reviewed = {
@@ -219,7 +221,7 @@ const reviewText = (drifts: ReadonlyArray<Reviewed>, json: boolean): string =>
     Match.orElse(() => Array.join(Array.map(drifts, driftText), '\n\n')),
   )
 
-const review = (target: Option.Option<string>, json: boolean) =>
+const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
   Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const formatter = yield* LoomFormatter
@@ -229,6 +231,8 @@ const review = (target: Option.Option<string>, json: boolean) =>
     const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
     const drifts = driftsIn(Array.filter(Array.flatten(relations), onLine(line)))
     yield* Console.log(reviewText(Array.map(drifts, reviewedFrom(cwd)), json))
+    if (check && Array.isReadonlyArrayNonEmpty(drifts))
+      yield* Effect.sync(() => void (process.exitCode = 1))
   })
 
 ## Formatting looms
@@ -1605,7 +1609,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is seventeen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom review [path]` lists the approved references that have drifted under a path, grouped by the section that changed, and with `--json` prints the list for an agent. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is seventeen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom review [path]` lists the approved references that have drifted under a path, grouped by the section that changed. With `--json` it prints the list for an agent, and with `--check` it exits non-zero when any has drifted. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1648,8 +1652,9 @@ const reviewCommand = Command.make(
   {
     path: Argument.optional(Argument.String('path')),
     json: Flag.Boolean('json').pipe(Flag.withDefault(false)),
+    check: Flag.Boolean('check').pipe(Flag.withDefault(false)),
   },
-  ({ path, json }) => review(path, json),
+  ({ path, json, check }) => review(path, json, check),
 )
 
 const initCommand = Command.make(

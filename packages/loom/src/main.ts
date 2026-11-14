@@ -227,7 +227,7 @@ const reviewText = (drifts: ReadonlyArray<Reviewed>, json: boolean): string =>
     Match.orElse(() => Array.join(Array.map(drifts, driftText), '\n\n')),
   )
 
-const review = (target: Option.Option<string>, json: boolean) =>
+const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
   Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const formatter = yield* LoomFormatter
@@ -237,6 +237,8 @@ const review = (target: Option.Option<string>, json: boolean) =>
     const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
     const drifts = driftsIn(Array.filter(Array.flatten(relations), onLine(line)))
     yield* Console.log(reviewText(Array.map(drifts, reviewedFrom(cwd)), json))
+    if (check && Array.isReadonlyArrayNonEmpty(drifts))
+      yield* Effect.sync(() => void (process.exitCode = 1))
   })
 
 const format = (path: string, check: boolean) =>
@@ -1332,8 +1334,9 @@ const reviewCommand = Command.make(
   {
     path: Argument.optional(Argument.String('path')),
     json: Flag.Boolean('json').pipe(Flag.withDefault(false)),
+    check: Flag.Boolean('check').pipe(Flag.withDefault(false)),
   },
-  ({ path, json }) => review(path, json),
+  ({ path, json, check }) => review(path, json, check),
 )
 
 const initCommand = Command.make(
