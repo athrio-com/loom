@@ -93,14 +93,18 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
 
 The first pass writes every label of a heading in full. A label that names a kind of section states the `kind`, and any other label states the `lang`, by the rule the chapter "The leaf tokens" gives. So `{Bash}` becomes `{lang=Bash}` and `{Tangle}` becomes `{kind=Tangle}`. After the pass a heading's braces hold parameters only.
 
-The rule asks whether a label names a kind, so the pass takes the kinds a label may name. `expandedDocument` hands the fold one case, for a heading. It returns the `ExpandedDocument`, whose schema the chapter "The container nodes" defines.
+The rule asks whether a label names a kind, so the pass takes the kinds a label may name. `expandedDocument` returns the `ExpandedDocument`, whose schema the chapter "The container nodes" defines. It hands the fold a case for a heading, which it expands. It hands the fold a case for an anchor and a case for a box as well, since the pass also faults a label that stands beside parameters, on any bearer of braces.
 
 =>
 
 export const expandedDocument =
   (kinds: ReadonlyArray<string>) =>
   (parsed: ParsedDocument): ExpandedDocument =>
-    rewritten(parsed, { LoomHeading: expandedHeading(kinds) })
+    rewritten(parsed, {
+      LoomHeading: expandedHeading(kinds),
+      WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken => judged(besideParameters(kindKey))(anchor),
+      Box: (box: BoxToken): BoxToken => judged(besideParameters(kindKey))(box),
+    })
 
 ## A label written in full
 
@@ -114,12 +118,13 @@ A label the tokeniser could not read states nothing, and `expandedLabel` gives i
 
 const expandedHeading =
   (kinds: ReadonlyArray<string>) =>
-  (heading: ParsedHeading): ExpandedHeading => ({
-    ...heading,
-    specifier: Option.getOrUndefined(
-      Option.map(Option.fromNullishOr(heading.specifier), inFull(kinds)),
-    ),
-  })
+  (heading: ParsedHeading): ExpandedHeading =>
+    judged(besideParameters(labelKey(kinds)))({
+      ...heading,
+      specifier: Option.getOrUndefined(
+        Option.map(Option.fromNullishOr(heading.specifier), inFull(kinds)),
+      ),
+    })
 
 const inFull =
   (kinds: ReadonlyArray<string>) =>
@@ -144,6 +149,7 @@ const expandedLabel =
       open: labelled.open,
       parameters:
         labelled.label.health.status === 'ok' ? [labelParameter(kinds)(labelled.label)] : [],
+      labels: [],
       close: labelled.close,
     })
 
@@ -169,6 +175,42 @@ const labelParameter =
         }),
       ],
     })
+
+## A label beside parameters
+
+A label stands alone. Braces that hold a parameter write every parameter in full, so a label beside a parameter is a fault, as the chapter "Parameters in braces" describes. The tokeniser keeps such words on the braces as `labels`, and judges nothing.
+
+The first pass gives each of them the `LabelBesideParameter` fault, on the label itself. The fault's fix writes the label in full under the key it stands for. On an anchor and on a box that key is `kind`, which `kindKey` gives, and on a heading it is the key `labelKey` gives. `faultedLabels` gives the braces with their labels faulted, or nothing when the braces hold no label, and `besideParameters` applies it to braces that hold parameters.
+
+=>
+
+const kindKey = (): string => 'kind'
+
+const faultedLabels =
+  (keyOf: (label: string) => string) =>
+  (held: ParametersToken): Option.Option<ParametersToken> =>
+    Array.match(held.labels, {
+      onEmpty: () => Option.none(),
+      onNonEmpty: (labels) => {
+        const faulted = Array.map(labels, (label) => ({
+          ...label,
+          health: faulty(
+            LabelBesideParameter({ label: label.value, key: keyOf(label.value) }),
+            label.position,
+          ),
+        }))
+        return Option.some({
+          ...held,
+          health: { ...held.health, status: Array.headNonEmpty(faulted).health.status },
+          labels: faulted,
+        })
+      },
+    })
+
+const besideParameters =
+  (keyOf: (label: string) => string) =>
+  (braces: Braces): Option.Option<Braces> =>
+    braces.type === 'Parameters' ? faultedLabels(keyOf)(braces) : Option.none()
 
 ## Claiming kinds
 
@@ -244,29 +286,61 @@ const unclaimed =
 
 ## Checking parameters
 
-The third pass checks the keys that braces hold. Each bearer of braces takes keys of its own, which the chapter "The leaf tokens" lists: a heading takes `lang` and `kind`, an anchor takes `kind` and `provides`, and a box takes `kind`, `provides`, and `anchors`. A key the bearer does not take is an `UnknownKey` fault. A key written a second time in one pair of braces is a `RepeatedKey` fault, and that is the one fault such a key carries, whatever else is wrong with it. Each fault stands on the key itself.
+The third pass checks what braces hold against what their bearer takes. Each bearer of braces takes keys of its own, which the chapter "The leaf tokens" lists: a heading takes `lang` and `kind`, an anchor takes `kind` and `provides`, and a box takes `kind`, `provides`, and `anchors`. A key the bearer does not take is an `UnknownKey` fault. A key written a second time in one pair of braces is a `RepeatedKey` fault, and that is the one fault such a key carries, whatever else is wrong with it. Each of the two stands on the key itself.
 
-The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` hands the fold a case for each bearer of braces: a heading, an anchor, and a box. `Takes` holds what a bearer takes, and `keyFault` judges one parameter against it and against the parameters written before it.
+An anchor's `kind` takes one of an anchor's own kinds, `To be settled` or `Reference`. A value that names neither is an `UnknownKind` fault on the value, whether the author wrote it as a parameter or as a label alone. Without the fault, braces such as `{x}` after an anchor would leave the tangle without a word. A box's kind is for the corpus to judge, since a trope in another loom may declare it, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `Takes` holds kinds for an anchor alone.
+
+The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` hands the fold a case for each bearer of braces: a heading, an anchor, and a box.
 
 =>
 
-type Takes = { readonly on: BracesOn; readonly keys: ReadonlyArray<string> }
+type Takes = {
+  readonly on: BracesOn
+  readonly keys: ReadonlyArray<string>
+  readonly kinds: Option.Option<ReadonlyArray<string>>
+}
 
-const headingTakes: Takes = { on: 'heading', keys: headingKeys }
+const headingTakes: Takes = { on: 'heading', keys: headingKeys, kinds: Option.none() }
 
-const anchorTakes: Takes = { on: 'anchor', keys: anchorKeys }
+const anchorTakes: Takes = { on: 'anchor', keys: anchorKeys, kinds: Option.some(anchorKinds) }
 
-const boxTakes: Takes = { on: 'box', keys: boxKeys }
+const boxTakes: Takes = { on: 'box', keys: boxKeys, kinds: Option.none() }
 
 export const checkedDocument = (claimed: ClaimedDocument): ClaimedDocument =>
   rewritten(claimed, {
     LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
-      checkedBearer(headingTakes)(heading),
-    WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken => checkedBearer(anchorTakes)(anchor),
-    Box: (box: BoxToken): BoxToken => checkedBearer(boxTakes)(box),
+      judged(faultedBraces(headingTakes))(heading),
+    WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
+      judged(faultedBraces(anchorTakes))(anchor),
+    Box: (box: BoxToken): BoxToken => judged(faultedBraces(boxTakes))(box),
   })
 
-const keyFault = (
+~
+
+`faultedBraces` judges one pair of braces, parameters or a label. `parameterFault` judges one parameter against what the bearer takes and against the parameters written before it. `unknownKind` finds the first value that names none of the bearer's kinds, when the bearer has kinds of its own.
+
+=>
+
+const faultedBraces =
+  (takes: Takes) =>
+  (braces: Braces): Option.Option<Braces> =>
+    Match.value(braces).pipe(
+      Match.when({ type: 'Parameters' }, faultedParameters(takes)),
+      Match.when({ type: 'Specifier' }, faultedLabel(takes)),
+      Match.exhaustive,
+    )
+
+type Valued = { readonly value: string; readonly position: Position }
+
+const unknownKind = (takes: Takes, values: ReadonlyArray<Valued>): Option.Option<Health> =>
+  Option.flatMap(takes.kinds, (kinds) =>
+    Option.map(
+      Array.findFirst(values, (stated) => Option.isNone(kindNamed(kinds)(stated.value))),
+      (stated) => faulty(UnknownKind({ kind: stated.value, kinds, on: takes.on }), stated.position),
+    ),
+  )
+
+const parameterFault = (
   takes: Takes,
   parameter: ParameterToken,
   earlier: ReadonlyArray<ParameterToken>,
@@ -275,6 +349,7 @@ const keyFault = (
   return Match.value({
     repeated: Array.some(earlier, (before) => before.key.value === key),
     known: Array.contains(takes.keys, key),
+    kind: key === 'kind',
   }).pipe(
     Match.when({ repeated: true }, () =>
       Option.some(faulty(RepeatedKey({ key }), parameter.key.position)),
@@ -284,23 +359,16 @@ const keyFault = (
         faulty(UnknownKey({ key, keys: takes.keys, on: takes.on }), parameter.key.position),
       ),
     ),
+    Match.when({ kind: true }, () => unknownKind(takes, parameter.values)),
     Match.orElse(() => Option.none()),
   )
 }
-
-## A fault reaches the bearer
-
-A fault on a key fails the braces that hold it and the bearer of those braces, as a fault the tokeniser raises does. An anchor whose braces failed composes nothing, so braces never leave the tangle without a word.
-
-`faultedParameters` gives the braces with their faults, and gives nothing when no key is at fault. `checkedBearer` then returns the bearer it was given, so a loom with sound braces keeps every node it had. Braces that hold a label have no keys to check.
-
-=>
 
 const faultedParameters =
   (takes: Takes) =>
   (held: ParametersToken): Option.Option<ParametersToken> => {
     const faults = Array.map(held.parameters, (parameter, at) =>
-      keyFault(takes, parameter, Array.take(held.parameters, at)),
+      parameterFault(takes, parameter, Array.take(held.parameters, at)),
     )
     return Option.map(Array.head(Array.getSomes(faults)), (first) => ({
       ...held,
@@ -314,24 +382,43 @@ const faultedParameters =
     }))
   }
 
-type Braced = {
-  readonly health: Health
-  readonly specifier?: SpecifierToken | ParametersToken | undefined
-}
-
-const checkedBearer =
+const faultedLabel =
   (takes: Takes) =>
+  (labelled: SpecifierToken): Option.Option<SpecifierToken> =>
+    pipe(
+      Option.liftPredicate(labelled.label, (label) => label.health.status === 'ok'),
+      Option.flatMap((label) => unknownKind(takes, [label])),
+      Option.map((fault) => ({
+        ...labelled,
+        health: { ...labelled.health, status: fault.status },
+        label: { ...labelled.label, health: fault },
+      })),
+    )
+
+## A fault reaches the bearer
+
+A fault in a pair of braces fails the braces and their bearer, as a fault the tokeniser raises does. An anchor whose braces failed composes nothing, so braces never leave the tangle without a word.
+
+`judged` applies one judgement to a bearer's braces. The judgement gives the braces with their faults, or nothing when it finds no fault, and `judged` then returns the bearer it was given. So a loom with sound braces keeps every node it had. The first pass and the third pass both judge braces through it.
+
+=>
+
+type Braces = SpecifierToken | ParametersToken
+
+type Braced = { readonly health: Health; readonly specifier?: Braces | undefined }
+
+const judged =
+  (faulted: (braces: Braces) => Option.Option<Braces>) =>
   <Bearer extends Braced>(bearer: Bearer): Bearer =>
     pipe(
       Option.fromNullishOr(bearer.specifier),
-      Option.filter((braces): braces is ParametersToken => braces.type === 'Parameters'),
-      Option.flatMap(faultedParameters(takes)),
+      Option.flatMap(faulted),
       Option.match({
         onNone: () => bearer,
-        onSome: (faulted) => ({
+        onSome: (braces) => ({
           ...bearer,
-          health: { ...bearer.health, status: faulted.health.status },
-          specifier: faulted,
+          health: { ...bearer.health, status: braces.health.status },
+          specifier: braces,
         }),
       }),
     )
@@ -343,7 +430,7 @@ The passes rewrite the tree with `rewritten`, from the chapter "A fold over the 
 =>
 
 import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
-import { type Health, okHealth } from '@athrio/loom-ast/LoomNode'
+import { type Health, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type {
   ClaimedDocument,
   ClaimedSection,
@@ -356,6 +443,7 @@ import type {
 } from '@athrio/loom-ast/LoomAst'
 import {
   anchorKeys,
+  anchorKinds,
   boxKeys,
   type BoxToken,
   headingKeys,
@@ -374,7 +462,14 @@ import {
   type WarpAnchorToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
-import { type BracesOn, faulty, RepeatedKey, UnknownKey, UnknownKind } from '#ast/LoomFault'
+import {
+  type BracesOn,
+  faulty,
+  LabelBesideParameter,
+  RepeatedKey,
+  UnknownKey,
+  UnknownKind,
+} from '#ast/LoomFault'
 
 ## The row's module [src/ast/LoomDocumentBuilder.ts]
 
@@ -388,6 +483,8 @@ import { type BracesOn, faulty, RepeatedKey, UnknownKey, UnknownKind } from '#as
 
 ::[A label written in full]
 
+::[A label beside parameters]
+
 ::[Claiming kinds]
 
 ::[A kind nothing declares]
@@ -396,17 +493,19 @@ import { type BracesOn, faulty, RepeatedKey, UnknownKey, UnknownKind } from '#as
 
 ::[A fault reaches the bearer]
 
-## Testing the first pass
+## Testing the row
 
 The tests read one loom the way a build does: they parse it and run the row over the tree. `built` gives the document, `bracesOf` gives the braces of its first heading, and `statedBy` lists what those braces state, each key with its value. `textAt` reads the text a position covers, so a test can check that a parameter points at the author's own words.
+
+`anchorIn` gives the first anchor of a section's code, and `boxIn` the box a line opens. `greeting` builds an anchor with braces from its pieces, so the code of this chapter holds no anchor of its own. `messagesIn` gathers the messages of the faults that stand in a pair of braces: on its parameters, on a label beside them, or on its label alone.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Effect, Schema } from 'effect'
-import type { Position } from '@athrio/loom-ast/LoomNode'
+import { Effect, Match, Schema } from 'effect'
+import type { Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
-import type { ParametersToken } from '@athrio/loom-ast/LoomTokens'
+import type { ParametersToken, SpecifierToken } from '@athrio/loom-ast/LoomTokens'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
 const built = (text: string): LoomDocument =>
@@ -422,6 +521,29 @@ const statedBy = (heading: string): ReadonlyArray<readonly [string, string | und
 
 const textAt = (text: string, position: Position): string =>
   text.slice(position.start.offset, position.end.offset)
+
+const greeting = (braces: string): string => `::${'['}Greeting]${braces}`
+
+const anchorIn = (line: string) =>
+  built(`# A\n\n=>\n\n${line}\n`).sections[0]?.code.flatMap((weft) => weft.anchors)[0]
+
+const boxIn = (line: string) =>
+  built(`# A\n\n${line}\nBody.\n:::\n`).sections[0]?.preamble.flatMap((weft) =>
+    weft.box ? [weft.box] : [],
+  )[0]
+
+const judgedIn = (
+  braces: SpecifierToken | ParametersToken | undefined,
+): ReadonlyArray<{ readonly health: Health }> =>
+  Match.value(braces).pipe(
+    Match.when(Match.undefined, () => []),
+    Match.when({ type: 'Parameters' }, (held) => [...held.parameters, ...held.labels]),
+    Match.when({ type: 'Specifier' }, (labelled) => [labelled.label]),
+    Match.exhaustive,
+  )
+
+const messagesIn = (braces: SpecifierToken | ParametersToken | undefined): ReadonlyArray<string> =>
+  judgedIn(braces).flatMap((judged) => judged.health.diagnostics.map((found) => found.message))
 
 ## A label becomes a parameter
 
@@ -474,7 +596,7 @@ describe('a parameter the pass writes', () => {
 
 ## A label nobody could read keeps its fault
 
-Empty braces hold a label the tokeniser faults. The pass gives such braces no parameters, and the fault stays on the braces.
+Empty braces hold a label the tokeniser faults, since it cannot read one. The pass gives such braces no parameters, and the fault stays on the braces.
 
 =>
 
@@ -485,6 +607,33 @@ describe('a label the tokeniser could not read', () => {
     expect(braces?.health.diagnostics.map((found) => found.message)).toEqual([
       'These braces are empty. Write a label in them, or remove them.',
     ])
+  })
+})
+
+## A label beside parameters is a fault
+
+A label written beside parameters is a fault on the label, on any bearer of braces. The fault's fix writes the label in full under the key it stands for: `lang` or `kind` on a heading, and `kind` on an anchor. The fault fails the braces and their bearer.
+
+=>
+
+describe('a label beside parameters', () => {
+  it('is written in full under the key it stands for, on a heading', () => {
+    expect(messagesIn(bracesOf('# Build {Bash kind=Tangle}'))).toEqual([
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `lang="Bash"`.',
+    ])
+    expect(messagesIn(bracesOf('# Build {Tangle lang=sh}'))).toEqual([
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `kind="Tangle"`.',
+    ])
+  })
+
+  it('offers the full form as its fix, and fails the anchor that bears it', () => {
+    const anchor = anchorIn(greeting('{To be settled provides=greet}'))
+    const [label] = anchor?.specifier?.type === 'Parameters' ? anchor.specifier.labels : []
+    expect(label?.health.diagnostics[0]?.fixes?.map((fix) => fix.text)).toEqual([
+      'kind="To be settled"',
+    ])
+    expect(anchor?.specifier?.health.status).toBe('error')
+    expect(anchor?.health.status).toBe('error')
   })
 })
 
@@ -521,14 +670,13 @@ A kind the core does not know claims nothing. Its value carries the fault, and t
 
 describe('a kind nothing declares', () => {
   const heading = built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.heading
-  const [parameter] = heading?.specifier?.parameters ?? []
 
   it('claims nothing', () => {
     expect(built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.kind).toBeUndefined()
   })
 
   it('is a fault on the value that names it', () => {
-    expect(parameter?.health.diagnostics.map((found) => found.message)).toEqual([
+    expect(messagesIn(heading?.specifier)).toEqual([
       'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
     ])
     expect(heading?.specifier?.health.status).toBe('error')
@@ -538,28 +686,11 @@ describe('a kind nothing declares', () => {
 
 ## A key no bearer takes, and a key written twice
 
-Each bearer of braces takes its own keys. A key it does not take is a fault on that key, and so is a key written a second time. The fault fails the braces and their bearer. A repeated key carries the fault for the repeat alone. `greeting` builds an anchor with braces from its pieces, so the code of this chapter holds no anchor of its own.
+Each bearer of braces takes its own keys. A key it does not take is a fault on that key, and so is a key written a second time. The fault fails the braces and their bearer. A repeated key carries the fault for the repeat alone.
 
 =>
 
 describe('checking the keys of braces', () => {
-  const messagesIn = (braces: { readonly type: string } | undefined): ReadonlyArray<string> =>
-    braces?.type === 'Parameters'
-      ? (braces as ParametersToken).parameters.flatMap((parameter) =>
-          parameter.health.diagnostics.map((found) => found.message),
-        )
-      : []
-
-  const greeting = (braces: string): string => `::${'['}Greeting]${braces}`
-
-  const anchorIn = (line: string) =>
-    built(`# A\n\n=>\n\n${line}\n`).sections[0]?.code.flatMap((weft) => weft.anchors)[0]
-
-  const boxIn = (line: string) =>
-    built(`# A\n\n${line}\nBody.\n:::\n`).sections[0]?.preamble.flatMap((weft) =>
-      weft.box ? [weft.box] : [],
-    )[0]
-
   it("faults a key a heading does not take, and fails the heading's braces", () => {
     const heading = built('# Build {flavour=dry}\n\nProse.\n').sections[0]?.heading
     expect(messagesIn(heading?.specifier)).toEqual([
@@ -607,6 +738,38 @@ describe('checking the keys of braces', () => {
   })
 })
 
+## An anchor's kind is one of its own
+
+An anchor's kind is `To be settled` or `Reference`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A box's kind is left for the book to judge.
+
+=>
+
+describe("the kind an anchor's braces name", () => {
+  it('faults a label that names no kind of anchor, and fails the anchor', () => {
+    const anchor = anchorIn(greeting('{x}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([
+      'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
+    ])
+    expect(anchor?.health.status).toBe('error')
+  })
+
+  it('faults a parameter that names no kind of anchor', () => {
+    expect(messagesIn(anchorIn(greeting('{kind=Term}'))?.specifier)).toEqual([
+      'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
+    ])
+  })
+
+  it('reads the kind in any case of letters', () => {
+    const anchor = anchorIn(greeting('{to be settled}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([])
+    expect(anchor?.health.status).toBe('ok')
+  })
+
+  it("leaves a box's kind for the book to judge", () => {
+    expect(messagesIn(boxIn('::: Cells {Mermaid}')?.specifier)).toEqual([])
+  })
+})
+
 ## The row writes the tree it claims
 
 The tree the row returns decodes against the schema of the `LoomDocument`. The tree the parser built does not, while a heading in it still holds a label. So the test fails for a pass that leaves a label behind.
@@ -631,7 +794,7 @@ describe('the tree the row writes', () => {
 
 =>
 
-::[Testing the first pass]
+::[Testing the row]
 
 ::[A label becomes a parameter]
 
@@ -639,11 +802,15 @@ describe('the tree the row writes', () => {
 
 ::[A label nobody could read keeps its fault]
 
+::[A label beside parameters is a fault]
+
 ::[A section carries the kind it claimed]
 
 ::[A kind nothing declares is a fault]
 
 ::[A key no bearer takes, and a key written twice]
+
+::[An anchor's kind is one of its own]
 
 ::[The row writes the tree it claims]
 
@@ -653,7 +820,7 @@ describe('the tree the row writes', () => {
 
 ## What this chapter grows into
 
-1. The first two passes for the braces of a box and of an anchor, which still hold labels. With them the last judging leaves the tokeniser: an anchor's kind, and a label beside parameters.
+1. Expanding the label of an anchor and of a box. Those labels stay as the author wrote them, and a later reader takes the kind they name through the `specifierKind` function of the chapter "The leaf tokens".
 2. Value types and data bodies in the pass that checks parameters, as the chapter "Parameters in braces" describes.
 3. The passes that follow: resolving references and setting data apart.
 4. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.

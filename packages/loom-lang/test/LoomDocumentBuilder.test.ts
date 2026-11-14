@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { Effect, Schema } from 'effect'
-import type { Position } from '@athrio/loom-ast/LoomNode'
+import { Effect, Match, Schema } from 'effect'
+import type { Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
-import type { ParametersToken } from '@athrio/loom-ast/LoomTokens'
+import type { ParametersToken, SpecifierToken } from '@athrio/loom-ast/LoomTokens'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
 const built = (text: string): LoomDocument =>
@@ -18,6 +18,29 @@ const statedBy = (heading: string): ReadonlyArray<readonly [string, string | und
 
 const textAt = (text: string, position: Position): string =>
   text.slice(position.start.offset, position.end.offset)
+
+const greeting = (braces: string): string => `::${'['}Greeting]${braces}`
+
+const anchorIn = (line: string) =>
+  built(`# A\n\n=>\n\n${line}\n`).sections[0]?.code.flatMap((weft) => weft.anchors)[0]
+
+const boxIn = (line: string) =>
+  built(`# A\n\n${line}\nBody.\n:::\n`).sections[0]?.preamble.flatMap((weft) =>
+    weft.box ? [weft.box] : [],
+  )[0]
+
+const judgedIn = (
+  braces: SpecifierToken | ParametersToken | undefined,
+): ReadonlyArray<{ readonly health: Health }> =>
+  Match.value(braces).pipe(
+    Match.when(Match.undefined, () => []),
+    Match.when({ type: 'Parameters' }, (held) => [...held.parameters, ...held.labels]),
+    Match.when({ type: 'Specifier' }, (labelled) => [labelled.label]),
+    Match.exhaustive,
+  )
+
+const messagesIn = (braces: SpecifierToken | ParametersToken | undefined): ReadonlyArray<string> =>
+  judgedIn(braces).flatMap((judged) => judged.health.diagnostics.map((found) => found.message))
 
 describe("expanding a heading's label", () => {
   it('writes a language in full', () => {
@@ -66,6 +89,27 @@ describe('a label the tokeniser could not read', () => {
   })
 })
 
+describe('a label beside parameters', () => {
+  it('is written in full under the key it stands for, on a heading', () => {
+    expect(messagesIn(bracesOf('# Build {Bash kind=Tangle}'))).toEqual([
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `lang="Bash"`.',
+    ])
+    expect(messagesIn(bracesOf('# Build {Tangle lang=sh}'))).toEqual([
+      'A label stands alone only in braces that hold nothing else. Write it in full here, as `kind="Tangle"`.',
+    ])
+  })
+
+  it('offers the full form as its fix, and fails the anchor that bears it', () => {
+    const anchor = anchorIn(greeting('{To be settled provides=greet}'))
+    const [label] = anchor?.specifier?.type === 'Parameters' ? anchor.specifier.labels : []
+    expect(label?.health.diagnostics[0]?.fixes?.map((fix) => fix.text)).toEqual([
+      'kind="To be settled"',
+    ])
+    expect(anchor?.specifier?.health.status).toBe('error')
+    expect(anchor?.health.status).toBe('error')
+  })
+})
+
 describe('claiming a kind', () => {
   const kindOf = (heading: string): string | undefined =>
     built(`${heading}\n\nProse.\n`).sections[0]?.kind
@@ -87,14 +131,13 @@ describe('claiming a kind', () => {
 
 describe('a kind nothing declares', () => {
   const heading = built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.heading
-  const [parameter] = heading?.specifier?.parameters ?? []
 
   it('claims nothing', () => {
     expect(built('# Build {kind=Bogus}\n\nProse.\n').sections[0]?.kind).toBeUndefined()
   })
 
   it('is a fault on the value that names it', () => {
-    expect(parameter?.health.diagnostics.map((found) => found.message)).toEqual([
+    expect(messagesIn(heading?.specifier)).toEqual([
       'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
     ])
     expect(heading?.specifier?.health.status).toBe('error')
@@ -103,23 +146,6 @@ describe('a kind nothing declares', () => {
 })
 
 describe('checking the keys of braces', () => {
-  const messagesIn = (braces: { readonly type: string } | undefined): ReadonlyArray<string> =>
-    braces?.type === 'Parameters'
-      ? (braces as ParametersToken).parameters.flatMap((parameter) =>
-          parameter.health.diagnostics.map((found) => found.message),
-        )
-      : []
-
-  const greeting = (braces: string): string => `::${'['}Greeting]${braces}`
-
-  const anchorIn = (line: string) =>
-    built(`# A\n\n=>\n\n${line}\n`).sections[0]?.code.flatMap((weft) => weft.anchors)[0]
-
-  const boxIn = (line: string) =>
-    built(`# A\n\n${line}\nBody.\n:::\n`).sections[0]?.preamble.flatMap((weft) =>
-      weft.box ? [weft.box] : [],
-    )[0]
-
   it("faults a key a heading does not take, and fails the heading's braces", () => {
     const heading = built('# Build {flavour=dry}\n\nProse.\n').sections[0]?.heading
     expect(messagesIn(heading?.specifier)).toEqual([
@@ -164,6 +190,32 @@ describe('checking the keys of braces', () => {
     expect<unknown>(built(text).sections[0]?.heading.specifier).toEqual(
       parsed.sections[0]?.heading.specifier,
     )
+  })
+})
+
+describe("the kind an anchor's braces name", () => {
+  it('faults a label that names no kind of anchor, and fails the anchor', () => {
+    const anchor = anchorIn(greeting('{x}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([
+      'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
+    ])
+    expect(anchor?.health.status).toBe('error')
+  })
+
+  it('faults a parameter that names no kind of anchor', () => {
+    expect(messagesIn(anchorIn(greeting('{kind=Term}'))?.specifier)).toEqual([
+      'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
+    ])
+  })
+
+  it('reads the kind in any case of letters', () => {
+    const anchor = anchorIn(greeting('{to be settled}'))
+    expect(messagesIn(anchor?.specifier)).toEqual([])
+    expect(anchor?.health.status).toBe('ok')
+  })
+
+  it("leaves a box's kind for the book to judge", () => {
+    expect(messagesIn(boxIn('::: Cells {Mermaid}')?.specifier)).toEqual([])
   })
 })
 

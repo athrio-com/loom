@@ -80,7 +80,9 @@ export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
 A specifier may hold parameters in place of one label, as the chapter "Parameters in braces" describes. A parameter is a key, an equals sign, and a value, as in `provides=greet`. A value is bare, quoted, or a list in square brackets, so `provides=[greet, farewell]` gives its key two values. A `ParameterKey` holds the key, and a `ParameterValue` holds one value, with a quoted value's quotes and escapes already undone. A `Parameter` pairs a key with its values, and a `Parameters` token holds every parameter of one specifier between its braces. The specifiers of a heading, an anchor, and a box all hold parameters. `parameterValue` reads the value one key holds, the first value when the key holds a list.
 
-An anchor takes two keys. The `kind` key names the kind of thing the anchor refers to, and a label alone stands for it, so `{To be settled}` is the short form of `{kind="To be settled"}`. The `provides` key lists the names the anchor expects its target to provide. `anchorKeys` holds the two keys, and `anchorKinds` holds the two kinds an anchor takes. `settleKind`, the kind `To be settled`, marks a section nobody has written yet. `referenceKind`, the kind `Reference`, marks an anchor that names a module rather than composing a section, as the chapter "Referring to modules" describes. The tokeniser faults a kind or a key outside these lists, as the chapter "The tokeniser stage" describes.
+A label may not stand beside parameters, but an author may write one there. The `labels` field of a `Parameters` token keeps such words, each run of them as one label, so the pass that expands short forms can fault each where it stands. Sound braces hold none.
+
+An anchor takes two keys. The `kind` key names the kind of thing the anchor refers to, and a label alone stands for it, so `{To be settled}` is the short form of `{kind="To be settled"}`. The `provides` key lists the names the anchor expects its target to provide. `anchorKeys` holds the two keys, and `anchorKinds` holds the two kinds an anchor takes. `settleKind`, the kind `To be settled`, marks a section nobody has written yet. `referenceKind`, the kind `Reference`, marks an anchor that names a module rather than composing a section, as the chapter "Referring to modules" describes. The pass that checks parameters faults a kind or a key outside these lists, as the chapter "Small passes over the tree" describes.
 
 =>
 
@@ -103,6 +105,7 @@ export type ParameterToken = typeof ParameterTokenSchema.Type
 export const ParametersTokenSchema = loomNode('Parameters', {
   open: SpecifierOpenTokenSchema,
   parameters: Schema.Array(ParameterTokenSchema),
+  labels: Schema.Array(SpecifierLabelTokenSchema),
   close: SpecifierCloseTokenSchema,
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type

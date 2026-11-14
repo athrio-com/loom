@@ -589,10 +589,10 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0]!.source).toBe('::[The manifest]')
   })
 
-  it('faults a label that is no kind an anchor takes `::[base]{rust}`', () => {
+  it('reads a label without judging the kind it names `::[base]{rust}`', () => {
     const w = codeWeftFromLines(['## A', '=>', '::[base]{rust}'], 2)
     expect(w.anchors[0].specifier?.type).toBe('Specifier')
-    expect(w.anchors[0].health.status).toBe('error')
+    expect(w.anchors[0].health.status).toBe('ok')
   })
 
   it('attaches the label `{To be settled}` in code', () => {
@@ -732,17 +732,13 @@ describe('Tokeniser — braces after an anchor', () => {
     return specifier.label.health.diagnostics.map((diagnostic) => diagnostic.message)
   }
 
-  it('reads the braces that touch an anchor as Loom\'s, and faults what they cannot mean', () => {
+  it('reads the braces that touch an anchor as Loom\'s, and faults a label it cannot read', () => {
     expect(labelMessages('p := ::[Point]{X: 1}')).toEqual([
       '`X: 1` is not a valid label. A label may contain only words of letters, digits, hyphens, and underscores, one space apart.',
     ])
-    expect(labelMessages('p := ::[Point]{x}')).toEqual([
-      'An anchor takes no `x` kind. It takes `To be settled` and `Reference`.',
-    ])
+    expect(labelMessages('p := ::[Point]{x}')).toEqual([])
     expect(labelMessages('p := ::[Point]{}')).toEqual(['These braces are empty. Write a label in them, or remove them.'])
-    expect(messages('::[Point]{kind=Term}')).toEqual([
-      'An anchor takes no `Term` kind. It takes `To be settled` and `Reference`.',
-    ])
+    expect(messages('::[Point]{kind=Term}')).toEqual([])
     expect(anchorIn('p := ::[Point]{X: 1}').health.status).toBe('error')
   })
 
@@ -785,14 +781,11 @@ describe('Tokeniser — braces after an anchor', () => {
     expect(anchor.source).toBe('::[Chapter](book/intro.loom){provides=x}')
   })
 
-  it('faults a label beside parameters, and offers its full form', () => {
-    expect(messages('::[Greeting]{To be settled provides=greet}')).toEqual([
-      'A label stands alone only in braces that hold nothing else. Write it in full here, as `kind="To be settled"`.',
-    ])
-    const [diagnostic] = parametersOf('::[Greeting]{To be settled provides=greet}').health
-      .diagnostics
-    expect(diagnostic!.fixes?.map((fix) => fix.text)).toEqual(['kind="To be settled"'])
-    expect(anchorIn('::[Greeting]{To be settled provides=greet}').health.status).toBe('error')
+  it('keeps a label beside parameters on the braces, for a pass to judge', () => {
+    const held = parametersOf('::[Greeting]{To be settled provides=greet}')
+    expect(held.labels.map((label) => label.value)).toEqual(['To be settled'])
+    expect(messages('::[Greeting]{To be settled provides=greet}')).toEqual([])
+    expect(anchorIn('::[Greeting]{To be settled provides=greet}').health.status).toBe('ok')
   })
 
   it('leaves the keys to the pass that checks parameters', () => {
@@ -805,7 +798,7 @@ describe('Tokeniser — braces after an anchor', () => {
     const w = out[2]
     if (w.type !== 'ProseWeft') throw new Error(`expected ProseWeft, got ${w.type}`)
     expect(w.anchors[0]!.specifier?.type).toBe('Specifier')
-    expect(w.anchors[0]!.health.status).toBe('error')
+    expect(w.anchors[0]!.health.status).toBe('ok')
   })
 })
 

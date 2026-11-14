@@ -68,6 +68,7 @@ export type ParameterToken = typeof ParameterTokenSchema.Type
 export const ParametersTokenSchema = loomNode('Parameters', {
   open: SpecifierOpenTokenSchema,
   parameters: Schema.Array(ParameterTokenSchema),
+  labels: Schema.Array(SpecifierLabelTokenSchema),
   close: SpecifierCloseTokenSchema,
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type

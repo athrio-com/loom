@@ -1,5 +1,5 @@
 import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
-import { type Health, okHealth } from '@athrio/loom-ast/LoomNode'
+import { type Health, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type {
   ClaimedDocument,
   ClaimedSection,
@@ -12,6 +12,7 @@ import type {
 } from '@athrio/loom-ast/LoomAst'
 import {
   anchorKeys,
+  anchorKinds,
   boxKeys,
   type BoxToken,
   headingKeys,
@@ -30,7 +31,14 @@ import {
   type WarpAnchorToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
-import { type BracesOn, faulty, RepeatedKey, UnknownKey, UnknownKind } from '#ast/LoomFault'
+import {
+  type BracesOn,
+  faulty,
+  LabelBesideParameter,
+  RepeatedKey,
+  UnknownKey,
+  UnknownKind,
+} from '#ast/LoomFault'
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
@@ -52,16 +60,21 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
 export const expandedDocument =
   (kinds: ReadonlyArray<string>) =>
   (parsed: ParsedDocument): ExpandedDocument =>
-    rewritten(parsed, { LoomHeading: expandedHeading(kinds) })
+    rewritten(parsed, {
+      LoomHeading: expandedHeading(kinds),
+      WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken => judged(besideParameters(kindKey))(anchor),
+      Box: (box: BoxToken): BoxToken => judged(besideParameters(kindKey))(box),
+    })
 
 const expandedHeading =
   (kinds: ReadonlyArray<string>) =>
-  (heading: ParsedHeading): ExpandedHeading => ({
-    ...heading,
-    specifier: Option.getOrUndefined(
-      Option.map(Option.fromNullishOr(heading.specifier), inFull(kinds)),
-    ),
-  })
+  (heading: ParsedHeading): ExpandedHeading =>
+    judged(besideParameters(labelKey(kinds)))({
+      ...heading,
+      specifier: Option.getOrUndefined(
+        Option.map(Option.fromNullishOr(heading.specifier), inFull(kinds)),
+      ),
+    })
 
 const inFull =
   (kinds: ReadonlyArray<string>) =>
@@ -86,6 +99,7 @@ const expandedLabel =
       open: labelled.open,
       parameters:
         labelled.label.health.status === 'ok' ? [labelParameter(kinds)(labelled.label)] : [],
+      labels: [],
       close: labelled.close,
     })
 
@@ -111,6 +125,34 @@ const labelParameter =
         }),
       ],
     })
+
+const kindKey = (): string => 'kind'
+
+const faultedLabels =
+  (keyOf: (label: string) => string) =>
+  (held: ParametersToken): Option.Option<ParametersToken> =>
+    Array.match(held.labels, {
+      onEmpty: () => Option.none(),
+      onNonEmpty: (labels) => {
+        const faulted = Array.map(labels, (label) => ({
+          ...label,
+          health: faulty(
+            LabelBesideParameter({ label: label.value, key: keyOf(label.value) }),
+            label.position,
+          ),
+        }))
+        return Option.some({
+          ...held,
+          health: { ...held.health, status: Array.headNonEmpty(faulted).health.status },
+          labels: faulted,
+        })
+      },
+    })
+
+const besideParameters =
+  (keyOf: (label: string) => string) =>
+  (braces: Braces): Option.Option<Braces> =>
+    braces.type === 'Parameters' ? faultedLabels(keyOf)(braces) : Option.none()
 
 export const claimedDocument =
   (kinds: ReadonlyArray<string>) =>
@@ -168,23 +210,47 @@ const unclaimed =
     }
   }
 
-type Takes = { readonly on: BracesOn; readonly keys: ReadonlyArray<string> }
+type Takes = {
+  readonly on: BracesOn
+  readonly keys: ReadonlyArray<string>
+  readonly kinds: Option.Option<ReadonlyArray<string>>
+}
 
-const headingTakes: Takes = { on: 'heading', keys: headingKeys }
+const headingTakes: Takes = { on: 'heading', keys: headingKeys, kinds: Option.none() }
 
-const anchorTakes: Takes = { on: 'anchor', keys: anchorKeys }
+const anchorTakes: Takes = { on: 'anchor', keys: anchorKeys, kinds: Option.some(anchorKinds) }
 
-const boxTakes: Takes = { on: 'box', keys: boxKeys }
+const boxTakes: Takes = { on: 'box', keys: boxKeys, kinds: Option.none() }
 
 export const checkedDocument = (claimed: ClaimedDocument): ClaimedDocument =>
   rewritten(claimed, {
     LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
-      checkedBearer(headingTakes)(heading),
-    WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken => checkedBearer(anchorTakes)(anchor),
-    Box: (box: BoxToken): BoxToken => checkedBearer(boxTakes)(box),
+      judged(faultedBraces(headingTakes))(heading),
+    WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
+      judged(faultedBraces(anchorTakes))(anchor),
+    Box: (box: BoxToken): BoxToken => judged(faultedBraces(boxTakes))(box),
   })
 
-const keyFault = (
+const faultedBraces =
+  (takes: Takes) =>
+  (braces: Braces): Option.Option<Braces> =>
+    Match.value(braces).pipe(
+      Match.when({ type: 'Parameters' }, faultedParameters(takes)),
+      Match.when({ type: 'Specifier' }, faultedLabel(takes)),
+      Match.exhaustive,
+    )
+
+type Valued = { readonly value: string; readonly position: Position }
+
+const unknownKind = (takes: Takes, values: ReadonlyArray<Valued>): Option.Option<Health> =>
+  Option.flatMap(takes.kinds, (kinds) =>
+    Option.map(
+      Array.findFirst(values, (stated) => Option.isNone(kindNamed(kinds)(stated.value))),
+      (stated) => faulty(UnknownKind({ kind: stated.value, kinds, on: takes.on }), stated.position),
+    ),
+  )
+
+const parameterFault = (
   takes: Takes,
   parameter: ParameterToken,
   earlier: ReadonlyArray<ParameterToken>,
@@ -193,6 +259,7 @@ const keyFault = (
   return Match.value({
     repeated: Array.some(earlier, (before) => before.key.value === key),
     known: Array.contains(takes.keys, key),
+    kind: key === 'kind',
   }).pipe(
     Match.when({ repeated: true }, () =>
       Option.some(faulty(RepeatedKey({ key }), parameter.key.position)),
@@ -202,6 +269,7 @@ const keyFault = (
         faulty(UnknownKey({ key, keys: takes.keys, on: takes.on }), parameter.key.position),
       ),
     ),
+    Match.when({ kind: true }, () => unknownKind(takes, parameter.values)),
     Match.orElse(() => Option.none()),
   )
 }
@@ -210,7 +278,7 @@ const faultedParameters =
   (takes: Takes) =>
   (held: ParametersToken): Option.Option<ParametersToken> => {
     const faults = Array.map(held.parameters, (parameter, at) =>
-      keyFault(takes, parameter, Array.take(held.parameters, at)),
+      parameterFault(takes, parameter, Array.take(held.parameters, at)),
     )
     return Option.map(Array.head(Array.getSomes(faults)), (first) => ({
       ...held,
@@ -224,24 +292,35 @@ const faultedParameters =
     }))
   }
 
-type Braced = {
-  readonly health: Health
-  readonly specifier?: SpecifierToken | ParametersToken | undefined
-}
-
-const checkedBearer =
+const faultedLabel =
   (takes: Takes) =>
+  (labelled: SpecifierToken): Option.Option<SpecifierToken> =>
+    pipe(
+      Option.liftPredicate(labelled.label, (label) => label.health.status === 'ok'),
+      Option.flatMap((label) => unknownKind(takes, [label])),
+      Option.map((fault) => ({
+        ...labelled,
+        health: { ...labelled.health, status: fault.status },
+        label: { ...labelled.label, health: fault },
+      })),
+    )
+
+type Braces = SpecifierToken | ParametersToken
+
+type Braced = { readonly health: Health; readonly specifier?: Braces | undefined }
+
+const judged =
+  (faulted: (braces: Braces) => Option.Option<Braces>) =>
   <Bearer extends Braced>(bearer: Bearer): Bearer =>
     pipe(
       Option.fromNullishOr(bearer.specifier),
-      Option.filter((braces): braces is ParametersToken => braces.type === 'Parameters'),
-      Option.flatMap(faultedParameters(takes)),
+      Option.flatMap(faulted),
       Option.match({
         onNone: () => bearer,
-        onSome: (faulted) => ({
+        onSome: (braces) => ({
           ...bearer,
-          health: { ...bearer.health, status: faulted.health.status },
-          specifier: faulted,
+          health: { ...bearer.health, status: braces.health.status },
+          specifier: braces,
         }),
       }),
     )
