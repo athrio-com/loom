@@ -15,7 +15,7 @@ A relation is the edge Loom derives from a reference, from the place where the r
 
 ## A relation
 
-A `Relation` is found by Loom's own names: the `loom` and the `section` that hold the reference, the `kind` of reference, and the name the reference writes, which the relation carries as `to`. Beside its names it says where the reference stands, as `at`, and which section the reference points to, as `target`.
+A `Relation` says where a reference stands and what it points to. Its `loom` and its `section` hold the reference, its `kind` is the kind of reference, and `to` is the name the reference writes. It also says where the reference stands, as `at`, and which section the reference points to, as `target`.
 
 A relation has a status, which Loom works out each time and never stores:
 
@@ -23,7 +23,7 @@ A relation has a status, which Loom works out each time and never stores:
 - **`inStep`:** the section still matches the fingerprint Loom keeps.
 - **`drifted`:** the section no longer matches it.
 
-A `KeptRelation` is what the workspace keeps of a relation: its names, and the `fingerprint` of its section as the author approved it. Nothing else of a relation is kept.
+A `KeptRelation` is what the workspace keeps of a relation an author approved. It follows the rule of the chapter "Kept by content, labelled by name". Its `fingerprint` is the identity: the fingerprint of the section as the author approved it. Its `loom`, its `section`, and its `to` are labels, the names the relation went by when Loom last wrote it. Its `kind` is kept beside them. Nothing else of a relation is kept.
 
 =>
 
@@ -138,9 +138,9 @@ export const relationKinds: ReadonlyArray<RelationKind> = [
 
 ## A fingerprint says whether, never where
 
-The fingerprint of a section is a hash of the section's text, its prose and its code together. Blank lines and spaces at the end of a line do not count, so a section that was only tidied keeps its fingerprint. `fingerprintOf` hashes the text that `settled` gives.
+The fingerprint of a section is a hash of what the section says, its prose and its code together. The heading is left out, so a section that was renamed keeps its fingerprint. Blank lines and spaces at the end of a line do not count either, so a section that was only tidied keeps it too. `said` gathers the text under the heading, and `fingerprintOf` hashes what `settled` makes of that text.
 
-A fingerprint answers one question: is this still the text the author approved. It never finds anything. Tokens say where a reference stands, and a relation's names say which relation it is.
+A fingerprint answers one question: is this still the text the author approved. It never finds a place in a loom. Tokens say where a reference stands.
 
 =>
 
@@ -152,54 +152,124 @@ const settled = (text: string): string =>
     Array.join('\n'),
   )
 
+const said = (section: LoomSection): string =>
+  Array.join(
+    Array.map([...section.preamble, ...section.code], (weft) => weft.source),
+    '',
+  )
+
 export const fingerprintOf = (section: LoomSection): string =>
-  createHash('sha256').update(settled(section.source)).digest('hex')
+  createHash('sha256').update(settled(said(section))).digest('hex')
 
 ## The relations of a loom
 
-`relationsOf` derives the relations of a loom: one for each reference the table finds, with the status that the kept relations give it. A relation is matched to what is kept by its names alone, which `keyOf` joins. `statusOf` compares the fingerprint kept under those names, when there is one, with the fingerprint the section has now.
+`relationsOf` derives the relations of a loom: one for each reference the table finds, with the status that the kept relations give it. A `Seen` is one such reference as it stands now, with its labels and the fingerprint its section has `now`.
+
+A kept relation finds its reference by the labels first. `keyOf` joins the labels, and a reference that answers to them is the kept relation's reference. Its status is `inStep` when the section still has the kept fingerprint, and `drifted` when it does not.
+
+A reference that answers to no labels may still have been approved under other names. So Loom looks at the strays. A stray is a kept relation that no reference answers to: one labelled with this loom, or one whose loom is no longer among the looms of the book. A stray follows a reference of its own kind whose section still has the kept fingerprint. That is the same text under a new name: a section that was renamed, a section that moved, or a loom that moved. A stray labelled with another loom follows only a reference with its own section and name, since a loom that moved kept both.
+
+One stray follows one reference. `followerOf` picks the one that shares the most labels with it, so an approval never spreads to a second reference that nobody approved. A `Tracked` pairs a reference with the kept relation it found, by labels or by content, and `trackedIn` gives the pairs of a loom.
 
 =>
 
 type Named = Pick<Relation, 'loom' | 'section' | 'kind' | 'to'>
 
+type Seen = Named & Pick<Relation, 'at' | 'target'> & { readonly now: string }
+
+type Tracked = { readonly seen: Seen; readonly kept: Option.Option<KeptRelation> }
+
 const keyOf = (named: Named): string =>
   JSON.stringify([named.loom, named.section, named.kind, named.to])
 
-const statusOf = (kept: Option.Option<string>, section: LoomSection): RelationStatus =>
-  Option.match(kept, {
+const seenIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Seen> =>
+  Array.flatMap(relationKinds, (kind) =>
+    Array.map(kind.referencesIn(catalogue, module), (found): Seen => ({
+      loom: module.path,
+      section: found.section,
+      kind: kind.name,
+      to: found.to,
+      at: found.at,
+      target: found.target,
+      now: fingerprintOf(found.target.section),
+    })),
+  )
+
+const sharedLabels = (held: KeptRelation, seen: Seen): number =>
+  (held.section === seen.section ? 1 : 0) + (held.to === seen.to ? 1 : 0)
+
+const follows =
+  (module: LoomModule, held: KeptRelation) =>
+  (seen: Seen): boolean =>
+    held.kind === seen.kind &&
+    held.fingerprint === seen.now &&
+    (held.loom === module.path || sharedLabels(held, seen) === 2)
+
+const followerOf =
+  (module: LoomModule, unanswered: ReadonlyArray<Seen>) =>
+  (held: KeptRelation): Option.Option<Seen> =>
+    Array.reduce(
+      Array.filter(unanswered, follows(module, held)),
+      Option.none<Seen>(),
+      (best, seen) =>
+        Option.match(best, {
+          onNone: () => Option.some(seen),
+          onSome: (chosen) =>
+            sharedLabels(held, seen) > sharedLabels(held, chosen) ? Option.some(seen) : best,
+        }),
+    )
+
+const trackedIn = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+): ReadonlyArray<Tracked> => {
+  const seen = seenIn(catalogue, module)
+  const labelled = new Map(Array.map(kept, (held) => [keyOf(held), held] as const))
+  const answering = (one: Seen): Option.Option<KeptRelation> =>
+    Option.fromNullishOr(labelled.get(keyOf(one)))
+  const answered = new Set(Array.map(seen, keyOf))
+  const strays = Array.filter(kept, (held) =>
+    held.loom === module.path ? !answered.has(keyOf(held)) : !catalogue.modules.has(held.loom),
+  )
+  const follower = followerOf(
+    module,
+    Array.filter(seen, (one) => Option.isNone(answering(one))),
+  )
+  const followed = new Map(
+    pipe(
+      Array.map(strays, (held) => Option.map(follower(held), (one) => [keyOf(one), held] as const)),
+      Array.getSomes,
+      Array.reverse,
+    ),
+  )
+  return Array.map(seen, (one) => ({
+    seen: one,
+    kept: Option.orElse(answering(one), () => Option.fromNullishOr(followed.get(keyOf(one)))),
+  }))
+}
+
+const statusOf = (tracked: Tracked): RelationStatus =>
+  Option.match(tracked.kept, {
     onNone: () => 'untracked',
-    onSome: (fingerprint) => (fingerprint === fingerprintOf(section) ? 'inStep' : 'drifted'),
+    onSome: (held) => (held.fingerprint === tracked.seen.now ? 'inStep' : 'drifted'),
   })
+
+const relationOf = (tracked: Tracked): Relation => ({
+  loom: tracked.seen.loom,
+  section: tracked.seen.section,
+  kind: tracked.seen.kind,
+  to: tracked.seen.to,
+  at: tracked.seen.at,
+  target: tracked.seen.target,
+  status: statusOf(tracked),
+})
 
 export const relationsOf = (
   catalogue: Catalogue,
   module: LoomModule,
   kept: ReadonlyArray<KeptRelation>,
-): ReadonlyArray<Relation> => {
-  const fingerprints = new Map(
-    Array.map(kept, (held) => [keyOf(held), held.fingerprint] as const),
-  )
-  return Array.flatMap(relationKinds, (kind) =>
-    Array.map(kind.referencesIn(catalogue, module), (found): Relation => {
-      const named: Named = {
-        loom: module.path,
-        section: found.section,
-        kind: kind.name,
-        to: found.to,
-      }
-      return {
-        ...named,
-        at: found.at,
-        target: found.target,
-        status: statusOf(
-          Option.fromNullishOr(fingerprints.get(keyOf(named))),
-          found.target.section,
-        ),
-      }
-    }),
-  )
-}
+): ReadonlyArray<Relation> => Array.map(trackedIn(catalogue, module, kept), relationOf)
 
 ## Drift
 
@@ -259,37 +329,42 @@ export const driftsIn = (relations: ReadonlyArray<Relation>): ReadonlyArray<Drif
 
 Approving a reference keeps the fingerprint of its section as the section stands now. The author has read the section and the reference still holds.
 
-An approval covers the references its author chose and no others. The choice is a test on a relation. `chosenRelations` gives what to keep for each chosen relation of a loom, with the fingerprint its section has now, which `keptOf` reads. Two references in one section that write the same name make one relation, so choosing either of them approves it.
+An approval covers the references its author chose and no others. The choice is a test on a relation. `chosenRelations` gives what to keep for each chosen relation of a loom: its labels as they stand, and the fingerprint its section has now, which `keptAs` puts together. Two references in one section that write the same name make one relation, so choosing either of them approves it.
 
-`approvedRelations` gives everything to keep after an approval. That is what was chosen, and beside it every kept relation that still stands: one of another loom, and one of this loom whose reference still exists and was not chosen, drifted or not. A kept relation of the loom whose reference is gone does not stand, so what is kept holds the references that exist and no history. An untracked relation that was not chosen stays untracked.
+`approvedRelations` gives everything to keep after an approval. That is what was chosen. Beside it stands every kept relation of this loom whose reference was found and not chosen, drifted or not, written with the labels its reference has now, so a relation that was followed through a rename takes its new names. A kept relation of the loom that found no reference does not stand, so what is kept holds the references that exist and no history. Every kept relation of another loom stays as it was. An untracked relation that was not chosen stays untracked.
 
-What is kept comes sorted by its names, so two authors who approve different looms change different lines of the file that keeps it.
+What is kept comes sorted by its labels, so two authors who approve different looms change different lines of the file that keeps it.
 
 =>
 
-const byNames: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)
+const byLabels: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)
 
-const sameNames = (one: Named, other: Named): boolean => keyOf(one) === keyOf(other)
+const sameLabels = (one: Named, other: Named): boolean => keyOf(one) === keyOf(other)
 
-const keptOf = (relation: Relation): KeptRelation => ({
-  loom: relation.loom,
-  section: relation.section,
-  kind: relation.kind,
-  to: relation.to,
-  fingerprint: fingerprintOf(relation.target.section),
+const keptAs = (seen: Seen, fingerprint: string): KeptRelation => ({
+  loom: seen.loom,
+  section: seen.section,
+  kind: seen.kind,
+  to: seen.to,
+  fingerprint,
 })
+
+const chosenIn = (
+  tracked: ReadonlyArray<Tracked>,
+  chosen: (relation: Relation) => boolean,
+): ReadonlyArray<KeptRelation> =>
+  pipe(
+    Array.filter(tracked, (one) => chosen(relationOf(one))),
+    Array.map((one) => keptAs(one.seen, one.seen.now)),
+    Array.dedupeWith(sameLabels),
+  )
 
 export const chosenRelations = (
   catalogue: Catalogue,
   module: LoomModule,
   kept: ReadonlyArray<KeptRelation>,
   chosen: (relation: Relation) => boolean,
-): ReadonlyArray<KeptRelation> =>
-  pipe(
-    Array.filter(relationsOf(catalogue, module, kept), chosen),
-    Array.map(keptOf),
-    Array.dedupeWith(sameNames),
-  )
+): ReadonlyArray<KeptRelation> => chosenIn(trackedIn(catalogue, module, kept), chosen)
 
 export const approvedRelations = (
   catalogue: Catalogue,
@@ -297,12 +372,19 @@ export const approvedRelations = (
   kept: ReadonlyArray<KeptRelation>,
   chosen: (relation: Relation) => boolean,
 ): ReadonlyArray<KeptRelation> => {
-  const fresh = chosenRelations(catalogue, module, kept, chosen)
-  const present = new Set(Array.map(relationsOf(catalogue, module, kept), keyOf))
-  const stands = (held: KeptRelation): boolean =>
-    held.loom !== module.path ||
-    (present.has(keyOf(held)) && !Array.some(fresh, (approved) => sameNames(approved, held)))
-  return pipe([...Array.filter(kept, stands), ...fresh], Array.sort(byNames))
+  const tracked = trackedIn(catalogue, module, kept)
+  const standing = Array.getSomes(
+    Array.map(tracked, (one) =>
+      Option.map(one.kept, (held) => keptAs(one.seen, held.fingerprint)),
+    ),
+  )
+  const found = new Set(Array.getSomes(Array.map(tracked, (one) => one.kept)))
+  const elsewhere = Array.filter(kept, (held) => held.loom !== module.path && !found.has(held))
+  return pipe(
+    [...chosenIn(tracked, chosen), ...standing, ...elsewhere],
+    Array.dedupeWith(sameLabels),
+    Array.sort(byLabels),
+  )
 }
 
 ## One reference at a time, in the editor
@@ -333,7 +415,7 @@ export const approvalsAt = (
     Array.filter((relation) => relation.status !== 'inStep' && meets(relation.at, start, end)),
     Array.map((relation) => ({
       relation,
-      keeps: approvedRelations(catalogue, module, kept, (other) => sameNames(other, relation)),
+      keeps: approvedRelations(catalogue, module, kept, (other) => sameLabels(other, relation)),
     })),
   )
 
@@ -499,7 +581,7 @@ describe('the references of a loom', () => {
 
 ## A fingerprint follows the text
 
-A section's fingerprint changes with its prose and with its code. It holds through a blank line and through spaces at the end of a line.
+A section's fingerprint changes with its prose and with its code. It holds through a rename of the section, through a blank line, and through spaces at the end of a line.
 
 =>
 
@@ -520,6 +602,14 @@ describe('the fingerprint of a section', () => {
   it('holds through blank lines and spaces at the end of a line', () => {
     const tidied = rules('An overdraft is a balance below zero.   ').replace('=>\n', '=>\n\n')
     expect(fingerprintOf(sectionOf(tidied))).toBe(plain)
+  })
+
+  it('holds through a rename of the section', () => {
+    const renamed = rules('An overdraft is a balance below zero.').replace(
+      '# Overdrafts',
+      '# Overdrawn accounts',
+    )
+    expect(fingerprintOf(sectionOf(renamed))).toBe(plain)
   })
 })
 
@@ -587,7 +677,7 @@ describe('approving a loom', () => {
 
   const approved = approvedRelations(first.catalogue, first.billing, [elsewhere, gone], every)
 
-  it('records one relation for each reference, sorted by their names', () => {
+  it('records one relation for each reference, sorted by their labels', () => {
     expect(approved.map((relation) => [relation.loom, relation.kind, relation.to])).toEqual([
       [billingPath, 'anchor', 'Overdrafts'],
       [billingPath, 'link', 'Overdrafts'],
@@ -625,6 +715,109 @@ describe('approving one reference', () => {
     const after = approvedRelations(changed.catalogue, changed.billing, before, isAnchor)
     const faults = driftFaults(changed.catalogue, changed.billing, after)
     expect(faults.length).toBe(1)
+  })
+})
+
+## A relation follows its text through a rename
+
+An approved relation stays in step when the section it points to is renamed, when the section that holds its reference is renamed, and when its loom moves. The next approval writes it under the names it has by then. An approval made for one reference does not pass to another that nobody approved. A section that is renamed and edited at once is lost, and its references read as untracked.
+
+`rulesCalled` and `billingOf` give the two looms under other names, and `bookOf` builds a book from any looms.
+
+=>
+
+describe('a relation through a rename', () => {
+  const said = 'An overdraft is a balance below zero.'
+
+  const rulesCalled = (title: string, definition: string): string =>
+    rules(definition).replace('# Overdrafts', `# ${title}`)
+
+  const billingOf = (heading: string, name: string): string =>
+    billing
+      .replace('# Billing [billing.ts]', `# ${heading}`)
+      .split(anchor('Overdrafts'))
+      .join(anchor(name))
+
+  const bookOf = (files: Record<string, string>, holder: string) => {
+    const modules = corpusOf(files)
+    return { catalogue: catalogueOf(modules), billing: modules.get(holder)! }
+  }
+
+  const approved = approvedRelations(first.catalogue, first.billing, [], every)
+
+  const none = (): boolean => false
+
+  const renamedTarget = bookOf(
+    {
+      [rulesPath]: rulesCalled('Overdrawn accounts', said),
+      [billingPath]: billingOf('Billing [billing.ts]', 'Overdrawn accounts'),
+    },
+    billingPath,
+  )
+
+  it('stays in step when the section it points to is renamed', () => {
+    expect(
+      relationsOf(renamedTarget.catalogue, renamedTarget.billing, approved).map(
+        (relation) => relation.status,
+      ),
+    ).toEqual(['inStep', 'inStep'])
+    expect(
+      approvedRelations(renamedTarget.catalogue, renamedTarget.billing, approved, none).map(
+        (kept) => kept.to,
+      ),
+    ).toEqual(['Overdrawn accounts', 'Overdrawn accounts'])
+  })
+
+  it('stays in step when the section that holds its reference is renamed', () => {
+    const renamed = bookOf(
+      { [rulesPath]: rules(said), [billingPath]: billingOf('Charging [billing.ts]', 'Overdrafts') },
+      billingPath,
+    )
+    expect(
+      relationsOf(renamed.catalogue, renamed.billing, approved).map((relation) => relation.status),
+    ).toEqual(['inStep', 'inStep'])
+  })
+
+  it('stays in step when its loom moves, and is kept under the new path', () => {
+    const movedTo = '/book/accounts.loom'
+    const moved = bookOf({ [rulesPath]: rules(said), [movedTo]: billing }, movedTo)
+    expect(
+      relationsOf(moved.catalogue, moved.billing, approved).map((relation) => relation.status),
+    ).toEqual(['inStep', 'inStep'])
+    expect(
+      approvedRelations(moved.catalogue, moved.billing, approved, none).map((kept) => kept.loom),
+    ).toEqual([movedTo, movedTo])
+  })
+
+  it('gives an approval to the reference it was made for, and to no other', () => {
+    const anchorOnly = approvedRelations(
+      first.catalogue,
+      first.billing,
+      [],
+      (relation) => relation.kind === 'anchor',
+    )
+    expect(
+      relationsOf(renamedTarget.catalogue, renamedTarget.billing, anchorOnly).map((relation) => [
+        relation.kind,
+        relation.status,
+      ]),
+    ).toEqual([
+      ['anchor', 'inStep'],
+      ['link', 'untracked'],
+    ])
+  })
+
+  it('loses a section that was renamed and edited at once', () => {
+    const both = bookOf(
+      {
+        [rulesPath]: rulesCalled('Overdrawn accounts', 'An overdraft is a balance below the limit.'),
+        [billingPath]: billingOf('Billing [billing.ts]', 'Overdrawn accounts'),
+      },
+      billingPath,
+    )
+    expect(
+      relationsOf(both.catalogue, both.billing, approved).map((relation) => relation.status),
+    ).toEqual(['untracked', 'untracked'])
   })
 })
 
@@ -768,6 +961,8 @@ describe("drift among a loom's problems", () => {
 
 ::[An approval covers what was chosen]
 
+::[A relation follows its text through a rename]
+
 ::[The editor approves the reference under the cursor]
 
 ::[Drift among a loom's problems]
@@ -782,9 +977,11 @@ The file is JSON, one line for each relation, in the order `approvedRelations` g
 
 `loom review` takes the same path and lists what has drifted under it, one group for each changed section. With `--json` it prints the same groups for an agent, and each reference in them carries the path and line that `loom approve` takes. With `--check` it fails when anything has drifted, so a CI step can hold a book to its approvals.
 
-## A reference renamed by hand
+## A relation follows its text
 
-A relation is found by its names, so a reference that changes its name leaves its relation behind. The renamed reference has no relation, and Loom says nothing about it, as it says nothing about any reference nobody approved. The author chose to change the reference. The next approval of the loom drops the relation left behind and records the reference under its new name.
+A kept relation follows its reference through a rename, by the rule of the chapter "Kept by content, labelled by name". Renaming the section a reference points to changes the name the reference writes. Renaming the section that holds the reference changes that label, and moving the loom changes its path. In each case the section pointed to still has the kept fingerprint, so the kept relation follows its reference, and the next approval writes the new labels.
+
+One case is beyond this: a section renamed while a reference to it is out of step. The reference answers to no labels, and its section has a fingerprint no kept relation holds. Such a reference has no relation, and Loom says nothing about it, as it says nothing about any reference nobody approved. The next approval of the loom drops the relation left behind.
 
 ## What this chapter grows into
 

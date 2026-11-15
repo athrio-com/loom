@@ -1,0 +1,44 @@
+---
+Part V, Chapter 11: Kept by content, labelled by name
+Language: Prose
+---
+
+# Kept by content, labelled by name
+
+Loom keeps some things beside a book that it cannot work out again from the book's text. An author's approval of a reference is one, as the chapter "Fingerprints on relations" describes. A model's reading of a sentence is another. Each is a fact about one piece of text, a section or a sentence, and Loom keeps it outside the loom that holds the text.
+
+This chapter states the rule that ties such a fact to its text. Everything of this kind that Loom keeps follows the rule.
+
+## Nothing is written into the loom
+
+A loom holds what its author wrote. Loom adds no identifier to a heading, to an anchor, or to a sentence in order to find the text again later. So a fact kept beside the book must find its text by what the text itself holds: its name and its content.
+
+## Content is the identity
+
+Loom knows a piece of text by what it says. It takes a hash of the text, the text's fingerprint, and keeps the fingerprint with the fact. The fact belongs to a text exactly when the text still has that fingerprint.
+
+An approval, for one, belongs to a section that reads as it read when the author approved it. It belongs to that section whatever the section is called by then, and whichever loom holds it.
+
+## A name is a label
+
+Beside the fingerprint Loom keeps the names the text went by: its loom, its section, the name a reference wrote for it. These names are labels. A person who reads what Loom keeps finds a fact by its labels, and Loom uses them to follow a text through a change, as the next section describes.
+
+A label is never the identity of a text, so a rename changes labels and loses nothing. Whenever Loom writes what it keeps, it writes the labels again as they stand then.
+
+## Following a text through a change
+
+A text changes in two ways. Its author renames it, and its content stays. Or its author edits it, and its name stays. So across one change a text keeps either its name or its content, and Loom follows whichever of the two stayed.
+
+Loom looks for a fact's text by the labels first. A text that answers to the labels is the fact's text, and its fingerprint says whether it still reads as it did. When no text answers to the labels, Loom looks for a text that still has the kept fingerprint, and takes it for the same text under a new name.
+
+One case lies beyond this. A text that was renamed and edited between two looks keeps neither its name nor its content, so the fact kept for it matches nothing. Loom treats that text as new, and drops the fact the next time it writes what it keeps. An identifier written into the text would survive such a change. Loom gives that up to leave the text to its author.
+
+## A fingerprint says whether, never where
+
+A fingerprint identifies a text, and it never finds a place in a loom. The tokens of the tree say where a section, a sentence, or a reference stands, as Part II, The shape of a loom, describes. So a fingerprint answers one question: is this the text the fact was kept for.
+
+## Where the rule comes from, and where it stops
+
+Unison, a programming language that stores a program in a database and not in files, keeps code this way. It knows a definition by a hash of the definition's content, and it treats the definition's name as a label beside the hash. Unison needs no labels to follow a change, because every change passes through its own program, which sees the code before the change and after it. A loom is a plain file that any editor may change, and nothing sees its changes as they happen. That is why Loom keeps the labels and follows a change through them.
+
+The rule covers facts about a book's text. A fact about a file on disk is a fact about a path, and Loom keeps it under the path, as the chapter "The tangle lock" describes. A cache is not covered either. Loom can build again what a cache holds, so a cache may forget.

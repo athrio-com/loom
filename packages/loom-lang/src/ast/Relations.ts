@@ -109,48 +109,112 @@ const settled = (text: string): string =>
     Array.join('\n'),
   )
 
+const said = (section: LoomSection): string =>
+  Array.join(
+    Array.map([...section.preamble, ...section.code], (weft) => weft.source),
+    '',
+  )
+
 export const fingerprintOf = (section: LoomSection): string =>
-  createHash('sha256').update(settled(section.source)).digest('hex')
+  createHash('sha256').update(settled(said(section))).digest('hex')
 
 type Named = Pick<Relation, 'loom' | 'section' | 'kind' | 'to'>
+
+type Seen = Named & Pick<Relation, 'at' | 'target'> & { readonly now: string }
+
+type Tracked = { readonly seen: Seen; readonly kept: Option.Option<KeptRelation> }
 
 const keyOf = (named: Named): string =>
   JSON.stringify([named.loom, named.section, named.kind, named.to])
 
-const statusOf = (kept: Option.Option<string>, section: LoomSection): RelationStatus =>
-  Option.match(kept, {
+const seenIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Seen> =>
+  Array.flatMap(relationKinds, (kind) =>
+    Array.map(kind.referencesIn(catalogue, module), (found): Seen => ({
+      loom: module.path,
+      section: found.section,
+      kind: kind.name,
+      to: found.to,
+      at: found.at,
+      target: found.target,
+      now: fingerprintOf(found.target.section),
+    })),
+  )
+
+const sharedLabels = (held: KeptRelation, seen: Seen): number =>
+  (held.section === seen.section ? 1 : 0) + (held.to === seen.to ? 1 : 0)
+
+const follows =
+  (module: LoomModule, held: KeptRelation) =>
+  (seen: Seen): boolean =>
+    held.kind === seen.kind &&
+    held.fingerprint === seen.now &&
+    (held.loom === module.path || sharedLabels(held, seen) === 2)
+
+const followerOf =
+  (module: LoomModule, unanswered: ReadonlyArray<Seen>) =>
+  (held: KeptRelation): Option.Option<Seen> =>
+    Array.reduce(
+      Array.filter(unanswered, follows(module, held)),
+      Option.none<Seen>(),
+      (best, seen) =>
+        Option.match(best, {
+          onNone: () => Option.some(seen),
+          onSome: (chosen) =>
+            sharedLabels(held, seen) > sharedLabels(held, chosen) ? Option.some(seen) : best,
+        }),
+    )
+
+const trackedIn = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+): ReadonlyArray<Tracked> => {
+  const seen = seenIn(catalogue, module)
+  const labelled = new Map(Array.map(kept, (held) => [keyOf(held), held] as const))
+  const answering = (one: Seen): Option.Option<KeptRelation> =>
+    Option.fromNullishOr(labelled.get(keyOf(one)))
+  const answered = new Set(Array.map(seen, keyOf))
+  const strays = Array.filter(kept, (held) =>
+    held.loom === module.path ? !answered.has(keyOf(held)) : !catalogue.modules.has(held.loom),
+  )
+  const follower = followerOf(
+    module,
+    Array.filter(seen, (one) => Option.isNone(answering(one))),
+  )
+  const followed = new Map(
+    pipe(
+      Array.map(strays, (held) => Option.map(follower(held), (one) => [keyOf(one), held] as const)),
+      Array.getSomes,
+      Array.reverse,
+    ),
+  )
+  return Array.map(seen, (one) => ({
+    seen: one,
+    kept: Option.orElse(answering(one), () => Option.fromNullishOr(followed.get(keyOf(one)))),
+  }))
+}
+
+const statusOf = (tracked: Tracked): RelationStatus =>
+  Option.match(tracked.kept, {
     onNone: () => 'untracked',
-    onSome: (fingerprint) => (fingerprint === fingerprintOf(section) ? 'inStep' : 'drifted'),
+    onSome: (held) => (held.fingerprint === tracked.seen.now ? 'inStep' : 'drifted'),
   })
+
+const relationOf = (tracked: Tracked): Relation => ({
+  loom: tracked.seen.loom,
+  section: tracked.seen.section,
+  kind: tracked.seen.kind,
+  to: tracked.seen.to,
+  at: tracked.seen.at,
+  target: tracked.seen.target,
+  status: statusOf(tracked),
+})
 
 export const relationsOf = (
   catalogue: Catalogue,
   module: LoomModule,
   kept: ReadonlyArray<KeptRelation>,
-): ReadonlyArray<Relation> => {
-  const fingerprints = new Map(
-    Array.map(kept, (held) => [keyOf(held), held.fingerprint] as const),
-  )
-  return Array.flatMap(relationKinds, (kind) =>
-    Array.map(kind.referencesIn(catalogue, module), (found): Relation => {
-      const named: Named = {
-        loom: module.path,
-        section: found.section,
-        kind: kind.name,
-        to: found.to,
-      }
-      return {
-        ...named,
-        at: found.at,
-        target: found.target,
-        status: statusOf(
-          Option.fromNullishOr(fingerprints.get(keyOf(named))),
-          found.target.section,
-        ),
-      }
-    }),
-  )
-}
+): ReadonlyArray<Relation> => Array.map(trackedIn(catalogue, module, kept), relationOf)
 
 export const driftFaults = (
   catalogue: Catalogue,
@@ -188,29 +252,34 @@ export const driftsIn = (relations: ReadonlyArray<Relation>): ReadonlyArray<Drif
     }),
   )
 
-const byNames: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)
+const byLabels: Order.Order<KeptRelation> = Order.mapInput(Order.String, keyOf)
 
-const sameNames = (one: Named, other: Named): boolean => keyOf(one) === keyOf(other)
+const sameLabels = (one: Named, other: Named): boolean => keyOf(one) === keyOf(other)
 
-const keptOf = (relation: Relation): KeptRelation => ({
-  loom: relation.loom,
-  section: relation.section,
-  kind: relation.kind,
-  to: relation.to,
-  fingerprint: fingerprintOf(relation.target.section),
+const keptAs = (seen: Seen, fingerprint: string): KeptRelation => ({
+  loom: seen.loom,
+  section: seen.section,
+  kind: seen.kind,
+  to: seen.to,
+  fingerprint,
 })
+
+const chosenIn = (
+  tracked: ReadonlyArray<Tracked>,
+  chosen: (relation: Relation) => boolean,
+): ReadonlyArray<KeptRelation> =>
+  pipe(
+    Array.filter(tracked, (one) => chosen(relationOf(one))),
+    Array.map((one) => keptAs(one.seen, one.seen.now)),
+    Array.dedupeWith(sameLabels),
+  )
 
 export const chosenRelations = (
   catalogue: Catalogue,
   module: LoomModule,
   kept: ReadonlyArray<KeptRelation>,
   chosen: (relation: Relation) => boolean,
-): ReadonlyArray<KeptRelation> =>
-  pipe(
-    Array.filter(relationsOf(catalogue, module, kept), chosen),
-    Array.map(keptOf),
-    Array.dedupeWith(sameNames),
-  )
+): ReadonlyArray<KeptRelation> => chosenIn(trackedIn(catalogue, module, kept), chosen)
 
 export const approvedRelations = (
   catalogue: Catalogue,
@@ -218,12 +287,19 @@ export const approvedRelations = (
   kept: ReadonlyArray<KeptRelation>,
   chosen: (relation: Relation) => boolean,
 ): ReadonlyArray<KeptRelation> => {
-  const fresh = chosenRelations(catalogue, module, kept, chosen)
-  const present = new Set(Array.map(relationsOf(catalogue, module, kept), keyOf))
-  const stands = (held: KeptRelation): boolean =>
-    held.loom !== module.path ||
-    (present.has(keyOf(held)) && !Array.some(fresh, (approved) => sameNames(approved, held)))
-  return pipe([...Array.filter(kept, stands), ...fresh], Array.sort(byNames))
+  const tracked = trackedIn(catalogue, module, kept)
+  const standing = Array.getSomes(
+    Array.map(tracked, (one) =>
+      Option.map(one.kept, (held) => keptAs(one.seen, held.fingerprint)),
+    ),
+  )
+  const found = new Set(Array.getSomes(Array.map(tracked, (one) => one.kept)))
+  const elsewhere = Array.filter(kept, (held) => held.loom !== module.path && !found.has(held))
+  return pipe(
+    [...chosenIn(tracked, chosen), ...standing, ...elsewhere],
+    Array.dedupeWith(sameLabels),
+    Array.sort(byLabels),
+  )
 }
 
 export type Approval = {
@@ -246,6 +322,6 @@ export const approvalsAt = (
     Array.filter((relation) => relation.status !== 'inStep' && meets(relation.at, start, end)),
     Array.map((relation) => ({
       relation,
-      keeps: approvedRelations(catalogue, module, kept, (other) => sameNames(other, relation)),
+      keeps: approvedRelations(catalogue, module, kept, (other) => sameLabels(other, relation)),
     })),
   )

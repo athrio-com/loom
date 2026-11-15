@@ -120,6 +120,14 @@ describe('the fingerprint of a section', () => {
     const tidied = rules('An overdraft is a balance below zero.   ').replace('=>\n', '=>\n\n')
     expect(fingerprintOf(sectionOf(tidied))).toBe(plain)
   })
+
+  it('holds through a rename of the section', () => {
+    const renamed = rules('An overdraft is a balance below zero.').replace(
+      '# Overdrafts',
+      '# Overdrawn accounts',
+    )
+    expect(fingerprintOf(sectionOf(renamed))).toBe(plain)
+  })
 })
 
 describe('drift', () => {
@@ -194,7 +202,7 @@ describe('approving a loom', () => {
 
   const approved = approvedRelations(first.catalogue, first.billing, [elsewhere, gone], every)
 
-  it('records one relation for each reference, sorted by their names', () => {
+  it('records one relation for each reference, sorted by their labels', () => {
     expect(approved.map((relation) => [relation.loom, relation.kind, relation.to])).toEqual([
       [billingPath, 'anchor', 'Overdrafts'],
       [billingPath, 'link', 'Overdrafts'],
@@ -226,6 +234,101 @@ describe('approving one reference', () => {
     const after = approvedRelations(changed.catalogue, changed.billing, before, isAnchor)
     const faults = driftFaults(changed.catalogue, changed.billing, after)
     expect(faults.length).toBe(1)
+  })
+})
+
+describe('a relation through a rename', () => {
+  const said = 'An overdraft is a balance below zero.'
+
+  const rulesCalled = (title: string, definition: string): string =>
+    rules(definition).replace('# Overdrafts', `# ${title}`)
+
+  const billingOf = (heading: string, name: string): string =>
+    billing
+      .replace('# Billing [billing.ts]', `# ${heading}`)
+      .split(anchor('Overdrafts'))
+      .join(anchor(name))
+
+  const bookOf = (files: Record<string, string>, holder: string) => {
+    const modules = corpusOf(files)
+    return { catalogue: catalogueOf(modules), billing: modules.get(holder)! }
+  }
+
+  const approved = approvedRelations(first.catalogue, first.billing, [], every)
+
+  const none = (): boolean => false
+
+  const renamedTarget = bookOf(
+    {
+      [rulesPath]: rulesCalled('Overdrawn accounts', said),
+      [billingPath]: billingOf('Billing [billing.ts]', 'Overdrawn accounts'),
+    },
+    billingPath,
+  )
+
+  it('stays in step when the section it points to is renamed', () => {
+    expect(
+      relationsOf(renamedTarget.catalogue, renamedTarget.billing, approved).map(
+        (relation) => relation.status,
+      ),
+    ).toEqual(['inStep', 'inStep'])
+    expect(
+      approvedRelations(renamedTarget.catalogue, renamedTarget.billing, approved, none).map(
+        (kept) => kept.to,
+      ),
+    ).toEqual(['Overdrawn accounts', 'Overdrawn accounts'])
+  })
+
+  it('stays in step when the section that holds its reference is renamed', () => {
+    const renamed = bookOf(
+      { [rulesPath]: rules(said), [billingPath]: billingOf('Charging [billing.ts]', 'Overdrafts') },
+      billingPath,
+    )
+    expect(
+      relationsOf(renamed.catalogue, renamed.billing, approved).map((relation) => relation.status),
+    ).toEqual(['inStep', 'inStep'])
+  })
+
+  it('stays in step when its loom moves, and is kept under the new path', () => {
+    const movedTo = '/book/accounts.loom'
+    const moved = bookOf({ [rulesPath]: rules(said), [movedTo]: billing }, movedTo)
+    expect(
+      relationsOf(moved.catalogue, moved.billing, approved).map((relation) => relation.status),
+    ).toEqual(['inStep', 'inStep'])
+    expect(
+      approvedRelations(moved.catalogue, moved.billing, approved, none).map((kept) => kept.loom),
+    ).toEqual([movedTo, movedTo])
+  })
+
+  it('gives an approval to the reference it was made for, and to no other', () => {
+    const anchorOnly = approvedRelations(
+      first.catalogue,
+      first.billing,
+      [],
+      (relation) => relation.kind === 'anchor',
+    )
+    expect(
+      relationsOf(renamedTarget.catalogue, renamedTarget.billing, anchorOnly).map((relation) => [
+        relation.kind,
+        relation.status,
+      ]),
+    ).toEqual([
+      ['anchor', 'inStep'],
+      ['link', 'untracked'],
+    ])
+  })
+
+  it('loses a section that was renamed and edited at once', () => {
+    const both = bookOf(
+      {
+        [rulesPath]: rulesCalled('Overdrawn accounts', 'An overdraft is a balance below the limit.'),
+        [billingPath]: billingOf('Billing [billing.ts]', 'Overdrawn accounts'),
+      },
+      billingPath,
+    )
+    expect(
+      relationsOf(both.catalogue, both.billing, approved).map((relation) => relation.status),
+    ).toEqual(['untracked', 'untracked'])
   })
 })
 
