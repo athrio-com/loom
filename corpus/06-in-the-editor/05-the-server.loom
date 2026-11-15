@@ -393,6 +393,7 @@ export const workspaceProject = (
   setup: (server) => {
     watchConfigs(server, home, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
+    watchRelations(server)
   },
   getLanguageService: (uri) =>
     runtime.runPromise(
@@ -853,6 +854,23 @@ const watchLooms = (
   })
 }
 
+## An approval changes behind the editor's back
+
+A workspace on a disk keeps its relations in the file `.loom/relations.lock`, as the chapter "Where a workspace is kept" describes. That file changes without any loom changing. `loom approve` rewrites it from a terminal, an agent does the same, the editor's own quick fix writes it, and `git pull` brings another author's approvals. Each change may clear a drifted reference, or mark one.
+
+The compiler reads the file each time it judges a loom, so the server holds nothing to bring up to date. It only has to ask again. `watchRelations` asks the editor to watch every such file, and when one changes it asks the editor to request each open loom's diagnostics anew.
+
+=>
+
+const isRelations = (change: FileEvent): boolean => change.uri.endsWith('/.loom/relations.lock')
+
+const watchRelations = (server: LanguageServer): void => {
+  void server.fileWatcher.watchFiles(['**/.loom/relations.lock'])
+  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
+    if (Array.some(changes, isRelations)) void server.languageFeatures.requestRefresh(true)
+  })
+}
+
 ## An edit reaches the other open chapters
 
 A chapter the editor has open changes on every keystroke, and other open chapters read it. One open chapter draws a section of another in by an anchor, or imports a file the other tangles. A rename in the editor edits both at once: the section's title in one chapter, and the anchor that names it in the other. Until the edits are saved, the text the editor holds is the only place the new names exist.
@@ -1145,7 +1163,7 @@ export const startLanguageServer = (): void => {
 
 ## The server module [src/LoomServer.ts]
 
-The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the watch on approvals, the boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
@@ -1156,6 +1174,8 @@ The server module assembles the imports, the compilers a project may ask for, th
 ::[Every loom answers to its own workspace]
 
 ::[A chapter changes behind the editor's back]
+
+::[An approval changes behind the editor's back]
 
 ::[An edit reaches the other open chapters]
 
@@ -1943,6 +1963,61 @@ describe('LoomServer — a fix for an ambiguous anchor', () => {
       ).toBe(true)
     } finally {
       editor.close()
+    }
+  }, 30_000)
+})
+
+## Testing an approval in the editor
+
+A reference into another loom offers an approval among the editor's quick fixes. `Main` links to the section `Fees` of another chapter on line 6, and nobody has approved the link, so the server offers to track it. The action writes the workspace's relations file whole, and the text it writes holds the link. Once that file is on disk, the same line offers nothing. The case then changes `Fees` on disk. The link has drifted, so the server reports it and offers to approve the section as it stands now.
+
+=>
+
+describe('LoomServer — an approval in the editor', () => {
+  it('offers to track a reference, and writes the file that keeps relations', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    chapterAt(root, 'fees.loom', lines('# Fees', '', 'A fee is charged once a month.'))
+    const main = chapterAt(
+      root,
+      'main.loom',
+      lines('---', 'Language: TypeScript', '---', '', '# Main', '', `Main charges ${anchor('Fees')}.`),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      const offered = (await editor.fixes(main, 6)).filter((action) =>
+        action.title.startsWith('Track'),
+      )
+      expect(offered.map((action) => [action.title, action.kind])).toEqual([
+        ['Track changes to `Fees`', 'quickfix'],
+      ])
+      const [created, written] = offered[0]?.edit?.documentChanges ?? []
+      expect(created).toEqual({
+        kind: 'create',
+        uri: pathToFileURL(join(root, '.loom', 'relations.lock')).href,
+        options: { overwrite: true, ignoreIfExists: false },
+      })
+      const text = written !== undefined && 'edits' in written ? written.edits[0]?.newText ?? '' : ''
+      expect(text).toContain('"loom":"corpus/main.loom"')
+      expect(text).toContain('"kind":"link","to":"Fees"')
+      writeFileSync(join(root, '.loom', 'relations.lock'), text)
+      await editor.changed(join(root, '.loom', 'relations.lock'))
+      expect(
+        (await editor.fixes(main, 6)).filter((action) => action.title.startsWith('Track')),
+      ).toEqual([])
+      const fees = join(root, 'corpus', 'fees.loom')
+      writeFileSync(fees, lines('# Fees', '', 'A fee is charged twice a month.'))
+      await editor.changed(fees)
+      expect(await editor.diagnostics(main)).toContain(
+        '`Fees` has changed since this reference to it was approved.',
+      )
+      expect((await editor.fixes(main, 6)).map((action) => action.title)).toContain(
+        'Approve `Fees` as it stands now',
+      )
+    } finally {
+      editor.close()
+      rmSync(root, { recursive: true, force: true })
     }
   }, 30_000)
 })
@@ -2767,6 +2842,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing where a TypeScript 6 comes from]
 
 ::[Testing a fix for an ambiguous anchor]
+
+::[Testing an approval in the editor]
 
 ::[Testing a concept moved up]
 

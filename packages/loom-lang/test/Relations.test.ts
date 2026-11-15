@@ -7,6 +7,7 @@ import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
+  approvalsAt,
   approvedRelations,
   driftFaults,
   driftsIn,
@@ -225,6 +226,33 @@ describe('approving one reference', () => {
     const after = approvedRelations(changed.catalogue, changed.billing, before, isAnchor)
     const faults = driftFaults(changed.catalogue, changed.billing, after)
     expect(faults.length).toBe(1)
+  })
+})
+
+describe('an approval in the editor', () => {
+  const link = relationsOf(first.catalogue, first.billing, []).find(
+    (relation) => relation.kind === 'link',
+  )!
+
+  const span = [link.at.start.offset, link.at.end.offset] as const
+
+  it('offers the untracked reference a span meets, and no other', () => {
+    const approvals = approvalsAt(first.catalogue, first.billing, [], ...span)
+    expect(approvals.map((approval) => [approval.relation.kind, approval.relation.status])).toEqual(
+      [['link', 'untracked']],
+    )
+    expect(approvals[0]?.keeps.map((kept) => kept.kind)).toEqual(['link'])
+  })
+
+  it('offers nothing once the reference is in step, and offers it again once it drifts', () => {
+    const kept = approvalsAt(first.catalogue, first.billing, [], ...span)[0]?.keeps ?? []
+    expect(approvalsAt(first.catalogue, first.billing, kept, ...span)).toEqual([])
+    const changed = bookWith('An overdraft is a balance below the agreed limit.')
+    expect(
+      approvalsAt(changed.catalogue, changed.billing, kept, ...span).map(
+        (approval) => approval.relation.status,
+      ),
+    ).toEqual(['drifted'])
   })
 })
 

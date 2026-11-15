@@ -97,6 +97,12 @@ export interface FrameFix {
   readonly edits: ReadonlyArray<FrameEdit>
 }
 
+export interface FrameApproval {
+  readonly title: string
+  readonly file: string
+  readonly text: string
+}
+
 export interface FrameMove {
   readonly concept: string
   readonly targets: ReadonlyArray<FrameFix>
@@ -136,6 +142,7 @@ export interface FrameQueryApi {
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly hover: (path: string, offset: number) => FrameHover | undefined
   readonly links: (path: string, start: number, end: number) => ReadonlyArray<FrameFix>
+  readonly approvals: (path: string, start: number, end: number) => ReadonlyArray<FrameApproval>
   readonly moves: (path: string, offset: number) => ReadonlyArray<FrameMove>
   readonly symbols: (query: string) => ReadonlyArray<FrameSymbol>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameEdit>

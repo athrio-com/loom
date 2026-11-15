@@ -120,9 +120,9 @@ const missingSymbols = async (
 const meets = (diagnostic: Diagnostic, start: number, end: number): boolean =>
   diagnostic.position.start.offset <= end && start <= diagnostic.position.end.offset
 
-const newLoom = (uri: string, text: string): WorkspaceEdit => ({
+const writtenFile = (uri: string, text: string, replaces: boolean): WorkspaceEdit => ({
   documentChanges: [
-    { kind: 'create', uri, options: { overwrite: false, ignoreIfExists: false } },
+    { kind: 'create', uri, options: { overwrite: replaces, ignoreIfExists: false } },
     {
       textDocument: { uri, version: null },
       edits: [
@@ -134,6 +134,8 @@ const newLoom = (uri: string, text: string): WorkspaceEdit => ({
     },
   ],
 })
+
+const newLoom = (uri: string, text: string): WorkspaceEdit => writtenFile(uri, text, false)
 
 const fixActions =
   (
@@ -306,6 +308,29 @@ const loomLinks = (frame: FrameQueryApi): LanguageServicePlugin => ({
           title: fix.title,
           kind: 'quickfix',
           edit: workspaceEditOf(frame, fix),
+        }),
+      )
+    },
+  }),
+})
+
+const loomApprovals = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-approvals',
+  capabilities: { codeActionProvider: { codeActionKinds: ['quickfix'] } },
+  create: (context) => ({
+    provideCodeActions: (document, range) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(
+        frame.approvals(
+          frame.locationOf(decoded[0]),
+          document.offsetAt(range.start),
+          document.offsetAt(range.end),
+        ),
+        (approval): CodeAction => ({
+          title: approval.title,
+          kind: 'quickfix',
+          edit: writtenFile(frame.uriOf(approval.file).toString(), approval.text, true),
         }),
       )
     },
@@ -496,6 +521,7 @@ export const LoomLanguage = defineLanguageService({
         loomReferences(frame),
         loomHover(frame),
         loomLinks(frame),
+        loomApprovals(frame),
         loomMoves(frame),
         loomSymbols(frame),
         loomRename(frame),

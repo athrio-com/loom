@@ -41,6 +41,11 @@ export class RelationsNotKept extends Data.TaggedError('RelationsNotKept')<{
   }
 }
 
+export interface KeptFile {
+  readonly file: Location
+  readonly text: string
+}
+
 export interface WorkspaceSourceApi {
   readonly open: (workspace: Location) => Effect.Effect<Workspace, ReadError>
   readonly read: (loom: Location) => Effect.Effect<string, ReadError>
@@ -54,6 +59,10 @@ export interface WorkspaceSourceApi {
     loom: Location,
     relations: ReadonlyArray<KeptRelation>,
   ) => Effect.Effect<void, RelationsNotKept>
+  readonly relationsFileOf: (
+    loom: Location,
+    relations: ReadonlyArray<KeptRelation>,
+  ) => Option.Option<KeptFile>
 }
 
 export class WorkspaceSource extends Context.Service<WorkspaceSource>()('WorkspaceSource', {
@@ -147,6 +156,7 @@ export const FileSystemSource = Layer.effect(
       uriOf: uriOfLocation,
       keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
       keepRelations: (loom, relations) => keepIn(workspaceOf(loom), relations),
+      relationsFileOf: (loom, relations) => Option.some(keptFile(workspaceOf(loom), relations)),
     }
     return source
   }),
@@ -183,14 +193,20 @@ const relationsText = (workspace: Location, relations: ReadonlyArray<KeptRelatio
   return `{\n  "version": 1,\n  "relations": [\n${Array.join(rows, ',\n')}\n  ]\n}\n`
 }
 
+const keptFile = (workspace: Location, relations: ReadonlyArray<KeptRelation>): KeptFile => ({
+  file: relationsPath(workspace),
+  text: relationsText(workspace, relations),
+})
+
 const keepIn = (
   workspace: Location,
   relations: ReadonlyArray<KeptRelation>,
 ): Effect.Effect<void, RelationsNotKept> =>
   Effect.try({
     try: () => {
+      const kept = keptFile(workspace, relations)
       mkdirSync(join(workspace, '.loom'), { recursive: true })
-      writeFileSync(relationsPath(workspace), relationsText(workspace, relations))
+      writeFileSync(kept.file, kept.text)
     },
     catch: (cause) => new RelationsNotKept({ workspace, cause }),
   })
@@ -259,6 +275,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
           Effect.fail(
             new RelationsNotKept({ workspace: address.url, cause: 'remote storage takes no write' }),
           ),
+        relationsFileOf: () => Option.none(),
       }
       return source
     }),

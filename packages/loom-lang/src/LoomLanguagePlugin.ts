@@ -149,6 +149,10 @@ const frameQueryOver = (
     runtime.runSync(
       LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.links(path, start, end))),
     ),
+  approvals: (path, start, end) =>
+    runtime.runSync(
+      LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.approvals(path, start, end))),
+    ),
   moves: (path, offset) =>
     runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.moves(path, offset)))),
   symbols: (query) =>

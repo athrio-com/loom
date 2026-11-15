@@ -724,6 +724,55 @@ describe('LoomServer — a fix for an ambiguous anchor', () => {
   }, 30_000)
 })
 
+describe('LoomServer — an approval in the editor', () => {
+  it('offers to track a reference, and writes the file that keeps relations', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    chapterAt(root, 'fees.loom', lines('# Fees', '', 'A fee is charged once a month.'))
+    const main = chapterAt(
+      root,
+      'main.loom',
+      lines('---', 'Language: TypeScript', '---', '', '# Main', '', `Main charges ${anchor('Fees')}.`),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      const offered = (await editor.fixes(main, 6)).filter((action) =>
+        action.title.startsWith('Track'),
+      )
+      expect(offered.map((action) => [action.title, action.kind])).toEqual([
+        ['Track changes to `Fees`', 'quickfix'],
+      ])
+      const [created, written] = offered[0]?.edit?.documentChanges ?? []
+      expect(created).toEqual({
+        kind: 'create',
+        uri: pathToFileURL(join(root, '.loom', 'relations.lock')).href,
+        options: { overwrite: true, ignoreIfExists: false },
+      })
+      const text = written !== undefined && 'edits' in written ? written.edits[0]?.newText ?? '' : ''
+      expect(text).toContain('"loom":"corpus/main.loom"')
+      expect(text).toContain('"kind":"link","to":"Fees"')
+      writeFileSync(join(root, '.loom', 'relations.lock'), text)
+      await editor.changed(join(root, '.loom', 'relations.lock'))
+      expect(
+        (await editor.fixes(main, 6)).filter((action) => action.title.startsWith('Track')),
+      ).toEqual([])
+      const fees = join(root, 'corpus', 'fees.loom')
+      writeFileSync(fees, lines('# Fees', '', 'A fee is charged twice a month.'))
+      await editor.changed(fees)
+      expect(await editor.diagnostics(main)).toContain(
+        '`Fees` has changed since this reference to it was approved.',
+      )
+      expect((await editor.fixes(main, 6)).map((action) => action.title)).toContain(
+        'Approve `Fees` as it stands now',
+      )
+    } finally {
+      editor.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
+
 describe('LoomServer — a concept moved up', () => {
   const moveCase = async (experimental?: unknown): Promise<ReadonlyArray<CodeAction>> => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))

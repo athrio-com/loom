@@ -24,7 +24,7 @@ The first two fetch text. The `open` method hands over a whole `Workspace` value
 
 The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink of a loom lands, the path the compiler records for the file the sink names. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
 
-Two more methods keep what a workspace holds of its relations, the names of each relation an author approved and the fingerprint approved for it, as the chapter "Fingerprints on relations" describes. The `keptRelationsOf` method hands over what is kept for the workspace a loom belongs to, and gives nothing when the workspace keeps nothing. The `keepRelations` method keeps what it is handed in place of what was kept before. It fails with `RelationsNotKept` when the workspace cannot take them.
+Two more methods keep what a workspace holds of its relations, the names of each relation an author approved and the fingerprint approved for it, as the chapter "Fingerprints on relations" describes. The `keptRelationsOf` method hands over what is kept for the workspace a loom belongs to, and gives nothing when the workspace keeps nothing. The `keepRelations` method keeps what it is handed in place of what was kept before. It fails with `RelationsNotKept` when the workspace cannot take them. The `relationsFileOf` method gives the file that would keep the relations it is handed, and that file's text, as a `KeptFile`. An editor writes the file itself through it, as an edit the author sees and can undo. The method gives nothing for a workspace that keeps its relations in no file.
 
 A `Location` is a string, the type the corpus model names a loom by, as the chapter "The multi-file AST" describes.
 
@@ -48,6 +48,11 @@ export class RelationsNotKept extends Data.TaggedError('RelationsNotKept')<{
   }
 }
 
+export interface KeptFile {
+  readonly file: Location
+  readonly text: string
+}
+
 export interface WorkspaceSourceApi {
   readonly open: (workspace: Location) => Effect.Effect<Workspace, ReadError>
   readonly read: (loom: Location) => Effect.Effect<string, ReadError>
@@ -61,6 +66,10 @@ export interface WorkspaceSourceApi {
     loom: Location,
     relations: ReadonlyArray<KeptRelation>,
   ) => Effect.Effect<void, RelationsNotKept>
+  readonly relationsFileOf: (
+    loom: Location,
+    relations: ReadonlyArray<KeptRelation>,
+  ) => Option.Option<KeptFile>
 }
 
 ~
@@ -200,6 +209,7 @@ export const FileSystemSource = Layer.effect(
       uriOf: uriOfLocation,
       keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
       keepRelations: (loom, relations) => keepIn(workspaceOf(loom), relations),
+      relationsFileOf: (loom, relations) => Option.some(keptFile(workspaceOf(loom), relations)),
     }
     return source
   }),
@@ -209,7 +219,7 @@ export const FileSystemSource = Layer.effect(
 
 A folder keeps its relations in the file `.loom/relations.lock`, apart from the `loom.lock` file that a tangle rewrites on every run. The file is JSON. It holds a version and the relations, one to a line, so two authors who approve different looms change different lines.
 
-A relation in the file names its loom by the loom's path within the workspace, so the file means the same on every machine. `relationsIn` reads the file and gives each relation its loom's full path. It gives no relations when the folder has no such file, or when the file does not read as relations. `keepIn` writes the file through `relationsText`, and it makes the `.loom` folder when the workspace has none.
+A relation in the file names its loom by the loom's path within the workspace, so the file means the same on every machine. `relationsIn` reads the file and gives each relation its loom's full path. It gives no relations when the folder has no such file, or when the file does not read as relations. `keptFile` gives the file and the text that `relationsText` writes for a list of relations. `keepIn` writes that file, and it makes the `.loom` folder when the workspace has none.
 
 =>
 
@@ -244,14 +254,20 @@ const relationsText = (workspace: Location, relations: ReadonlyArray<KeptRelatio
   return `{\n  "version": 1,\n  "relations": [\n${Array.join(rows, ',\n')}\n  ]\n}\n`
 }
 
+const keptFile = (workspace: Location, relations: ReadonlyArray<KeptRelation>): KeptFile => ({
+  file: relationsPath(workspace),
+  text: relationsText(workspace, relations),
+})
+
 const keepIn = (
   workspace: Location,
   relations: ReadonlyArray<KeptRelation>,
 ): Effect.Effect<void, RelationsNotKept> =>
   Effect.try({
     try: () => {
+      const kept = keptFile(workspace, relations)
       mkdirSync(join(workspace, '.loom'), { recursive: true })
-      writeFileSync(relationsPath(workspace), relationsText(workspace, relations))
+      writeFileSync(kept.file, kept.text)
     },
     catch: (cause) => new RelationsNotKept({ workspace, cause }),
   })
@@ -370,6 +386,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
           Effect.fail(
             new RelationsNotKept({ workspace: address.url, cause: 'remote storage takes no write' }),
           ),
+        relationsFileOf: () => Option.none(),
       }
       return source
     }),

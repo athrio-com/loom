@@ -225,3 +225,27 @@ export const approvedRelations = (
     (present.has(keyOf(held)) && !Array.some(fresh, (approved) => sameNames(approved, held)))
   return pipe([...Array.filter(kept, stands), ...fresh], Array.sort(byNames))
 }
+
+export type Approval = {
+  readonly relation: Relation
+  readonly keeps: ReadonlyArray<KeptRelation>
+}
+
+const meets = (at: Position, start: number, end: number): boolean =>
+  at.start.offset <= end && start <= at.end.offset
+
+export const approvalsAt = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+  start: number,
+  end: number,
+): ReadonlyArray<Approval> =>
+  pipe(
+    relationsOf(catalogue, module, kept),
+    Array.filter((relation) => relation.status !== 'inStep' && meets(relation.at, start, end)),
+    Array.map((relation) => ({
+      relation,
+      keeps: approvedRelations(catalogue, module, kept, (other) => sameNames(other, relation)),
+    })),
+  )

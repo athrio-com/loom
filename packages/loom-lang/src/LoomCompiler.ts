@@ -74,6 +74,7 @@ import {
   type FrameContract,
   type FrameBox,
   type FrameEdit,
+  type FrameApproval,
   type FrameFix,
   type FrameHint,
   type FrameHover,
@@ -88,6 +89,8 @@ import {
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
 import {
+  type Approval,
+  approvalsAt,
   approvedRelations,
   chosenRelations,
   driftFaults,
@@ -428,6 +431,11 @@ const lineCharAt = (
     character: offset - (before.lastIndexOf('\n') + 1),
   }
 }
+
+const approvalTitle = (relation: Relation): string =>
+  relation.status === 'drifted'
+    ? `Approve \`${relation.to}\` as it stands now`
+    : `Track changes to \`${relation.to}\``
 
 const frameLocationOf = (
   modules: Modules,
@@ -1045,6 +1053,32 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               onNone: () => [],
               onSome: (module) => relationsOf(catalogueOf(modules), module, kept),
             }),
+          ),
+        ),
+
+      approvals: (
+        path: Location,
+        start: number,
+        end: number,
+      ): Effect.Effect<ReadonlyArray<FrameApproval>> =>
+        Effect.all([buildCorpus(documents, path), workspaces.keptRelationsOf(path)]).pipe(
+          Effect.map(([modules, kept]) =>
+            pipe(
+              Option.fromNullishOr(modules.get(path)),
+              Option.map((module) => approvalsAt(catalogueOf(modules), module, kept, start, end)),
+              Option.getOrElse((): ReadonlyArray<Approval> => []),
+              Array.map((approval) =>
+                Option.map(
+                  workspaces.relationsFileOf(path, approval.keeps),
+                  (written): FrameApproval => ({
+                    title: approvalTitle(approval.relation),
+                    file: written.file,
+                    text: written.text,
+                  }),
+                ),
+              ),
+              Array.getSomes,
+            ),
           ),
         ),
 

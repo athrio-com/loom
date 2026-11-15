@@ -123,16 +123,16 @@ const missingSymbols = async (
 
 A Loom diagnostic may carry fixes, and `loomFixes` offers them as the editor's quick fixes. The editor asks for code actions over a range of a file, and Volar passes the request on to the root, the same whole-file mirror the diagnostics answer for. `loomFixes` reads that loom's diagnostics from `FrameQuery` again and keeps each one whose span `meets` the range.
 
-`fixActions` turns each fix of a kept diagnostic into a `CodeAction` of the `quickfix` kind. The action names the diagnostic it repairs, and its edit writes the fix's text over the diagnostic's span in the loom, or over the span the fix's `at` names. So an unresolved anchor's fix declares its section further down the loom. So the editor lists one action for each path an ambiguous anchor offers, and choosing one writes that path where the anchor's name stood. A fix that names a `file` writes a new loom instead, and `newLoom` gives its edit: it creates the file, refusing one that already exists, and writes the fix's text into it. So a box that points to a chapter nobody has written offers an action that writes the chapter.
+`fixActions` turns each fix of a kept diagnostic into a `CodeAction` of the `quickfix` kind. The action names the diagnostic it repairs, and its edit writes the fix's text over the diagnostic's span in the loom, or over the span the fix's `at` names. So an unresolved anchor's fix declares its section further down the loom. So the editor lists one action for each path an ambiguous anchor offers, and choosing one writes that path where the anchor's name stood. A fix that names a `file` writes a new loom instead, and `newLoom` gives its edit: it creates the file, refusing one that already exists, and writes the fix's text into it. So a box that points to a chapter nobody has written offers an action that writes the chapter. `writtenFile` gives the edit that writes a file whole, and says whether the file may replace one that exists.
 
 =>
 
 const meets = (diagnostic: Diagnostic, start: number, end: number): boolean =>
   diagnostic.position.start.offset <= end && start <= diagnostic.position.end.offset
 
-const newLoom = (uri: string, text: string): WorkspaceEdit => ({
+const writtenFile = (uri: string, text: string, replaces: boolean): WorkspaceEdit => ({
   documentChanges: [
-    { kind: 'create', uri, options: { overwrite: false, ignoreIfExists: false } },
+    { kind: 'create', uri, options: { overwrite: replaces, ignoreIfExists: false } },
     {
       textDocument: { uri, version: null },
       edits: [
@@ -144,6 +144,8 @@ const newLoom = (uri: string, text: string): WorkspaceEdit => ({
     },
   ],
 })
+
+const newLoom = (uri: string, text: string): WorkspaceEdit => writtenFile(uri, text, false)
 
 const fixActions =
   (
@@ -348,6 +350,37 @@ const loomLinks = (frame: FrameQueryApi): LanguageServicePlugin => ({
           title: fix.title,
           kind: 'quickfix',
           edit: workspaceEditOf(frame, fix),
+        }),
+      )
+    },
+  }),
+})
+
+## Approving a reference
+
+A reference into another loom may be approved, as the chapter "Fingerprints on relations" describes. A drifted reference is approved again once the author has read what changed, and a reference nobody approved is tracked from then on. `loomApprovals` offers both among the editor's quick fixes, for the references within the range the editor names. It answers for the root alone, like `loomFixes`.
+
+An approval changes no loom. It changes what the workspace keeps of its relations, and a workspace on a disk keeps them in a file. So the action's edit writes that file whole, with the text `FrameQuery` gives, through `writtenFile`. The author sees the edit and can undo it, like any other. A workspace that keeps its relations in no file offers no approval.
+
+=>
+
+const loomApprovals = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-approvals',
+  capabilities: { codeActionProvider: { codeActionKinds: ['quickfix'] } },
+  create: (context) => ({
+    provideCodeActions: (document, range) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(
+        frame.approvals(
+          frame.locationOf(decoded[0]),
+          document.offsetAt(range.start),
+          document.offsetAt(range.end),
+        ),
+        (approval): CodeAction => ({
+          title: approval.title,
+          kind: 'quickfix',
+          edit: writtenFile(frame.uriOf(approval.file).toString(), approval.text, true),
         }),
       )
     },
@@ -572,7 +605,7 @@ const loomFolding = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## Composing the services
 
-`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomHover` for a concept's card, `loomLinks` for the links a word two concepts claim may take, `loomMoves` for moving a concept up, `loomSymbols` for the concepts a symbol search finds, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
+`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomHover` for a concept's card, `loomLinks` for the links a word two concepts claim may take, `loomApprovals` for approving a reference, `loomMoves` for moving a concept up, `loomSymbols` for the concepts a symbol search finds, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
 
 =>
 
@@ -590,6 +623,7 @@ export const LoomLanguage = defineLanguageService({
         loomReferences(frame),
         loomHover(frame),
         loomLinks(frame),
+        loomApprovals(frame),
         loomMoves(frame),
         loomSymbols(frame),
         loomRename(frame),
@@ -657,6 +691,8 @@ import {
 ::[A concept's card]
 
 ::[A word two concepts claim]
+
+::[Approving a reference]
 
 ::[Moving a concept up]
 

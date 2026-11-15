@@ -305,6 +305,38 @@ export const approvedRelations = (
   return pipe([...Array.filter(kept, stands), ...fresh], Array.sort(byNames))
 }
 
+## One reference at a time, in the editor
+
+In the editor an author approves one reference, the one under the cursor. `approvalsAt` gives an `Approval` for each relation of a loom whose reference meets a span of the loom's text and is not in step. A drifted relation is there to be approved again, and an untracked one to be tracked from now on.
+
+An `Approval` holds the relation, and beside it everything the workspace keeps once that relation is approved, which `approvedRelations` gives. The editor writes it into the file that keeps relations, as the chapter "Loom's own diagnostics" describes. The compiler reads that file each time it judges a loom, so the reference is in step from the next judgement on.
+
+=>
+
+export type Approval = {
+  readonly relation: Relation
+  readonly keeps: ReadonlyArray<KeptRelation>
+}
+
+const meets = (at: Position, start: number, end: number): boolean =>
+  at.start.offset <= end && start <= at.end.offset
+
+export const approvalsAt = (
+  catalogue: Catalogue,
+  module: LoomModule,
+  kept: ReadonlyArray<KeptRelation>,
+  start: number,
+  end: number,
+): ReadonlyArray<Approval> =>
+  pipe(
+    relationsOf(catalogue, module, kept),
+    Array.filter((relation) => relation.status !== 'inStep' && meets(relation.at, start, end)),
+    Array.map((relation) => ({
+      relation,
+      keeps: approvedRelations(catalogue, module, kept, (other) => sameNames(other, relation)),
+    })),
+  )
+
 ## What relations draw on
 
 The corpus model gives the catalogue, a loom's module, the links of a section, and the two functions that resolve a name and an anchor to a section. The product pass gives a section's name, and the fault catalog gives `faulty` and the `DriftedReference` fault. Node's `createHash` computes the hash. Effect supplies `Schema` for the relation, and `Array`, `Match`, `Option`, `Order`, `Record`, and `pipe` for the rest.
@@ -347,6 +379,8 @@ import { sectionNameOf } from '#ast/ProductBuilder'
 
 ::[Approving]
 
+::[One reference at a time, in the editor]
+
 ## Testing relations
 
 The tests build a small book of two looms. The `rules` loom defines overdrafts, and the `billing` loom refers to that section twice: once by a link in its prose and once by an anchor in its code. `corpusOf` builds the modules of a book, and `anchor` builds an anchor from its pieces, so the code of this chapter holds none.
@@ -362,6 +396,7 @@ import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
+  approvalsAt,
   approvedRelations,
   driftFaults,
   driftsIn,
@@ -619,6 +654,39 @@ describe('a review of drift', () => {
   })
 })
 
+## The editor approves the reference under the cursor
+
+The `billing` loom's link stands in its prose and its anchor in its code. A span that covers the link alone offers that one relation, and what the approval keeps holds it and nothing else. Once it is kept, the span offers nothing, until the section changes.
+
+=>
+
+describe('an approval in the editor', () => {
+  const link = relationsOf(first.catalogue, first.billing, []).find(
+    (relation) => relation.kind === 'link',
+  )!
+
+  const span = [link.at.start.offset, link.at.end.offset] as const
+
+  it('offers the untracked reference a span meets, and no other', () => {
+    const approvals = approvalsAt(first.catalogue, first.billing, [], ...span)
+    expect(approvals.map((approval) => [approval.relation.kind, approval.relation.status])).toEqual(
+      [['link', 'untracked']],
+    )
+    expect(approvals[0]?.keeps.map((kept) => kept.kind)).toEqual(['link'])
+  })
+
+  it('offers nothing once the reference is in step, and offers it again once it drifts', () => {
+    const kept = approvalsAt(first.catalogue, first.billing, [], ...span)[0]?.keeps ?? []
+    expect(approvalsAt(first.catalogue, first.billing, kept, ...span)).toEqual([])
+    const changed = bookWith('An overdraft is a balance below the agreed limit.')
+    expect(
+      approvalsAt(changed.catalogue, changed.billing, kept, ...span).map(
+        (approval) => approval.relation.status,
+      ),
+    ).toEqual(['drifted'])
+  })
+})
+
 ## Drift among a loom's problems
 
 The compiler shows drift with a loom's other problems. Its `approve` verb keeps the relations of a loom in the workspace, and its `diagnose` verb judges the loom against what the workspace keeps, as the chapter "The compile layer" describes. The cases keep a book in a temporary folder, so the relations land in a real `.loom/relations.lock` file. `driftIn` approves or not, then gathers the drift a loom shows.
@@ -700,6 +768,8 @@ describe("drift among a loom's problems", () => {
 
 ::[An approval covers what was chosen]
 
+::[The editor approves the reference under the cursor]
+
 ::[Drift among a loom's problems]
 
 ## Where relations are kept
@@ -718,5 +788,4 @@ A relation is found by its names, so a reference that changes its name leaves it
 
 ## What this chapter grows into
 
-1. In the editor: a quick fix that approves one reference, and one that starts tracking a reference.
-2. The editor's rename of a section, which rewrites the references to it, carrying their relations along.
+1. The editor's rename of a section, which rewrites the references to it, carrying their relations along.

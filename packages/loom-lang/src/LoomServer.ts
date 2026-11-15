@@ -291,6 +291,7 @@ export const workspaceProject = (
   setup: (server) => {
     watchConfigs(server, home, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
+    watchRelations(server)
   },
   getLanguageService: (uri) =>
     runtime.runPromise(
@@ -676,6 +677,15 @@ const watchLooms = (
       isLoom(uri) ? closeOf(uri, document.getText()) : Effect.succeed([]),
       (changes) => (changes.length > 0 ? [uri] : []),
     )
+  })
+}
+
+const isRelations = (change: FileEvent): boolean => change.uri.endsWith('/.loom/relations.lock')
+
+const watchRelations = (server: LanguageServer): void => {
+  void server.fileWatcher.watchFiles(['**/.loom/relations.lock'])
+  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
+    if (Array.some(changes, isRelations)) void server.languageFeatures.requestRefresh(true)
   })
 }
 
