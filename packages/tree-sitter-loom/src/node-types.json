@@ -507,7 +507,7 @@
     "fields": {
       "label": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "label",
@@ -515,6 +515,16 @@
           }
         ]
       }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
     }
   },
   {

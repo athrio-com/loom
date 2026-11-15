@@ -267,6 +267,26 @@ const anchorBraces = [
   `const origin = ${anchor('Point')} {X: 1}`,
 ]
 
+const headingBraces = [
+  '# Install {Bash}',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# Build {kind=Tangle lang=sh}',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# Run {kind=Tangle} [run.sh]',
+  '',
+  '=>',
+  '',
+  'echo',
+]
+
 const boxLines = [
   '# Boxes',
   '',
@@ -341,6 +361,16 @@ describe('the corners', () => {
       const tree = yield* parseTree(file)
       expect(tree.match(/\(anchor_specifier /g)).toHaveLength(3)
       expect(tree.match(/\(parameter /g)).toHaveLength(3)
+    }),
+  )
+  it.effect("a heading's braces hold a label or parameters", () =>
+    Effect.gen(function* () {
+      const file = fixture('heading-braces', headingBraces)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(specifier /g)).toHaveLength(3)
+      expect(tree.match(/\(parameter /g)).toHaveLength(3)
+      expect(tree.match(/\(label /g)).toHaveLength(1)
     }),
   )
   it.effect('a discussion reads a tilde as a message and an arrow as prose', () =>
@@ -446,6 +476,18 @@ const languageForms = [
   '=>',
   '',
   'Some text.',
+  '',
+  '# A lang parameter {kind=Tangle lang=sh}',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# A kind in full {kind=Tangle}',
+  '',
+  '=>',
+  '',
+  'export {}',
 ]
 
 const rowsWhere = (test: (line: string) => boolean): ReadonlyArray<number> =>
@@ -481,6 +523,8 @@ describe('the injections', () => {
         ['src/out.ts'],
         ['TypeScript'],
         [fixedLanguage],
+        ['sh'],
+        ['src/out.ts'],
       ]),
     ),
   )
@@ -492,6 +536,8 @@ describe('the injections', () => {
         ['src/out.ts'],
         [fixedLanguage],
         [fixedLanguage],
+        ['sh'],
+        ['src/out.ts'],
       ]),
     ),
   )
@@ -503,6 +549,8 @@ describe('the injections', () => {
         ['TypeScript'],
         ['TypeScript'],
         [fixedLanguage],
+        ['sh'],
+        ['TypeScript'],
       ]),
     ),
   )

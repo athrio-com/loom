@@ -361,6 +361,182 @@
 
 (section
   (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @injection.language)))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "lang=")
+  (#not-match? @injection.language "^(Prose|prose)$")
+  (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "TypeScript")
+  (#set! injection.language "typescript"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "JavaScript")
+  (#set! injection.language "javascript"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "JSON")
+  (#set! injection.language "json"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "YAML")
+  (#set! injection.language "yaml"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "TOML")
+  (#set! injection.language "toml"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Markdown")
+  (#set! injection.language "markdown"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "CSS")
+  (#set! injection.language "css"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "HTML")
+  (#set! injection.language "html"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Dockerfile")
+  (#set! injection.language "dockerfile"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Rust")
+  (#set! injection.language "rust"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Python")
+  (#set! injection.language "python"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Go")
+  (#set! injection.language "go"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Lua")
+  (#set! injection.language "lua"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "C")
+  (#set! injection.language "c"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Bash")
+  (#set! injection.language "bash"))
+
+(section
+  (heading
     !specifier
     sink: (sink
       file: (file) @injection.filename))
@@ -375,6 +551,20 @@
   (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
+(section
+  (heading
+    specifier: (specifier
+      .
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_tangle)
+      .)
+    sink: (sink
+      file: (file) @injection.filename))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "kind=")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
 (document
   (frontmatter
     (field
@@ -387,6 +577,25 @@
       !sink)
     (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Package")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.filename))
+  (section
+    (heading
+      specifier: (specifier
+        .
+        (parameter
+          key: (parameter_key) @_kind
+          value: (parameter_value) @_tangle)
+        .)
+      !sink)
+    (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "Package")
+  (#eq? @_kind "kind=")
   (#any-of? @_tangle "Tangle" "tangle"))
 
 ((section

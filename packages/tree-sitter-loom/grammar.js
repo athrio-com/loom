@@ -83,7 +83,7 @@ module.exports = grammar({
     title: (_) => /[^{\[\r\n]*[^{\[\s]/,
     _heading_rest: (_) => /[^{\[\r\n]+/,
 
-    specifier: ($) => seq('{', field('label', $.label), '}'),
+    specifier: ($) => seq('{', $._braced, '}'),
     label: (_) => /[a-zA-Z0-9_-]+( [a-zA-Z0-9_-]+)*/,
 
     sink: ($) => seq('[', field('file', $.file), ']'),

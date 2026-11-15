@@ -266,7 +266,7 @@ describe('the grammar agrees with the classifier', () => {
 
 ## The corners the book does not reach
 
-A few forms are rare in the repository, or absent from it: fenced code that holds `#` lines and a shorter fence, Windows line endings, a last line with no line break, a tilde that follows a fenced block, braces that touch an anchor outside a code span, boxes of every shape a box line takes, and a discussion whose identity line joins its part. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
+A few forms are rare in the repository, or absent from it: fenced code that holds `#` lines and a shorter fence, Windows line endings, a last line with no line break, a tilde that follows a fenced block, braces that touch an anchor outside a code span, a heading whose braces hold parameters, boxes of every shape a box line takes, and a discussion whose identity line joins its part. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
 
 =>
 
@@ -352,6 +352,32 @@ const anchorBraces = [
   `${anchor('Greeting function')}{kind="To be settled" provides=[greet, farewell]}`,
   `${anchor('Saying hello')}(room.ts){provides=greet}`,
   `const origin = ${anchor('Point')} {X: 1}`,
+]
+
+~
+
+A heading's braces hold one label or parameters. The fixture `headingBraces` holds a heading with a label, a heading with two parameters, and a heading with one parameter and a sink.
+
+=>
+
+const headingBraces = [
+  '# Install {Bash}',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# Build {kind=Tangle lang=sh}',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# Run {kind=Tangle} [run.sh]',
+  '',
+  '=>',
+  '',
+  'echo',
 ]
 
 ~
@@ -442,6 +468,16 @@ describe('the corners', () => {
       expect(tree.match(/\(parameter /g)).toHaveLength(3)
     }),
   )
+  it.effect("a heading's braces hold a label or parameters", () =>
+    Effect.gen(function* () {
+      const file = fixture('heading-braces', headingBraces)
+      yield* checkLoom(file)
+      const tree = yield* parseTree(file)
+      expect(tree.match(/\(specifier /g)).toHaveLength(3)
+      expect(tree.match(/\(parameter /g)).toHaveLength(3)
+      expect(tree.match(/\(label /g)).toHaveLength(1)
+    }),
+  )
   it.effect('a discussion reads a tilde as a message and an arrow as prose', () =>
     Effect.gen(function* () {
       const file = fixture('discussion', discussion)
@@ -517,7 +553,7 @@ const injectionsOf = (query: string, file: string): Effect.Effect<ReadonlyArray<
 
 ~
 
-The loom, `languageForms`, is a chapter whose frontmatter names its file `src/out.ts` and its language TypeScript. Its five sections name their languages five ways: by a specifier, by a sink, by `{Tangle}` alone, by nothing at all, and by `{Prose}`. Four anchors sit where they could split a block. The `{Tangle}` section draws one in on its arrow's own line, and the section that names nothing draws one in between two lines of its own code and two more side by side.
+The loom, `languageForms`, is a chapter whose frontmatter names its file `src/out.ts` and its language TypeScript. Its seven sections name their languages seven ways: by a specifier, by a sink, by `{Tangle}` alone, by nothing at all, by `{Prose}`, by a `lang` parameter, and by `kind=Tangle` written in full. Four anchors sit where they could split a block. The `{Tangle}` section draws one in on its arrow's own line, and the section that names nothing draws one in between two lines of its own code and two more side by side.
 
 The `codeLanguages` function finds each code block by its arrow. The block runs from the arrow to the next heading, and an injection belongs to the block where its first span starts. The function lists the language every injection gives each block. A block injected twice shows two languages, even when the second injection starts after an anchor, and a block never injected shows none.
 
@@ -561,6 +597,18 @@ const languageForms = [
   '=>',
   '',
   'Some text.',
+  '',
+  '# A lang parameter {kind=Tangle lang=sh}',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# A kind in full {kind=Tangle}',
+  '',
+  '=>',
+  '',
+  'export {}',
 ]
 
 const rowsWhere = (test: (line: string) => boolean): ReadonlyArray<number> =>
@@ -589,7 +637,7 @@ const codeLanguages = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray
 
 ~
 
-Each copy gives the names its editor reads. The shared copy and Helix's pass a file by its whole name, `run.sh` or the `Package` file `src/out.ts`. Helix knows TypeScript only by its lower-case name, so its copy sets that name with `#set!`. Zed's copy passes a sink's extension, `sh`, and gives the `{Tangle}` section the chapter's `Language`.
+Each copy gives the names its editor reads. The shared copy and Helix's pass a file by its whole name, `run.sh` or the `Package` file `src/out.ts`. Helix knows TypeScript only by its lower-case name, so its copy sets that name with `#set!`. Zed's copy passes a sink's extension, `sh`, and gives the `{Tangle}` section the chapter's `Language`. Every copy reads the `lang` parameter as written, `sh`, and reads `{kind=Tangle}` as it reads `{Tangle}`.
 
 =>
 
@@ -602,6 +650,8 @@ describe('the injections', () => {
         ['src/out.ts'],
         ['TypeScript'],
         [fixedLanguage],
+        ['sh'],
+        ['src/out.ts'],
       ]),
     ),
   )
@@ -613,6 +663,8 @@ describe('the injections', () => {
         ['src/out.ts'],
         [fixedLanguage],
         [fixedLanguage],
+        ['sh'],
+        ['src/out.ts'],
       ]),
     ),
   )
@@ -624,6 +676,8 @@ describe('the injections', () => {
         ['TypeScript'],
         ['TypeScript'],
         [fixedLanguage],
+        ['sh'],
+        ['TypeScript'],
       ]),
     ),
   )

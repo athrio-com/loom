@@ -117,7 +117,7 @@ A heading takes the heading colour of its level, from `@markup.heading.1` for a 
 
 ## Specifiers and sinks
 
-A specifier's label is a type, the language a section is written in. One label is not a language but an instruction to Loom: `{Tangle}` writes the section to a file, so it takes the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets.
+A specifier's label is a type, the language a section is written in. One label is not a language but an instruction to Loom: `{Tangle}` writes the section to a file, so it takes the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets. A heading's braces may hold parameters instead of a label, and those take the colours an anchor's parameters take, as the section on anchors describes.
 
 =>
 
@@ -280,9 +280,26 @@ A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a la
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
 
+~
+
+A heading that writes its braces in full names the language with the `lang` parameter, as `{kind=Tangle lang=sh}` does. The key is read together with its equals sign, so the pattern asks for `lang=`.
+
+=>
+
+(section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @injection.language)))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "lang=")
+  (#not-eq? @injection.language "Prose")
+  (#not-eq? @injection.language "prose"))
+
 ## Named by a sink
 
-A sink names the language by its file. Both Neovim and Helix take an `@injection.filename` capture and find the language the way they would for a file of that name, so `hello.ts` reads as TypeScript and `Dockerfile` as a Dockerfile. A sink sets the language when the heading has no specifier, or when the specifier is `{Tangle}`.
+A sink names the language by its file. Both Neovim and Helix take an `@injection.filename` capture and find the language the way they would for a file of that name, so `hello.ts` reads as TypeScript and `Dockerfile` as a Dockerfile. A sink sets the language when the heading has no specifier, or when the specifier is `{Tangle}`. The specifier may write that kind in full, as `{kind=Tangle}`, with no other parameter beside it. The dots in the last pattern ask that the one parameter be the braces' first child and their last.
 
 =>
 
@@ -302,9 +319,23 @@ A sink names the language by its file. Both Neovim and Helix take an `@injection
   (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
+(section
+  (heading
+    specifier: (specifier
+      .
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_tangle)
+      .)
+    sink: (sink
+      file: (file) @injection.filename))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "kind=")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
 ## Named by the Package file
 
-A `{Tangle}` section without a sink writes the chapter's own file, the one its `Package` field names, so that file's name sets the language.
+A `{Tangle}` section without a sink writes the chapter's own file, the one its `Package` field names, so that file's name sets the language. The second pattern reads the kind written in full, `{kind=Tangle}`.
 
 =>
 
@@ -320,6 +351,25 @@ A `{Tangle}` section without a sink writes the chapter's own file, the one its `
       !sink)
     (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Package")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.filename))
+  (section
+    (heading
+      specifier: (specifier
+        .
+        (parameter
+          key: (parameter_key) @_kind
+          value: (parameter_value) @_tangle)
+        .)
+      !sink)
+    (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "Package")
+  (#eq? @_kind "kind=")
   (#any-of? @_tangle "Tangle" "tangle"))
 
 ## Named by the chapter
@@ -727,6 +777,188 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
       !sink)
     (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
+  (#eq? @_language "Bash")
+  (#set! injection.language "bash"))
+
+~
+
+A `lang` parameter names a language as a label does, so it takes the same map. The general pattern leaves out the names the map claims, and each mapped pattern sets the name Helix knows.
+
+=>
+
+(section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @injection.language)))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "lang=")
+  (#not-match? @injection.language "^(Prose|prose)$")
+  (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "TypeScript")
+  (#set! injection.language "typescript"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "JavaScript")
+  (#set! injection.language "javascript"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "JSON")
+  (#set! injection.language "json"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "YAML")
+  (#set! injection.language "yaml"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "TOML")
+  (#set! injection.language "toml"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Markdown")
+  (#set! injection.language "markdown"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "CSS")
+  (#set! injection.language "css"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "HTML")
+  (#set! injection.language "html"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Dockerfile")
+  (#set! injection.language "dockerfile"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Rust")
+  (#set! injection.language "rust"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Python")
+  (#set! injection.language "python"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Go")
+  (#set! injection.language "go"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "Lua")
+  (#set! injection.language "lua"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
+  (#eq? @_language "C")
+  (#set! injection.language "c"))
+
+((section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_language)))
+  (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "lang=")
   (#eq? @_language "Bash")
   (#set! injection.language "bash"))
 

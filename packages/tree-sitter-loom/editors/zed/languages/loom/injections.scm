@@ -11,6 +11,16 @@
   (code [(code_text) @injection.content (anchor)]+)
   (#not-any-of? @injection.language "Tangle" "tangle" "Prose" "prose"))
 
+(section
+  (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @injection.language)))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "lang=")
+  (#not-any-of? @injection.language "Prose" "prose"))
+
 ((section
   (heading
     specifier: (specifier
@@ -37,6 +47,21 @@
   (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
+(section
+  (heading
+    specifier: (specifier
+      .
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_tangle)
+      .)
+    sink: (sink
+      file: (file
+        extension: (extension) @injection.language)))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "kind=")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
 (document
   (frontmatter
     (field
@@ -49,6 +74,26 @@
       !sink)
     (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Language")
+  (#any-of? @_tangle "Tangle" "tangle")
+  (#not-any-of? @injection.language "Prose" "prose"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.language))
+  (section
+    (heading
+      specifier: (specifier
+        .
+        (parameter
+          key: (parameter_key) @_kind
+          value: (parameter_value) @_tangle)
+        .)
+      !sink)
+    (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "Language")
+  (#eq? @_kind "kind=")
   (#any-of? @_tangle "Tangle" "tangle")
   (#not-any-of? @injection.language "Prose" "prose"))
 

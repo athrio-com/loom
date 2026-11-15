@@ -19,6 +19,17 @@
 
 (section
   (heading
+    specifier: (specifier
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @injection.language)))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "lang=")
+  (#not-eq? @injection.language "Prose")
+  (#not-eq? @injection.language "prose"))
+
+(section
+  (heading
     !specifier
     sink: (sink
       file: (file) @injection.filename))
@@ -33,6 +44,20 @@
   (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
+(section
+  (heading
+    specifier: (specifier
+      .
+      (parameter
+        key: (parameter_key) @_key
+        value: (parameter_value) @_tangle)
+      .)
+    sink: (sink
+      file: (file) @injection.filename))
+  (code [(code_text) @injection.content (anchor)]+)
+  (#eq? @_key "kind=")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
 (document
   (frontmatter
     (field
@@ -45,6 +70,25 @@
       !sink)
     (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Package")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.filename))
+  (section
+    (heading
+      specifier: (specifier
+        .
+        (parameter
+          key: (parameter_key) @_kind
+          value: (parameter_value) @_tangle)
+        .)
+      !sink)
+    (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "Package")
+  (#eq? @_kind "kind=")
   (#any-of? @_tangle "Tangle" "tangle"))
 
 (document
