@@ -82,10 +82,6 @@ A specifier may hold parameters in place of one label, as the chapter "Parameter
 
 A label may not stand beside parameters, but an author may write one there. The `labels` field of a `Parameters` token keeps such words, each run of them as one label, so the pass that expands short forms can fault each where it stands. Sound braces hold none.
 
-An anchor takes two keys. The `kind` key names the kind of thing the anchor refers to, and a label alone stands for it, so `{To be settled}` is the short form of `{kind="To be settled"}`. The `provides` key lists the names the anchor expects its target to provide. `anchorKeys` holds the two keys, and `anchorKinds` holds the two kinds an anchor takes. `settleKind`, the kind `To be settled`, marks a section nobody has written yet. `moduleKind`, the kind `Module`, marks an anchor that names a module rather than composing a section, as the chapter "Referring to modules" describes. The pass that checks parameters faults a kind or a key outside these lists, as the chapter "Small passes over the tree" describes.
-
-A kind may change its name, and an author may still write the name it went by before. `formerAnchorKinds` pairs each former name of an anchor's kind with the name the kind goes by now. It holds one pair, which says that `Reference` is a former name of `Module`. `renamedTo` gives the present name for a word that is a former name, in any case of letters, so the pass that checks parameters can tell the author what to write.
-
 =>
 
 export const ParameterKeyTokenSchema = loomNode('ParameterKey', {
@@ -119,6 +115,113 @@ export const parameterValue = (specifier: ParametersToken, key: string): Option.
     Option.map((value) => value.value),
   )
 
+## A value's type
+
+A value's shape never decides its type. The key decides it. Each key has a type, and Loom reads the key's values through that type, as the chapter "Parameters in braces" describes. So `NO` stays text under a key that holds text, and `480` is a number only under a key that holds numbers.
+
+A `ScalarType` is the type of one value. Five scalar types are written as a word:
+
+- `text` holds a value as it is written.
+- `number` holds a number, written as digits with an optional minus sign and an optional fraction.
+- `boolean` holds `true` or `false`.
+- `locale` holds a language tag, such as `et` or `pt-BR`. BCP 47 is the standard that says how such a tag is formed.
+- `reference` holds the name of a section.
+
+The sixth scalar type is a choice, which lists the words it takes, as `{ choice: ['draft', 'done'] }` does. A `ValueType` is a scalar type, or a list of values that share one scalar type, as `{ list: 'reference' }` is.
+
+`Keys` is a table of keys, each with its type. A heading, an anchor, and a box each take the keys of such a table. `keyType` gives the type a table holds for a key, and nothing for a key the table lacks. `isList` tells the type of a list from the type of one value. `eachType` gives the scalar type that each value of a key is read through: a list's own scalar type, or the type itself.
+
+=>
+
+export const ScalarTypeSchema = Schema.Union([
+  Schema.Literals(['text', 'number', 'boolean', 'locale', 'reference']),
+  Schema.Struct({ choice: Schema.NonEmptyArray(Schema.NonEmptyString) }),
+])
+export type ScalarType = typeof ScalarTypeSchema.Type
+
+export const ValueTypeSchema = Schema.Union([
+  ScalarTypeSchema,
+  Schema.Struct({ list: ScalarTypeSchema }),
+])
+export type ValueType = typeof ValueTypeSchema.Type
+
+export const KeysSchema = Schema.Record(Schema.String, ValueTypeSchema)
+export type Keys = typeof KeysSchema.Type
+
+export const keyType = (keys: Keys, key: string): Option.Option<ValueType> =>
+  pipe(
+    Object.entries(keys),
+    Array.findFirst(([name]) => name === key),
+    Option.map(([, type]) => type),
+  )
+
+export const isList = (type: ValueType): type is { readonly list: ScalarType } =>
+  typeof type === 'object' && 'list' in type
+
+export const eachType = (type: ValueType): ScalarType => (isList(type) ? type.list : type)
+
+~
+
+`readAs` reads one written value through a scalar type. A value that reads gives a `Read`: the text itself, a number, or `true` or `false`. A locale reads as its tag in the standard's own spelling, so `pt-br` reads as `pt-BR`. A choice reads a word exactly as its list spells it.
+
+Three helpers do the reading. `numeral` matches a number as it is written. `wordAmong` reads a word from a list of words, for a choice and for a boolean alike. `localeNamed` asks `Intl.getCanonicalLocales`, the platform's own reader of language tags, for a tag's standard spelling, and that reader refuses a tag the standard does not allow.
+
+A value that does not read gives an `Unread`, which says what the type wanted in its place: a number, a locale, or one of the `words` a choice lists. A boolean wants one of two words, `true` and `false`. Text takes any value, so it never gives an `Unread`. A reference takes any value here as well. Whether it names a section is for the corpus to judge, since the section may stand in another loom.
+
+=>
+
+export type Read = string | number | boolean
+
+export type Unread =
+  | { readonly wanted: 'number' }
+  | { readonly wanted: 'locale' }
+  | { readonly wanted: 'word'; readonly words: ReadonlyArray<string> }
+
+type Choice = Extract<ScalarType, object>
+
+const isChoice = (type: ScalarType): type is Choice => typeof type === 'object'
+
+const unread = (wanted: Unread): Result.Result<never, Unread> => Result.fail(wanted)
+
+const numeral = /^-?\d+(\.\d+)?$/
+
+const wordAmong = (words: ReadonlyArray<string>, written: string): Result.Result<string, Unread> =>
+  Array.contains(words, written) ? Result.succeed(written) : unread({ wanted: 'word', words })
+
+const canonicalLocales = Option.liftThrowable((tag: string) => Intl.getCanonicalLocales(tag))
+
+const localeNamed = (written: string): Result.Result<string, Unread> =>
+  Option.match(Option.flatMap(canonicalLocales(written), Array.head), {
+    onSome: (tag) => Result.succeed(tag),
+    onNone: () => unread({ wanted: 'locale' }),
+  })
+
+export const readAs =
+  (type: ScalarType) =>
+  (written: string): Result.Result<Read, Unread> =>
+    Match.value(type).pipe(
+      Match.when(isChoice, (chosen) => wordAmong(chosen.choice, written)),
+      Match.when('boolean', () =>
+        Result.map(wordAmong(['true', 'false'], written), (word) => word === 'true'),
+      ),
+      Match.when('number', () =>
+        numeral.test(written) ? Result.succeed(Number(written)) : unread({ wanted: 'number' }),
+      ),
+      Match.when('locale', () => localeNamed(written)),
+      Match.whenOr('text', 'reference', () => Result.succeed(written)),
+      Match.exhaustive,
+    )
+
+## What an anchor's braces say
+
+An anchor takes two keys. The `kind` key names the kind of thing the anchor refers to, and a label alone stands for it, so `{To be settled}` is the short form of `{kind="To be settled"}`. The `provides` key lists the names the anchor expects its target to provide. `anchorKeys` holds the two keys with their types: `kind` holds one value of text, and `provides` holds a list.
+
+`anchorKinds` holds the two kinds an anchor takes. `settleKind`, the kind `To be settled`, marks a section nobody has written yet. `moduleKind`, the kind `Module`, marks an anchor that names a module rather than composing a section, as the chapter "Referring to modules" describes. The pass that checks parameters faults a kind or a key outside these lists, as the chapter "Small passes over the tree" describes.
+
+A kind may change its name, and an author may still write the name it went by before. `formerAnchorKinds` pairs each former name of an anchor's kind with the name the kind goes by now. It holds one pair, which says that `Reference` is a former name of `Module`. `renamedTo` gives the present name for a word that is a former name, in any case of letters, so the pass that checks parameters can tell the author what to write.
+
+=>
+
 export const settleKind = 'To be settled'
 
 export const moduleKind = 'Module'
@@ -135,11 +238,11 @@ export const renamedTo = (word: string): Option.Option<string> =>
     Option.map((kind) => kind.now),
   )
 
-export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
+export const anchorKeys: Keys = { kind: 'text', provides: { list: 'text' } }
 
 ## What a heading's braces say
 
-A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys.
+A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. Loom never judges the name of a language, and the pass that claims kinds judges the name of a kind.
 
 The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
 
@@ -153,7 +256,7 @@ export const manifestKind = 'Manifest'
 
 export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, manifestKind]
 
-export const headingKeys: ReadonlyArray<string> = ['lang', 'kind']
+export const headingKeys: Keys = { lang: 'text', kind: 'text' }
 
 export const kindNamed =
   (kinds: ReadonlyArray<string>) =>
@@ -421,11 +524,11 @@ export type BoxToken = typeof BoxTokenSchema.Type
 
 ~
 
-A box's braces name its kind. A box takes the key `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, a remark for whoever opens the loom next. A box of the `Conclusion` kind closes a topic of a discussion with the answer the topic settled on, as the chapter "The document builder" describes. `boxKeys` holds the keys a box takes, and `boxKinds` the five kinds, `noteKind`, `chapterKind`, `discussionKind`, `tropeKind`, and `conclusionKind`.
+A box's braces name its kind. A box takes the key `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, a remark for whoever opens the loom next. A box of the `Conclusion` kind closes a topic of a discussion with the answer the topic settled on, as the chapter "The document builder" describes. `boxKeys` holds the keys a box takes with their types, and `boxKinds` the five kinds, `noteKind`, `chapterKind`, `discussionKind`, `tropeKind`, and `conclusionKind`.
 
 Two of the kinds point to a loom of their own. A box of the `Chapter` kind points to the chapter its name titles, and a box of the `Discussion` kind points to the discussion its name titles. The body of either holds a copy of the loom's summary, as the chapter "The multi-file AST" describes. A `LoomKind` is one of these two kinds, and `isLoomKind` tells whether a box's kind is one of them.
 
-A box of the `Trope` kind names a trope, a concept whose size the author does not know yet, as Part XIII, Tropes, describes. It takes two keys besides `kind`. Its `provides` key lists the names the trope promises, and its `anchors` key names the section or chapter that holds the trope, once the author decides where that is. A `PointingKind` is a kind of box that points somewhere, a chapter, a discussion, or a trope, and `isPointingKind` tells whether a box's kind is one.
+A box of the `Trope` kind names a trope, a concept whose size the author does not know yet, as Part XIII, Tropes, describes. It takes two keys besides `kind`. Its `provides` key lists the names the trope promises, and its `anchors` key names the section or chapter that holds the trope, once the author decides where that is. So `provides` holds a list of text, and `anchors` holds a reference. A `PointingKind` is a kind of box that points somewhere, a chapter, a discussion, or a trope, and `isPointingKind` tells whether a box's kind is one.
 
 `specifierKind` reads the kind that any specifier names, an anchor's or a box's: its label, or the value of its `kind` parameter. `boxKind` reads a box's kind through it. A box with no braces, or braces that name no kind, reads as `noteKind`. A kind written in another case of letters, such as `{note}`, reads as the kind it names.
 
@@ -459,7 +562,11 @@ export type PointingKind = LoomKind | typeof tropeKind
 export const isPointingKind = (kind: string): kind is PointingKind =>
   isLoomKind(kind) || kind === tropeKind
 
-export const boxKeys: ReadonlyArray<string> = ['kind', 'provides', 'anchors']
+export const boxKeys: Keys = {
+  kind: 'text',
+  provides: { list: 'text' },
+  anchors: 'reference',
+}
 
 export const specifierKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
   Match.value(specifier).pipe(
@@ -697,11 +804,11 @@ export type LoomToken = typeof LoomTokenSchema.Type
 
 ## What this module draws on
 
-`LoomTokens` draws `Schema` for the token definitions, with `Option` wrapping the `Probe` annotation `getProbe` reads back off a schema. `Effect` and `Data` build the delimiter check and the tagged error it fails with. `Match`, `Array`, and `pipe` read the kind a specifier names. `loomNode` from the foundation gives each token its shared shape.
+`LoomTokens` draws `Schema` for the token definitions, with `Option` wrapping the `Probe` annotation `getProbe` reads back off a schema. `Effect` and `Data` build the delimiter check and the tagged error it fails with. `Match`, `Array`, and `pipe` read the kind a specifier names. `Result` holds a value read through its type, or what the type wanted in the value's place. `loomNode` from the foundation gives each token its shared shape.
 
 =>
 
-import { Array, Data, Effect, Match, Option, Schema, pipe } from 'effect'
+import { Array, Data, Effect, Match, Option, Result, Schema, pipe } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
 ## The module {Tangle}
@@ -717,6 +824,10 @@ import { loomNode } from '#ast/LoomNode'
 ::[Specifiers]
 
 ::[A specifier's parameters]
+
+::[A value's type]
+
+::[What an anchor's braces say]
 
 ::[What a heading's braces say]
 

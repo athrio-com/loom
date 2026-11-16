@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'bun:test'
-import { Effect, Match, Schema } from 'effect'
+import { Effect, Match, pipe, Schema } from 'effect'
 import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
-import type { ParametersToken, SpecifierToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  type Keys,
+  type ParametersToken,
+  sectionKinds,
+  type SpecifierToken,
+} from '@athrio/loom-ast/LoomTokens'
+import {
+  checkedDocument,
+  claimedDocument,
+  coreKeys,
+  expandedDocument,
+} from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
 const built = (text: string): LoomDocument =>
@@ -195,6 +206,79 @@ describe('checking the keys of braces', () => {
     expect<unknown>(built(text).sections[0]?.heading.specifier).toEqual(
       parsed.sections[0]?.heading.specifier,
     )
+  })
+})
+
+describe('checking the values of braces', () => {
+  const keys: typeof coreKeys = {
+    ...coreKeys,
+    heading: {
+      ...coreKeys.heading,
+      width: 'number',
+      draft: 'boolean',
+      status: { choice: ['draft', 'done'] },
+      locale: 'locale',
+      related: { list: 'reference' },
+      sizes: { list: 'number' },
+    } satisfies Keys,
+  }
+
+  const typed = (braces: string) => {
+    const text = `# Plan ${braces}\n\nProse.\n`
+    const parsed = Effect.runSync(parsedDocument(text).pipe(Effect.provide(ParseLayer)))
+    const checked = pipe(
+      parsed,
+      expandedDocument(sectionKinds),
+      claimedDocument(sectionKinds),
+      checkedDocument(keys),
+    )
+    return { text, heading: checked.sections[0]?.heading }
+  }
+
+  const saidOf = (braces: string) => messagesIn(typed(braces).heading?.specifier)
+
+  it('reads a value of each type without a fault', () => {
+    expect(
+      saidOf('{width=480 draft=true status=done locale=pt-BR related=[Anchor, Sink] sizes=[1, 2.5]}'),
+    ).toEqual([])
+  })
+
+  it('faults a value that is no number', () => {
+    expect(saidOf('{width=wide}')).toEqual([
+      '`width` takes a number, and `wide` is not one. Write a number, such as `480`.',
+    ])
+  })
+
+  it('faults a word that a boolean or a choice does not take', () => {
+    expect(saidOf('{draft=yes}')).toEqual(['`draft` takes no `yes`. It takes `true` and `false`.'])
+    expect(saidOf('{status=maybe}')).toEqual([
+      '`status` takes no `maybe`. It takes `draft` and `done`.',
+    ])
+  })
+
+  it('faults a value that is no language tag', () => {
+    expect(saidOf('{locale=pt_BR}')).toEqual([
+      '`locale` takes a language tag, and `pt_BR` is not one. Write a tag such as `et` or `pt-BR`.',
+    ])
+  })
+
+  it('marks the one value of a list that does not read, and fails the heading', () => {
+    const { text, heading } = typed('{sizes=[1, two]}')
+    const [found] = (heading?.specifier?.parameters ?? []).flatMap(
+      (parameter) => parameter.health.diagnostics,
+    )
+    expect(found && textAt(text, found.position)).toBe('two')
+    expect(heading?.health.status).toBe('error')
+  })
+
+  it('faults a list under a key that holds one value', () => {
+    expect(messagesIn(bracesOf('# Build {lang=[Bash, sh]}'))).toEqual([
+      '`lang` takes one value, and these braces give it several. Keep one.',
+    ])
+  })
+
+  it('lets a key that holds a list hold one value', () => {
+    expect(messagesIn(anchorIn(greeting('{provides=greet}'))?.specifier)).toEqual([])
   })
 })
 

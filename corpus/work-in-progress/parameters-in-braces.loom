@@ -78,12 +78,14 @@ A value's shape never decides its type. The key's declared type decides it, and 
 - **text:** a value as it is written;
 - **number:** a value that reads as a number, such as `width=480`;
 - **boolean:** `true` or `false`;
-- **choice:** one word from a list the key declares, such as `status=draft`;
+- **choice:** one word from a list the key declares, spelt as the list spells it, such as `status=draft`;
 - **locale:** a language tag that follows BCP 47, such as `et` or `pt-BR`;
 - **reference:** the name of a section, which makes the parameter a relation, as the chapter "Tropes" describes;
 - **a list** of any one of these.
 
-The pass that checks parameters, which the chapter "Small passes over the tree" describes, decodes each value against its key's type. A key declared as a number reads `width=480` as 480, and `width=wide` is a fault that says a number was expected. A key declared as a list of references reads `related=[Anchor, Sink]` as two sections, and the book's graph shows a relation to each. The core's own keys are typed as well: `kind` takes a kind in the registry, and `lang` takes one of the workspace's active languages.
+The pass that checks parameters, which the chapter "Small passes over the tree" describes, reads each value through its key's type. A key declared as a number reads `width=480` as 480, and `width=wide` is a fault that asks for a number. A key that holds one value and is given a list is a fault as well. A key declared as a list of references reads `related=[Anchor, Sink]` as two sections, and the book's graph shows a relation to each.
+
+The core's own keys are typed as well. `lang` and `kind` each hold one value of text, `provides` holds a list, and the `anchors` key of a trope box holds a reference. Loom never judges the name of a language, so `lang` takes any name. A kind's name is judged apart from its type, by the passes that claim kinds and check them.
 
 A value is never typed by how it looks. A format that guesses a type from a value's look surprises its authors: YAML 1.1 reads a bare `NO`, Norway's country code, as false. HTML gives every attribute value as text, and each element's definition says what its `width` means. A specifier works the way HTML does, so `NO` stays text wherever its key says text.
 
@@ -113,10 +115,10 @@ The tests parse one loom at a time, as the tests of boxes do, and read back what
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
-import { headingLang } from '@athrio/loom-ast/LoomTokens'
+import { headingLang, readAs, type ScalarType } from '@athrio/loom-ast/LoomTokens'
 import { sectionLanguage } from '#ast/ProductBuilder'
 import { parseDocument, ParseLayer } from './parse'
 
@@ -257,6 +259,54 @@ describe('the language a heading names', () => {
   })
 })
 
+## A value read through a type
+
+`readAs` reads one written value through a type, as the chapter "The leaf tokens" describes. Text keeps a value as it is written, whatever the value looks like, so `NO` and `480` both stay text. A number, a boolean, a locale, and a choice each read the values they take and refuse the rest, and a refusal says what the type wanted. `read` gives the value read, and `wanted` gives the refusal.
+
+=>
+
+describe('reading a value through a type', () => {
+  const read = (type: ScalarType, written: string) =>
+    Result.getOrUndefined(readAs(type)(written))
+
+  const wanted = (type: ScalarType, written: string) =>
+    Result.match(readAs(type)(written), { onSuccess: () => undefined, onFailure: (unread) => unread })
+
+  it('keeps text as it is written, whatever it looks like', () => {
+    expect(read('text', 'NO')).toBe('NO')
+    expect(read('text', '480')).toBe('480')
+  })
+
+  it('reads a number, with a sign and a fraction', () => {
+    expect(read('number', '480')).toBe(480)
+    expect(read('number', '-2.5')).toBe(-2.5)
+    expect(wanted('number', 'wide')).toEqual({ wanted: 'number' })
+    expect(wanted('number', '1e3')).toEqual({ wanted: 'number' })
+  })
+
+  it('reads a boolean from its two words alone', () => {
+    expect(read('boolean', 'true')).toBe(true)
+    expect(read('boolean', 'false')).toBe(false)
+    expect(wanted('boolean', 'True')).toEqual({ wanted: 'word', words: ['true', 'false'] })
+  })
+
+  it("reads a locale in the standard's own spelling", () => {
+    expect(read('locale', 'et')).toBe('et')
+    expect(read('locale', 'pt-br')).toBe('pt-BR')
+    expect(wanted('locale', 'pt_BR')).toEqual({ wanted: 'locale' })
+  })
+
+  it('reads a choice as its list spells it', () => {
+    const status: ScalarType = { choice: ['draft', 'done'] }
+    expect(read(status, 'done')).toBe('done')
+    expect(wanted(status, 'Done')).toEqual({ wanted: 'word', words: ['draft', 'done'] })
+  })
+
+  it('takes any name for a reference', () => {
+    expect(read('reference', 'Saying hello')).toBe('Saying hello')
+  })
+})
+
 ## The parameters test file [test/Parameters.test.ts]
 
 =>
@@ -271,10 +321,11 @@ describe('the language a heading names', () => {
 
 ::[The language a heading names]
 
+::[A value read through a type]
+
 ## What this chapter grows into
 
-1. The value types, read through each key's declared type, with completion and hover from the registry, and the fault for a value of the wrong type.
-2. The keys a trope's manifest declares for each kind it contributes.
-3. Specifiers in the tree-sitter grammar and in each editor's colouring.
+1. The keys a trope's manifest declares for each kind it contributes, each with its type.
+2. Completion of a value from its key's type, and a hover on a key that shows the type and the trope that declared it.
 
 When the value types and the keys of tropes land, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

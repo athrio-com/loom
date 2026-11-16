@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, pipe, Result } from 'effect'
 import { type Health, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type {
   ClaimedDocument,
@@ -15,7 +15,11 @@ import {
   anchorKinds,
   boxKeys,
   type BoxToken,
+  eachType,
   headingKeys,
+  isList,
+  type Keys,
+  keyType,
   kindNamed,
   labelKey,
   ParameterKeyTokenSchema,
@@ -25,10 +29,13 @@ import {
   ParameterValueTokenSchema,
   type ParametersToken,
   ParametersTokenSchema,
+  readAs,
   renamedTo,
+  type ScalarType,
   sectionKinds,
   type SpecifierLabelToken,
   type SpecifierToken,
+  type ValueType,
   type WarpAnchorToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
@@ -37,10 +44,12 @@ import {
   faulty,
   LabelBesideParameter,
   type LoomFault,
+  ManyValues,
   RenamedKind,
   RepeatedKey,
   UnknownKey,
   UnknownKind,
+  WrongValue,
 } from '#ast/LoomFault'
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
@@ -52,7 +61,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
           parsed,
           expandedDocument(sectionKinds),
           claimedDocument(sectionKinds),
-          checkedDocument,
+          checkedDocument(coreKeys),
         ),
     }),
   },
@@ -215,24 +224,36 @@ const unclaimed =
 
 type Takes = {
   readonly on: BracesOn
-  readonly keys: ReadonlyArray<string>
+  readonly keys: Keys
   readonly kinds: Option.Option<ReadonlyArray<string>>
 }
 
-const headingTakes: Takes = { on: 'heading', keys: headingKeys, kinds: Option.none() }
+export const coreKeys: Record<BracesOn, Keys> = {
+  heading: headingKeys,
+  anchor: anchorKeys,
+  box: boxKeys,
+}
 
-const anchorTakes: Takes = { on: 'anchor', keys: anchorKeys, kinds: Option.some(anchorKinds) }
-
-const boxTakes: Takes = { on: 'box', keys: boxKeys, kinds: Option.none() }
-
-export const checkedDocument = (claimed: ClaimedDocument): ClaimedDocument =>
-  rewritten(claimed, {
-    LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
-      judged(faultedBraces(headingTakes))(heading),
-    WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
-      judged(faultedBraces(anchorTakes))(anchor),
-    Box: (box: BoxToken): BoxToken => judged(faultedBraces(boxTakes))(box),
+const takesOn =
+  (keys: Record<BracesOn, Keys>) =>
+  (on: BracesOn): Takes => ({
+    on,
+    keys: keys[on],
+    kinds: on === 'anchor' ? Option.some(anchorKinds) : Option.none(),
   })
+
+export const checkedDocument =
+  (keys: Record<BracesOn, Keys>) =>
+  (claimed: ClaimedDocument): ClaimedDocument => {
+    const takes = takesOn(keys)
+    return rewritten(claimed, {
+      LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
+        judged(faultedBraces(takes('heading')))(heading),
+      WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
+        judged(faultedBraces(takes('anchor')))(anchor),
+      Box: (box: BoxToken): BoxToken => judged(faultedBraces(takes('box')))(box),
+    })
+  }
 
 const faultedBraces =
   (takes: Takes) =>
@@ -259,28 +280,46 @@ const unknownKind = (takes: Takes, values: ReadonlyArray<Valued>): Option.Option
     ),
   )
 
+const namedKindFault = (takes: Takes, parameter: ParameterToken): Option.Option<Health> =>
+  parameter.key.value === 'kind' ? unknownKind(takes, parameter.values) : Option.none()
+
+const unreadValue = (
+  key: string,
+  type: ScalarType,
+  values: ReadonlyArray<ParameterValueToken>,
+): Option.Option<Health> =>
+  Array.findFirst(values, (value) =>
+    Result.match(readAs(type)(value.value), {
+      onSuccess: () => Option.none(),
+      onFailure: (unread) =>
+        Option.some(faulty(WrongValue({ key, value: value.value, unread }), value.position)),
+    }),
+  )
+
+const valueFault = (type: ValueType, parameter: ParameterToken): Option.Option<Health> =>
+  !isList(type) && parameter.values.length > 1
+    ? Option.some(faulty(ManyValues({ key: parameter.key.value }), parameter.position))
+    : unreadValue(parameter.key.value, eachType(type), parameter.values)
+
 const parameterFault = (
   takes: Takes,
   parameter: ParameterToken,
   earlier: ReadonlyArray<ParameterToken>,
 ): Option.Option<Health> => {
   const key = parameter.key.value
-  return Match.value({
-    repeated: Array.some(earlier, (before) => before.key.value === key),
-    known: Array.contains(takes.keys, key),
-    kind: key === 'kind',
-  }).pipe(
-    Match.when({ repeated: true }, () =>
-      Option.some(faulty(RepeatedKey({ key }), parameter.key.position)),
-    ),
-    Match.when({ known: false }, () =>
-      Option.some(
-        faulty(UnknownKey({ key, keys: takes.keys, on: takes.on }), parameter.key.position),
-      ),
-    ),
-    Match.when({ kind: true }, () => unknownKind(takes, parameter.values)),
-    Match.orElse(() => Option.none()),
-  )
+  return Array.some(earlier, (before) => before.key.value === key)
+    ? Option.some(faulty(RepeatedKey({ key }), parameter.key.position))
+    : Option.match(keyType(takes.keys, key), {
+        onNone: () =>
+          Option.some(
+            faulty(
+              UnknownKey({ key, keys: Object.keys(takes.keys), on: takes.on }),
+              parameter.key.position,
+            ),
+          ),
+        onSome: (type) =>
+          Option.orElse(valueFault(type, parameter), () => namedKindFault(takes, parameter)),
+      })
 }
 
 const faultedParameters =

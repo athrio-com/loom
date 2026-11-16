@@ -1,7 +1,12 @@
 import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
-import { type LoomKind, type PointingKind, settleKind } from '@athrio/loom-ast/LoomTokens'
+import {
+  type LoomKind,
+  type PointingKind,
+  settleKind,
+  type Unread,
+} from '@athrio/loom-ast/LoomTokens'
 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
 
@@ -55,6 +60,8 @@ export type LoomFault = Data.TaggedEnum<{
     readonly on: BracesOn
   }
   RenamedKind: { readonly kind: string; readonly now: string }
+  ManyValues: { readonly key: string }
+  WrongValue: { readonly key: string; readonly value: string; readonly unread: Unread }
   MissingSymbol: { readonly name: string; readonly section: string; readonly trope?: string }
   KeyOutsideTrope: { readonly key: string }
   StrayTarget: { readonly target: string; readonly at: Position }
@@ -137,6 +144,8 @@ export const {
   UnknownKey,
   UnknownKind,
   RenamedKind,
+  ManyValues,
+  WrongValue,
   MissingSymbol,
   StrayTarget,
   NoSuchFile,
@@ -256,6 +265,25 @@ const knownList = (known: ReadonlyArray<string>): string => {
     : Array.join(marked, ' and ')
 }
 
+const wrongValue = (key: string, value: string, unread: Unread): string =>
+  Match.value(unread).pipe(
+    Match.when(
+      { wanted: 'number' },
+      () =>
+        `\`${key}\` takes a number, and \`${value}\` is not one. Write a number, such as \`480\`.`,
+    ),
+    Match.when(
+      { wanted: 'locale' },
+      () =>
+        `\`${key}\` takes a language tag, and \`${value}\` is not one. Write a tag such as \`et\` or \`pt-BR\`.`,
+    ),
+    Match.when(
+      { wanted: 'word' },
+      ({ words }) => `\`${key}\` takes no \`${value}\`. It takes ${knownList(words)}.`,
+    ),
+    Match.exhaustive,
+  )
+
 const siblingPlace: Record<Sibling, (where: string) => string> = {
   section: (line) => `Another section of this loom, on line ${line},`,
   chapter: (looms) => `Another chapter of this part, in ${looms},`,
@@ -346,6 +374,9 @@ export const describe = (fault: LoomFault): Note =>
       error(`${cap(bearer[on])} takes no \`${kind}\` kind. It takes ${knownList(kinds)}.`),
     RenamedKind: ({ kind, now }) =>
       error(`The \`${kind}\` kind is now called \`${now}\`. Write \`${now}\`.`),
+    ManyValues: ({ key }) =>
+      error(`\`${key}\` takes one value, and these braces give it several. Keep one.`),
+    WrongValue: ({ key, value, unread }) => error(wrongValue(key, value, unread)),
     MissingSymbol: ({ name, section, trope }) =>
       error(
         trope === undefined

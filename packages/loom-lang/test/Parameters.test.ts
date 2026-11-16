@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import type { Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
-import { headingLang } from '@athrio/loom-ast/LoomTokens'
+import { headingLang, readAs, type ScalarType } from '@athrio/loom-ast/LoomTokens'
 import { sectionLanguage } from '#ast/ProductBuilder'
 import { parseDocument, ParseLayer } from './parse'
 
@@ -116,5 +116,47 @@ describe('the language a heading names', () => {
 
   it("is the chapter's, when the heading names nothing", () => {
     expect(languageOf('# Plain')).toBe('typescript')
+  })
+})
+
+describe('reading a value through a type', () => {
+  const read = (type: ScalarType, written: string) =>
+    Result.getOrUndefined(readAs(type)(written))
+
+  const wanted = (type: ScalarType, written: string) =>
+    Result.match(readAs(type)(written), { onSuccess: () => undefined, onFailure: (unread) => unread })
+
+  it('keeps text as it is written, whatever it looks like', () => {
+    expect(read('text', 'NO')).toBe('NO')
+    expect(read('text', '480')).toBe('480')
+  })
+
+  it('reads a number, with a sign and a fraction', () => {
+    expect(read('number', '480')).toBe(480)
+    expect(read('number', '-2.5')).toBe(-2.5)
+    expect(wanted('number', 'wide')).toEqual({ wanted: 'number' })
+    expect(wanted('number', '1e3')).toEqual({ wanted: 'number' })
+  })
+
+  it('reads a boolean from its two words alone', () => {
+    expect(read('boolean', 'true')).toBe(true)
+    expect(read('boolean', 'false')).toBe(false)
+    expect(wanted('boolean', 'True')).toEqual({ wanted: 'word', words: ['true', 'false'] })
+  })
+
+  it("reads a locale in the standard's own spelling", () => {
+    expect(read('locale', 'et')).toBe('et')
+    expect(read('locale', 'pt-br')).toBe('pt-BR')
+    expect(wanted('locale', 'pt_BR')).toEqual({ wanted: 'locale' })
+  })
+
+  it('reads a choice as its list spells it', () => {
+    const status: ScalarType = { choice: ['draft', 'done'] }
+    expect(read(status, 'done')).toBe('done')
+    expect(wanted(status, 'Done')).toEqual({ wanted: 'word', words: ['draft', 'done'] })
+  })
+
+  it('takes any name for a reference', () => {
+    expect(read('reference', 'Saying hello')).toBe('Saying hello')
   })
 })

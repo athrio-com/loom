@@ -1,4 +1,4 @@
-import { Array, Data, Effect, Match, Option, Schema, pipe } from 'effect'
+import { Array, Data, Effect, Match, Option, Result, Schema, pipe } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
 export const Probe = 'loom/Probe'
@@ -80,6 +80,75 @@ export const parameterValue = (specifier: ParametersToken, key: string): Option.
     Option.map((value) => value.value),
   )
 
+export const ScalarTypeSchema = Schema.Union([
+  Schema.Literals(['text', 'number', 'boolean', 'locale', 'reference']),
+  Schema.Struct({ choice: Schema.NonEmptyArray(Schema.NonEmptyString) }),
+])
+export type ScalarType = typeof ScalarTypeSchema.Type
+
+export const ValueTypeSchema = Schema.Union([
+  ScalarTypeSchema,
+  Schema.Struct({ list: ScalarTypeSchema }),
+])
+export type ValueType = typeof ValueTypeSchema.Type
+
+export const KeysSchema = Schema.Record(Schema.String, ValueTypeSchema)
+export type Keys = typeof KeysSchema.Type
+
+export const keyType = (keys: Keys, key: string): Option.Option<ValueType> =>
+  pipe(
+    Object.entries(keys),
+    Array.findFirst(([name]) => name === key),
+    Option.map(([, type]) => type),
+  )
+
+export const isList = (type: ValueType): type is { readonly list: ScalarType } =>
+  typeof type === 'object' && 'list' in type
+
+export const eachType = (type: ValueType): ScalarType => (isList(type) ? type.list : type)
+
+export type Read = string | number | boolean
+
+export type Unread =
+  | { readonly wanted: 'number' }
+  | { readonly wanted: 'locale' }
+  | { readonly wanted: 'word'; readonly words: ReadonlyArray<string> }
+
+type Choice = Extract<ScalarType, object>
+
+const isChoice = (type: ScalarType): type is Choice => typeof type === 'object'
+
+const unread = (wanted: Unread): Result.Result<never, Unread> => Result.fail(wanted)
+
+const numeral = /^-?\d+(\.\d+)?$/
+
+const wordAmong = (words: ReadonlyArray<string>, written: string): Result.Result<string, Unread> =>
+  Array.contains(words, written) ? Result.succeed(written) : unread({ wanted: 'word', words })
+
+const canonicalLocales = Option.liftThrowable((tag: string) => Intl.getCanonicalLocales(tag))
+
+const localeNamed = (written: string): Result.Result<string, Unread> =>
+  Option.match(Option.flatMap(canonicalLocales(written), Array.head), {
+    onSome: (tag) => Result.succeed(tag),
+    onNone: () => unread({ wanted: 'locale' }),
+  })
+
+export const readAs =
+  (type: ScalarType) =>
+  (written: string): Result.Result<Read, Unread> =>
+    Match.value(type).pipe(
+      Match.when(isChoice, (chosen) => wordAmong(chosen.choice, written)),
+      Match.when('boolean', () =>
+        Result.map(wordAmong(['true', 'false'], written), (word) => word === 'true'),
+      ),
+      Match.when('number', () =>
+        numeral.test(written) ? Result.succeed(Number(written)) : unread({ wanted: 'number' }),
+      ),
+      Match.when('locale', () => localeNamed(written)),
+      Match.whenOr('text', 'reference', () => Result.succeed(written)),
+      Match.exhaustive,
+    )
+
 export const settleKind = 'To be settled'
 
 export const moduleKind = 'Module'
@@ -96,7 +165,7 @@ export const renamedTo = (word: string): Option.Option<string> =>
     Option.map((kind) => kind.now),
   )
 
-export const anchorKeys: ReadonlyArray<string> = ['kind', 'provides']
+export const anchorKeys: Keys = { kind: 'text', provides: { list: 'text' } }
 
 export const tangleKind = 'Tangle'
 
@@ -106,7 +175,7 @@ export const manifestKind = 'Manifest'
 
 export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, manifestKind]
 
-export const headingKeys: ReadonlyArray<string> = ['lang', 'kind']
+export const headingKeys: Keys = { lang: 'text', kind: 'text' }
 
 export const kindNamed =
   (kinds: ReadonlyArray<string>) =>
@@ -312,7 +381,11 @@ export type PointingKind = LoomKind | typeof tropeKind
 export const isPointingKind = (kind: string): kind is PointingKind =>
   isLoomKind(kind) || kind === tropeKind
 
-export const boxKeys: ReadonlyArray<string> = ['kind', 'provides', 'anchors']
+export const boxKeys: Keys = {
+  kind: 'text',
+  provides: { list: 'text' },
+  anchors: 'reference',
+}
 
 export const specifierKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
   Match.value(specifier).pipe(

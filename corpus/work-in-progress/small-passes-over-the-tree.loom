@@ -68,7 +68,7 @@ Each pass is a plain function from one tree to the next. A pass is not an Effect
 
 One service runs the passes in order. It takes the tree the parser built, the `ParsedDocument`, and returns the tree the last pass wrote, the `LoomDocument`. The product pass, the weave, and the editor read the `LoomDocument` and no other tree, so a pass added to the row renames nothing they read.
 
-`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn, and it gives the passes the core's own kinds of section.
+`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn. It gives the passes the core's own kinds of section, and `coreKeys`, the keys the core lets a heading, an anchor, and a box take.
 
 =>
 
@@ -81,7 +81,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
           parsed,
           expandedDocument(sectionKinds),
           claimedDocument(sectionKinds),
-          checkedDocument,
+          checkedDocument(coreKeys),
         ),
     }),
   },
@@ -286,11 +286,18 @@ const unclaimed =
 
 ## Checking parameters
 
-The third pass checks what braces hold against what their bearer takes. Each bearer of braces takes keys of its own, which the chapter "The leaf tokens" lists: a heading takes `lang` and `kind`, an anchor takes `kind` and `provides`, and a box takes `kind`, `provides`, and `anchors`. A key the bearer does not take is an `UnknownKey` fault. A key written a second time in one pair of braces is a `RepeatedKey` fault, and that is the one fault such a key carries, whatever else is wrong with it. Each of the two stands on the key itself.
+The third pass checks what braces hold against what their bearer takes. A heading, an anchor, and a box each take keys of their own, and each key has a type, as the chapter "The leaf tokens" describes. The pass is handed one table of keys for each bearer. `coreKeys` holds the three tables of the core: a heading takes `lang` and `kind`, an anchor takes `kind` and `provides`, and a box takes `kind`, `provides`, and `anchors`.
 
-An anchor's `kind` takes one of an anchor's own kinds, `To be settled` or `Module`. A value that names neither is an `UnknownKind` fault on the value, whether the author wrote it as a parameter or as a label alone. Without the fault, braces such as `{x}` after an anchor would leave the tangle without a word.
+A parameter can be wrong in four ways, and the pass looks for them in this order. A parameter carries the first fault the pass finds, and no other.
 
-A value may also be a name the kind went by before, as `Reference` is a former name of `Module`. Such a value is a `RenamedKind` fault, which names the kind as it is written now and offers a fix that writes it. A box's kind is for the corpus to judge, since a trope in another loom may declare it, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `Takes` holds kinds for an anchor alone.
+- **A key written twice.** A key written a second time in one pair of braces is a `RepeatedKey` fault on the key.
+- **A key the bearer does not take.** Such a key is an `UnknownKey` fault on the key, and the fault lists the keys the bearer takes.
+- **A value that is not of the key's type.** A key that holds one value and is given a list is a `ManyValues` fault on the parameter. A value that does not read through the key's type is a `WrongValue` fault on that value, as `wide` is under a key that holds a number.
+- **A kind an anchor does not take.** An anchor's `kind` takes one of an anchor's own kinds, `To be settled` or `Module`. A value that names neither is an `UnknownKind` fault on the value, whether the author wrote it as a parameter or as a label alone. Without the fault, braces such as `{x}` after an anchor would leave the tangle without a word.
+
+A value may also be a name the kind went by before, as `Reference` is a former name of `Module`. Such a value is a `RenamedKind` fault, which names the kind as it is written now and offers a fix that writes it.
+
+The pass judges the kind of an anchor alone. A box's kind is for the corpus to judge, since a trope in another loom may declare it, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `takesOn` gives kinds for an anchor and for no other bearer.
 
 The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` hands the fold a case for each bearer of braces: a heading, an anchor, and a box.
 
@@ -298,28 +305,44 @@ The pass changes the shape of no node, so the tree it returns is the tree it was
 
 type Takes = {
   readonly on: BracesOn
-  readonly keys: ReadonlyArray<string>
+  readonly keys: Keys
   readonly kinds: Option.Option<ReadonlyArray<string>>
 }
 
-const headingTakes: Takes = { on: 'heading', keys: headingKeys, kinds: Option.none() }
+export const coreKeys: Record<BracesOn, Keys> = {
+  heading: headingKeys,
+  anchor: anchorKeys,
+  box: boxKeys,
+}
 
-const anchorTakes: Takes = { on: 'anchor', keys: anchorKeys, kinds: Option.some(anchorKinds) }
-
-const boxTakes: Takes = { on: 'box', keys: boxKeys, kinds: Option.none() }
-
-export const checkedDocument = (claimed: ClaimedDocument): ClaimedDocument =>
-  rewritten(claimed, {
-    LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
-      judged(faultedBraces(headingTakes))(heading),
-    WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
-      judged(faultedBraces(anchorTakes))(anchor),
-    Box: (box: BoxToken): BoxToken => judged(faultedBraces(boxTakes))(box),
+const takesOn =
+  (keys: Record<BracesOn, Keys>) =>
+  (on: BracesOn): Takes => ({
+    on,
+    keys: keys[on],
+    kinds: on === 'anchor' ? Option.some(anchorKinds) : Option.none(),
   })
+
+export const checkedDocument =
+  (keys: Record<BracesOn, Keys>) =>
+  (claimed: ClaimedDocument): ClaimedDocument => {
+    const takes = takesOn(keys)
+    return rewritten(claimed, {
+      LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
+        judged(faultedBraces(takes('heading')))(heading),
+      WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
+        judged(faultedBraces(takes('anchor')))(anchor),
+      Box: (box: BoxToken): BoxToken => judged(faultedBraces(takes('box')))(box),
+    })
+  }
 
 ~
 
-`faultedBraces` judges one pair of braces, parameters or a label. `parameterFault` judges one parameter against what the bearer takes and against the parameters written before it. `unknownKind` finds the first value that names none of the bearer's kinds, when the bearer has kinds of its own. `kindFault` gives the fault of such a value: `RenamedKind` when `renamedTo` knows the value as a former name, and `UnknownKind` otherwise.
+`faultedBraces` judges one pair of braces, parameters or a label. `parameterFault` judges one parameter against what the bearer takes and against the parameters written before it.
+
+`valueFault` judges a parameter's values against the type of its key. It faults a list under a key that holds one value. Otherwise `unreadValue` finds the first value that does not read through the type, with `readAs` from the chapter "The leaf tokens", and its fault carries what the type wanted in the value's place.
+
+`unknownKind` finds the first value that names none of the bearer's kinds, when the bearer has kinds of its own, and `namedKindFault` asks it about a `kind` parameter alone. `kindFault` gives the fault of such a value: `RenamedKind` when `renamedTo` knows the value as a former name, and `UnknownKind` otherwise.
 
 =>
 
@@ -348,28 +371,46 @@ const unknownKind = (takes: Takes, values: ReadonlyArray<Valued>): Option.Option
     ),
   )
 
+const namedKindFault = (takes: Takes, parameter: ParameterToken): Option.Option<Health> =>
+  parameter.key.value === 'kind' ? unknownKind(takes, parameter.values) : Option.none()
+
+const unreadValue = (
+  key: string,
+  type: ScalarType,
+  values: ReadonlyArray<ParameterValueToken>,
+): Option.Option<Health> =>
+  Array.findFirst(values, (value) =>
+    Result.match(readAs(type)(value.value), {
+      onSuccess: () => Option.none(),
+      onFailure: (unread) =>
+        Option.some(faulty(WrongValue({ key, value: value.value, unread }), value.position)),
+    }),
+  )
+
+const valueFault = (type: ValueType, parameter: ParameterToken): Option.Option<Health> =>
+  !isList(type) && parameter.values.length > 1
+    ? Option.some(faulty(ManyValues({ key: parameter.key.value }), parameter.position))
+    : unreadValue(parameter.key.value, eachType(type), parameter.values)
+
 const parameterFault = (
   takes: Takes,
   parameter: ParameterToken,
   earlier: ReadonlyArray<ParameterToken>,
 ): Option.Option<Health> => {
   const key = parameter.key.value
-  return Match.value({
-    repeated: Array.some(earlier, (before) => before.key.value === key),
-    known: Array.contains(takes.keys, key),
-    kind: key === 'kind',
-  }).pipe(
-    Match.when({ repeated: true }, () =>
-      Option.some(faulty(RepeatedKey({ key }), parameter.key.position)),
-    ),
-    Match.when({ known: false }, () =>
-      Option.some(
-        faulty(UnknownKey({ key, keys: takes.keys, on: takes.on }), parameter.key.position),
-      ),
-    ),
-    Match.when({ kind: true }, () => unknownKind(takes, parameter.values)),
-    Match.orElse(() => Option.none()),
-  )
+  return Array.some(earlier, (before) => before.key.value === key)
+    ? Option.some(faulty(RepeatedKey({ key }), parameter.key.position))
+    : Option.match(keyType(takes.keys, key), {
+        onNone: () =>
+          Option.some(
+            faulty(
+              UnknownKey({ key, keys: Object.keys(takes.keys), on: takes.on }),
+              parameter.key.position,
+            ),
+          ),
+        onSome: (type) =>
+          Option.orElse(valueFault(type, parameter), () => namedKindFault(takes, parameter)),
+      })
 }
 
 const faultedParameters =
@@ -433,11 +474,11 @@ const judged =
 
 ## What the row draws on
 
-The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, and `Array`, `Match`, `Option`, and `pipe` for the passes.
+The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, `Array`, `Match`, `Option`, and `pipe` for the passes, and `Result` for a value read through its type.
 
 =>
 
-import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, pipe, Result } from 'effect'
 import { type Health, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type {
   ClaimedDocument,
@@ -454,7 +495,11 @@ import {
   anchorKinds,
   boxKeys,
   type BoxToken,
+  eachType,
   headingKeys,
+  isList,
+  type Keys,
+  keyType,
   kindNamed,
   labelKey,
   ParameterKeyTokenSchema,
@@ -464,10 +509,13 @@ import {
   ParameterValueTokenSchema,
   type ParametersToken,
   ParametersTokenSchema,
+  readAs,
   renamedTo,
+  type ScalarType,
   sectionKinds,
   type SpecifierLabelToken,
   type SpecifierToken,
+  type ValueType,
   type WarpAnchorToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
@@ -476,10 +524,12 @@ import {
   faulty,
   LabelBesideParameter,
   type LoomFault,
+  ManyValues,
   RenamedKind,
   RepeatedKey,
   UnknownKey,
   UnknownKind,
+  WrongValue,
 } from '#ast/LoomFault'
 
 ## The row's module [src/ast/LoomDocumentBuilder.ts]
@@ -513,10 +563,21 @@ The tests read one loom the way a build does: they parse it and run the row over
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Effect, Match, Schema } from 'effect'
+import { Effect, Match, pipe, Schema } from 'effect'
 import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
-import type { ParametersToken, SpecifierToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  type Keys,
+  type ParametersToken,
+  sectionKinds,
+  type SpecifierToken,
+} from '@athrio/loom-ast/LoomTokens'
+import {
+  checkedDocument,
+  claimedDocument,
+  coreKeys,
+  expandedDocument,
+} from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
 const built = (text: string): LoomDocument =>
@@ -754,6 +815,87 @@ describe('checking the keys of braces', () => {
   })
 })
 
+## A value is read through its key's type
+
+A key's type decides how its values read. The core's own keys hold text, so the tests hand the pass a table in which a heading takes keys of every other type as well, the way a trope's keys reach the pass. `typed` runs the row over one heading with that table.
+
+A value that reads raises nothing. A value that does not read carries a fault that says what the type wanted, and the fault stands on that value, so one bad value in a list is marked where it stands. A key that holds one value faults a list, and a key that holds a list takes one value alone.
+
+=>
+
+describe('checking the values of braces', () => {
+  const keys: typeof coreKeys = {
+    ...coreKeys,
+    heading: {
+      ...coreKeys.heading,
+      width: 'number',
+      draft: 'boolean',
+      status: { choice: ['draft', 'done'] },
+      locale: 'locale',
+      related: { list: 'reference' },
+      sizes: { list: 'number' },
+    } satisfies Keys,
+  }
+
+  const typed = (braces: string) => {
+    const text = `# Plan ${braces}\n\nProse.\n`
+    const parsed = Effect.runSync(parsedDocument(text).pipe(Effect.provide(ParseLayer)))
+    const checked = pipe(
+      parsed,
+      expandedDocument(sectionKinds),
+      claimedDocument(sectionKinds),
+      checkedDocument(keys),
+    )
+    return { text, heading: checked.sections[0]?.heading }
+  }
+
+  const saidOf = (braces: string) => messagesIn(typed(braces).heading?.specifier)
+
+  it('reads a value of each type without a fault', () => {
+    expect(
+      saidOf('{width=480 draft=true status=done locale=pt-BR related=[Anchor, Sink] sizes=[1, 2.5]}'),
+    ).toEqual([])
+  })
+
+  it('faults a value that is no number', () => {
+    expect(saidOf('{width=wide}')).toEqual([
+      '`width` takes a number, and `wide` is not one. Write a number, such as `480`.',
+    ])
+  })
+
+  it('faults a word that a boolean or a choice does not take', () => {
+    expect(saidOf('{draft=yes}')).toEqual(['`draft` takes no `yes`. It takes `true` and `false`.'])
+    expect(saidOf('{status=maybe}')).toEqual([
+      '`status` takes no `maybe`. It takes `draft` and `done`.',
+    ])
+  })
+
+  it('faults a value that is no language tag', () => {
+    expect(saidOf('{locale=pt_BR}')).toEqual([
+      '`locale` takes a language tag, and `pt_BR` is not one. Write a tag such as `et` or `pt-BR`.',
+    ])
+  })
+
+  it('marks the one value of a list that does not read, and fails the heading', () => {
+    const { text, heading } = typed('{sizes=[1, two]}')
+    const [found] = (heading?.specifier?.parameters ?? []).flatMap(
+      (parameter) => parameter.health.diagnostics,
+    )
+    expect(found && textAt(text, found.position)).toBe('two')
+    expect(heading?.health.status).toBe('error')
+  })
+
+  it('faults a list under a key that holds one value', () => {
+    expect(messagesIn(bracesOf('# Build {lang=[Bash, sh]}'))).toEqual([
+      '`lang` takes one value, and these braces give it several. Keep one.',
+    ])
+  })
+
+  it('lets a key that holds a list hold one value', () => {
+    expect(messagesIn(anchorIn(greeting('{provides=greet}'))?.specifier)).toEqual([])
+  })
+})
+
 ## An anchor's kind is one of its own
 
 An anchor's kind is `To be settled` or `Module`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A kind written by its former name gets a fault of its own, whose fix writes the present name over the former one. A box's kind is left for the book to judge.
@@ -841,6 +983,8 @@ describe('the tree the row writes', () => {
 
 ::[A key no bearer takes, and a key written twice]
 
+::[A value is read through its key's type]
+
 ::[An anchor's kind is one of its own]
 
 ::[The row writes the tree it claims]
@@ -852,7 +996,7 @@ describe('the tree the row writes', () => {
 ## What this chapter grows into
 
 1. Expanding the label of an anchor and of a box. Those labels stay as the author wrote them, and a later reader takes the kind they name through the `specifierKind` function of the chapter "The leaf tokens".
-2. Value types and data bodies in the pass that checks parameters, as the chapter "Parameters in braces" describes.
+2. The keys and kinds a trope declares, handed to the passes from the registry, and data bodies in the pass that checks parameters, as the chapter "Tropes" describes.
 3. The passes that follow: resolving references and setting data apart.
 4. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
 
