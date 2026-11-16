@@ -319,6 +319,36 @@ export const moduleRefsIn = (
 ): ReadonlyArray<HeldModuleRef> =>
   moduleRefsFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
+const unfoundFrom =
+  (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
+  (node: Code): ReadonlyArray<string> =>
+    Array.flatMap(node.fragments, (part) =>
+      Match.value(part).pipe(
+        Match.when({ type: 'Fragment' }, (): ReadonlyArray<string> => []),
+        Match.when({ type: 'ModuleRef' }, (): ReadonlyArray<string> => []),
+        Match.when({ type: 'NameRef' }, (ref) =>
+          Option.match(targetOf(catalogue, node.origin.path, ref), {
+            onNone: (): ReadonlyArray<string> => [ref.name],
+            onSome: (reached) =>
+              pipe(
+                Option.some(reached),
+                Option.filter((found) => !seen.has(keyOf(found))),
+                Option.flatMap((found) => lookup(modules, found)),
+                Option.map(unfoundFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))),
+                Option.getOrElse((): ReadonlyArray<string> => []),
+              ),
+          }),
+        ),
+        Match.exhaustive,
+      ),
+    )
+
+export const unfoundIn = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Code,
+  catalogue: Catalogue = catalogueOf(modules),
+): ReadonlyArray<string> => unfoundFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
+
 export type Contract = {
   readonly section: string
   readonly target: Location

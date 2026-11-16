@@ -6,13 +6,17 @@ Language: TypeScript
 
 # The kinds tropes declare
 
-A trope extends Loom's language by declaring kinds. Under contract 1 a kind is a kind of box: a trope that declares `Mermaid` lets every loom of the book write a box `::: Cells {Mermaid}`. Before any trope declares it, such a box is a fault, so a misspelt kind never passes for content.
+A trope extends Loom's language by declaring kinds. Under contract 1 a kind is a kind of box or a kind of section. A trope that declares the `Mermaid` kind of box lets every loom of the book write a box `::: Cells {Mermaid}`. Before any trope declares it, such a box is a fault, so a misspelt kind never passes for content. A trope that declares the `Option` kind of section lets every loom write a heading `## Postgres {Option}`, with the parameters the kind takes.
 
-Loom applies what tropes declare without running any trope. It gathers every trope's declared kinds into the registry, a table it consults for each box of the book, and it refuses a trope's root whose manifest it cannot read or whose kinds clash with kinds already taken. Every step is Loom's own code, a lookup and a composition in memory, so the registry fits wherever Loom judges a loom: in the editor on every keystroke, and before every tangle.
+Loom applies what tropes declare without running any trope. It gathers every trope's declared kinds into the registry, a set of tables it consults for each box and each heading of the book, and it refuses a trope's root whose manifest it cannot read or whose kinds clash with kinds already taken.
+
+A declared kind of section changes how a loom is read, so the registry must exist before any loom is built with it. Loom therefore gathers the registry from the chapters of tropes alone, each trope's root and its members, each read with core Loom. It then builds every loom with what the registry holds, as the chapter "The compile layer" describes. A manifest is read the same whatever its own trope declares. It draws only on sections of those chapters, so a trope may spread what it declares over its members, and a chapter of no trope lends a manifest nothing. Every step is Loom's own code, a lookup and a composition in memory, so the registry fits wherever Loom judges a loom: in the editor on every keystroke, and before every tangle.
 
 ## The registry
 
-`DeclaredKinds` is the registry. It holds the `tropes` of the corpus, `box`, every kind of box a trope declares, and `refusals`, every root Loom refuses and why. A `Trope` gathers one trope's chapters: its name, its `chapters`, every chapter that names the trope, and its `root`, when it has one. A `DeclaredKind` records the kind's name, the format of its body, and the trope that declared it, with the loom of the trope's root. A `Refusal` records a root's loom, the reason Loom refuses it, and the place in the loom the reason concerns.
+`DeclaredKinds` is the registry. It holds the `Declarations` of every trope, and `refusals`, every root Loom refuses and why. A `Trope` gathers one trope's chapters: its name, its `chapters`, every chapter that names the trope, and its `root`, when it has one.
+
+`Declarations` holds a table for each sort of kind: `box` and `section`. A `DeclaredBox` records a kind of box: its name, the format of its body, and the trope that declared it, with the loom of the trope's root. A `DeclaredSection` records a kind of section: its name, the `parameters` a heading of the kind may carry, and the same trope and loom. `noDeclarations` holds two empty tables. A `Refusal` records a root's loom, the reason Loom refuses it, and the place in the loom the reason concerns.
 
 =>
 
@@ -22,28 +26,38 @@ export type Trope = {
   readonly root: Option.Option<LoomModule>
 }
 
-export type DeclaredKind = {
+export type DeclaredBox = {
   readonly kind: string
   readonly body: string
   readonly trope: string
   readonly module: Location
 }
 
-export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
-
-export type DeclaredKinds = {
-  readonly tropes: ReadonlyArray<Trope>
-  readonly box: ReadonlyArray<DeclaredKind>
-  readonly refusals: ReadonlyArray<Refusal>
+export type DeclaredSection = {
+  readonly kind: string
+  readonly parameters: Keys
+  readonly trope: string
+  readonly module: Location
 }
 
-const noKinds: DeclaredKinds = { tropes: [], box: [], refusals: [] }
+export type Declarations = {
+  readonly box: ReadonlyArray<DeclaredBox>
+  readonly section: ReadonlyArray<DeclaredSection>
+}
+
+export const noDeclarations: Declarations = { box: [], section: [] }
+
+export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
+
+export type DeclaredKinds = Declarations & { readonly refusals: ReadonlyArray<Refusal> }
 
 ## A trope's root and its manifest
 
 A trope is a cluster of chapters, and each of them names the trope in its frontmatter. The chapter that roots the trope is a trope chapter, and its title is the trope's name; `rootsTrope` tells such a chapter. Every other chapter of the trope is a member, and names the trope with a `Rooted in:` line. `tropeOf` reads the trope a chapter roots or belongs to, and `tropeLineOf` finds where it says so: the word `Trope` of a trope chapter, or the value of a `Rooted in:` line. `tropesOf` gathers each trope's chapters in the order of their paths, so that when two chapters clash, the same one stands on every machine. A trope whose chapters are all members has no root yet.
 
 The root is also where the trope's manifest belongs, a section of the `Manifest` kind, which `manifestSectionsOf` finds. A manifest anywhere else is the product pass's to fault, as the chapter "The product pass" describes. A root with two manifests leaves Loom unsure which to read, so Loom refuses it. `manifestOf` composes the one manifest into its text with the product pass's own composition, `fromCode`, so an anchor in the manifest draws in the code it names. The composed text then goes to `readManifest`, as the chapter "The trope contract" describes. Each refusal of a manifest stands at the manifest's heading.
+
+A manifest is composed against the chapters of tropes alone, so an anchor that names a section of any other chapter finds nothing there. A composition leaves such an anchor's place empty, and the manifest would read as if the author had declared less. `composedOf` therefore asks `unfoundIn` for the names the composition cannot find, and refuses the manifest for the first of them.
 
 =>
 
@@ -81,6 +95,17 @@ const manifestSectionsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
 
 type Read = { readonly manifest: TropeManifest; readonly at: Position }
 
+const composedOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  catalogue: Catalogue,
+  code: Code,
+): Result.Result<string, string> =>
+  Array.match(unfoundIn(modules, code, catalogue), {
+    onEmpty: () => Result.succeed(fromCode(modules, code, catalogue).code),
+    onNonEmpty: ([name]) =>
+      Result.fail(`its manifest draws on \`${name}\`, which no chapter of a trope holds`),
+  })
+
 const manifestOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   catalogue: Catalogue,
@@ -95,9 +120,11 @@ const manifestOf = (
     onEmpty: () =>
       pipe(
         Array.findFirst(root.product.code, (code) => code.origin.name === sectionNameOf(section)),
-        Option.map((code) => fromCode(modules, code, catalogue).code),
-        Option.getOrElse(() => ''),
-        readManifest,
+        Option.match({
+          onNone: (): Result.Result<string, string> => Result.succeed(''),
+          onSome: (code) => composedOf(modules, catalogue, code),
+        }),
+        Result.flatMap(readManifest),
         Result.map((manifest): Read => ({ manifest, at: section.heading.position })),
         Result.mapError((reason) => refusal(reason, section.heading.position)),
       ),
@@ -106,22 +133,28 @@ const manifestOf = (
 
 ## Refusing a clash
 
-A kind means one thing in a book, so two tropes cannot both decide what one kind means. `clashOf` looks for the first kind of a trope's manifest that is already taken. The core keeps its own kinds of box for itself, so a trope that declares `Note` is refused. A kind an earlier trope declared is taken too, and the root that comes later in the order of paths is refused, with the earlier trope named. A root that declares one kind twice is refused as well. Kinds compare in any case of letters, as a box's braces read them.
+A kind means one thing in a book, so two tropes cannot both decide what one kind means. `clashOf` takes the kinds a manifest declares for one table, and looks for the first that is already taken. The core keeps its own kinds for itself, so a trope that declares the `Note` kind of box is refused, and so is one that declares the `Tangle` kind of section. A kind an earlier trope declared is taken too, and the root that comes later in the order of paths is refused, with the earlier trope named. A root that declares one kind twice is refused as well. Kinds compare in any case of letters, as braces read them.
+
+Each table is judged alone. A box and a section stand in different places, so a kind of box and a kind of section may share a name.
+
+A key means one thing on a heading as well. `ownKeyOf` looks for a parameter that a kind of section declares under one of the core's own keys, `lang` or `kind`, and such a root is refused. `refusalIn` gives the first reason a manifest is refused: a clash among its kinds of box, a clash among its kinds of section, or a key of the core's.
 
 =>
 
 const sameKind = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase()
 
+type Taken = { readonly kind: string; readonly trope: string }
+
 const clashOf = (
-  declared: ReadonlyArray<BoxKindDeclaration>,
-  taken: ReadonlyArray<DeclaredKind>,
+  declared: ReadonlyArray<string>,
+  core: ReadonlyArray<string>,
+  taken: ReadonlyArray<Taken>,
 ): Option.Option<string> =>
-  Array.findFirst(declared, (declaration, at) => {
-    const kind = declaration.kind
-    return Match.value({
-      core: Array.some(boxKinds, (core) => sameKind(core, kind)),
+  Array.findFirst(declared, (kind, at) =>
+    Match.value({
+      core: Array.some(core, (own) => sameKind(own, kind)),
       earlier: Array.findFirst(taken, (other) => sameKind(other.kind, kind)),
-      twice: Array.some(Array.take(declared, at), (before) => sameKind(before.kind, kind)),
+      twice: Array.some(Array.take(declared, at), (before) => sameKind(before, kind)),
     }).pipe(
       Match.when({ core: true }, () => Option.some(`\`${kind}\` is one of Loom's own kinds`)),
       Match.when({ earlier: Option.isSome }, ({ earlier }) =>
@@ -129,14 +162,34 @@ const clashOf = (
       ),
       Match.when({ twice: true }, () => Option.some(`it declares \`${kind}\` twice`)),
       Match.orElse(() => Option.none<string>()),
-    )
-  })
+    ),
+  )
+
+const parametersOf = (declaration: SectionKindDeclaration): Keys =>
+  Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))
+
+const ownKeyOf = (declared: ReadonlyArray<SectionKindDeclaration>): Option.Option<string> =>
+  pipe(
+    Array.flatMap(declared, (declaration) => Object.keys(parametersOf(declaration))),
+    Array.findFirst((key) => Option.isSome(keyType(headingKeys, key))),
+    Option.map((key) => `\`${key}\` is one of Loom's own keys`),
+  )
+
+const kindsIn = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
+  Array.map(declared, (declaration) => declaration.kind)
+
+const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<string> =>
+  pipe(
+    clashOf(kindsIn(boxKindsOf(manifest)), boxKinds, taken.box),
+    Option.orElse(() => clashOf(kindsIn(sectionKindsOf(manifest)), sectionKinds, taken.section)),
+    Option.orElse(() => ownKeyOf(sectionKindsOf(manifest))),
+  )
 
 ## Gathering the registry
 
-`declaredKindsOf` builds the registry from a corpus. It gathers the tropes and folds over them, carrying the registry so far, and `withTrope` adds one trope. A workspace may also install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their kinds arrive as `installed`. The fold starts from them, so a trope of the book that declares a kind an installed trope declares is refused, as any later clash is. One trope keeps one root, so a second trope chapter of the same title is refused, at the word `Trope` of its identity line. `titleOf` reads a chapter's title.
+`declaredKindsOf` builds the registry from a corpus. It gathers the tropes and folds over them, carrying the registry so far, and `withTrope` adds one trope. A workspace may also install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their declarations arrive as `installed`. The fold starts from them, so a trope of the book that declares a kind an installed trope declares is refused, as any later clash is. One trope keeps one root, so a second trope chapter of the same title is refused, at the word `Trope` of its identity line. `titleOf` reads a chapter's title.
 
-`withRoot` reads the root's manifest, when the root holds one. A root whose manifest reads and clashes with nothing adds every kind it declares, and `kindsOf` turns them into rows of the registry. A root Loom refuses adds its refusal and none of its kinds, since the author agreed to the trope as a whole, and a trope that runs half its offer is not the trope the author agreed to.
+`withRoot` reads the root's manifest, when the root holds one. A root whose manifest reads and clashes with nothing adds every kind it declares, and `boxesOf` and `sectionsOf` turn them into rows of the registry. A root Loom refuses adds its refusal and none of its kinds, since the author agreed to the trope as a whole, and a trope that runs half its offer is not the trope the author agreed to.
 
 =>
 
@@ -146,14 +199,26 @@ export const titleOf = (module: LoomModule): string =>
     () => module.path,
   )
 
-const kindsOf = (
+const boxesOf = (
   trope: string,
   root: LoomModule,
   manifest: TropeManifest,
-): ReadonlyArray<DeclaredKind> =>
-  Array.map(manifest.contributes.kinds.box, (declaration): DeclaredKind => ({
+): ReadonlyArray<DeclaredBox> =>
+  Array.map(boxKindsOf(manifest), (declaration): DeclaredBox => ({
     kind: declaration.kind,
     body: declaration.body,
+    trope,
+    module: root.path,
+  }))
+
+const sectionsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredSection> =>
+  Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
+    kind: declaration.kind,
+    parameters: parametersOf(declaration),
     trope,
     module: root.path,
   }))
@@ -176,9 +241,13 @@ const withRoot = (
       Result.match(manifestOf(modules, catalogue, root, manifests), {
         onFailure: (refusal) => refused(kinds, refusal),
         onSuccess: ({ manifest, at }) =>
-          Option.match(clashOf(manifest.contributes.kinds.box, kinds.box), {
+          Option.match(refusalIn(manifest, kinds), {
             onSome: (reason) => refused(kinds, { module: root.path, reason, at }),
-            onNone: () => ({ ...kinds, box: [...kinds.box, ...kindsOf(trope, root, manifest)] }),
+            onNone: () => ({
+              ...kinds,
+              box: [...kinds.box, ...boxesOf(trope, root, manifest)],
+              section: [...kinds.section, ...sectionsOf(trope, root, manifest)],
+            }),
           }),
       }),
   })
@@ -212,10 +281,10 @@ const withTrope = (
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   catalogue: Catalogue,
-  installed: ReadonlyArray<DeclaredKind> = [],
+  installed: Declarations = noDeclarations,
 ): DeclaredKinds => {
-  const tropes = tropesOf(modules)
-  return Array.reduce(tropes, { ...noKinds, tropes, box: installed }, (kinds, trope) =>
+  const fromInstalled: DeclaredKinds = { ...installed, refusals: [] }
+  return Array.reduce(tropesOf(modules), fromInstalled, (kinds, trope) =>
     withTrope(modules, catalogue, kinds, trope),
   )
 }
@@ -289,7 +358,7 @@ const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
 
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds` the core keeps, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shapes it reads.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds` and `sectionKinds` the core keeps, the `headingKeys` it keeps with `keyType` and the `Keys` a kind's parameters are, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shapes it reads and the two functions that read a manifest's tables.
 
 =>
 
@@ -300,8 +369,12 @@ import {
   boxKind,
   boxKinds,
   type FrontmatterTropeToken,
+  headingKeys,
+  type Keys,
+  keyType,
   type ParameterToken,
   type ParametersToken,
+  sectionKinds,
   type SpecifierToken,
   tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
@@ -312,9 +385,16 @@ import {
   openedBoxesOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
-import { fromCode } from './LoomVirtualCodeBuilder'
+import type { Code } from '@athrio/loom-ast/ProductAst'
+import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
 import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
-import { type BoxKindDeclaration, readManifest, type TropeManifest } from './TropeManifest'
+import {
+  boxKindsOf,
+  readManifest,
+  type SectionKindDeclaration,
+  sectionKindsOf,
+  type TropeManifest,
+} from './TropeManifest'
 
 ## The module [src/ast/DeclaredKinds.ts]
 
@@ -464,7 +544,7 @@ describe('a box of a kind nobody declares', () => {
 
 ## A kind a trope declares
 
-Once a trope's root declares a kind, a box of that kind raises nothing, in any case of letters, and in any loom of the book. A box of a kind still unknown then lists the declared kinds after the core's. A manifest's code composes like any section's, so a manifest may draw its kinds from another section with an anchor.
+Once a trope's root declares a kind, a box of that kind raises nothing, in any case of letters, and in any loom of the book. A box of a kind still unknown then lists the declared kinds after the core's. A manifest's code composes like any section's, so a manifest may draw its kinds from another section with an anchor. The section may stand in the root or in a member of any trope. A chapter of no trope lends a manifest nothing, so Loom refuses a manifest that draws on one, and names the section it could not find.
 
 =>
 
@@ -509,6 +589,45 @@ describe('a box of a kind a trope declares', () => {
     const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawn }
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
     expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
+  })
+
+  const kindLoom = (identity: ReadonlyArray<string>) =>
+    lines(
+      '---',
+      'Chapter: The Mermaid kind',
+      ...identity,
+      'Language: JSON',
+      '---',
+      '',
+      '# The Mermaid kind',
+      '',
+      '=>',
+      '{ "kind": "Mermaid", "body": "mermaid" }',
+    )
+
+  const drawing = rootLoom('Mermaid', [
+    '{ "contract": "1", "contributes": { "kinds": { "box": [',
+    anchor('The Mermaid kind'),
+    '] } } }',
+  ])
+
+  const kindAt = '/corpus/mermaid/the-kind.loom'
+
+  it('may come from a manifest that draws in a section of a member', async () => {
+    const files = {
+      [cells]: chapterWith('{Mermaid}'),
+      [mermaid]: drawing,
+      [kindAt]: kindLoom(['Rooted in: Mermaid']),
+    }
+    expect(faultsOf(await diagnosed(files, cells))).toEqual([])
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
+  })
+
+  it('comes from no chapter outside a trope', async () => {
+    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawing, [kindAt]: kindLoom([]) }
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([
+      refusedFor('its manifest draws on `The Mermaid kind`, which no chapter of a trope holds'),
+    ])
   })
 })
 
@@ -614,6 +733,163 @@ describe('roots and kinds that clash', () => {
   })
 })
 
+## A kind of section, taken or free
+
+A kind of section clashes as a kind of box does. A root that declares one of the core's own kinds of section is refused, and so is the later of two roots that declare one kind. A root is refused as well when a kind of its declares a parameter under one of the core's own keys. A kind of box and a kind of section may share a name, since each table is judged alone. `sections` writes a manifest that declares the given kinds of section.
+
+=>
+
+describe('kinds of section that clash', () => {
+  const first = '/corpus/tropes/a-decisions.loom'
+  const second = '/corpus/tropes/b-choices.loom'
+  const sections = (
+    ...kinds: ReadonlyArray<{ kind: string; parameters?: Record<string, unknown> }>
+  ): string => JSON.stringify({ contract: '1', contributes: { kinds: { section: kinds } } })
+
+  it('refuses a root that declares a core kind of section', async () => {
+    const files = { [first]: rootLoom('Decisions', [sections({ kind: 'tangle' })]) }
+    expect(faultsOf(await diagnosed(files, first))).toEqual([
+      refusedFor("`tangle` is one of Loom's own kinds"),
+    ])
+  })
+
+  it('refuses the later of two roots that declare one kind of section', async () => {
+    const files = {
+      [first]: rootLoom('Decisions', [sections({ kind: 'Option' })]),
+      [second]: rootLoom('Choices', [sections({ kind: 'option' })]),
+    }
+    expect(faultsOf(await diagnosed(files, first))).toEqual([])
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      refusedFor('the `Decisions` trope declares `option` already'),
+    ])
+  })
+
+  it("refuses a parameter under one of the core's own keys", async () => {
+    const files = {
+      [first]: rootLoom('Decisions', [sections({ kind: 'Option', parameters: { lang: 'text' } })]),
+    }
+    expect(faultsOf(await diagnosed(files, first))).toEqual([
+      refusedFor("`lang` is one of Loom's own keys"),
+    ])
+  })
+
+  it('lets a kind of box and a kind of section share a name', async () => {
+    const both = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { box: [{ kind: 'Option', body: 'text' }], section: [{ kind: 'Option' }] } },
+    })
+    expect(faultsOf(await diagnosed({ [first]: rootLoom('Decisions', [both]) }, first))).toEqual([])
+  })
+})
+
+## A heading of a kind a trope declares
+
+Once a trope's root declares a kind of section, a heading in any loom of the book may name it, with the parameters the kind takes. A parameter of the kind is read through its type, and it stays unknown on a heading of no kind. A kind nobody declares lists the declared kinds after the core's. The root itself may write a heading of the kind it declares, since the root is built with the registry like every loom, after its manifest is read with core Loom.
+
+The registry is read before the looms, so a manifest that comes to declare another kind changes how every loom reads. The last case edits a manifest under one compiler and reads a chapter before and after.
+
+`declaringSection` writes a manifest that declares one kind of section, whose headings take a `status`. `record` is a chapter with one heading that wears the given braces, and `book` sets it beside a root that declares the `Option` kind. `said` keeps the messages about what a heading takes.
+
+=>
+
+describe('a heading of a kind a trope declares', () => {
+  const decisions = '/corpus/decisions/declaring.loom'
+  const chapter = '/corpus/record.loom'
+
+  const declaringSection = (kind: string): string =>
+    JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [{ kind, parameters: { status: { choice: ['chosen', 'rejected'] } } }],
+        },
+      },
+    })
+
+  const record = (braces: string) =>
+    lines(
+      '---',
+      'Part I, Chapter 1: A record',
+      '---',
+      '',
+      '# A record',
+      '',
+      `## Postgres ${braces}`,
+      '',
+      'Prose.',
+    )
+
+  const book = (braces: string): Record<string, string> => ({
+    [chapter]: record(braces),
+    [decisions]: rootLoom('Decisions', [declaringSection('Option')]),
+  })
+
+  const said = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes(' takes no '))
+
+  it('raises nothing, named by a label or with a parameter the kind takes', async () => {
+    expect(said(await diagnosed(book('{Option}'), chapter))).toEqual([])
+    expect(said(await diagnosed(book('{kind=option status=chosen}'), chapter))).toEqual([])
+  })
+
+  it("reads the kind's parameter through its type", async () => {
+    expect(said(await diagnosed(book('{kind=Option status=maybe}'), chapter))).toEqual([
+      '`status` takes no `maybe`. It takes `chosen` and `rejected`.',
+    ])
+  })
+
+  it("keeps the kind's parameter from a heading of no kind", async () => {
+    expect(said(await diagnosed(book('{status=chosen}'), chapter))).toEqual([
+      'A heading takes no `status` key. It takes `lang` and `kind`.',
+    ])
+  })
+
+  it('joins the kinds a fault lists', async () => {
+    expect(said(await diagnosed(book('{kind=Bogus}'), chapter))).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
+  })
+
+  it('is a fault while no trope declares it', async () => {
+    expect(said(await diagnosed({ [chapter]: record('{kind=Option}') }, chapter))).toEqual([
+      'A heading takes no `Option` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
+    ])
+  })
+
+  it('may stand in the root that declares it', async () => {
+    const root = lines(
+      rootLoom('Decisions', [declaringSection('Option')]),
+      '## Postgres {kind=Option status=chosen}',
+      '',
+      'Prose.',
+    )
+    const found = await diagnosed({ [decisions]: root }, decisions)
+    expect(said(found)).toEqual([])
+    expect(faultsOf(found)).toEqual([])
+  })
+
+  it('reads every loom again when a manifest comes to declare another kind', async () => {
+    const files = book('{kind=Choice}')
+    const found = await Effect.runPromise(
+      Effect.gen(function* () {
+        const compiler = yield* LoomCompiler
+        const before = yield* compiler.diagnose(chapter)
+        files[decisions] = rootLoom('Decisions', [declaringSection('Choice')])
+        yield* compiler.invalidate(decisions)
+        const after = yield* compiler.diagnose(chapter)
+        return {
+          before: before.map((d) => d.message),
+          after: after.map((d) => d.message),
+        }
+      }).pipe(Effect.provide(layerOf(files))),
+    )
+    expect(said(found.before)).toEqual([
+      'A heading takes no `Choice` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
+    expect(said(found.after)).toEqual([])
+  })
+})
+
 ## The test file [test/DeclaredKinds.test.ts]
 
 =>
@@ -627,3 +903,7 @@ describe('roots and kinds that clash', () => {
 ::[A root Loom refuses]
 
 ::[One trope, one root, one meaning for a kind]
+
+::[A kind of section, taken or free]
+
+::[A heading of a kind a trope declares]

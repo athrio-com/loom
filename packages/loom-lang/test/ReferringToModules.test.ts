@@ -22,6 +22,7 @@ const plainPaths: LanguagePackagesApi = {
   hold: () => Effect.void,
   moduleSpecifier: (request) =>
     Effect.succeed(Option.some(`'./${relative(dirname(request.from), request.to)}'`)),
+  languagesFor: () => Effect.succeed(Option.some(['typescript'])),
 }
 
 const sourceOf = (files: Record<string, string>) => ({
@@ -424,6 +425,23 @@ describe('the TypeScript service writes a module anchor end to end', () => {
       }).pipe(Effect.provide(onDisk)),
     60_000,
   )
+
+  it.effect(
+    'serves JavaScript beside TypeScript, and no other language',
+    () =>
+      Effect.gen(function* () {
+        const workspace = workspaceWith({})
+        const packages = yield* LanguagePackages
+        const served = yield* packages.languagesFor(join(workspace, 'corpus', 'room.loom'))
+        expect(Option.map(served, (languages) => languages.includes('javascript'))).toEqual(
+          Option.some(true),
+        )
+        expect(Option.map(served, (languages) => languages.includes('lua'))).toEqual(
+          Option.some(false),
+        )
+      }).pipe(Effect.provide(onDisk)),
+    60_000,
+  )
 })
 
 describe('the held layer answers from the packages the server holds', () => {
@@ -448,6 +466,19 @@ describe('the held layer answers from the packages the server holds', () => {
       expect(yield* packages.moduleSpecifier(request)).toEqual(Option.none())
       yield* packages.hold(workspace, [answering])
       expect(yield* packages.moduleSpecifier(request)).toEqual(Option.some("'./a.js'"))
+    }).pipe(Effect.provide(LanguagePackages.held.pipe(Layer.provide(LoomConfig.layer)))),
+  )
+
+  it.effect('names the languages its packages serve, once it holds them', () =>
+    Effect.gen(function* () {
+      const workspace = workspaceWith({})
+      const bare = realpathSync(mkdtempSync(join(tmpdir(), 'loom-bare-')))
+      const packages = yield* LanguagePackages
+      const loom = join(workspace, 'corpus', 'b.loom')
+      expect(yield* packages.languagesFor(loom)).toEqual(Option.none())
+      yield* packages.hold(workspace, [{ ...answering, languages: ['tsx', 'typescript'] }])
+      expect(yield* packages.languagesFor(loom)).toEqual(Option.some(['typescript', 'tsx']))
+      expect(yield* packages.languagesFor(join(bare, 'b.loom'))).toEqual(Option.none())
     }).pipe(Effect.provide(LanguagePackages.held.pipe(Layer.provide(LoomConfig.layer)))),
   )
 })

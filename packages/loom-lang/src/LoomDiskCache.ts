@@ -23,6 +23,7 @@ import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { type BuildSettings } from './WorkspaceSettings'
+import { type SectionKind } from '#ast/LoomDocumentBuilder'
 
 const cacheFormat = 1
 
@@ -50,7 +51,13 @@ const sourceDirs = (): ReadonlyArray<string> =>
 const fingerprintNow = (): string =>
   `${serviceVersion}:${Math.max(0, ...Array.map(sourceDirs(), newestIn))}`
 
-const keyOf = (fingerprint: string, path: Location, text: string, settings: BuildSettings): string =>
+const keyOf = (
+  fingerprint: string,
+  path: Location,
+  text: string,
+  settings: BuildSettings,
+  declared: ReadonlyArray<SectionKind>,
+): string =>
   createHash('sha256')
     .update(
       JSON.stringify([
@@ -60,6 +67,7 @@ const keyOf = (fingerprint: string, path: Location, text: string, settings: Buil
         settings.delims,
         settings.primaryLanguage ?? null,
         settings.variables,
+        declared,
         text,
       ]),
     )
@@ -162,6 +170,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
         saved: Source,
         path: Location,
         settings: BuildSettings,
+        declared: ReadonlyArray<SectionKind>,
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
@@ -171,7 +180,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
               onSome: (workspace) =>
                 source.read(path).pipe(
                   Effect.flatMap((text) => {
-                    const key = keyOf(fingerprint, path, text, settings)
+                    const key = keyOf(fingerprint, path, text, settings, declared)
                     const file = keptFileOf(workspace, path)
                     return Effect.sync(() => recall(file, key, path, text)).pipe(
                       Effect.flatMap(
@@ -201,6 +210,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
       _saved: Source,
       _path: Location,
       _settings: BuildSettings,
+      _declared: ReadonlyArray<SectionKind>,
       build: Effect.Effect<LoomModule>,
     ): Effect.Effect<LoomModule> => build,
   })

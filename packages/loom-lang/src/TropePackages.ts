@@ -5,10 +5,10 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { installedTropeVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
 import { catalogueOf, type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { type DeclaredKind, declaredKindsOf } from '#ast/DeclaredKinds'
+import { type Declarations, declaredKindsOf, noDeclarations } from '#ast/DeclaredKinds'
 
 export interface TropePackagesApi {
-  readonly kindsFor: (loom: Location) => Effect.Effect<ReadonlyArray<DeclaredKind>>
+  readonly kindsFor: (loom: Location) => Effect.Effect<Declarations>
 }
 
 const fromDisk: Source = {
@@ -44,12 +44,12 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
   make: Effect.gen(function* () {
     const config = yield* LoomConfig
     const builder = yield* LoomCorpusAstBuilder
-    const kept = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<DeclaredKind>>>(new Map())
+    const kept = yield* Ref.make<ReadonlyMap<string, Declarations>>(new Map())
 
     const installedKinds = (
       workspace: Location,
       tropes: ReadonlyArray<string>,
-    ): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+    ): Effect.Effect<Declarations> =>
       Effect.forEach(
         Array.flatMap(tropes, (id) => loomsIn(join(tropeDir(id, workspace), 'looms'))),
         (path) =>
@@ -67,14 +67,14 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
             { discard: true },
           ),
         ),
-        Effect.map((kinds) => kinds.box),
+        Effect.map((kinds): Declarations => ({ box: kinds.box, section: kinds.section })),
       )
 
-    const kindsFor = (loom: Location): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+    const kindsFor = (loom: Location): Effect.Effect<Declarations> =>
       config.resolve(loom).pipe(
         Effect.flatMap(({ workspaceRoot, tropes }) =>
           Option.match(Option.fromNullishOr(workspaceRoot), {
-            onNone: () => Effect.succeed<ReadonlyArray<DeclaredKind>>([]),
+            onNone: () => Effect.succeed(noDeclarations),
             onSome: (workspace) => {
               const ids = Option.getOrElse(Option.fromNullishOr(tropes), () => [])
               const key = keyFor(workspace, ids)

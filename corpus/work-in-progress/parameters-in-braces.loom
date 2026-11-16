@@ -85,7 +85,11 @@ A value's shape never decides its type. The key's declared type decides it, and 
 
 The pass that checks parameters, which the chapter "Small passes over the tree" describes, reads each value through its key's type. A key declared as a number reads `width=480` as 480, and `width=wide` is a fault that asks for a number. A key that holds one value and is given a list is a fault as well. A key declared as a list of references reads `related=[Anchor, Sink]` as two sections, and the book's graph shows a relation to each.
 
-The core's own keys are typed as well. `lang` and `kind` each hold one value of text, `provides` holds a list, and the `anchors` key of a trope box holds a reference. Loom never judges the name of a language, so `lang` takes any name. A kind's name is judged apart from its type, by the passes that claim kinds and check them.
+The core's own keys are typed as well. `lang` and `kind` each hold one value of text, `provides` holds a list, and the `anchors` key of a trope box holds a reference.
+
+The `lang` key takes any name, because Loom composes and tangles code in a language it has never heard of. The name still matters to the editor. A language is checked there only when a language service of the workspace serves it, so Loom warns of a name that no service serves, as the chapter "The compile layer" describes. The code tangles all the same.
+
+A kind's name is judged apart from its type, by the passes that claim kinds and check them.
 
 A value is never typed by how it looks. A format that guesses a type from a value's look surprises its authors: YAML 1.1 reads a bare `NO`, Norway's country code, as false. HTML gives every attribute value as text, and each element's definition says what its `width` means. A specifier works the way HTML does, so `NO` stays text wherever its key says text.
 
@@ -325,7 +329,7 @@ describe('reading a value through a type', () => {
 
 ## What this chapter grows into
 
-1. The keys a trope's manifest declares for each kind it contributes, each with its type.
+1. The keys a trope declares for a kind of anchor and for a kind of box, and the keys any heading may carry, each with its type. A kind of section declares its keys already, as Part XIII, Tropes, describes.
 2. Completion of a value from its key's type, and a hover on a key that shows the type and the trope that declared it.
 
 When the value types and the keys of tropes land, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

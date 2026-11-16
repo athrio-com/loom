@@ -5,8 +5,12 @@ import {
   boxKind,
   boxKinds,
   type FrontmatterTropeToken,
+  headingKeys,
+  type Keys,
+  keyType,
   type ParameterToken,
   type ParametersToken,
+  sectionKinds,
   type SpecifierToken,
   tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
@@ -17,9 +21,16 @@ import {
   openedBoxesOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
-import { fromCode } from './LoomVirtualCodeBuilder'
+import type { Code } from '@athrio/loom-ast/ProductAst'
+import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
 import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
-import { type BoxKindDeclaration, readManifest, type TropeManifest } from './TropeManifest'
+import {
+  boxKindsOf,
+  readManifest,
+  type SectionKindDeclaration,
+  sectionKindsOf,
+  type TropeManifest,
+} from './TropeManifest'
 
 export type Trope = {
   readonly name: string
@@ -27,22 +38,30 @@ export type Trope = {
   readonly root: Option.Option<LoomModule>
 }
 
-export type DeclaredKind = {
+export type DeclaredBox = {
   readonly kind: string
   readonly body: string
   readonly trope: string
   readonly module: Location
 }
 
-export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
-
-export type DeclaredKinds = {
-  readonly tropes: ReadonlyArray<Trope>
-  readonly box: ReadonlyArray<DeclaredKind>
-  readonly refusals: ReadonlyArray<Refusal>
+export type DeclaredSection = {
+  readonly kind: string
+  readonly parameters: Keys
+  readonly trope: string
+  readonly module: Location
 }
 
-const noKinds: DeclaredKinds = { tropes: [], box: [], refusals: [] }
+export type Declarations = {
+  readonly box: ReadonlyArray<DeclaredBox>
+  readonly section: ReadonlyArray<DeclaredSection>
+}
+
+export const noDeclarations: Declarations = { box: [], section: [] }
+
+export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
+
+export type DeclaredKinds = Declarations & { readonly refusals: ReadonlyArray<Refusal> }
 
 const tropeLine = (module: LoomModule): Option.Option<FrontmatterTropeToken> =>
   Option.orElse(Option.fromNullishOr(module.doc.frontmatter?.trope), () =>
@@ -78,6 +97,17 @@ const manifestSectionsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
 
 type Read = { readonly manifest: TropeManifest; readonly at: Position }
 
+const composedOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  catalogue: Catalogue,
+  code: Code,
+): Result.Result<string, string> =>
+  Array.match(unfoundIn(modules, code, catalogue), {
+    onEmpty: () => Result.succeed(fromCode(modules, code, catalogue).code),
+    onNonEmpty: ([name]) =>
+      Result.fail(`its manifest draws on \`${name}\`, which no chapter of a trope holds`),
+  })
+
 const manifestOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   catalogue: Catalogue,
@@ -92,9 +122,11 @@ const manifestOf = (
     onEmpty: () =>
       pipe(
         Array.findFirst(root.product.code, (code) => code.origin.name === sectionNameOf(section)),
-        Option.map((code) => fromCode(modules, code, catalogue).code),
-        Option.getOrElse(() => ''),
-        readManifest,
+        Option.match({
+          onNone: (): Result.Result<string, string> => Result.succeed(''),
+          onSome: (code) => composedOf(modules, catalogue, code),
+        }),
+        Result.flatMap(readManifest),
         Result.map((manifest): Read => ({ manifest, at: section.heading.position })),
         Result.mapError((reason) => refusal(reason, section.heading.position)),
       ),
@@ -103,16 +135,18 @@ const manifestOf = (
 
 const sameKind = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase()
 
+type Taken = { readonly kind: string; readonly trope: string }
+
 const clashOf = (
-  declared: ReadonlyArray<BoxKindDeclaration>,
-  taken: ReadonlyArray<DeclaredKind>,
+  declared: ReadonlyArray<string>,
+  core: ReadonlyArray<string>,
+  taken: ReadonlyArray<Taken>,
 ): Option.Option<string> =>
-  Array.findFirst(declared, (declaration, at) => {
-    const kind = declaration.kind
-    return Match.value({
-      core: Array.some(boxKinds, (core) => sameKind(core, kind)),
+  Array.findFirst(declared, (kind, at) =>
+    Match.value({
+      core: Array.some(core, (own) => sameKind(own, kind)),
       earlier: Array.findFirst(taken, (other) => sameKind(other.kind, kind)),
-      twice: Array.some(Array.take(declared, at), (before) => sameKind(before.kind, kind)),
+      twice: Array.some(Array.take(declared, at), (before) => sameKind(before, kind)),
     }).pipe(
       Match.when({ core: true }, () => Option.some(`\`${kind}\` is one of Loom's own kinds`)),
       Match.when({ earlier: Option.isSome }, ({ earlier }) =>
@@ -120,8 +154,28 @@ const clashOf = (
       ),
       Match.when({ twice: true }, () => Option.some(`it declares \`${kind}\` twice`)),
       Match.orElse(() => Option.none<string>()),
-    )
-  })
+    ),
+  )
+
+const parametersOf = (declaration: SectionKindDeclaration): Keys =>
+  Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))
+
+const ownKeyOf = (declared: ReadonlyArray<SectionKindDeclaration>): Option.Option<string> =>
+  pipe(
+    Array.flatMap(declared, (declaration) => Object.keys(parametersOf(declaration))),
+    Array.findFirst((key) => Option.isSome(keyType(headingKeys, key))),
+    Option.map((key) => `\`${key}\` is one of Loom's own keys`),
+  )
+
+const kindsIn = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
+  Array.map(declared, (declaration) => declaration.kind)
+
+const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<string> =>
+  pipe(
+    clashOf(kindsIn(boxKindsOf(manifest)), boxKinds, taken.box),
+    Option.orElse(() => clashOf(kindsIn(sectionKindsOf(manifest)), sectionKinds, taken.section)),
+    Option.orElse(() => ownKeyOf(sectionKindsOf(manifest))),
+  )
 
 export const titleOf = (module: LoomModule): string =>
   Option.getOrElse(
@@ -129,14 +183,26 @@ export const titleOf = (module: LoomModule): string =>
     () => module.path,
   )
 
-const kindsOf = (
+const boxesOf = (
   trope: string,
   root: LoomModule,
   manifest: TropeManifest,
-): ReadonlyArray<DeclaredKind> =>
-  Array.map(manifest.contributes.kinds.box, (declaration): DeclaredKind => ({
+): ReadonlyArray<DeclaredBox> =>
+  Array.map(boxKindsOf(manifest), (declaration): DeclaredBox => ({
     kind: declaration.kind,
     body: declaration.body,
+    trope,
+    module: root.path,
+  }))
+
+const sectionsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredSection> =>
+  Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
+    kind: declaration.kind,
+    parameters: parametersOf(declaration),
     trope,
     module: root.path,
   }))
@@ -159,9 +225,13 @@ const withRoot = (
       Result.match(manifestOf(modules, catalogue, root, manifests), {
         onFailure: (refusal) => refused(kinds, refusal),
         onSuccess: ({ manifest, at }) =>
-          Option.match(clashOf(manifest.contributes.kinds.box, kinds.box), {
+          Option.match(refusalIn(manifest, kinds), {
             onSome: (reason) => refused(kinds, { module: root.path, reason, at }),
-            onNone: () => ({ ...kinds, box: [...kinds.box, ...kindsOf(trope, root, manifest)] }),
+            onNone: () => ({
+              ...kinds,
+              box: [...kinds.box, ...boxesOf(trope, root, manifest)],
+              section: [...kinds.section, ...sectionsOf(trope, root, manifest)],
+            }),
           }),
       }),
   })
@@ -195,10 +265,10 @@ const withTrope = (
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
   catalogue: Catalogue,
-  installed: ReadonlyArray<DeclaredKind> = [],
+  installed: Declarations = noDeclarations,
 ): DeclaredKinds => {
-  const tropes = tropesOf(modules)
-  return Array.reduce(tropes, { ...noKinds, tropes, box: installed }, (kinds, trope) =>
+  const fromInstalled: DeclaredKinds = { ...installed, refusals: [] }
+  return Array.reduce(tropesOf(modules), fromInstalled, (kinds, trope) =>
     withTrope(modules, catalogue, kinds, trope),
   )
 }

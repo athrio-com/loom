@@ -52,17 +52,21 @@ import {
   WrongValue,
 } from '#ast/LoomFault'
 
+export type SectionKind = { readonly kind: string; readonly parameters: Keys }
+
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
   {
     make: Effect.succeed({
-      build: (parsed: ParsedDocument): LoomDocument =>
-        pipe(
+      build: (parsed: ParsedDocument, declared: ReadonlyArray<SectionKind> = []): LoomDocument => {
+        const kinds = [...sectionKinds, ...Array.map(declared, (each) => each.kind)]
+        return pipe(
           parsed,
-          expandedDocument(sectionKinds),
-          claimedDocument(sectionKinds),
-          checkedDocument(coreKeys),
-        ),
+          expandedDocument(kinds),
+          claimedDocument(kinds),
+          checkedDocument(coreKeys, declared),
+        )
+      },
     }),
   },
 ) {
@@ -242,17 +246,37 @@ const takesOn =
     kinds: on === 'anchor' ? Option.some(anchorKinds) : Option.none(),
   })
 
+const kindTakes = (
+  takes: Takes,
+  declared: ReadonlyArray<SectionKind>,
+  kind: string | undefined,
+): Takes =>
+  pipe(
+    Option.fromNullishOr(kind),
+    Option.flatMap((claimed) => Array.findFirst(declared, (each) => each.kind === claimed)),
+    Option.match({
+      onNone: () => takes,
+      onSome: (found) => ({ ...takes, keys: { ...takes.keys, ...found.parameters } }),
+    }),
+  )
+
+const checkedSection =
+  (takes: Takes, declared: ReadonlyArray<SectionKind>) =>
+  (section: ClaimedSection): ClaimedSection => {
+    const heading = judged(faultedBraces(kindTakes(takes, declared, section.kind)))(section.heading)
+    return heading === section.heading ? section : { ...section, heading }
+  }
+
 export const checkedDocument =
-  (keys: Record<BracesOn, Keys>) =>
+  (keys: Record<BracesOn, Keys>, declared: ReadonlyArray<SectionKind> = []) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
     const takes = takesOn(keys)
-    return rewritten(claimed, {
-      LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
-        judged(faultedBraces(takes('heading')))(heading),
+    const inside: ClaimedDocument = rewritten(claimed, {
       WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
         judged(faultedBraces(takes('anchor')))(anchor),
       Box: (box: BoxToken): BoxToken => judged(faultedBraces(takes('box')))(box),
     })
+    return rewritten(inside, { LoomSection: checkedSection(takes('heading'), declared) })
   }
 
 const faultedBraces =

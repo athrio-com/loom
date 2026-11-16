@@ -333,6 +333,42 @@ export const moduleRefsIn = (
 ): ReadonlyArray<HeldModuleRef> =>
   moduleRefsFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
+## The names a composition cannot find
+
+A composition leaves an anchor's place empty when the catalogue it is composed against holds no section of the anchor's name. The composed text shows no trace of the gap, so a reader that needs the whole text asks for the missing names first. `unfoundIn` walks a root's composition as `unsettledIn` does. It gives each name that `targetOf` finds no section for, in the root's own code and in the code of every section the root composes. The registry of declared kinds asks it before it reads a trope's manifest, as the chapter "The kinds tropes declare" describes.
+
+=>
+
+const unfoundFrom =
+  (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
+  (node: Code): ReadonlyArray<string> =>
+    Array.flatMap(node.fragments, (part) =>
+      Match.value(part).pipe(
+        Match.when({ type: 'Fragment' }, (): ReadonlyArray<string> => []),
+        Match.when({ type: 'ModuleRef' }, (): ReadonlyArray<string> => []),
+        Match.when({ type: 'NameRef' }, (ref) =>
+          Option.match(targetOf(catalogue, node.origin.path, ref), {
+            onNone: (): ReadonlyArray<string> => [ref.name],
+            onSome: (reached) =>
+              pipe(
+                Option.some(reached),
+                Option.filter((found) => !seen.has(keyOf(found))),
+                Option.flatMap((found) => lookup(modules, found)),
+                Option.map(unfoundFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))),
+                Option.getOrElse((): ReadonlyArray<string> => []),
+              ),
+          }),
+        ),
+        Match.exhaustive,
+      ),
+    )
+
+export const unfoundIn = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  root: Code,
+  catalogue: Catalogue = catalogueOf(modules),
+): ReadonlyArray<string> => unfoundFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
+
 ## What an anchor says its section provides
 
 An anchor may state the names its section provides, as `::[Greeting function]{provides=greet}` does. A `Contract` is what one such anchor expects of the section it composes: the `section` as the anchor names it, the loom that holds the section as `target`, the `span` of the section's own code in that loom, the `language` that code is written in, and each `Provided` name with the place the anchor writes it. A trope box makes a contract too, with its entry point, and the contract then names the `trope`, so a missing name is laid at the trope's door rather than an anchor's. A language service reports the names a document declares, and the editor compares them with a contract, as the chapter "The Loom language" describes.
@@ -857,6 +893,8 @@ import {
 ::[What a composition leaves to be settled]
 
 ::[The module anchors a composition holds]
+
+::[The names a composition cannot find]
 
 ::[What an anchor says its section provides]
 

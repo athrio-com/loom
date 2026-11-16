@@ -8,7 +8,7 @@ Language: TypeScript
 
 A package turns a language on by naming its id in `loom.json` — `typescript`, `python`, `go`. Loom itself is the one language built into the server. Every other language ships as a `@athrio/loom-service-<id>` package the project installs. This module turns each activated id into the `LanguageService` that serves it: it finds the package the project installed, imports it, and confirms the package exports a service for that id.
 
-A language that fails to load costs only itself. Its sections stay at syntax highlighting — the floor every section keeps, with or without a service — while every other language serves on. Activating a language whose package is missing degrades the editor; it never breaks it.
+A language that fails to load costs only itself. Its sections stay at syntax highlighting — the floor every section keeps, with or without a service — while every other language serves on. Activating a language whose package is missing degrades the editor; it never breaks it. Each loom that names the language carries a warning that nothing serves it, as the chapter "The compile layer" describes.
 
 ## Importing one language's package
 

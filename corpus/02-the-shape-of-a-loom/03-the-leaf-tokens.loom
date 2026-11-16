@@ -78,7 +78,7 @@ export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
 ## A specifier's parameters
 
-A specifier may hold parameters in place of one label, as the chapter "Parameters in braces" describes. A parameter is a key, an equals sign, and a value, as in `provides=greet`. A value is bare, quoted, or a list in square brackets, so `provides=[greet, farewell]` gives its key two values. A `ParameterKey` holds the key, and a `ParameterValue` holds one value, with a quoted value's quotes and escapes already undone. A `Parameter` pairs a key with its values, and a `Parameters` token holds every parameter of one specifier between its braces. The specifiers of a heading, an anchor, and a box all hold parameters. `parameterValue` reads the value one key holds, the first value when the key holds a list.
+A specifier may hold parameters in place of one label, as the chapter "Parameters in braces" describes. A parameter is a key, an equals sign, and a value, as in `provides=greet`. A value is bare, quoted, or a list in square brackets, so `provides=[greet, farewell]` gives its key two values. A `ParameterKey` holds the key, and a `ParameterValue` holds one value, with a quoted value's quotes and escapes already undone. A `Parameter` pairs a key with its values, and a `Parameters` token holds every parameter of one specifier between its braces. The specifiers of a heading, an anchor, and a box all hold parameters. `firstValue` gives the token of the value one key holds, the first value when the key holds a list, and `parameterValue` reads that token's text.
 
 A label may not stand beside parameters, but an author may write one there. The `labels` field of a `Parameters` token keeps such words, each run of them as one label, so the pass that expands short forms can fault each where it stands. Sound braces hold none.
 
@@ -108,12 +108,17 @@ export const ParametersTokenSchema = loomNode('Parameters', {
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type
 
-export const parameterValue = (specifier: ParametersToken, key: string): Option.Option<string> =>
+export const firstValue = (
+  specifier: ParametersToken,
+  key: string,
+): Option.Option<ParameterValueToken> =>
   pipe(
     Array.findFirst(specifier.parameters, (parameter) => parameter.key.value === key),
     Option.flatMap((parameter) => Array.head(parameter.values)),
-    Option.map((value) => value.value),
   )
+
+export const parameterValue = (specifier: ParametersToken, key: string): Option.Option<string> =>
+  Option.map(firstValue(specifier, key), (value) => value.value)
 
 ## A value's type
 
@@ -242,7 +247,7 @@ export const anchorKeys: Keys = { kind: 'text', provides: { list: 'text' } }
 
 ## What a heading's braces say
 
-A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. Loom never judges the name of a language, and the pass that claims kinds judges the name of a kind.
+A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. A heading may name any language, since Loom composes code in a language it has never heard of. The compiler warns of a language that no service of the workspace serves, as the chapter "The compile layer" describes. The pass that claims kinds judges the name of a kind.
 
 The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
 
@@ -278,12 +283,15 @@ export const labelKey =
 
 ~
 
-That pass writes every label of a heading in full, as the chapter "Small passes over the tree" describes, so a heading's braces hold parameters by the time anything reads what they say. `headingLang` reads the language the parameters name, and gives nothing when they name none. The kind is not read here. The pass that claims kinds gives each section the kind its heading names, and every reader takes the kind from the section.
+That pass writes every label of a heading in full, as the chapter "Small passes over the tree" describes, so a heading's braces hold parameters by the time anything reads what they say. `headingLangToken` gives the token that names the language, with its place in the heading, and gives nothing when the parameters name none. `headingLang` reads the name alone. The kind is not read here. The pass that claims kinds gives each section the kind its heading names, and every reader takes the kind from the section.
 
 =>
 
+export const headingLangToken = (held: ParametersToken): Option.Option<ParameterValueToken> =>
+  firstValue(held, 'lang')
+
 export const headingLang = (held: ParametersToken): Option.Option<string> =>
-  parameterValue(held, 'lang')
+  Option.map(headingLangToken(held), (named) => named.value)
 
 ## Sinks
 

@@ -13,6 +13,7 @@ export interface LanguageService {
   readonly id: string
   readonly displayName: string
   readonly extensions: ReadonlyArray<string>
+  readonly languages?: ReadonlyArray<string>
   readonly plugins: (
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>

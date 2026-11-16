@@ -2,6 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LanguagePackages } from '../src/LanguagePackages'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
@@ -936,6 +937,152 @@ describe('code in prose', () => {
         ),
       }
       expect(yield* inProse(files, '/corpus/notes.loom')).toEqual([])
+    }),
+  )
+})
+
+const servingLayer = (
+  files: Record<string, string>,
+  served: Option.Option<ReadonlyArray<string>>,
+) =>
+  Layer.provide(
+    layerOf(files),
+    Layer.succeed(LanguagePackages, {
+      hold: () => Effect.void,
+      moduleSpecifier: () => Effect.succeed(Option.none()),
+      languagesFor: () => Effect.succeed(served),
+    }),
+  )
+
+const unservedFault = (language: string): string =>
+  `No language service of this workspace serves \`${language}\`, so the editor checks none of its code. The code tangles all the same. Turn the language on with \`loom add ${language}\`.`
+
+const unserved = (
+  files: Record<string, string>,
+  entry: string,
+  served: Option.Option<ReadonlyArray<string>> = Option.some(['typescript', 'javascript']),
+) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.diagnose(entry)),
+    Effect.provide(servingLayer(files, served)),
+    Effect.map((found) =>
+      found
+        .filter((d) => d.message.startsWith('No language service'))
+        .map((d) => ({ line: d.position.start.line, severity: d.severity, message: d.message })),
+    ),
+  )
+
+const recipe = lines(
+  '---',
+  'Language: Lua',
+  '---',
+  '',
+  '# A recipe [recipe.lua]',
+  '',
+  '=>',
+  'print("stir")',
+  '',
+  '## Installing it {Bash}',
+  '',
+  '=>',
+  'bun install',
+  '',
+  '## The same, in full {lang=sh}',
+  '',
+  '=>',
+  'bun install',
+)
+
+describe('a language no service serves', () => {
+  it.effect('warns of the chapter language and of each language a heading names', () =>
+    Effect.gen(function* () {
+      expect(yield* unserved({ '/corpus/recipe.loom': recipe }, '/corpus/recipe.loom')).toEqual([
+        { line: 2, severity: 'warning', message: unservedFault('lua') },
+        { line: 10, severity: 'warning', message: unservedFault('bash') },
+        { line: 15, severity: 'warning', message: unservedFault('sh') },
+      ])
+    }),
+  )
+
+  it.effect('tangles the code all the same', () =>
+    Effect.gen(function* () {
+      const files = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.tangle('/corpus/recipe.loom')),
+        Effect.provide(servingLayer({ '/corpus/recipe.loom': recipe }, Option.some([]))),
+      )
+      expect(files.length).toBe(1)
+      expect(files[0]!.content).toContain('print("stir")')
+    }),
+  )
+
+  it.effect('keeps quiet about a language a service serves beside its own', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/script.loom': lines(
+          '---',
+          'Language: JavaScript',
+          '---',
+          '',
+          '# A script [script.js]',
+          '',
+          '=>',
+          'const main = 1',
+          '',
+          '## Typed {TypeScript}',
+          '',
+          '=>',
+          'const typed: number = 1',
+        ),
+      }
+      expect(yield* unserved(files, '/corpus/script.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('keeps quiet about prose, a kind, and a sink', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines(
+          '---',
+          'Language: Prose',
+          'Package: notes.ts',
+          '---',
+          '',
+          '# Notes',
+          '',
+          '## The module {Tangle}',
+          '',
+          '=>',
+          'const notes = 1',
+          '',
+          '## The read-me [README.md]',
+          '',
+          '=>',
+          'Programs written to be read.',
+          '',
+          '## Plain {plaintext}',
+          '',
+          '=>',
+          'no language at all',
+        ),
+      }
+      expect(yield* unserved(files, '/corpus/notes.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('judges nothing while the packages of the workspace are not known', () =>
+    Effect.gen(function* () {
+      const files = { '/corpus/recipe.loom': recipe }
+      expect(yield* unserved(files, '/corpus/recipe.loom', Option.none())).toEqual([])
+    }),
+  )
+
+  it.effect('judges nothing where the environment provides no packages', () =>
+    Effect.gen(function* () {
+      const found = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/recipe.loom')),
+        Effect.provide(layerOf({ '/corpus/recipe.loom': recipe })),
+      )
+      expect(found.filter((d) => d.message.startsWith('No language service'))).toEqual([])
     }),
   )
 })

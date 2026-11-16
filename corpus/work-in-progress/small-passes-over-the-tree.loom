@@ -68,21 +68,27 @@ Each pass is a plain function from one tree to the next. A pass is not an Effect
 
 One service runs the passes in order. It takes the tree the parser built, the `ParsedDocument`, and returns the tree the last pass wrote, the `LoomDocument`. The product pass, the weave, and the editor read the `LoomDocument` and no other tree, so a pass added to the row renames nothing they read.
 
-`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn. It gives the passes the core's own kinds of section, and `coreKeys`, the keys the core lets a heading, an anchor, and a box take.
+`LoomDocumentBuilder` is that service. Its `build` method hands a parsed tree to each pass in turn.
+
+The passes read the tree against two things. The first is the core's own: its kinds of section, and `coreKeys`, the keys the core lets a heading, an anchor, and a box take. The second is what the workspace's tropes declare, which the caller hands in as `declared`, since the registry is gathered from the book and not from one loom, as Part XIII, Tropes, describes. A `SectionKind` is one declared kind of section: its name, and the `parameters` a heading of that kind may carry. A loom read with nothing declared is read with core Loom alone.
 
 =>
+
+export type SectionKind = { readonly kind: string; readonly parameters: Keys }
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
   {
     make: Effect.succeed({
-      build: (parsed: ParsedDocument): LoomDocument =>
-        pipe(
+      build: (parsed: ParsedDocument, declared: ReadonlyArray<SectionKind> = []): LoomDocument => {
+        const kinds = [...sectionKinds, ...Array.map(declared, (each) => each.kind)]
+        return pipe(
           parsed,
-          expandedDocument(sectionKinds),
-          claimedDocument(sectionKinds),
-          checkedDocument(coreKeys),
-        ),
+          expandedDocument(kinds),
+          claimedDocument(kinds),
+          checkedDocument(coreKeys, declared),
+        )
+      },
     }),
   },
 ) {
@@ -299,7 +305,9 @@ A value may also be a name the kind went by before, as `Reference` is a former n
 
 The pass judges the kind of an anchor alone. A box's kind is for the corpus to judge, since a trope in another loom may declare it, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `takesOn` gives kinds for an anchor and for no other bearer.
 
-The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` hands the fold a case for each bearer of braces: a heading, an anchor, and a box.
+The keys a heading takes depend on the kind its section claimed. A heading of a kind a trope declares takes that kind's parameters beside the core's keys, and `kindTakes` adds them. So a heading is checked through its section, which carries the kind, and `checkedSection` does that.
+
+The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` walks the tree twice. The fold stops at a node that a case rewrites, so a walk that rewrites sections never reaches the anchors and boxes inside them. The first walk checks every anchor and every box, and the second checks each heading through its section.
 
 =>
 
@@ -323,17 +331,37 @@ const takesOn =
     kinds: on === 'anchor' ? Option.some(anchorKinds) : Option.none(),
   })
 
+const kindTakes = (
+  takes: Takes,
+  declared: ReadonlyArray<SectionKind>,
+  kind: string | undefined,
+): Takes =>
+  pipe(
+    Option.fromNullishOr(kind),
+    Option.flatMap((claimed) => Array.findFirst(declared, (each) => each.kind === claimed)),
+    Option.match({
+      onNone: () => takes,
+      onSome: (found) => ({ ...takes, keys: { ...takes.keys, ...found.parameters } }),
+    }),
+  )
+
+const checkedSection =
+  (takes: Takes, declared: ReadonlyArray<SectionKind>) =>
+  (section: ClaimedSection): ClaimedSection => {
+    const heading = judged(faultedBraces(kindTakes(takes, declared, section.kind)))(section.heading)
+    return heading === section.heading ? section : { ...section, heading }
+  }
+
 export const checkedDocument =
-  (keys: Record<BracesOn, Keys>) =>
+  (keys: Record<BracesOn, Keys>, declared: ReadonlyArray<SectionKind> = []) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
     const takes = takesOn(keys)
-    return rewritten(claimed, {
-      LoomHeading: (heading: ExpandedHeading): ExpandedHeading =>
-        judged(faultedBraces(takes('heading')))(heading),
+    const inside: ClaimedDocument = rewritten(claimed, {
       WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
         judged(faultedBraces(takes('anchor')))(anchor),
       Box: (box: BoxToken): BoxToken => judged(faultedBraces(takes('box')))(box),
     })
+    return rewritten(inside, { LoomSection: checkedSection(takes('heading'), declared) })
   }
 
 ~
@@ -577,6 +605,8 @@ import {
   claimedDocument,
   coreKeys,
   expandedDocument,
+  LoomDocumentBuilder,
+  type SectionKind,
 } from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
@@ -896,6 +926,66 @@ describe('checking the values of braces', () => {
   })
 })
 
+## A kind of section a trope declares
+
+A trope's kinds of section reach the row as `declared`. The tests hand it one kind, `Option`, whose headings take a `status` that is one of two words, and `builtWith` runs the row over one heading with that kind declared.
+
+A label that names the declared kind states a kind, where the same label states a language when nothing is declared. A heading of the kind takes the kind's parameters, each read through its type, and no heading of another kind takes them. A kind that nothing declares lists the declared kinds after the core's.
+
+=>
+
+describe('a kind of section a trope declares', () => {
+  const declared: ReadonlyArray<SectionKind> = [
+    { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
+  ]
+
+  const builtWith = (heading: string, kinds: ReadonlyArray<SectionKind> = declared) =>
+    Effect.runSync(
+      Effect.gen(function* () {
+        const documents = yield* LoomDocumentBuilder
+        return documents.build(yield* parsedDocument(`${heading}\n\nProse.\n`), kinds)
+      }).pipe(Effect.provide(ParseLayer)),
+    ).sections[0]
+
+  const stated = (heading: string, kinds?: ReadonlyArray<SectionKind>) =>
+    (builtWith(heading, kinds)?.heading.specifier?.parameters ?? []).map(
+      (parameter) => [parameter.key.value, parameter.values[0]?.value] as const,
+    )
+
+  const said = (heading: string) => messagesIn(builtWith(heading)?.heading.specifier)
+
+  it('is claimed by a label, which states a language when nothing declares the kind', () => {
+    expect(stated('## Postgres {Option}')).toEqual([['kind', 'Option']])
+    expect(builtWith('## Postgres {option}')?.kind).toBe('Option')
+    expect(stated('## Postgres {Option}', [])).toEqual([['lang', 'Option']])
+  })
+
+  it("takes the kind's parameters, read through their types", () => {
+    expect(said('## Postgres {kind=Option status=chosen}')).toEqual([])
+    expect(said('## Postgres {kind=Option status=maybe}')).toEqual([
+      '`status` takes no `maybe`. It takes `chosen` and `rejected`.',
+    ])
+  })
+
+  it('lists the parameters of the kind among the keys its heading takes', () => {
+    expect(said('## Postgres {kind=Option flavour=dry}')).toEqual([
+      'A heading takes no `flavour` key. It takes `lang`, `kind`, and `status`.',
+    ])
+  })
+
+  it("keeps the kind's parameters from a heading of another kind", () => {
+    expect(said('## Postgres {status=chosen}')).toEqual([
+      'A heading takes no `status` key. It takes `lang` and `kind`.',
+    ])
+  })
+
+  it('lists the declared kinds after the core kinds, for a kind nothing declares', () => {
+    expect(said('## Postgres {kind=Bogus}')).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
+  })
+})
+
 ## An anchor's kind is one of its own
 
 An anchor's kind is `To be settled` or `Module`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A kind written by its former name gets a fault of its own, whose fix writes the present name over the former one. A box's kind is left for the book to judge.
@@ -985,6 +1075,8 @@ describe('the tree the row writes', () => {
 
 ::[A value is read through its key's type]
 
+::[A kind of section a trope declares]
+
 ::[An anchor's kind is one of its own]
 
 ::[The row writes the tree it claims]
@@ -996,7 +1088,7 @@ describe('the tree the row writes', () => {
 ## What this chapter grows into
 
 1. Expanding the label of an anchor and of a box. Those labels stay as the author wrote them, and a later reader takes the kind they name through the `specifierKind` function of the chapter "The leaf tokens".
-2. The keys and kinds a trope declares, handed to the passes from the registry, and data bodies in the pass that checks parameters, as the chapter "Tropes" describes.
+2. The kinds of anchor a trope declares, the keys of a declared kind of box, the parameters any heading may carry, and data bodies in the pass that checks parameters, as the chapter "Tropes" describes.
 3. The passes that follow: resolving references and setting data apart.
 4. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
 

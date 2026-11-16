@@ -6,7 +6,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import { readManifest } from '../src/ast/TropeManifest'
+import { boxKindsOf, readManifest, sectionKindsOf } from '../src/ast/TropeManifest'
 import { parseDocument, ParseLayer } from './parse'
 
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
@@ -131,7 +131,35 @@ describe('reading a manifest', () => {
 
   it('reads the kinds a fitting manifest declares', () => {
     const read = Result.getOrUndefined(readManifest(manifestOf('Mermaid', 'Run')))
-    expect(read?.contributes.kinds.box.map((declared) => declared.kind)).toEqual(['Mermaid', 'Run'])
+    expect(read && boxKindsOf(read).map((declared) => declared.kind)).toEqual(['Mermaid', 'Run'])
+  })
+
+  it('reads the kinds of section a manifest declares, with their parameters', () => {
+    const options = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [
+            { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
+            { kind: 'Context' },
+          ],
+        },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(options))
+    expect(read && sectionKindsOf(read)).toEqual([
+      { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
+      { kind: 'Context' },
+    ])
+    expect(read && boxKindsOf(read)).toEqual([])
+  })
+
+  it('refuses a parameter of a type the contract lacks', () => {
+    const dated = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { section: [{ kind: 'Option', parameters: { decided: 'date' } }] } },
+    })
+    expect(reason(dated)).toContain('its manifest does not fit contract 1:')
   })
 
   it('refuses text that is no JSON', () => {

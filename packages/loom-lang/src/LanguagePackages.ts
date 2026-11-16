@@ -16,7 +16,13 @@ export interface LanguagePackagesApi {
   readonly moduleSpecifier: (
     request: SpecifierRequest,
   ) => Effect.Effect<Option.Option<string>, ServiceError>
+  readonly languagesFor: (loom: Location) => Effect.Effect<Option.Option<ReadonlyArray<string>>>
 }
+
+const servedBy = (service: LanguageService): ReadonlyArray<string> => [
+  service.id,
+  ...Option.getOrElse(Option.fromNullishOr(service.languages), () => []),
+]
 
 type Question<A> = Effect.Effect<Option.Option<A>, ServiceError>
 
@@ -47,25 +53,41 @@ const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never,
         Effect.tap((services) => hold(workspace, services)),
       )
 
-    const packagesOf = (loom: Location): Effect.Effect<ReadonlyArray<LanguageService>> =>
+    const loadedFor = (
+      workspace: Location,
+      languages: ReadonlyArray<string>,
+    ): Effect.Effect<ReadonlyArray<LanguageService>> =>
+      Array.isReadonlyArrayNonEmpty(languages)
+        ? loaded(workspace, languages)
+        : Effect.succeed<ReadonlyArray<LanguageService>>([])
+
+    const knownPackagesOf = (
+      loom: Location,
+    ): Effect.Effect<Option.Option<ReadonlyArray<LanguageService>>> =>
       config.resolve(loom).pipe(
         Effect.flatMap(({ workspaceRoot, languages }) =>
           Option.match(Option.fromNullishOr(workspaceRoot), {
-            onNone: () => Effect.succeed<ReadonlyArray<LanguageService>>([]),
+            onNone: () => Effect.succeed(Option.none<ReadonlyArray<LanguageService>>()),
             onSome: (workspace) =>
               Ref.get(held).pipe(
                 Effect.flatMap((kept) =>
                   Option.match(Option.fromNullishOr(kept.get(workspace)), {
-                    onSome: (services) => Effect.succeed(services),
+                    onSome: (services) => Effect.succeed(Option.some(services)),
                     onNone: () =>
-                      loads && Array.isReadonlyArrayNonEmpty(languages)
-                        ? loaded(workspace, languages)
-                        : Effect.succeed<ReadonlyArray<LanguageService>>([]),
+                      loads
+                        ? Effect.map(loadedFor(workspace, languages), Option.some)
+                        : Effect.succeed(Option.none<ReadonlyArray<LanguageService>>()),
                   }),
                 ),
               ),
           }),
         ),
+      )
+
+    const packagesOf = (loom: Location): Effect.Effect<ReadonlyArray<LanguageService>> =>
+      Effect.map(
+        knownPackagesOf(loom),
+        Option.getOrElse((): ReadonlyArray<LanguageService> => []),
       )
 
     const firstAnswer = <A>(
@@ -82,6 +104,11 @@ const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never,
       moduleSpecifier: (request) =>
         firstAnswer(request.loom, (service) =>
           Option.map(Option.fromNullishOr(service.moduleSpecifier), (ask) => ask(request)),
+        ),
+      languagesFor: (loom) =>
+        Effect.map(
+          knownPackagesOf(loom),
+          Option.map((services) => Array.dedupe(Array.flatMap(services, servedBy))),
         ),
     }
   })

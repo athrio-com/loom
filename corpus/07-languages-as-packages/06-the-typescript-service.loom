@@ -87,7 +87,7 @@ export const configNear = (): ((path: string) => Option.Option<string>) => {
 
 ## Choosing a program for a section
 
-A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id, and serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx`. It declines the rest, so a JSON or CSS Product the `.loom` also holds falls to its own service. It then reads the file's composition — every root in the corpus that tangles to a file, at the path it tangles to — and looks for the one this document edits.
+A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id, and serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx`. `tsExtension` holds those four languages, each with the extension its files carry. It declines the rest, so a JSON or CSS Product the `.loom` also holds falls to its own service. It then reads the file's composition — every root in the corpus that tangles to a file, at the path it tangles to — and looks for the one this document edits.
 
 A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, so the program knows the root belongs to its loom alone rather than to a file the project wrote. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
@@ -787,7 +787,7 @@ const keepsTsExtension = (config: string): boolean =>
 
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a module anchor names.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `languages` are the four languages `tsExtension` holds, so Loom counts a JavaScript section as served wherever TypeScript is on. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a module anchor names.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -797,6 +797,7 @@ export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
   extensions: ['.ts', '.tsx'],
+  languages: Array.fromIterable(tsExtension.keys()),
   plugins: ({ settings }) =>
     Effect.gen(function* () {
       const sdk = yield* TypescriptSdk

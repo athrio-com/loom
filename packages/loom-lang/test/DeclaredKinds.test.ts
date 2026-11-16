@@ -156,6 +156,45 @@ describe('a box of a kind a trope declares', () => {
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
     expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
   })
+
+  const kindLoom = (identity: ReadonlyArray<string>) =>
+    lines(
+      '---',
+      'Chapter: The Mermaid kind',
+      ...identity,
+      'Language: JSON',
+      '---',
+      '',
+      '# The Mermaid kind',
+      '',
+      '=>',
+      '{ "kind": "Mermaid", "body": "mermaid" }',
+    )
+
+  const drawing = rootLoom('Mermaid', [
+    '{ "contract": "1", "contributes": { "kinds": { "box": [',
+    anchor('The Mermaid kind'),
+    '] } } }',
+  ])
+
+  const kindAt = '/corpus/mermaid/the-kind.loom'
+
+  it('may come from a manifest that draws in a section of a member', async () => {
+    const files = {
+      [cells]: chapterWith('{Mermaid}'),
+      [mermaid]: drawing,
+      [kindAt]: kindLoom(['Rooted in: Mermaid']),
+    }
+    expect(faultsOf(await diagnosed(files, cells))).toEqual([])
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
+  })
+
+  it('comes from no chapter outside a trope', async () => {
+    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawing, [kindAt]: kindLoom([]) }
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([
+      refusedFor('its manifest draws on `The Mermaid kind`, which no chapter of a trope holds'),
+    ])
+  })
 })
 
 describe('a root Loom refuses', () => {
@@ -245,5 +284,146 @@ describe('roots and kinds that clash', () => {
     expect(faultsOf(await diagnosed(files, first))).toEqual([
       refusedFor('it declares `chart` twice'),
     ])
+  })
+})
+
+describe('kinds of section that clash', () => {
+  const first = '/corpus/tropes/a-decisions.loom'
+  const second = '/corpus/tropes/b-choices.loom'
+  const sections = (
+    ...kinds: ReadonlyArray<{ kind: string; parameters?: Record<string, unknown> }>
+  ): string => JSON.stringify({ contract: '1', contributes: { kinds: { section: kinds } } })
+
+  it('refuses a root that declares a core kind of section', async () => {
+    const files = { [first]: rootLoom('Decisions', [sections({ kind: 'tangle' })]) }
+    expect(faultsOf(await diagnosed(files, first))).toEqual([
+      refusedFor("`tangle` is one of Loom's own kinds"),
+    ])
+  })
+
+  it('refuses the later of two roots that declare one kind of section', async () => {
+    const files = {
+      [first]: rootLoom('Decisions', [sections({ kind: 'Option' })]),
+      [second]: rootLoom('Choices', [sections({ kind: 'option' })]),
+    }
+    expect(faultsOf(await diagnosed(files, first))).toEqual([])
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      refusedFor('the `Decisions` trope declares `option` already'),
+    ])
+  })
+
+  it("refuses a parameter under one of the core's own keys", async () => {
+    const files = {
+      [first]: rootLoom('Decisions', [sections({ kind: 'Option', parameters: { lang: 'text' } })]),
+    }
+    expect(faultsOf(await diagnosed(files, first))).toEqual([
+      refusedFor("`lang` is one of Loom's own keys"),
+    ])
+  })
+
+  it('lets a kind of box and a kind of section share a name', async () => {
+    const both = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { box: [{ kind: 'Option', body: 'text' }], section: [{ kind: 'Option' }] } },
+    })
+    expect(faultsOf(await diagnosed({ [first]: rootLoom('Decisions', [both]) }, first))).toEqual([])
+  })
+})
+
+describe('a heading of a kind a trope declares', () => {
+  const decisions = '/corpus/decisions/declaring.loom'
+  const chapter = '/corpus/record.loom'
+
+  const declaringSection = (kind: string): string =>
+    JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [{ kind, parameters: { status: { choice: ['chosen', 'rejected'] } } }],
+        },
+      },
+    })
+
+  const record = (braces: string) =>
+    lines(
+      '---',
+      'Part I, Chapter 1: A record',
+      '---',
+      '',
+      '# A record',
+      '',
+      `## Postgres ${braces}`,
+      '',
+      'Prose.',
+    )
+
+  const book = (braces: string): Record<string, string> => ({
+    [chapter]: record(braces),
+    [decisions]: rootLoom('Decisions', [declaringSection('Option')]),
+  })
+
+  const said = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes(' takes no '))
+
+  it('raises nothing, named by a label or with a parameter the kind takes', async () => {
+    expect(said(await diagnosed(book('{Option}'), chapter))).toEqual([])
+    expect(said(await diagnosed(book('{kind=option status=chosen}'), chapter))).toEqual([])
+  })
+
+  it("reads the kind's parameter through its type", async () => {
+    expect(said(await diagnosed(book('{kind=Option status=maybe}'), chapter))).toEqual([
+      '`status` takes no `maybe`. It takes `chosen` and `rejected`.',
+    ])
+  })
+
+  it("keeps the kind's parameter from a heading of no kind", async () => {
+    expect(said(await diagnosed(book('{status=chosen}'), chapter))).toEqual([
+      'A heading takes no `status` key. It takes `lang` and `kind`.',
+    ])
+  })
+
+  it('joins the kinds a fault lists', async () => {
+    expect(said(await diagnosed(book('{kind=Bogus}'), chapter))).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
+  })
+
+  it('is a fault while no trope declares it', async () => {
+    expect(said(await diagnosed({ [chapter]: record('{kind=Option}') }, chapter))).toEqual([
+      'A heading takes no `Option` kind. It takes `Tangle`, `Concept`, and `Manifest`.',
+    ])
+  })
+
+  it('may stand in the root that declares it', async () => {
+    const root = lines(
+      rootLoom('Decisions', [declaringSection('Option')]),
+      '## Postgres {kind=Option status=chosen}',
+      '',
+      'Prose.',
+    )
+    const found = await diagnosed({ [decisions]: root }, decisions)
+    expect(said(found)).toEqual([])
+    expect(faultsOf(found)).toEqual([])
+  })
+
+  it('reads every loom again when a manifest comes to declare another kind', async () => {
+    const files = book('{kind=Choice}')
+    const found = await Effect.runPromise(
+      Effect.gen(function* () {
+        const compiler = yield* LoomCompiler
+        const before = yield* compiler.diagnose(chapter)
+        files[decisions] = rootLoom('Decisions', [declaringSection('Choice')])
+        yield* compiler.invalidate(decisions)
+        const after = yield* compiler.diagnose(chapter)
+        return {
+          before: before.map((d) => d.message),
+          after: after.map((d) => d.message),
+        }
+      }).pipe(Effect.provide(layerOf(files))),
+    )
+    expect(said(found.before)).toEqual([
+      'A heading takes no `Choice` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
+    expect(said(found.after)).toEqual([])
   })
 })

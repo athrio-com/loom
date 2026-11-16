@@ -695,6 +695,7 @@ export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
   extensions: ['.ts', '.tsx'],
+  languages: Array.fromIterable(tsExtension.keys()),
   plugins: ({ settings }) =>
     Effect.gen(function* () {
       const sdk = yield* TypescriptSdk

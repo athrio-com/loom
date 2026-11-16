@@ -43,6 +43,7 @@ export type LoomFault = Data.TaggedEnum<{
   SettledLabel: { readonly name: string; readonly label: Position }
   DuplicateName: { readonly name: string; readonly sibling: Sibling; readonly where: string }
   UnopenedBook: { readonly name: string }
+  UnservedLanguage: { readonly language: string }
   CrossLanguageAnchor: {
     readonly name: string
     readonly host: string
@@ -135,6 +136,7 @@ export const {
   SettledLabel,
   DuplicateName,
   UnopenedBook,
+  UnservedLanguage,
   CrossLanguageAnchor,
   UnclosedFence,
   FenceLabelAgainstLanguage,
@@ -356,6 +358,10 @@ export const describe = (fault: LoomFault): Note =>
     UnopenedBook: ({ name }) =>
       warning(
         `No loom opens the book \`${name}\`. Write its book loom, a loom whose frontmatter holds only \`Book: ${name}\`.`,
+      ),
+    UnservedLanguage: ({ language }) =>
+      warning(
+        `No language service of this workspace serves \`${language}\`, so the editor checks none of its code. The code tangles all the same. Turn the language on with \`loom add ${language}\`.`,
       ),
     CrossLanguageAnchor: ({ name, host, found }) =>
       error(

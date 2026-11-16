@@ -13,6 +13,8 @@ import {
   claimedDocument,
   coreKeys,
   expandedDocument,
+  LoomDocumentBuilder,
+  type SectionKind,
 } from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
@@ -279,6 +281,58 @@ describe('checking the values of braces', () => {
 
   it('lets a key that holds a list hold one value', () => {
     expect(messagesIn(anchorIn(greeting('{provides=greet}'))?.specifier)).toEqual([])
+  })
+})
+
+describe('a kind of section a trope declares', () => {
+  const declared: ReadonlyArray<SectionKind> = [
+    { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
+  ]
+
+  const builtWith = (heading: string, kinds: ReadonlyArray<SectionKind> = declared) =>
+    Effect.runSync(
+      Effect.gen(function* () {
+        const documents = yield* LoomDocumentBuilder
+        return documents.build(yield* parsedDocument(`${heading}\n\nProse.\n`), kinds)
+      }).pipe(Effect.provide(ParseLayer)),
+    ).sections[0]
+
+  const stated = (heading: string, kinds?: ReadonlyArray<SectionKind>) =>
+    (builtWith(heading, kinds)?.heading.specifier?.parameters ?? []).map(
+      (parameter) => [parameter.key.value, parameter.values[0]?.value] as const,
+    )
+
+  const said = (heading: string) => messagesIn(builtWith(heading)?.heading.specifier)
+
+  it('is claimed by a label, which states a language when nothing declares the kind', () => {
+    expect(stated('## Postgres {Option}')).toEqual([['kind', 'Option']])
+    expect(builtWith('## Postgres {option}')?.kind).toBe('Option')
+    expect(stated('## Postgres {Option}', [])).toEqual([['lang', 'Option']])
+  })
+
+  it("takes the kind's parameters, read through their types", () => {
+    expect(said('## Postgres {kind=Option status=chosen}')).toEqual([])
+    expect(said('## Postgres {kind=Option status=maybe}')).toEqual([
+      '`status` takes no `maybe`. It takes `chosen` and `rejected`.',
+    ])
+  })
+
+  it('lists the parameters of the kind among the keys its heading takes', () => {
+    expect(said('## Postgres {kind=Option flavour=dry}')).toEqual([
+      'A heading takes no `flavour` key. It takes `lang`, `kind`, and `status`.',
+    ])
+  })
+
+  it("keeps the kind's parameters from a heading of another kind", () => {
+    expect(said('## Postgres {status=chosen}')).toEqual([
+      'A heading takes no `status` key. It takes `lang` and `kind`.',
+    ])
+  })
+
+  it('lists the declared kinds after the core kinds, for a kind nothing declares', () => {
+    expect(said('## Postgres {kind=Bogus}')).toEqual([
+      'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
   })
 })
 

@@ -126,9 +126,10 @@ describe('the tropes a workspace installs, kept', () => {
       const workspace = workspaceWith(installing, { 'cells.loom': cells })
       const installed = yield* TropePackages
       const kinds = yield* installed.kindsFor(join(workspace, 'corpus', 'cells.loom'))
-      expect(kinds.map((declared) => [declared.kind, declared.trope])).toEqual([
+      expect(kinds.box.map((declared) => [declared.kind, declared.trope])).toEqual([
         ['Mermaid', 'Mermaid'],
       ])
+      expect(kinds.section).toEqual([])
     }).pipe(Effect.provide(onDisk)),
   )
 })

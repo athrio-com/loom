@@ -68,7 +68,9 @@ import type { URI } from 'vscode-uri'
 
 ## A service
 
-A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom service takes the frame query, the TypeScript service takes the TypeScript compilers and the composition, and a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service. Two more fields are optional: `format`, which lays a language's code out, and `moduleSpecifier`, which writes the path an import names a module by. The next two sections describe them.
+A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom service takes the frame query, the TypeScript service takes the TypeScript compilers and the composition, and a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service.
+
+Three more fields are optional. A service serves the language its `id` names, and `languages` names every other language it serves. The TypeScript service serves JavaScript too, so it lists `javascript` there. Loom reads the two together to tell whether a language a loom names has a service, as the chapter "Referring to modules" describes. `format` lays a language's code out, and `moduleSpecifier` writes the path an import names a module by. The next two sections describe those two.
 
 =>
 
@@ -81,6 +83,7 @@ export interface LanguageService {
   readonly id: string
   readonly displayName: string
   readonly extensions: ReadonlyArray<string>
+  readonly languages?: ReadonlyArray<string>
   readonly plugins: (
     context: LanguageServiceContext,
   ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>

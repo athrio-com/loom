@@ -49,6 +49,7 @@ import {
   SpecifierUnknown,
   StaleSummary,
   UnopenedBook,
+  UnservedLanguage,
   UnresolvedLink,
   UnwrittenLoom,
   UnsettledTrope,
@@ -66,7 +67,7 @@ import {
   unusedSections,
   usedSections,
 } from '#ast/ProductBuilder'
-import { anchorKinds } from '@athrio/loom-ast/LoomTokens'
+import { anchorKinds, headingLangToken } from '@athrio/loom-ast/LoomTokens'
 import { type Code, keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
@@ -87,7 +88,16 @@ import {
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
 import { normaliseTitle } from '#ast/WeftTokeniser'
-import { type DeclaredKind, declaredKindsOf, kindFaults } from '#ast/DeclaredKinds'
+import {
+  type Declarations,
+  type DeclaredKinds,
+  declaredKindsOf,
+  kindFaults,
+  noDeclarations,
+  tropeOf,
+  tropesOf,
+} from '#ast/DeclaredKinds'
+import { type SectionKind } from '#ast/LoomDocumentBuilder'
 import {
   type Approval,
   approvalsAt,
@@ -141,6 +151,24 @@ const scopedTo = (modules: Modules, paths: ReadonlyArray<Location>): Modules => 
   const keep = new Set(paths)
   return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
 }
+
+type Corpus = { readonly modules: Modules; readonly kinds: DeclaredKinds }
+
+const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
+  const drop = new Set(paths)
+  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => !drop.has(p)))
+}
+
+const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
+
+const sectionKindsIn = (kinds: DeclaredKinds): ReadonlyArray<SectionKind> =>
+  Array.map(kinds.section, (declared): SectionKind => ({
+    kind: declared.kind,
+    parameters: declared.parameters,
+  }))
+
+const sameSections = (one: ReadonlyArray<SectionKind>, other: ReadonlyArray<SectionKind>): boolean =>
+  JSON.stringify(one) === JSON.stringify(other)
 
 const entryOf = (
   modules: Modules,
@@ -206,6 +234,45 @@ const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
   }),
 ]
 
+type NamedLanguage = { readonly language: string; readonly position: Position }
+
+const ownLanguages: ReadonlyArray<string> = ['loom', 'prose', 'plaintext']
+
+const namedLanguage = (written: {
+  readonly value: string
+  readonly position: Position
+}): NamedLanguage => ({ language: written.value.trim().toLowerCase(), position: written.position })
+
+const namedLanguages = (module: LoomModule): ReadonlyArray<NamedLanguage> =>
+  Array.getSomes([
+    Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), namedLanguage),
+    ...Array.map(module.doc.sections, (section) =>
+      pipe(
+        Option.fromNullishOr(section.heading.specifier),
+        Option.flatMap(headingLangToken),
+        Option.map(namedLanguage),
+      ),
+    ),
+  ])
+
+const languageFaults = (
+  served: Option.Option<ReadonlyArray<string>>,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> =>
+  Option.match(served, {
+    onNone: (): ReadonlyArray<Diagnostic> => [],
+    onSome: (languages) => {
+      const servedHere = [...ownLanguages, ...languages]
+      return pipe(
+        namedLanguages(module),
+        Array.filter(({ language }) => !Array.contains(servedHere, language)),
+        Array.flatMap(
+          ({ language, position }) => faulty(UnservedLanguage({ language }), position).diagnostics,
+        ),
+      )
+    },
+  })
+
 const boxNoticeHealth = (notice: BoxNotice): Health =>
   BoxNotice.$match(notice, {
     Unwritten: ({ name, kind, opening }) =>
@@ -224,13 +291,13 @@ const boxNoticeHealth = (notice: BoxNotice): Health =>
 
 const corpusDiagnostics = (
   modules: Modules,
-  installed: ReadonlyArray<DeclaredKind>,
+  kinds: DeclaredKinds,
   relations: ReadonlyArray<KeptRelation>,
+  served: Option.Option<ReadonlyArray<string>>,
 ) => {
   const catalogue = catalogueOf(modules)
   const landing = landingOf(catalogue, modules)
-  const kinds = declaredKindsOf(modules, catalogue, installed)
-  const boundaries = boundariesOf(modules, catalogue, kinds.tropes)
+  const boundaries = boundariesOf(modules, catalogue, tropesOf(modules))
   const used = usedSections(catalogue, modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
@@ -242,6 +309,7 @@ const corpusDiagnostics = (
     ...linkFaults(catalogue, module),
     ...kindFaults(kinds, module),
     ...driftFaults(catalogue, module, relations),
+    ...languageFaults(served, module),
     ...boundaryFaults(boundaries, catalogue, modules, module),
     ...Array.flatMap(
       boxNoticesIn({ modules }, module),
@@ -780,11 +848,21 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const composed = yield* Ref.make<Composition>(noComposition)
     const packages = yield* Effect.serviceOption(LanguagePackages)
     const tropes = yield* Effect.serviceOption(TropePackages)
+    const coreChapters = yield* Ref.make<Modules>(new Map())
+    const declaredFor = yield* Ref.make<ReadonlyMap<Location, ReadonlyArray<SectionKind>>>(
+      new Map(),
+    )
 
-    const installedKinds = (loom: Location): Effect.Effect<ReadonlyArray<DeclaredKind>> =>
+    const installedKinds = (loom: Location): Effect.Effect<Declarations> =>
       Option.match(tropes, {
-        onNone: () => Effect.succeed<ReadonlyArray<DeclaredKind>>([]),
+        onNone: () => Effect.succeed(noDeclarations),
         onSome: (installed) => installed.kindsFor(loom),
+      })
+
+    const servedFor = (loom: Location): Effect.Effect<Option.Option<ReadonlyArray<string>>> =>
+      Option.match(packages, {
+        onNone: () => Effect.succeed(Option.none<ReadonlyArray<string>>()),
+        onSome: (held) => held.languagesFor(loom),
       })
 
     const specifierOf = (request: SpecifierRequest): Effect.Effect<Option.Option<string>, ServiceError> =>
@@ -851,29 +929,37 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       ).pipe(Effect.map((pairs) => new Map(pairs)))
     }
 
+    const declaredOf = (path: Location): Effect.Effect<ReadonlyArray<SectionKind>> =>
+      Ref.get(declaredFor).pipe(
+        Effect.map((kept) => Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => [])),
+      )
+
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
-      config
-        .resolve(path)
-        .pipe(
-          Effect.flatMap((settings) =>
-            memo.get(
+      Effect.all([config.resolve(path), declaredOf(path)]).pipe(
+        Effect.flatMap(([settings, declared]) =>
+          memo.get(
+            path,
+            disk.through(
+              source,
+              documents,
               path,
-              disk.through(
+              settings,
+              declared,
+              builder.build(
                 source,
-                documents,
                 path,
-                settings,
-                builder.build(
-                  source,
-                  path,
-                  settings.delims,
-                  settings.primaryLanguage,
-                  settings.variables,
-                ),
+                settings.delims,
+                settings.primaryLanguage,
+                settings.variables,
+                declared,
               ),
             ),
           ),
-        )
+        ),
+      )
+
+    const evict = (paths: ReadonlyArray<Location>): Effect.Effect<void> =>
+      memo.evict(paths).pipe(Effect.andThen(Ref.update(coreChapters, (kept) => without(kept, paths))))
 
     const corpusPaths = (source: Source, entry: Location): Effect.Effect<ReadonlyArray<Location>> =>
       Option.match(source.list, {
@@ -887,12 +973,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           pipe(
             Option.all([text, Option.fromNullishOr(modules.get(path))]),
             Option.filter(([shown, kept]) => kept.text !== shown),
-            Option.match({ onNone: () => Effect.void, onSome: () => memo.evict([path]) }),
+            Option.match({ onNone: () => Effect.void, onSome: () => evict([path]) }),
           ),
         ),
       )
 
-    const buildCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
+    const loadCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
       corpusPaths(source, entry).pipe(
         Effect.flatMap((paths) =>
           Effect.forEach(paths, (path) =>
@@ -901,6 +987,102 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
         Effect.map((pairs) => new Map(pairs)),
       )
+
+    const coreChapterOf = (source: Source, chapter: LoomModule): Effect.Effect<LoomModule> =>
+      Effect.all([
+        Ref.get(coreChapters),
+        declaredOf(chapter.path),
+        config.resolve(chapter.path),
+      ]).pipe(
+        Effect.flatMap(([kept, declared, settings]) =>
+          Option.match(Option.fromNullishOr(kept.get(chapter.path)), {
+            onSome: (core) => Effect.succeed(core),
+            onNone: () =>
+              (Array.isReadonlyArrayEmpty(declared)
+                ? Effect.succeed(chapter)
+                : builder.build(
+                    source,
+                    chapter.path,
+                    settings.delims,
+                    settings.primaryLanguage,
+                    settings.variables,
+                  )
+              ).pipe(
+                Effect.tap((core) =>
+                  Ref.update(coreChapters, (was) => new Map(was).set(chapter.path, core)),
+                ),
+              ),
+          }),
+        ),
+      )
+
+    const registryOf = (
+      source: Source,
+      modules: Modules,
+      entry: Location,
+    ): Effect.Effect<DeclaredKinds> =>
+      Effect.all([
+        Effect.forEach(Array.filter(Array.fromIterable(modules.values()), inTrope), (chapter) =>
+          coreChapterOf(source, chapter),
+        ),
+        installedKinds(entry),
+      ]).pipe(
+        Effect.map(([chapters, installed]) => {
+          const core: Modules = new Map(
+            Array.map(chapters, (chapter) => [chapter.path, chapter] as const),
+          )
+          return declaredKindsOf(core, catalogueOf(core), installed)
+        }),
+      )
+
+    const staleIn = (
+      modules: Modules,
+      declared: ReadonlyArray<SectionKind>,
+    ): Effect.Effect<ReadonlyArray<Location>> =>
+      Ref.get(declaredFor).pipe(
+        Effect.map((kept) =>
+          Array.filter(
+            Array.fromIterable(modules.keys()),
+            (path) =>
+              !sameSections(
+                Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => []),
+                declared,
+              ),
+          ),
+        ),
+      )
+
+    const corpusOf = (source: Source, entry: Location): Effect.Effect<Corpus> =>
+      loadCorpus(source, entry).pipe(
+        Effect.flatMap((modules) =>
+          registryOf(source, modules, entry).pipe(
+            Effect.flatMap((kinds) => {
+              const declared = sectionKindsIn(kinds)
+              return staleIn(modules, declared).pipe(
+                Effect.flatMap((stale) =>
+                  Array.isReadonlyArrayEmpty(stale)
+                    ? Effect.succeed<Corpus>({ modules, kinds })
+                    : Ref.update(
+                        declaredFor,
+                        (kept) =>
+                          new Map([
+                            ...kept,
+                            ...Array.map(stale, (path) => [path, declared] as const),
+                          ]),
+                      ).pipe(
+                        Effect.andThen(memo.evict(stale)),
+                        Effect.andThen(loadCorpus(source, entry)),
+                        Effect.map((rebuilt): Corpus => ({ modules: rebuilt, kinds })),
+                      ),
+                ),
+              )
+            }),
+          ),
+        ),
+      )
+
+    const buildCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
+      corpusOf(source, entry).pipe(Effect.map((corpus) => corpus.modules))
 
     return {
       compile: (source: Source, path: Location): Effect.Effect<VirtualCode> =>
@@ -925,11 +1107,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       tangle: (path: Location): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
-        Effect.all([buildCorpus(documents, path), installedKinds(path)]).pipe(
-          Effect.flatMap(([modules, installed]) => {
+        corpusOf(documents, path).pipe(
+          Effect.flatMap(({ modules, kinds }) => {
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors({ modules: scoped }, corpusDiagnostics(modules, installed, [])),
+              ...corpusErrors(
+                { modules: scoped },
+                corpusDiagnostics(modules, kinds, [], Option.none()),
+              ),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -982,12 +1167,17 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         Effect.all([config.resolve(path), buildCorpus(documents, path)]).pipe(
           Effect.flatMap(([settings, modules]) => {
             const parsedAs = (text: string): Effect.Effect<LoomModule> =>
-              builder.build(
-                { read: () => Effect.succeed(text), list: Option.none() },
-                path,
-                settings.delims,
-                settings.primaryLanguage,
-                settings.variables,
+              declaredOf(path).pipe(
+                Effect.flatMap((declared) =>
+                  builder.build(
+                    { read: () => Effect.succeed(text), list: Option.none() },
+                    path,
+                    settings.delims,
+                    settings.primaryLanguage,
+                    settings.variables,
+                    declared,
+                  ),
+                ),
               )
             return Effect.all([parsedAs(before), parsedAs(after)]).pipe(
               Effect.map(([was, now]) =>
@@ -1013,16 +1203,16 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       diagnose: (path: Location): Effect.Effect<ReadonlyArray<Diagnostic>> =>
         Effect.all([
-          buildCorpus(documents, path),
-          installedKinds(path),
+          corpusOf(documents, path),
           workspaces.keptRelationsOf(path),
+          servedFor(path),
         ]).pipe(
-          Effect.map(([modules, installed, relations]) =>
+          Effect.map(([{ modules, kinds }, relations, served]) =>
             pipe(
               Option.fromNullishOr(modules.get(path)),
               Option.match({
                 onNone: () => [],
-                onSome: (module) => corpusDiagnostics(modules, installed, relations)(module),
+                onSome: (module) => corpusDiagnostics(modules, kinds, relations, served)(module),
               }),
             ),
           ),
@@ -1351,9 +1541,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         memo.entries.pipe(
           Effect.flatMap((modules) =>
             modules.has(path)
-              ? memo
-                  .evict([path])
-                  .pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
+              ? evict([path]).pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
               : Effect.succeed<ReadonlyArray<Location>>([]),
           ),
         ),
@@ -1363,7 +1551,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.map((modules) =>
             Array.filter(Array.fromIterable(modules.keys()), (path) => within(dir, path)),
           ),
-          Effect.tap((paths) => memo.evict(paths)),
+          Effect.tap((paths) => evict(paths)),
         ),
 
       rebuild: (source: Source, path: Location): Effect.Effect<boolean> =>

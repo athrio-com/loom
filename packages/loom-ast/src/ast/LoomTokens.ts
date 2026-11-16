@@ -73,12 +73,17 @@ export const ParametersTokenSchema = loomNode('Parameters', {
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type
 
-export const parameterValue = (specifier: ParametersToken, key: string): Option.Option<string> =>
+export const firstValue = (
+  specifier: ParametersToken,
+  key: string,
+): Option.Option<ParameterValueToken> =>
   pipe(
     Array.findFirst(specifier.parameters, (parameter) => parameter.key.value === key),
     Option.flatMap((parameter) => Array.head(parameter.values)),
-    Option.map((value) => value.value),
   )
+
+export const parameterValue = (specifier: ParametersToken, key: string): Option.Option<string> =>
+  Option.map(firstValue(specifier, key), (value) => value.value)
 
 export const ScalarTypeSchema = Schema.Union([
   Schema.Literals(['text', 'number', 'boolean', 'locale', 'reference']),
@@ -187,8 +192,11 @@ export const labelKey =
   (label: string): 'kind' | 'lang' =>
     Option.isSome(kindNamed(kinds)(label)) ? 'kind' : 'lang'
 
+export const headingLangToken = (held: ParametersToken): Option.Option<ParameterValueToken> =>
+  firstValue(held, 'lang')
+
 export const headingLang = (held: ParametersToken): Option.Option<string> =>
-  parameterValue(held, 'lang')
+  Option.map(headingLangToken(held), (named) => named.value)
 
 export const SinkOpenTokenSchema = loomNode('SinkOpen', {
   value: Schema.Literal('['),

@@ -9,7 +9,7 @@ Language: TypeScript
 
 Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. What the core leaves out, a trope adds: a kind of box that draws a diagram, say, or a mark for citing a paper. The word comes from writing, where a trope is a familiar turn that any author may take up. A Loom trope is the same for books: a way of doing something, written once, that any book can take up.
 
-A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box a manifest declares, the boundary a trope draws around its chapters, the tropes a workspace installs from its store, and the scope a trope gives the concepts its chapters define. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
+A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box, of section and of anchor a manifest declares, the parameters it lets any heading carry, the boundary a trope draws around its chapters, the tropes a workspace installs from its store, and the scope a trope gives the concepts its chapters define. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
 
 ## A trope is chapters
 
@@ -17,7 +17,7 @@ A trope is a bounded cluster of chapters, or a single chapter. It may declare ki
 
 One chapter of the trope is its root, the home of the trope's contract. The root is a trope chapter, as `Part XIV, Trope Chapter 1: Mermaid` declares, and the trope takes the chapter's title for its name, so renaming the root renames the trope. A trope has one root. Every other chapter of the trope is a member, which names the trope with a `Rooted in:` line, as `Rooted in: Mermaid` would, and declares nothing to Loom. The chapters "The leaf tokens" and "The tokeniser stage" read both lines. The root may list the trope's entries on an `Entries:` line: the chapters that a chapter outside the trope may reach.
 
-The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` is. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. A manifest belongs on the trope's root, so a manifest in any loom that is no trope chapter belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
+The manifest is a section of the `Manifest` kind, which is one of the core's own kinds, as `{Tangle}` is. The section's code is the manifest, written in JSON, and the product pass composes it like any section's code. So a long manifest may draw in other sections with anchors, cut where the prose about it turns. Those sections stand in the root or in a member, since Loom reads a manifest before it reads any chapter outside a trope, as the chapter "The kinds tropes declare" describes. A manifest belongs on the trope's root, so a manifest in any loom that is no trope chapter belongs to nothing, and the product pass faults it, as the chapter "The product pass" describes.
 
 ```
 ---
@@ -45,9 +45,37 @@ These tropes are implicit. No frontmatter declares them, they hold no manifest, 
 
 ## What contract 1 lets a trope declare
 
-The manifest's `contract` field names the version of the contract the trope was written against, and this Loom reads `contractVersion`, version 1. Contract 1 lets a trope declare kinds of box, under the manifest's `contributes.kinds.box` key. A `BoxKindDeclaration` names one kind. Its `kind` is the word a box's braces name it by, as `{Mermaid}` does, and its `body` is the format the box's body is written in, such as `mermaid` for a diagram's source or `prose` for words a reader reads.
+The manifest's `contract` field names the version of the contract the trope was written against, and this Loom reads `contractVersion`, version 1. Contract 1 lets a trope declare two things under the manifest's `contributes` key: kinds, under `kinds`, and parameters that any heading may carry, under `headings`. A manifest writes what it needs and leaves out the rest.
 
-A `TropeManifest` holds nothing else. The schema decides what no trope can do, since no manifest can declare what the schema cannot express. So a manifest that writes a key contract 1 does not know, such as the `views` a later contract adds, does not fit, and Loom refuses the whole trope rather than load the parts it understands.
+`kinds` holds three tables: kinds of box under `box`, kinds of section under `section`, and kinds of anchor under `anchor`. Every kind has a `kind`, the word that braces name it by. Every kind may also list `parameters`, the keys its braces may hold beside the core's own, each with the type of its values, as the chapter "The leaf tokens" describes. `parametersOf` reads them, and gives an empty table for a kind that lists none.
+
+A `BoxKindDeclaration` names one kind of box, as `{Mermaid}` names it on a box. Its `body` is the format the box's body is written in, such as `mermaid` for a diagram's source or `prose` for words a reader reads. A trope for research notebooks declares a box for each dataset a notebook reads, with a parameter that names the file the data comes from:
+
+```
+{ "kind": "Dataset", "body": "yaml", "parameters": { "source": "text" } }
+```
+
+A `SectionKindDeclaration` names one kind of section, as `{Option}` names it on a heading. A trope for decision records, the short documents in which a team records a choice and the options it weighed, declares a section for each option, with a parameter that says how the option fared:
+
+```
+{ "kind": "Option", "parameters": { "status": { "choice": ["chosen", "rejected"] } } }
+```
+
+An `AnchorKindDeclaration` names one kind of anchor, as `{Decision}` names it in the braces that touch an anchor. The same trope declares it for an anchor that cites a decision, with a parameter for the weight the citing chapter gives it:
+
+```
+{ "kind": "Decision", "parameters": { "weight": "number" } }
+```
+
+A `HeadingsDeclaration` holds the parameters that any heading may carry, whatever kind its section claims. A trope for translations declares two: the section a translation varies, and the locale it is written in.
+
+```
+"headings": { "parameters": { "translates": "reference", "locale": "locale" } }
+```
+
+`boxKindsOf`, `sectionKindsOf`, and `anchorKindsOf` read the three tables of a manifest, and each gives an empty table for one the manifest leaves out. `headingKeysOf` reads the parameters any heading may carry, and gives an empty table when the manifest declares none.
+
+A `TropeManifest` holds nothing else. The schema decides what no trope can do, since no manifest can declare what the schema cannot express. So a manifest that writes a key contract 1 does not know, such as the `views` a later contract adds, does not fit, and Loom refuses the whole trope rather than load the parts it understands. A parameter of a type the contract lacks, such as a date, does not fit either.
 
 =>
 
@@ -56,16 +84,61 @@ export const contractVersion = '1'
 export const BoxKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
   body: Schema.NonEmptyString,
+  parameters: Schema.optional(KeysSchema),
 })
 export type BoxKindDeclaration = typeof BoxKindDeclarationSchema.Type
+
+export const SectionKindDeclarationSchema = Schema.Struct({
+  kind: Schema.NonEmptyString,
+  parameters: Schema.optional(KeysSchema),
+})
+export type SectionKindDeclaration = typeof SectionKindDeclarationSchema.Type
+
+export const AnchorKindDeclarationSchema = Schema.Struct({
+  kind: Schema.NonEmptyString,
+  parameters: Schema.optional(KeysSchema),
+})
+export type AnchorKindDeclaration = typeof AnchorKindDeclarationSchema.Type
+
+export const HeadingsDeclarationSchema = Schema.Struct({ parameters: KeysSchema })
+export type HeadingsDeclaration = typeof HeadingsDeclarationSchema.Type
 
 export const TropeManifestSchema = Schema.Struct({
   contract: Schema.Literal(contractVersion),
   contributes: Schema.Struct({
-    kinds: Schema.Struct({ box: Schema.Array(BoxKindDeclarationSchema) }),
+    kinds: Schema.optional(
+      Schema.Struct({
+        box: Schema.optional(Schema.Array(BoxKindDeclarationSchema)),
+        section: Schema.optional(Schema.Array(SectionKindDeclarationSchema)),
+        anchor: Schema.optional(Schema.Array(AnchorKindDeclarationSchema)),
+      }),
+    ),
+    headings: Schema.optional(HeadingsDeclarationSchema),
   }),
 })
 export type TropeManifest = typeof TropeManifestSchema.Type
+
+const tableOf = <Declaration>(
+  table: ReadonlyArray<Declaration> | undefined,
+): ReadonlyArray<Declaration> => Option.getOrElse(Option.fromNullishOr(table), () => [])
+
+export const boxKindsOf = (manifest: TropeManifest): ReadonlyArray<BoxKindDeclaration> =>
+  tableOf(manifest.contributes.kinds?.box)
+
+export const sectionKindsOf = (manifest: TropeManifest): ReadonlyArray<SectionKindDeclaration> =>
+  tableOf(manifest.contributes.kinds?.section)
+
+export const anchorKindsOf = (manifest: TropeManifest): ReadonlyArray<AnchorKindDeclaration> =>
+  tableOf(manifest.contributes.kinds?.anchor)
+
+export const parametersOf = (declaration: { readonly parameters?: Keys | undefined }): Keys =>
+  Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))
+
+export const headingKeysOf = (manifest: TropeManifest): Keys =>
+  Option.getOrElse(
+    Option.map(Option.fromNullishOr(manifest.contributes.headings), (headings) => headings.parameters),
+    (): Keys => ({}),
+  )
 
 ## Reading a manifest
 
@@ -114,11 +187,12 @@ export const readManifest = (text: string): Result.Result<TropeManifest, string>
 
 ## What the contract draws on
 
-The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps.
+The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, and `Keys`, the table it reads.
 
 =>
 
 import { Option, pipe, Result, Schema } from 'effect'
+import { type Keys, KeysSchema } from '@athrio/loom-ast/LoomTokens'
 
 ## The module [src/ast/TropeManifest.ts]
 
@@ -146,7 +220,7 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import { readManifest } from '../src/ast/TropeManifest'
+import { boxKindsOf, readManifest, sectionKindsOf } from '../src/ast/TropeManifest'
 import { parseDocument, ParseLayer } from './parse'
 
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
@@ -279,7 +353,7 @@ describe('a manifest section', () => {
 
 ## Reading a manifest whole or not at all
 
-A manifest that fits contract 1 reads as the kinds it declares. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope, and so does a kind with no name.
+A manifest that fits contract 1 reads as the kinds it declares, of box and of section, and a table it leaves out reads as empty. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope. So does a kind with no name, and a parameter of a type the contract lacks.
 
 =>
 
@@ -289,7 +363,35 @@ describe('reading a manifest', () => {
 
   it('reads the kinds a fitting manifest declares', () => {
     const read = Result.getOrUndefined(readManifest(manifestOf('Mermaid', 'Run')))
-    expect(read?.contributes.kinds.box.map((declared) => declared.kind)).toEqual(['Mermaid', 'Run'])
+    expect(read && boxKindsOf(read).map((declared) => declared.kind)).toEqual(['Mermaid', 'Run'])
+  })
+
+  it('reads the kinds of section a manifest declares, with their parameters', () => {
+    const options = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [
+            { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
+            { kind: 'Context' },
+          ],
+        },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(options))
+    expect(read && sectionKindsOf(read)).toEqual([
+      { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
+      { kind: 'Context' },
+    ])
+    expect(read && boxKindsOf(read)).toEqual([])
+  })
+
+  it('refuses a parameter of a type the contract lacks', () => {
+    const dated = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { section: [{ kind: 'Option', parameters: { decided: 'date' } }] } },
+    })
+    expect(reason(dated)).toContain('its manifest does not fit contract 1:')
   })
 
   it('refuses text that is no JSON', () => {

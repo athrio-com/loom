@@ -320,6 +320,8 @@ const chapterAt = (root: string, name: string, text: string): string => {
 const chapter = (title: string, code: string): string =>
   lines('---', 'Language: TypeScript', '---', '', `# ${title}`, '', '=>', '', code)
 
+const plain = (title: string, code: string): string => lines(`# ${title}`, '', '=>', '', code)
+
 const anchor = (name: string): string => `::${'['}${name}]`
 
 const checking = (loom: string, counted = false): string =>
@@ -353,13 +355,13 @@ describe('LoomServer — a chapter that changes on disk', () => {
   it('answers an open chapter from the text a closed one holds now', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
-    const closed = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+    const opened = chapterAt(root, 'main.loom', plain('Main', anchor('Answer')))
+    const closed = chapterAt(root, 'answer.loom', plain('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
       await editor.open(opened)
       expect(await editor.diagnostics(opened)).toEqual([])
-      chapterAt(root, 'answer.loom', chapter('Question', 'const answer = 42'))
+      chapterAt(root, 'answer.loom', plain('Question', 'const answer = 42'))
       await editor.changed(closed)
       expect(await editor.diagnostics(opened)).toEqual([
         `No section or chapter is called \`Answer\`. Write one, or label this anchor \`{To be settled}\`.`,
@@ -372,14 +374,14 @@ describe('LoomServer — a chapter that changes on disk', () => {
   it('resolves an anchor into a chapter created on disk', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
+    const opened = chapterAt(root, 'main.loom', plain('Main', anchor('Answer')))
     const editor = await editorAt(root)
     try {
       await editor.open(opened)
       expect(await editor.diagnostics(opened)).toEqual([
         `No section or chapter is called \`Answer\`. Write one, or label this anchor \`{To be settled}\`.`,
       ])
-      const created = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+      const created = chapterAt(root, 'answer.loom', plain('Answer', 'const answer = 42'))
       await editor.changed(created, FileChangeType.Created)
       expect(await editor.diagnostics(opened)).toEqual([])
     } finally {
@@ -390,8 +392,8 @@ describe('LoomServer — a chapter that changes on disk', () => {
   it('fails an anchor into a chapter deleted from disk', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
-    const deleted = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+    const opened = chapterAt(root, 'main.loom', plain('Main', anchor('Answer')))
+    const deleted = chapterAt(root, 'answer.loom', plain('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
       await editor.open(opened)
@@ -492,15 +494,15 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
   it('resolves an anchor renamed across two open chapters before either is saved', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', chapter('Main', anchor('Answer')))
-    const answer = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+    const opened = chapterAt(root, 'main.loom', plain('Main', anchor('Answer')))
+    const answer = chapterAt(root, 'answer.loom', plain('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
       await editor.open(opened)
       await editor.open(answer)
       expect(await editor.diagnostics(opened)).toEqual([])
-      await editor.edit(answer, chapter('Question', 'const answer = 42'))
-      await editor.edit(opened, chapter('Main', anchor('Question')))
+      await editor.edit(answer, plain('Question', 'const answer = 42'))
+      await editor.edit(opened, plain('Main', anchor('Question')))
       expect(await editor.diagnostics(opened)).toEqual([])
     } finally {
       editor.close()
@@ -1012,21 +1014,31 @@ describe('LoomServer — names a section must provide', () => {
   }, 30_000)
 })
 
+describe('LoomServer — a language nothing serves', () => {
+  it('warns of the language a chapter names', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const main = chapterAt(root, 'main.loom', chapter('Main [main.ts]', 'const main = 1'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      expect(await editor.diagnostics(main)).toEqual([
+        'No language service of this workspace serves `typescript`, so the editor checks none of its code. The code tangles all the same. Turn the language on with `loom add typescript`.',
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 describe('LoomServer — a name that waits', () => {
   it('clears when an edit declares the section or the chapter it names', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const wordsHead = [
-      '---',
-      'Part I, Chapter 2: Words',
-      'Language: TypeScript',
-      '---',
-      '',
-      '# Words',
-    ]
+    const wordsHead = ['---', 'Part I, Chapter 2: Words', '---', '', '# Words']
     const words = chapterAt(root, 'words.loom', lines(...wordsHead))
-    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Words, Saying hello')))
-    const other = chapterAt(root, 'other.loom', chapter('Other', anchor('A chapter to come')))
+    const main = chapterAt(root, 'main.loom', plain('Main', anchor('Words, Saying hello')))
+    const other = chapterAt(root, 'other.loom', plain('Other', anchor('A chapter to come')))
     const editor = await editorAt(root)
     try {
       await editor.open(main)
@@ -1049,7 +1061,6 @@ describe('LoomServer — a name that waits', () => {
         lines(
           '---',
           'Part I, Chapter 3: A chapter to come',
-          'Language: TypeScript',
           '---',
           '',
           '# A chapter to come',
