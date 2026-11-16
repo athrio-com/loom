@@ -60,7 +60,7 @@ import {
   type TocBackMatter,
   type TocBook,
   type TocChapter,
-  type TocDiscussion,
+  type TocBackLoom,
   type TocPart,
 } from './TableOfContentsBuilder'
 import { sectionLanguage } from '../ast/ProductBuilder'
@@ -216,13 +216,13 @@ const wovenPart =
       chapters: Array.map(part.chapters, wovenEntry(slugOf)),
     })
 
-const wovenDiscussion =
+const wovenBackLoom =
   (slugOf: SlugOf) =>
-  (discussion: TocDiscussion): WovenNavEntry =>
+  (loom: TocBackLoom): WovenNavEntry =>
     WovenNavEntrySchema.make({
       number: '',
-      title: discussion.title,
-      slug: slugOf(discussion.path),
+      title: loom.title,
+      slug: slugOf(loom.path),
     })
 
 const orphansPart = (
@@ -245,7 +245,7 @@ const backMatterPart = (
   index: Option.Option<WovenNavEntry>,
 ): ReadonlyArray<WovenPart> => {
   const entries = [
-    ...Array.map(backMatter.discussions, wovenDiscussion(slugOf)),
+    ...Array.map(backMatter.looms, wovenBackLoom(slugOf)),
     ...Option.toArray(index),
   ]
   return entries.length === 0

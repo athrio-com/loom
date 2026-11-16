@@ -79,7 +79,7 @@ import {
   type TocBackMatter,
   type TocBook,
   type TocChapter,
-  type TocDiscussion,
+  type TocBackLoom,
   type TocPart,
 } from './TableOfContentsBuilder'
 import { sectionLanguage } from '../ast/ProductBuilder'
@@ -242,7 +242,7 @@ const sliceContent = (text: string, span: Span): string =>
 
 The navigation is a book's contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into its books and their ordered parts and chapters, so the weave only turns each into its woven node, with the slug `pageSlug` gives each loom. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, the status and priority a board reads, and its language.
 
-`bookNav` builds one book's tree. Its parts come first. `orphansPart` turns the orphan chapters into one more part, named `Orphan chapters`, which closes the body. `backMatterPart` turns the back matter into a last part, named `Back matter`, and `wovenDiscussion` gives each discussion an entry with its title and the slug its path opens. The book's index closes the back matter, when the book defines a concept. A book with no orphans has no such part, and a book with neither discussions nor concepts has no back matter, so the tree ends on its last part. `wovenBook` gives a named book its `WovenBook`: its name, the slug of its book loom's page, and its tree.
+`bookNav` builds one book's tree. Its parts come first. `orphansPart` turns the orphan chapters into one more part, named `Orphan chapters`, which closes the body. `backMatterPart` turns the back matter into a last part, named `Back matter`, and `wovenBackLoom` gives each loom at the back, a discussion or a loom of a kind a trope declares for the back, an entry with its title and the slug its path opens. The book's index closes the back matter, when the book defines a concept. A book with no orphans has no such part, and a book with neither discussions nor concepts has no back matter, so the tree ends on its last part. `wovenBook` gives a named book its `WovenBook`: its name, the slug of its book loom's page, and its tree.
 
 `partIndex` inverts the finished trees into a slug-to-part-name lookup, the breadcrumb each page shows. `readingOrderOf` lists every slug in reading order, the default book's tree first and then each named book's page and tree, and gives each slug its position. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
 
@@ -271,13 +271,13 @@ const wovenPart =
       chapters: Array.map(part.chapters, wovenEntry(slugOf)),
     })
 
-const wovenDiscussion =
+const wovenBackLoom =
   (slugOf: SlugOf) =>
-  (discussion: TocDiscussion): WovenNavEntry =>
+  (loom: TocBackLoom): WovenNavEntry =>
     WovenNavEntrySchema.make({
       number: '',
-      title: discussion.title,
-      slug: slugOf(discussion.path),
+      title: loom.title,
+      slug: slugOf(loom.path),
     })
 
 const orphansPart = (
@@ -300,7 +300,7 @@ const backMatterPart = (
   index: Option.Option<WovenNavEntry>,
 ): ReadonlyArray<WovenPart> => {
   const entries = [
-    ...Array.map(backMatter.discussions, wovenDiscussion(slugOf)),
+    ...Array.map(backMatter.looms, wovenBackLoom(slugOf)),
     ...Option.toArray(index),
   ]
   return entries.length === 0

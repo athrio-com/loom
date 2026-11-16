@@ -444,17 +444,10 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
-  const chapterFields = Option.match(
-    Option.fromNullishOr(
-      wefts.find(
-        (w) => w.chapter !== undefined || w.discussion !== undefined || w.title !== undefined,
-      ),
-    ),
-    {
-      onNone: () => ({}),
-      onSome: (w) => ({ chapter: w.chapter, discussion: w.discussion, title: w.title }),
-    },
-  )
+  const chapterFields = Option.match(identityWeft(wefts), {
+    onNone: () => ({}),
+    onSome: (w) => ({ chapter: w.chapter, discussion: w.discussion, kind: w.kind, title: w.title }),
+  })
   return Option.some(
     LoomFrontmatterSchema.make({
       position: {
@@ -478,6 +471,15 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
     }),
   )
 }
+
+const identityWeft = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<FrontmatterWeft> =>
+  Option.orElse(
+    Array.findFirst(
+      wefts,
+      (w) => w.kind === undefined && (w.chapter !== undefined || w.discussion !== undefined || w.title !== undefined),
+    ),
+    () => Array.findFirst(wefts, (w) => w.kind !== undefined),
+  )
 
 const frontmatterField = (
   wefts: ReadonlyArray<FrontmatterWeft>,

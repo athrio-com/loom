@@ -3,7 +3,7 @@ import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref }
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
-import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type { LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
@@ -177,6 +177,13 @@ const declaredIn = (kinds: DeclaredKinds): Declared => ({
   section: Array.map(kinds.section, (each) => ({ ...keyedKind(each), codeless: each.codeless })),
   anchor: Array.map(kinds.anchor, (each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
   box: Array.map(kinds.box, keyedKind),
+  loom: Array.map(kinds.loom, (each) => ({
+    kind: each.kind,
+    numbered: each.numbered,
+    zone: each.zone,
+    codeless: each.codeless,
+    holds: each.holds,
+  })),
   headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
 })
 
@@ -611,6 +618,13 @@ const tokenValue = (token: { readonly value: string } | undefined): string =>
     () => '',
   )
 
+const kindFaceOf = (frontmatter: LoomFrontmatter): { readonly value: string } | undefined =>
+  Option.getOrUndefined(
+    Option.map(Option.fromNullishOr(frontmatter.kind), (named) => ({
+      value: `${named.value} ${named.number}`,
+    })),
+  )
+
 const partFaceOf = (part: Part): string =>
   Match.value(part).pipe(
     Match.when({ type: 'Fragment' }, (fragment) => fragment.text),
@@ -638,6 +652,8 @@ const faceOf = (module: LoomModule): string =>
             frontmatter.part,
             frontmatter.partName,
             frontmatter.chapter,
+            frontmatter.discussion,
+            kindFaceOf(frontmatter),
             frontmatter.title,
             frontmatter.package,
             frontmatter.language,

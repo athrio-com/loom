@@ -800,7 +800,7 @@ const scopedTo = (modules: Modules, paths: ReadonlyArray<Location>): Modules => 
 
 ~
 
-A `Corpus` pairs the modules with the registry they were built with, as `corpusOf` gives them. `without` drops the modules a set of paths names. `inTrope` tells a chapter of a trope, a root or a member, by the trope its frontmatter names. `declaredIn` reads from a registry what a build is handed: each kind of section, of anchor, and of box as a name with its parameters, with the rule a kind of section or of anchor follows, and the keys any heading may carry as one table. `sameDeclared` tells whether two builds were handed the same.
+A `Corpus` pairs the modules with the registry they were built with, as `corpusOf` gives them. `without` drops the modules a set of paths names. `inTrope` tells a chapter of a trope, a root or a member, by the trope its frontmatter names. `declaredIn` reads from a registry what a build is handed: each kind of section, of anchor, and of box as a name with its parameters, with the rule a kind of section or of anchor follows, each kind of loom with what its trope says of its looms, and the keys any heading may carry as one table. `sameDeclared` tells whether two builds were handed the same.
 
 =>
 
@@ -822,6 +822,13 @@ const declaredIn = (kinds: DeclaredKinds): Declared => ({
   section: Array.map(kinds.section, (each) => ({ ...keyedKind(each), codeless: each.codeless })),
   anchor: Array.map(kinds.anchor, (each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
   box: Array.map(kinds.box, keyedKind),
+  loom: Array.map(kinds.loom, (each) => ({
+    kind: each.kind,
+    numbered: each.numbered,
+    zone: each.zone,
+    codeless: each.codeless,
+    holds: each.holds,
+  })),
   headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
 })
 
@@ -1306,9 +1313,9 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
 
 ## What other files see of a module
 
-An edit to a file can leave every other file as it was. Most edits to a loom change its prose, and no other file reads a loom's prose. Another file reads a module's code, through an anchor or through the files the module tangles, and it finds the module's sections by their titles. Some of its frontmatter matters too. The part and the chapter, with their titles, are how anchors and the woven contents name the chapter. The package decides where its files land, and the language decides how its code is checked.
+An edit to a file can leave every other file as it was. Most edits to a loom change its prose, and no other file reads a loom's prose. Another file reads a module's code, through an anchor or through the files the module tangles, and it finds the module's sections by their titles. Some of its frontmatter matters too. The part and the chapter, with their titles, are how anchors and the woven contents name the chapter. A discussion's number names it the same way, and so do the kind and the number of a loom of a kind a trope declares. The package decides where its files land, and the language decides how its code is checked.
 
-`faceOf` reduces a module to that face. It keeps those six frontmatter values, but not a chapter's status or priority, which no other file reads. It keeps the title of every section, the code of every section, and the file each sink tangles to. In the code, an anchor appears as the section it resolves to, or as the name it writes when the product pass left its target open. A module anchor appears the same way, marked as a module, with the file it names in parentheses. It leaves out the prose, and every position in the source, since an edit to the prose shifts the positions of the code below it without changing the code. Two builds of a module with the same face look the same to every other file.
+`faceOf` reduces a module to that face. It keeps those frontmatter values, but not a chapter's status or priority, which no other file reads. `kindFaceOf` writes a declared kind with its number, such as `Tasks 1`. It keeps the title of every section, the code of every section, and the file each sink tangles to. In the code, an anchor appears as the section it resolves to, or as the name it writes when the product pass left its target open. A module anchor appears the same way, marked as a module, with the file it names in parentheses. It leaves out the prose, and every position in the source, since an edit to the prose shifts the positions of the code below it without changing the code. Two builds of a module with the same face look the same to every other file.
 
 `rebuild` uses the face to tell an edit that reaches other files from one that does not. It notes the face of the build the cache holds, builds the file again from the source when its text has changed, and compares the two faces. A file the cache did not hold has no face to compare, so `rebuild` reports it as changed.
 
@@ -1320,6 +1327,13 @@ const tokenValue = (token: { readonly value: string } | undefined): string =>
   Option.getOrElse(
     Option.map(Option.fromNullishOr(token), (present) => present.value),
     () => '',
+  )
+
+const kindFaceOf = (frontmatter: LoomFrontmatter): { readonly value: string } | undefined =>
+  Option.getOrUndefined(
+    Option.map(Option.fromNullishOr(frontmatter.kind), (named) => ({
+      value: `${named.value} ${named.number}`,
+    })),
   )
 
 const partFaceOf = (part: Part): string =>
@@ -1349,6 +1363,8 @@ const faceOf = (module: LoomModule): string =>
             frontmatter.part,
             frontmatter.partName,
             frontmatter.chapter,
+            frontmatter.discussion,
+            kindFaceOf(frontmatter),
             frontmatter.title,
             frontmatter.package,
             frontmatter.language,
@@ -1664,7 +1680,7 @@ import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref }
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
-import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type { LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {

@@ -759,3 +759,165 @@ describe('the rules a kind follows', () => {
     expect(ruled(await diagnosed(inProse, chapter))).toEqual([])
   })
 })
+
+describe('a kind of loom a trope declares', () => {
+  const root = '/corpus/tasks/declaring.loom'
+
+  const tasksRoot = (...loom: ReadonlyArray<unknown>) =>
+    rootLoom('Tasks', [
+      JSON.stringify({
+        contract: '1',
+        contributes: { kinds: { loom, section: [{ kind: 'Task' }] } },
+      }),
+    ])
+
+  const refusal = async (...loom: ReadonlyArray<unknown>) =>
+    faultsOf(await diagnosed({ [root]: tasksRoot(...loom) }, root))
+
+  const release = '/corpus/tasks/release.loom'
+  const plans = '/corpus/plans.loom'
+
+  const tasksKind = { kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] }
+
+  const inBook = (path: string, text: string) =>
+    diagnosed({ [root]: tasksRoot(tasksKind), [path]: text }, path)
+
+  const tasksLoom = (identity: string, ...body: ReadonlyArray<string>) =>
+    lines('---', identity, '---', '', '# The next release', '', ...body)
+
+  const chapter = (...body: ReadonlyArray<string>) =>
+    lines('---', 'Chapter 1: Plans', '---', '', '# Plans', '', ...body)
+
+  it('reads a loom of the kind, with a section of the kind it holds', async () => {
+    const text = tasksLoom('Part XI, Tasks 1: The next release', '## Publish {Task}', '', 'Push.')
+    expect(await inBook(release, text)).toEqual([])
+  })
+
+  it('faults a section of that kind in a chapter', async () => {
+    expect(await inBook(plans, chapter('## Publish {Task}', '', 'Push the tag.'))).toEqual([
+      'A section of the `Task` kind belongs in a loom of the `Tasks` kind. Move the section there, or take the kind off its heading.',
+    ])
+  })
+
+  it('faults an arrow in a loom of a kind that holds no code', async () => {
+    const text = tasksLoom('Tasks 1: The next release', '## Publish', '', 'Push.', '', '=>', 'const x = 1')
+    expect(await inBook(release, text)).toEqual([
+      'A loom of the `Tasks` kind holds no code. Quote this code in a fence, or move it to a chapter.',
+    ])
+  })
+
+  it('faults a sink in such a loom', async () => {
+    const text = tasksLoom('Tasks 1: The next release', '## Publish [publish.sh]', '', 'Push.')
+    expect(await inBook(release, text)).toEqual([
+      'A loom of the `Tasks` kind writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
+    ])
+  })
+
+  it('faults an anchor that composes a section of such a loom', async () => {
+    const files = {
+      [root]: tasksRoot(tasksKind),
+      [release]: tasksLoom('Tasks 1: The next release', '## Publish {Task}', '', 'Push.'),
+      [plans]: chapter('## Script [release.ts]', '', '=>', anchor('The next release, Publish')),
+    }
+    expect(await diagnosed(files, plans)).toEqual([
+      '`The next release, Publish` stands in a loom of the `Tasks` kind, which holds no code. Name the section whose code you mean.',
+    ])
+  })
+
+  it('faults a loom of a kind nobody declares', async () => {
+    const text = tasksLoom('Taks 1: The next release', '## Publish', '', 'Push.')
+    expect(await inBook(release, text)).toEqual([
+      'A loom takes no `Taks` kind. It takes `Chapter`, `Discussion`, and `Tasks`.',
+    ])
+  })
+
+  const book = '/corpus/book.loom'
+
+  const releasing = (link: string): Record<string, string> => ({
+    [book]: lines('# Releasing Loom', '', 'A book.'),
+    [root]: tasksRoot(tasksKind, { kind: 'Checklist', numbered: true }),
+    '/corpus/cutting.loom': lines(
+      '---',
+      'Part XI: Releasing',
+      'Chapter 1: Cutting a release',
+      '---',
+      '',
+      '# Cutting a release',
+    ),
+    '/corpus/why.loom': lines('---', 'Part XI, Discussion 1: Why we tag', '---', '', '# Why we tag'),
+    '/corpus/before.loom': lines(
+      '---',
+      'Part XI, Checklist 1: Before a release',
+      '---',
+      '',
+      '# Before a release',
+    ),
+    [release]: tasksLoom('Part XI, Tasks 1: The next release', '## Publish {Task}', '', 'Push.'),
+    [plans]: lines('---', 'Part XI, Chapter 2: Plans', '---', '', '# Plans [plans.ts]', '', '=>', anchor(link)),
+  })
+
+  const woven = (files: Record<string, string>) =>
+    Effect.runPromise(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.weave(book)),
+        Effect.provide(layerOf(files)),
+      ),
+    )
+
+  it('finds a loom by the number its kind gives it, apart from the chapters', async () => {
+    expect(await diagnosed(releasing('Part XI, Tasks 1'), plans)).toEqual([
+      '`Part XI, Tasks 1` stands in a loom of the `Tasks` kind, which holds no code. Name the section whose code you mean.',
+    ])
+    expect(await diagnosed(releasing('Part XI, Chapter 1'), plans)).toEqual([
+      'Chapter `Part XI, Chapter 1` holds no code in its opening section, so this anchor composes nothing. Name the section that holds the code instead.',
+    ])
+    expect(await diagnosed(releasing('Part XI, Tasks 2'), plans)).toEqual([
+      'No section or chapter is called `Part XI, Tasks 2`. Write one, or label this anchor `{To be settled}`.',
+    ])
+  })
+
+  it('lists a loom in the zone its kind sits in', async () => {
+    const site = await woven(releasing('Part XI, Chapter 1'))
+    expect(site.nav.map((part) => [part.name, part.chapters.map((entry) => entry.title)])).toEqual([
+      ['Releasing', ['Cutting a release', 'Plans', 'Before a release']],
+      ['Orphan chapters', ['Tasks']],
+      ['Back matter', ['Why we tag', 'The next release']],
+    ])
+  })
+
+  it('reads a kind of loom that holds a kind of section its manifest declares', async () => {
+    expect(await refusal({ kind: 'Tasks', zone: 'back', holds: ['Task'] })).toEqual([])
+  })
+
+  it('refuses a kind of loom the core keeps, in any case of letters', async () => {
+    expect(await refusal({ kind: 'discussion' })).toEqual([
+      refusedFor("`discussion` is one of Loom's own kinds"),
+    ])
+  })
+
+  it('refuses a kind that holds a word of an identity line', async () => {
+    expect(await refusal({ kind: 'Bonus Chapter' })).toEqual([
+      refusedFor("`Bonus Chapter` holds `Chapter`, a word of Loom's own identity lines"),
+    ])
+  })
+
+  it('refuses a kind that is a key of the frontmatter', async () => {
+    expect(await refusal({ kind: 'Package' })).toEqual([
+      refusedFor('`Package` is a line of the frontmatter already'),
+    ])
+  })
+
+  it('refuses a kind declared twice', async () => {
+    expect(await refusal({ kind: 'Tasks' }, { kind: 'tasks' })).toEqual([
+      refusedFor('it declares `tasks` twice'),
+    ])
+  })
+
+  it('refuses a kind that holds a kind of section nobody declares', async () => {
+    expect(await refusal({ kind: 'Tasks', holds: ['Task', 'Bug'] })).toEqual([
+      refusedFor(
+        'its `Tasks` kind of loom holds `Bug`, and its manifest declares no kind of section called that',
+      ),
+    ])
+  })
+})

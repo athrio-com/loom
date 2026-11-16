@@ -10,6 +10,7 @@ import {
   discussionKind,
   type FrontmatterBookToken,
   type FrontmatterEntryToken,
+  type FrontmatterKindToken,
   type HeadingTitleToken,
   isLoomKind,
   isPointingKind,
@@ -22,6 +23,7 @@ import {
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
+  type Zone,
 } from '#ast/LoomTokens'
 import {
   boxOf,
@@ -83,7 +85,7 @@ export type PartRef = {
 export type Chapter = {
   readonly title: string
   readonly number: Option.Option<string>
-  readonly discussion: boolean
+  readonly kind: string
   readonly book: Option.Option<string>
   readonly part: PartRef
   readonly module: LoomModule
@@ -154,6 +156,36 @@ export const isBookLoom = (module: LoomModule): boolean =>
       fm.partName === undefined,
   )
 
+export const claimedKind = (module: LoomModule): Option.Option<FrontmatterKindToken> =>
+  Option.filter(
+    Option.fromNullishOr(module.doc.frontmatter?.kind),
+    (named) => named.zone !== undefined,
+  )
+
+export const loomKindOf = (module: LoomModule): string =>
+  module.doc.frontmatter?.discussion !== undefined
+    ? discussionKind
+    : Option.getOrElse(
+        Option.map(claimedKind(module), (named) => named.value),
+        () => chapterKind,
+      )
+
+export const zoneOf = (module: LoomModule): Zone =>
+  module.doc.frontmatter?.discussion !== undefined
+    ? 'back'
+    : Option.getOrElse(
+        Option.flatMap(claimedKind(module), (named) => Option.fromNullishOr(named.zone)),
+        (): Zone => 'body',
+      )
+
+export const ordinalOf = (module: LoomModule): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter?.chapter ?? module.doc.frontmatter?.discussion),
+    Option.map((ordinal) => ordinal.value),
+    Option.orElse(() => Option.map(claimedKind(module), (named) => named.number)),
+    Option.filter((ordinal) => ordinal !== ''),
+  )
+
 const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
   const names = partNamesIn(modules)
   return pipe(
@@ -162,14 +194,8 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map((module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
-        number: pipe(
-          Option.fromNullishOr(
-            module.doc.frontmatter?.chapter ?? module.doc.frontmatter?.discussion,
-          ),
-          Option.map((ordinal) => ordinal.value),
-          Option.filter((ordinal) => ordinal !== ''),
-        ),
-        discussion: module.doc.frontmatter?.discussion !== undefined,
+        number: ordinalOf(module),
+        kind: loomKindOf(module),
         book: bookOf(module),
         part: partOf(names, module),
         module,
@@ -186,30 +212,38 @@ export type Catalogue = {
   readonly modules: Modules
   readonly titles: TitleIndexes
   readonly chapters: ReadonlyArray<Chapter>
+  readonly kinds: ReadonlyArray<string>
   readonly boxes: ReadonlyMap<Location, ReadonlyArray<BoxRef>>
   readonly concepts: ReadonlyArray<ConceptRef>
   readonly links: ReadonlySet<string>
   readonly books: ReadonlySet<string>
 }
 
-export const catalogueOf = (modules: Modules): Catalogue => ({
-  modules,
-  titles: titleIndexes(modules),
-  chapters: chaptersIn(modules),
-  boxes: new Map(
-    Array.map(Array.fromIterable(modules.values()), (module) => [
-      module.path,
-      pointingBoxesOf(module),
-    ]),
-  ),
-  concepts: Array.flatMap(Array.fromIterable(modules.values()), conceptsOf),
-  links: new Set(
-    Array.flatMap(Array.fromIterable(modules.values()), (module) =>
-      Array.map(linksOf(module), (anchor) => linkKey(module.path, anchor)),
+const kindsAmong = (chapters: ReadonlyArray<Chapter>): ReadonlyArray<string> =>
+  Array.dedupe(Array.map(chapters, (chapter) => chapter.kind))
+
+export const catalogueOf = (modules: Modules): Catalogue => {
+  const chapters = chaptersIn(modules)
+  return {
+    modules,
+    titles: titleIndexes(modules),
+    chapters,
+    kinds: kindsAmong(chapters),
+    boxes: new Map(
+      Array.map(Array.fromIterable(modules.values()), (module) => [
+        module.path,
+        pointingBoxesOf(module),
+      ]),
     ),
-  ),
-  books: new Set(Array.getSomes(Array.map(Array.fromIterable(modules.values()), bookOf))),
-})
+    concepts: Array.flatMap(Array.fromIterable(modules.values()), conceptsOf),
+    links: new Set(
+      Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+        Array.map(linksOf(module), (anchor) => linkKey(module.path, anchor)),
+      ),
+    ),
+    books: new Set(Array.getSomes(Array.map(Array.fromIterable(modules.values()), bookOf))),
+  }
+}
 
 const bookAt = (catalogue: Catalogue, from: Location): Option.Option<string> =>
   Option.flatMap(Option.fromNullishOr(catalogue.modules.get(from)), bookOf)
@@ -282,12 +316,11 @@ const numberedSteps = (
   catalogue: Catalogue,
   book: Option.Option<string>,
   part: Option.Option<PartRef>,
-  keyword: string,
-  discussion: boolean,
+  kind: string,
   step: (place: Place) => Step,
   segment: Segment,
 ): ReadonlyArray<Step> =>
-  Option.match(numberIn(keyword, segment.text), {
+  Option.match(numberIn(kind, segment.text), {
     onNone: (): ReadonlyArray<Step> => [],
     onSome: (number) =>
       Array.map(
@@ -295,7 +328,7 @@ const numberedSteps = (
           catalogue,
           book,
           part,
-          (chapter) => chapter.discussion === discussion && Option.contains(chapter.number, number),
+          (chapter) => chapter.kind === kind && Option.contains(chapter.number, number),
         ),
         (chapter) => step(Place.Chapter({ chapter })),
       ),
@@ -318,8 +351,9 @@ const stepsNamed = (
       chaptersWithin(catalogue, book, part, (chapter) => chapter.title === segment.text),
       (chapter) => step(false)(Place.Chapter({ chapter })),
     ),
-    ...numberedSteps(catalogue, book, part, 'Chapter', false, step(true), segment),
-    ...numberedSteps(catalogue, book, part, 'Discussion', true, step(true), segment),
+    ...Array.flatMap(catalogue.kinds, (kind) =>
+      numberedSteps(catalogue, book, part, kind, step(true), segment),
+    ),
   ]
   const bookSteps = (book: Option.Option<string>): ReadonlyArray<Step> => [
     ...Array.map(
@@ -743,7 +777,7 @@ const boxesIn = (catalogue: Catalogue, module: Location): ReadonlyArray<BoxRef> 
 
 const boxTarget = (catalogue: Catalogue, ref: BoxRef): Option.Option<Chapter> => {
   const titled = (chapter: Chapter): boolean =>
-    chapter.discussion === (ref.kind === discussionKind) && chapter.title === ref.name.value
+    chapter.kind === ref.kind && chapter.title === ref.name.value
   return ref.kind === tropeKind
     ? Option.none()
     : Option.orElse(
@@ -2385,7 +2419,7 @@ const nextNumber = (catalogue: Catalogue, part: PartRef, kind: LoomKind): Option
             catalogue,
             part.book,
             Option.some(part),
-            (chapter) => chapter.discussion === (kind === discussionKind),
+            (chapter) => chapter.kind === kind,
           ),
           numberOf,
         ),
@@ -2501,7 +2535,7 @@ const sectionOpeningOf = (section: LoomSection): string =>
   textOf(outsideBoxes(openingLinesOf(section)))
 
 const copiedFromChapter = (chapter: Chapter): Copied => ({
-  of: chapter.discussion ? 'discussion' : 'chapter',
+  of: chapter.kind === discussionKind ? 'discussion' : 'chapter',
   title: chapter.title,
   summary: summaryOf(chapter.module),
 })
@@ -2650,7 +2684,7 @@ const copyOf = (catalogue: Catalogue, modules: Modules, ref: BoxRef): Option.Opt
             })),
           ),
           Match.tag('Chapter', ({ chapter }) =>
-            chapter.discussion ? Option.none<Copy>() : chapterCopy(chapter),
+            chapter.kind === discussionKind ? Option.none<Copy>() : chapterCopy(chapter),
           ),
           Match.orElse(() => Option.none<Copy>()),
         ),

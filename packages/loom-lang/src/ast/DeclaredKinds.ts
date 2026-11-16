@@ -7,10 +7,13 @@ import {
   boxKeys,
   boxKind,
   boxKinds,
+  frontmatterKeys,
   type FrontmatterTropeToken,
   headingKeys,
+  identityWords,
   type Keys,
   keyType,
+  loomKinds,
   type ParameterToken,
   type ParametersToken,
   sectionKinds,
@@ -18,6 +21,7 @@ import {
   type Standing,
   tropeKind,
   type ValueType,
+  type Zone,
 } from '@athrio/loom-ast/LoomTokens'
 import {
   type Catalogue,
@@ -34,6 +38,8 @@ import {
   anchorKindsOf,
   boxKindsOf,
   headingKeysOf,
+  heldBy,
+  loomKindsOf,
   parametersOf,
   readManifest,
   sectionKindsOf,
@@ -70,6 +76,16 @@ export type DeclaredAnchor = {
   readonly module: Location
 }
 
+export type DeclaredLoom = {
+  readonly kind: string
+  readonly numbered: boolean
+  readonly zone: Zone
+  readonly codeless: boolean
+  readonly holds: ReadonlyArray<string>
+  readonly trope: string
+  readonly module: Location
+}
+
 export type DeclaredKey = {
   readonly key: string
   readonly type: ValueType
@@ -81,10 +97,17 @@ export type Declarations = {
   readonly box: ReadonlyArray<DeclaredBox>
   readonly section: ReadonlyArray<DeclaredSection>
   readonly anchor: ReadonlyArray<DeclaredAnchor>
+  readonly loom: ReadonlyArray<DeclaredLoom>
   readonly headings: ReadonlyArray<DeclaredKey>
 }
 
-export const noDeclarations: Declarations = { box: [], section: [], anchor: [], headings: [] }
+export const noDeclarations: Declarations = {
+  box: [],
+  section: [],
+  anchor: [],
+  loom: [],
+  headings: [],
+}
 
 export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
 
@@ -94,6 +117,7 @@ export const declarationsOf = (kinds: DeclaredKinds): Declarations => ({
   box: kinds.box,
   section: kinds.section,
   anchor: kinds.anchor,
+  loom: kinds.loom,
   headings: kinds.headings,
 })
 
@@ -234,11 +258,41 @@ const headingClash = (manifest: TropeManifest, taken: Declarations): Option.Opti
   )
 }
 
+const lineClash = (manifest: TropeManifest): Option.Option<string> =>
+  Array.findFirst(kindsIn(loomKindsOf(manifest)), (kind) =>
+    pipe(
+      Array.findFirst(kind.split(' '), (word) =>
+        Array.some(identityWords, (own) => sameKind(own, word)),
+      ),
+      Option.map((word) => `\`${kind}\` holds \`${word}\`, a word of Loom's own identity lines`),
+      Option.orElse(() =>
+        Array.some(frontmatterKeys, (key) => sameKind(key, kind))
+          ? Option.some(`\`${kind}\` is a line of the frontmatter already`)
+          : Option.none(),
+      ),
+    ),
+  )
+
+const unheldIn = (manifest: TropeManifest): Option.Option<string> =>
+  Array.findFirst(loomKindsOf(manifest), (loom) =>
+    Option.map(
+      Array.findFirst(
+        heldBy(loom),
+        (held) => !Array.some(sectionKindsOf(manifest), (section) => sameKind(section.kind, held)),
+      ),
+      (held) =>
+        `its \`${loom.kind}\` kind of loom holds \`${held}\`, and its manifest declares no kind of section called that`,
+    ),
+  )
+
 const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<string> =>
   pipe(
     clashOf(kindsIn(boxKindsOf(manifest)), boxKinds, taken.box),
     Option.orElse(() => clashOf(kindsIn(sectionKindsOf(manifest)), sectionKinds, taken.section)),
     Option.orElse(() => clashOf(kindsIn(anchorKindsOf(manifest)), anchorKinds, taken.anchor)),
+    Option.orElse(() => clashOf(kindsIn(loomKindsOf(manifest)), loomKinds, taken.loom)),
+    Option.orElse(() => lineClash(manifest)),
+    Option.orElse(() => unheldIn(manifest)),
     Option.orElse(() => ownKeyOf(Array.map(boxKindsOf(manifest), parametersOf), boxKeys)),
     Option.orElse(() =>
       ownKeyOf(
@@ -295,6 +349,21 @@ const anchorsOf = (
     module: root.path,
   }))
 
+const loomsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredLoom> =>
+  Array.map(loomKindsOf(manifest), (declaration): DeclaredLoom => ({
+    kind: declaration.kind,
+    numbered: declaration.numbered === true,
+    zone: Option.getOrElse(Option.fromNullishOr(declaration.zone), (): Zone => 'body'),
+    codeless: declaration.code === 'none',
+    holds: heldBy(declaration),
+    trope,
+    module: root.path,
+  }))
+
 const headingsOf = (
   trope: string,
   root: LoomModule,
@@ -332,6 +401,7 @@ const withRoot = (
               box: [...kinds.box, ...boxesOf(trope, root, manifest)],
               section: [...kinds.section, ...sectionsOf(trope, root, manifest)],
               anchor: [...kinds.anchor, ...anchorsOf(trope, root, manifest)],
+              loom: [...kinds.loom, ...loomsOf(trope, root, manifest)],
               headings: [...kinds.headings, ...headingsOf(trope, root, manifest)],
             }),
           }),

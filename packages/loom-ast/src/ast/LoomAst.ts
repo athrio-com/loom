@@ -1,10 +1,12 @@
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  CodelessSchema,
   DividerTokenSchema,
   FrontmatterBookTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
+  FrontmatterKindTokenSchema,
   FrontmatterTropeTokenSchema,
   FrontmatterEntryTokenSchema,
   FrontmatterPartTokenSchema,
@@ -39,6 +41,7 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   partName: Schema.optional(FrontmatterPartNameTokenSchema),
   chapter: Schema.optional(FrontmatterChapterTokenSchema),
   discussion: Schema.optional(FrontmatterDiscussionTokenSchema),
+  kind: Schema.optional(FrontmatterKindTokenSchema),
   trope: Schema.optional(FrontmatterTropeTokenSchema),
   rootedIn: Schema.optional(FrontmatterTropeTokenSchema),
   entries: Schema.optional(Schema.Array(FrontmatterEntryTokenSchema)),
@@ -79,7 +82,7 @@ export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
 export const ClaimedSectionSchema = Schema.Struct({
   ...ExpandedSectionSchema.fields,
   kind: Schema.optional(Schema.String),
-  codeless: Schema.optional(Schema.Literal(true)),
+  codeless: Schema.optional(CodelessSchema),
 })
 export type ClaimedSection = typeof ClaimedSectionSchema.Type
 

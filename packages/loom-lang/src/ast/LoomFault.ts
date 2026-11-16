@@ -2,6 +2,7 @@ import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  type Codeless,
   type LoomKind,
   type PointingKind,
   settleKind,
@@ -18,6 +19,8 @@ export type Sibling = 'section' | 'chapter' | 'book'
 export type Declaration = { readonly at: Position; readonly text: string }
 
 export type BracesOn = 'anchor' | 'box' | 'heading'
+
+export type KindBearer = BracesOn | 'loom'
 
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
@@ -59,8 +62,10 @@ export type LoomFault = Data.TaggedEnum<{
   UnknownKind: {
     readonly kind: string
     readonly kinds: ReadonlyArray<string>
-    readonly on: BracesOn
+    readonly on: KindBearer
   }
+  KindOutsideLoom: { readonly kind: string; readonly looms: ReadonlyArray<string> }
+  NumberOnKind: { readonly kind: string }
   RenamedKind: { readonly kind: string; readonly now: string }
   ManyValues: { readonly key: string }
   WrongValue: { readonly key: string; readonly value: string; readonly unread: Unread }
@@ -99,11 +104,12 @@ export type LoomFault = Data.TaggedEnum<{
   HeadingAgainstCode: {}
   DividerAgainstCode: {}
   FileInDiscussion: {}
+  FileInKind: { readonly kind: string }
   CodeInProse: {}
   CodeInConcept: {}
   ConceptWithoutCode: { readonly name: string }
-  CodeInKind: { readonly kind: string }
-  KindWithoutCode: { readonly name: string; readonly kind: string }
+  CodeInKind: Codeless
+  KindWithoutCode: Codeless & { readonly name: string }
   MisplacedAnchor: { readonly kind: string; readonly standsIn: Standing }
   UnresolvedLink: { readonly name: string }
   UnresolvedReference: { readonly key: string; readonly name: string }
@@ -150,6 +156,8 @@ export const {
   LabelBesideParameter,
   UnknownKey,
   UnknownKind,
+  KindOutsideLoom,
+  NumberOnKind,
   RenamedKind,
   ManyValues,
   WrongValue,
@@ -174,6 +182,7 @@ export const {
   HeadingAgainstCode,
   DividerAgainstCode,
   FileInDiscussion,
+  FileInKind,
   CodeInProse,
   CodeInConcept,
   ConceptWithoutCode,
@@ -235,10 +244,21 @@ const rule: Record<MalformedConstruct, string> = {
   anchorName: 'may not contain `]`',
 }
 
-const bearer: Record<BracesOn, string> = {
+const bearer: Record<KindBearer, string> = {
   anchor: 'an anchor',
   box: 'a box',
   heading: 'a heading',
+  loom: 'a loom',
+}
+
+const codeHome: Record<Codeless['of'], string> = {
+  section: 'another section',
+  loom: 'a chapter',
+}
+
+const heldIn: Record<Codeless['of'], string> = {
+  section: 'is a section',
+  loom: 'stands in a loom',
 }
 
 const exampleName: Record<PointingKind, string> = {
@@ -389,6 +409,12 @@ export const describe = (fault: LoomFault): Note =>
       error(`${cap(bearer[on])} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
     UnknownKind: ({ kind, kinds, on }) =>
       error(`${cap(bearer[on])} takes no \`${kind}\` kind. It takes ${knownList(kinds)}.`),
+    KindOutsideLoom: ({ kind, looms }) =>
+      error(
+        `A section of the \`${kind}\` kind belongs in a loom of the ${orList(looms)} kind. Move the section there, or take the kind off its heading.`,
+      ),
+    NumberOnKind: ({ kind }) =>
+      error(`A loom of the \`${kind}\` kind takes no number. Take the number off this line.`),
     RenamedKind: ({ kind, now }) =>
       error(`The \`${kind}\` kind is now called \`${now}\`. Write \`${now}\`.`),
     ManyValues: ({ key }) =>
@@ -487,6 +513,10 @@ export const describe = (fault: LoomFault): Note =>
       error(
         'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
       ),
+    FileInKind: ({ kind }) =>
+      error(
+        `A loom of the \`${kind}\` kind writes no file, so it takes no sink or \`{Tangle}\`. Remove it, or move the section into a chapter.`,
+      ),
     CodeInProse: () =>
       error(
         'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.',
@@ -499,13 +529,13 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `\`${name}\` is a concept, and a concept holds no code. Name the section whose code you mean.`,
       ),
-    CodeInKind: ({ kind }) =>
+    CodeInKind: ({ kind, of }) =>
       error(
-        `A section of the \`${kind}\` kind holds no code. Quote this code in a fence, or move it to another section.`,
+        `A ${of} of the \`${kind}\` kind holds no code. Quote this code in a fence, or move it to ${codeHome[of]}.`,
       ),
-    KindWithoutCode: ({ name, kind }) =>
+    KindWithoutCode: ({ name, kind, of }) =>
       error(
-        `\`${name}\` is a section of the \`${kind}\` kind, which holds no code. Name the section whose code you mean.`,
+        `\`${name}\` ${heldIn[of]} of the \`${kind}\` kind, which holds no code. Name the section whose code you mean.`,
       ),
     MisplacedAnchor: ({ kind, standsIn }) =>
       error(

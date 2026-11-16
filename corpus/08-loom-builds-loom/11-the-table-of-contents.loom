@@ -14,11 +14,11 @@ Not every chapter has a number. A part declared with a bare `Part: Work in progr
 
 ## The shape of the contents
 
-A `TableOfContents` is the corpus's own structure: its `books`, the default book first and the named books after it by name. A `TocBook` carries its `name`, empty for the default book, and the `path` of the book loom that opens it, empty when no loom does. It then carries its three zones. Its body is its `parts` in order, followed by its `orphans`, the chapters that name no part. Its `backMatter` lists its discussions.
+A `TableOfContents` is the corpus's own structure: its `books`, the default book first and the named books after it by name. A `TocBook` carries its `name`, empty for the default book, and the `path` of the book loom that opens it, empty when no loom does. It then carries its three zones. Its body is its `parts` in order, followed by its `orphans`, the chapters that name no part. Its `backMatter` lists the looms that sit at the back: its discussions, and the looms of each kind a trope declares for the back, as Part XIII, Tropes, describes.
 
-A `TocPart` carries its `number`, empty when the part is numberless, its `name`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. Everything in it is read from frontmatter, or from a loom's first heading when its frontmatter names no title.
+A `TocPart` carries its `number`, empty when the part is numberless, its `name`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. A loom of a kind a trope declares for the body stands among its part's chapters, and its entry carries that `kind`, which a chapter's leaves out. Everything in it is read from frontmatter, or from a loom's first heading when its frontmatter names no title.
 
-A `TocBackMatter` carries a book's discussions in order. A `TocDiscussion` carries its `place`, its own `number` (empty when it has none), its `title`, and the `path` of its loom. The place names the discussion's part: `Part I` when the part has a number, the part's name when it has none, and nothing when the discussion names no part.
+A `TocBackMatter` carries a book's back `looms` in order. A `TocBackLoom` carries its `kind`, `Discussion` or the kind its trope declares, its `place`, its own `number` (empty when it has none), its `title`, and the `path` of its loom. The place names the loom's part: `Part I` when the part has a number, the part's name when it has none, and nothing when the loom names no part.
 
 =>
 
@@ -28,6 +28,7 @@ export const TocChapterSchema = Schema.Struct({
   status: Schema.optional(Schema.String),
   priority: Schema.optional(Schema.String),
   language: Schema.optional(Schema.String),
+  kind: Schema.optional(Schema.String),
   path: Schema.String,
 })
 export type TocChapter = typeof TocChapterSchema.Type
@@ -39,16 +40,17 @@ export const TocPartSchema = Schema.Struct({
 })
 export type TocPart = typeof TocPartSchema.Type
 
-export const TocDiscussionSchema = Schema.Struct({
+export const TocBackLoomSchema = Schema.Struct({
+  kind: Schema.String,
   place: Schema.String,
   number: Schema.String,
   title: Schema.String,
   path: Schema.String,
 })
-export type TocDiscussion = typeof TocDiscussionSchema.Type
+export type TocBackLoom = typeof TocBackLoomSchema.Type
 
 export const TocBackMatterSchema = Schema.Struct({
-  discussions: Schema.Array(TocDiscussionSchema),
+  looms: Schema.Array(TocBackLoomSchema),
 })
 export type TocBackMatter = typeof TocBackMatterSchema.Type
 
@@ -85,7 +87,7 @@ export const buildContents = (corpus: LoomCorpusAst, root?: Location): TableOfCo
     modules,
     parts: dedupeParts(Array.getSomes(Array.map(modules, partDeclOf))),
     chapters: Array.getSomes(Array.map(modules, chapterDeclOf)),
-    discussions: Array.getSomes(Array.map(modules, discussionDeclOf)),
+    backLooms: Array.getSomes(Array.map(modules, backLoomOf)),
   }
   const defaultBook = contentsOf(declared, '')
   return TableOfContentsSchema.make({
@@ -100,7 +102,7 @@ type Declared = {
   readonly modules: ReadonlyArray<LoomModule>
   readonly parts: ReadonlyArray<PartDecl>
   readonly chapters: ReadonlyArray<Chapter>
-  readonly discussions: ReadonlyArray<Discussion>
+  readonly backLooms: ReadonlyArray<BackLoom>
 }
 
 const contentsOf = (declared: Declared, book: string): TocBook =>
@@ -132,14 +134,14 @@ const contentsOf = (declared: Declared, book: string): TocBook =>
         declared.chapters,
         (chapter) => chapter.book === book && chapter.partId === undefined,
       ),
-      Array.sort(byNumber),
+      Array.sort(byKind),
       Array.map(toTocChapter),
     ),
     backMatter: TocBackMatterSchema.make({
-      discussions: pipe(
-        Array.filter(declared.discussions, (discussion) => discussion.book === book),
-        Array.sort(byDiscussion),
-        Array.map(toTocDiscussion),
+      looms: pipe(
+        Array.filter(declared.backLooms, (loom) => loom.book === book),
+        Array.sort(byBackLoom),
+        Array.map(toTocBackLoom),
       ),
     }),
   })
@@ -153,13 +155,13 @@ const bookNamesIn = (modules: ReadonlyArray<LoomModule>): ReadonlyArray<string> 
   )
 
 const holdsAnything = (book: TocBook): boolean =>
-  book.parts.length > 0 || book.orphans.length > 0 || book.backMatter.discussions.length > 0
+  book.parts.length > 0 || book.orphans.length > 0 || book.backMatter.looms.length > 0
 
 ## A chapter's place in the corpus
 
 Every declaration carries its book, and `bookNameOf` reads it: the name a loom's `Book:` line gives, or the empty name of the default book. A part is declared by any loom that names it: a numbered part in an opener's `Part R: name` line, a numberless part in a bare `Part: name`. `partDeclOf` reads that declaration: the part's book, its number, empty when there is none, and its name.
 
-A chapter is any loom with a title that is neither a discussion nor a book loom, which opens its book rather than standing in it. `chapterDeclOf` reads it: the book and the part it belongs to, its own number, its title, its status and priority, and its path. A loom whose frontmatter names no title takes the title of its first heading, as `firstHeadingTitle` reads it, so a loom with no frontmatter still has a place among the orphans. A chapter names its part by number when the part is numbered and by name when it is numberless, so `partId` is one or the other, and absent when the loom declares no part, which makes the chapter an orphan.
+A chapter is any loom with a title that sits in the body of its book and is no book loom, which opens its book rather than standing in it. A discussion sits at the back, and so does a loom of a kind a trope declares for the back, as `zoneOf` tells. `chapterDeclOf` reads a loom of the body: the book and the part it belongs to, its own number, its title, its status and priority, and its path. A loom of a kind a trope declares for the body stands among the chapters, with its `kind`. A loom whose frontmatter names no title takes the title of its first heading, as `firstHeadingTitle` reads it, so a loom with no frontmatter still has a place among the orphans. A chapter names its part by number when the part is numbered and by name when it is numberless, so `partId` is one or the other, and absent when the loom declares no part, which makes the chapter an orphan.
 
 =>
 
@@ -173,6 +175,7 @@ type Chapter = {
   readonly status: string | undefined
   readonly priority: string | undefined
   readonly language: string | undefined
+  readonly kind: string | undefined
   readonly path: string
 }
 
@@ -199,7 +202,7 @@ const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
 
 const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
   const frontmatter = module.doc.frontmatter
-  return frontmatter?.discussion !== undefined || isBookLoom(module)
+  return zoneOf(module) === 'back' || isBookLoom(module)
     ? Option.none()
     : Option.map(
         Option.orElse(
@@ -209,11 +212,12 @@ const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
         (title) => ({
           book: bookNameOf(module),
           partId: frontmatter?.part?.value ?? frontmatter?.partName?.value,
-          number: frontmatter?.chapter?.value ?? '',
+          number: Option.getOrElse(ordinalOf(module), () => ''),
           title,
           status: frontmatter?.status?.value,
           priority: frontmatter?.priority?.value,
           language: frontmatter?.language?.value,
+          kind: Option.getOrUndefined(Option.map(claimedKind(module), (named) => named.value)),
           path: module.path,
         }),
       )
@@ -226,6 +230,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
     status: chapter.status,
     priority: chapter.priority,
     language: chapter.language,
+    kind: chapter.kind,
     path: chapter.path,
   })
 
@@ -233,7 +238,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
 
 A part's identity within its book is its number when it has one and its name when it does not, so `identityOf` reads whichever the part carries and a chapter finds its part by the same key. `samePart` adds the book to the identity, since two books may each hold a Part I. `dedupeParts` keeps one declaration per part, since every loom in a numberless part repeats the part's name.
 
-Numbered parts sort by their Roman numeral, numberless parts fall after them by name, and `byPart` orders both at once. `romanValue` reads a Roman numeral as an integer: each letter is worth its unit, less that unit when a larger one follows it, so `IX` is nine and `XII` is twelve. `byNumber` orders a part's chapters the same way: numbered ones by their Arabic number, then numberless ones by title. `chaptersUnder` gathers the chapters of one part and sorts them.
+Numbered parts sort by their Roman numeral, numberless parts fall after them by name, and `byPart` orders both at once. `romanValue` reads a Roman numeral as an integer: each letter is worth its unit, less that unit when a larger one follows it, so `IX` is nine and `XII` is twelve. `byNumber` orders a part's chapters the same way: numbered ones by their Arabic number, then numberless ones by title. Each kind of loom keeps a number sequence of its own, so `byKind` puts a part's chapters first and the looms of each declared kind after them, kind by kind, each in the order `byNumber` gives. `chaptersUnder` gathers the looms of one part's body and sorts them.
 
 =>
 
@@ -284,6 +289,11 @@ const byNumber: Order.Order<Numbered> = Order.combineAll([
   Order.mapInput(Order.String, (entry: Numbered) => entry.title),
 ])
 
+const byKind: Order.Order<Chapter> = Order.combineAll([
+  Order.mapInput(Order.String, (chapter: Chapter) => chapter.kind ?? ''),
+  byNumber,
+])
+
 const chaptersUnder = (
   chapters: ReadonlyArray<Chapter>,
   part: PartDecl,
@@ -293,23 +303,24 @@ const chaptersUnder = (
       chapters,
       (chapter) => chapter.book === part.book && chapter.partId === identityOf(part),
     ),
-    Array.sort(byNumber),
+    Array.sort(byKind),
     Array.map(toTocChapter),
   )
 
 ## The discussions at the back
 
-A discussion stands in its part beside the chapters, but the contents list it apart from them, at the back of its book under a `Back matter` heading. `discussionDeclOf` reads a discussion the way `chapterDeclOf` reads a chapter: its book, its part, its own number, its title, and its path. A discussion that names no part has no part to list it under, so its place stays empty, and it follows the discussions that name one.
+A discussion stands in its part beside the chapters, but the contents list it apart from them, at the back of its book under a `Back matter` heading. A loom of a kind a trope declares for the back is listed there too. `backLoomOf` reads such a loom the way `chapterDeclOf` reads a chapter: its book, its part, its kind, its own number, its title, and its path. A loom that names no part has no part to list it under, so its place stays empty.
 
-`byDiscussion` orders the discussions by their parts first, as `byPart` orders the parts, and then by their own numbers, as `byNumber` orders chapters. `toTocDiscussion` writes the discussion's part as its place.
+`byBackLoom` orders the back looms by their parts first, as `byPart` orders the parts. Within a part the discussions come first and the looms of each declared kind after them, kind by kind, each by its own numbers, as `byNumber` orders chapters. `toTocBackLoom` writes the loom's part as its place.
 
 The orphan chapters stand last in the body, under a heading of their own, `Orphan chapters`, which `orphansHeading` holds beside `backMatterHeading` for the presentations that draw them.
 
 =>
 
-type Discussion = {
+type BackLoom = {
   readonly book: string
   readonly part: PartDecl
+  readonly kind: string
   readonly number: string
   readonly title: string
   readonly path: string
@@ -319,55 +330,59 @@ export const backMatterHeading = 'Back matter'
 
 export const orphansHeading = 'Orphan chapters'
 
-const discussionDeclOf = (module: LoomModule): Option.Option<Discussion> =>
+const backLoomOf = (module: LoomModule): Option.Option<BackLoom> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
+    Option.filter(() => zoneOf(module) === 'back'),
     Option.flatMap((frontmatter) =>
-      Option.map(
-        Option.all({
-          discussion: Option.fromNullishOr(frontmatter.discussion),
-          title: Option.fromNullishOr(frontmatter.title),
-        }),
-        ({ discussion, title }) => ({
+      Option.map(Option.fromNullishOr(frontmatter.title), (title) => ({
+        book: bookNameOf(module),
+        part: {
           book: bookNameOf(module),
-          part: {
-            book: bookNameOf(module),
-            number: frontmatter.part?.value ?? '',
-            name: frontmatter.partName?.value ?? '',
-          },
-          number: discussion.value,
-          title: title.value,
-          path: module.path,
-        }),
-      ),
+          number: frontmatter.part?.value ?? '',
+          name: frontmatter.partName?.value ?? '',
+        },
+        kind: loomKindOf(module),
+        number: Option.getOrElse(ordinalOf(module), () => ''),
+        title: title.value,
+        path: module.path,
+      })),
     ),
   )
 
-const byDiscussion: Order.Order<Discussion> = Order.combineAll([
-  Order.mapInput(byPart, (discussion: Discussion) => discussion.part),
+const byBackLoom: Order.Order<BackLoom> = Order.combineAll([
+  Order.mapInput(byPart, (loom: BackLoom) => loom.part),
+  Order.mapInput(Order.Number, (loom: BackLoom) => (loom.kind === discussionKind ? 0 : 1)),
+  Order.mapInput(Order.String, (loom: BackLoom) => loom.kind),
   byNumber,
 ])
 
 const placeOf = (part: PartDecl): string => (part.number === '' ? part.name : `Part ${part.number}`)
 
-const toTocDiscussion = (discussion: Discussion): TocDiscussion =>
-  TocDiscussionSchema.make({
-    place: placeOf(discussion.part),
-    number: discussion.number,
-    title: discussion.title,
-    path: discussion.path,
+const toTocBackLoom = (loom: BackLoom): TocBackLoom =>
+  TocBackLoomSchema.make({
+    kind: loom.kind,
+    place: placeOf(loom.part),
+    number: loom.number,
+    title: loom.title,
+    path: loom.path,
   })
 
 ## What the builder draws on
 
-The builder reads the Loom AST and writes the contents model, so it draws from both. From `effect` come the array and option combinators, `Order` for the sort, `pipe` for the spine, and `Schema` for the model. From the Loom side come the corpus, the module a chapter is, and the `Location` of the root, with `bookOf`, which reads the book a loom names, and `isBookLoom`, which tells a loom that opens a book.
+The builder reads the Loom AST and writes the contents model, so it draws from both. From `effect` come the array and option combinators, `Order` for the sort, `pipe` for the spine, and `Schema` for the model. From the Loom side come the corpus, the module a chapter is, and the `Location` of the root, with `bookOf`, which reads the book a loom names, `isBookLoom`, which tells a loom that opens a book, and `zoneOf`, `loomKindOf`, `ordinalOf`, and `claimedKind`, which read where a loom sits, its kind, its number, and the kind a trope declares for it. The chapter "The leaf tokens" gives `discussionKind`.
 
 =>
 
 import { Array, Option, Order, pipe, Schema } from 'effect'
+import { discussionKind } from '@athrio/loom-ast/LoomTokens'
 import {
   bookOf,
+  claimedKind,
   isBookLoom,
+  loomKindOf,
+  ordinalOf,
+  zoneOf,
   type Location,
   type LoomCorpusAst,
   type LoomModule,

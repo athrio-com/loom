@@ -55,6 +55,7 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  type Codeless,
   conceptKind,
   headingLang,
   manifestKind,
@@ -112,6 +113,7 @@ import {
   TangleBesideSink,
   TangleWithoutFile,
   FileInDiscussion,
+  FileInKind,
   ManifestOutsideTrope,
   UnsettledModule,
   UnsettledSection,
@@ -211,7 +213,7 @@ type NameEntry = {
   readonly pos: Position
   readonly language: string
   readonly written: boolean
-  readonly codeless: Option.Option<string>
+  readonly codeless: Option.Option<Codeless>
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -420,7 +422,7 @@ const buildSection =
       [
         duplicateHealth(first, section),
         labelHealth(section, languageId),
-        discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
+        fileHealth(section, pkg, discussion),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
         codeInCodeless(section),
@@ -429,7 +431,8 @@ const buildSection =
       withHealth,
     )
     const code = buildCode(section, values, index, origin, languageId, health)
-    const file = discussion ? Option.none<File>() : tangleFile(section, pkg, code)
+    const file =
+      discussion || writesNoFile(section) ? Option.none<File>() : tangleFile(section, pkg, code)
     return { code, file }
   }
 
@@ -491,7 +494,7 @@ The sink and the `{Tangle}` specifier each say that a section writes a file, so 
 
 A `{Tangle}` with no sink means the chapter's one file. When the `Package` names a folder, or the chapter names no `Package` at all, the specifier has no file to mean. It raises the `TangleWithoutFile` fault, and the section writes nothing. The fault names the folder when there is one, so the author sees why the folder cannot stand for a file.
 
-A discussion writes no file, as the chapter "Discussions" describes, so the section of a discussion writes nothing whatever its heading says, and `fileInDiscussion` gives a sink or a `{Tangle}` on its heading the `FileInDiscussion` fault. `isDiscussion` tells a discussion by the number its identity line gives it.
+A discussion writes no file, as the chapter "Discussions" describes, so the section of a discussion writes nothing whatever its heading says, and `fileInDiscussion` gives a sink or a `{Tangle}` on its heading the `FileInDiscussion` fault. `fileWhereNone` puts a fault on whichever of the two marks a heading carries, and `fileHealth` chooses the judgement a section's heading gets: a discussion's, that of a loom whose kind holds no code, which a later section describes, or `tangleHealth` for every other. `isDiscussion` tells a discussion by the number its identity line gives it.
 
 `removalOf` gives the span the fix removes: the specifier and the spaces that part it from the sink, so the heading keeps no doubled space. A specifier that holds other parameters beside its `kind`, as `{kind=Tangle lang=sh}` does, keeps them, and the fix removes the `kind` parameter alone, through `parameterSpanOf`.
 
@@ -523,13 +526,27 @@ const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health 
 
 const isDiscussion = (doc: LoomDocument): boolean => doc.frontmatter?.discussion !== undefined
 
-const fileInDiscussion = (section: LoomSection): Health =>
+const fileWhereNone = (section: LoomSection, fault: LoomFault): Health =>
   Option.match(
     Option.orElse(Option.fromNullishOr(section.heading.sink), () => tangleMark(section)),
     {
       onNone: () => okHealth,
-      onSome: (mark) => faulty(FileInDiscussion(), mark.position),
+      onSome: (mark) => faulty(fault, mark.position),
     },
+  )
+
+const fileInDiscussion = (section: LoomSection): Health =>
+  fileWhereNone(section, FileInDiscussion())
+
+const fileHealth = (
+  section: LoomSection,
+  pkg: Option.Option<string>,
+  discussion: boolean,
+): Health =>
+  Match.value({ discussion, codeless: writesNoFile(section) }).pipe(
+    Match.when({ discussion: true }, () => fileInDiscussion(section)),
+    Match.when({ codeless: true }, () => fileInCodeless(section)),
+    Match.orElse(() => tangleHealth(section, pkg)),
   )
 
 const removalOf = (specifier: ParametersToken, sink: SinkToken): Position =>
@@ -571,37 +588,51 @@ A section written in prose holds words for a reader and no code. A section is wr
 
 A Markdown file is no exception, because its section is not written in prose. A sink such as `[README.md]` gives its section the `markdown` language, so the section holds the file's text as code, as any other section holds its own.
 
-A concept holds no code either, as the chapter "Concepts" describes, and neither does a section of a kind that a trope declares with no code. The row of small passes marks every such section `codeless`, and `codelessKind` gives the kind of one. `codeInCodeless` gives each arrow in such a section a fault: `CodeInConcept` in a concept, and `CodeInKind` in a section of a declared kind. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
+A concept holds no code either, as the chapter "Concepts" describes. Neither does a section of a kind that a trope declares with no code, nor any section of a loom whose own kind holds none. The row of small passes marks every such section `codeless`, with the kind that keeps code out and whether that kind is the section's or the loom's, and `codelessKind` reads the mark. `codeInCodeless` gives each arrow in such a section a fault: `CodeInConcept` in a concept, and `CodeInKind` under a declared kind. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
 
-An anchor that composes such a section finds no code to compose. `withoutCode` gives the fault for it by the same split: `ConceptWithoutCode` for a concept, and `KindWithoutCode` for a section of a declared kind.
+An anchor that composes such a section finds no code to compose. `withoutCode` gives the fault for it by the same split: `ConceptWithoutCode` for a concept, and `KindWithoutCode` under a declared kind.
+
+A loom whose kind holds no code writes no file either. `fileInCodeless` gives a sink or a `{Tangle}` on a heading of such a loom the `FileInKind` fault, as `fileInDiscussion` does in a discussion, and `writesNoFile` tells such a section.
 
 =>
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
 
-const codelessKind = (section: LoomSection): Option.Option<string> =>
-  section.codeless === true ? Option.fromNullishOr(section.kind) : Option.none()
+const codelessKind = (section: LoomSection): Option.Option<Codeless> =>
+  Option.fromNullishOr(section.codeless)
 
-const withoutCode = (name: string, kind: Option.Option<string>): LoomFault =>
+const isConcept = (codeless: Codeless): boolean =>
+  codeless.of === 'section' && codeless.kind === conceptKind
+
+const withoutCode = (name: string, codeless: Option.Option<Codeless>): LoomFault =>
   Option.match(
-    Option.filter(kind, (named) => named !== conceptKind),
+    Option.filter(codeless, (held) => !isConcept(held)),
     {
       onNone: () => ConceptWithoutCode({ name }),
-      onSome: (named) => KindWithoutCode({ name, kind: named }),
+      onSome: (held) => KindWithoutCode({ name, ...held }),
     },
   )
 
 const codeInCodeless = (section: LoomSection): Health =>
   Option.match(codelessKind(section), {
     onNone: () => okHealth,
-    onSome: (kind) =>
+    onSome: (codeless) =>
       pipe(
         Array.filter(section.code, isArrow),
         Array.map((weft) =>
-          faulty(kind === conceptKind ? CodeInConcept() : CodeInKind({ kind }), weft.arrow.position),
+          faulty(isConcept(codeless) ? CodeInConcept() : CodeInKind(codeless), weft.arrow.position),
         ),
         Array.reduce(okHealth, withHealth),
       ),
+  })
+
+const writesNoFile = (section: LoomSection): boolean =>
+  Option.exists(codelessKind(section), (codeless) => codeless.of === 'loom')
+
+const fileInCodeless = (section: LoomSection): Health =>
+  Option.match(codelessKind(section), {
+    onNone: () => okHealth,
+    onSome: (codeless) => fileWhereNone(section, FileInKind({ kind: codeless.kind })),
   })
 
 const codeInProse = (section: LoomSection, languageId: string): Health =>
@@ -1088,7 +1119,7 @@ const reachedHealth = (
   at: Position,
   host: string,
   code: Code,
-  codeless: Option.Option<string>,
+  codeless: Option.Option<Codeless>,
   whole: boolean,
   label: Option.Option<Position>,
 ): Health =>

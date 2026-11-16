@@ -188,6 +188,12 @@ export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, man
 
 export const codelessKinds: ReadonlyArray<string> = [conceptKind]
 
+export const CodelessSchema = Schema.Struct({
+  kind: Schema.String,
+  of: Schema.Literals(['section', 'loom']),
+})
+export type Codeless = typeof CodelessSchema.Type
+
 export const headingKeys: Keys = { lang: 'text', kind: 'text' }
 
 export const kindNamed =
@@ -299,6 +305,33 @@ export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
 })
 export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
 
+export const ZoneSchema = Schema.Literals(['body', 'back'])
+export type Zone = typeof ZoneSchema.Type
+
+export const FrontmatterKindTokenSchema = loomNode('FrontmatterKind', {
+  value: Schema.String,
+  number: Schema.String,
+  zone: Schema.optional(ZoneSchema),
+})
+export type FrontmatterKindToken = typeof FrontmatterKindTokenSchema.Type
+
+export const identityWords: ReadonlyArray<string> = ['Part', 'Chapter', 'Discussion', 'Trope']
+
+export const frontmatterFields: ReadonlyArray<string> = [
+  'Target',
+  'Package',
+  'Language',
+  'Status',
+  'Priority',
+]
+
+export const frontmatterKeys: ReadonlyArray<string> = [
+  'Book',
+  'Rooted in',
+  'Entries',
+  ...frontmatterFields,
+]
+
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
   [Probe]: /^\s*=>/,
 })
@@ -391,6 +424,8 @@ export type LoomKind = typeof chapterKind | typeof discussionKind
 
 export const isLoomKind = (kind: string): kind is LoomKind =>
   kind === chapterKind || kind === discussionKind
+
+export const loomKinds: ReadonlyArray<LoomKind> = [chapterKind, discussionKind]
 
 export type PointingKind = LoomKind | typeof tropeKind
 

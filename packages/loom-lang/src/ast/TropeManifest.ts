@@ -1,5 +1,5 @@
 import { Option, pipe, Result, Schema } from 'effect'
-import { type Keys, KeysSchema, StandingSchema } from '@athrio/loom-ast/LoomTokens'
+import { type Keys, KeysSchema, StandingSchema, ZoneSchema } from '@athrio/loom-ast/LoomTokens'
 
 export const contractVersion = '1'
 
@@ -24,6 +24,23 @@ export const AnchorKindDeclarationSchema = Schema.Struct({
 })
 export type AnchorKindDeclaration = typeof AnchorKindDeclarationSchema.Type
 
+export const LoomKindNameSchema = Schema.String.check(
+  Schema.makeFilter((word) =>
+    /^[A-Za-z]+(?: [A-Za-z]+)*$/.test(word)
+      ? undefined
+      : `a kind of loom must be words of letters, got \`${word}\``,
+  ),
+)
+
+export const LoomKindDeclarationSchema = Schema.Struct({
+  kind: LoomKindNameSchema,
+  numbered: Schema.optional(Schema.Boolean),
+  zone: Schema.optional(ZoneSchema),
+  code: Schema.optional(Schema.Literal('none')),
+  holds: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+})
+export type LoomKindDeclaration = typeof LoomKindDeclarationSchema.Type
+
 export const HeadingsDeclarationSchema = Schema.Struct({ parameters: KeysSchema })
 export type HeadingsDeclaration = typeof HeadingsDeclarationSchema.Type
 
@@ -35,6 +52,7 @@ export const TropeManifestSchema = Schema.Struct({
         box: Schema.optional(Schema.Array(BoxKindDeclarationSchema)),
         section: Schema.optional(Schema.Array(SectionKindDeclarationSchema)),
         anchor: Schema.optional(Schema.Array(AnchorKindDeclarationSchema)),
+        loom: Schema.optional(Schema.Array(LoomKindDeclarationSchema)),
       }),
     ),
     headings: Schema.optional(HeadingsDeclarationSchema),
@@ -54,6 +72,12 @@ export const sectionKindsOf = (manifest: TropeManifest): ReadonlyArray<SectionKi
 
 export const anchorKindsOf = (manifest: TropeManifest): ReadonlyArray<AnchorKindDeclaration> =>
   tableOf(manifest.contributes.kinds?.anchor)
+
+export const loomKindsOf = (manifest: TropeManifest): ReadonlyArray<LoomKindDeclaration> =>
+  tableOf(manifest.contributes.kinds?.loom)
+
+export const heldBy = (declaration: LoomKindDeclaration): ReadonlyArray<string> =>
+  tableOf(declaration.holds)
 
 export const parametersOf = (declaration: { readonly parameters?: Keys | undefined }): Keys =>
   Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))

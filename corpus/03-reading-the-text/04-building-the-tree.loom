@@ -469,7 +469,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. The `trope` of a trope chapter rides on its membership line, and the `Rooted in` field of the trope's other chapters is read on its own, since it sits beside the membership lines rather than in them. So is the `Entries` field a trope's root lists, and so is the `Book` field that names a loom's book. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone, and a discussion the same, with its number in place of a chapter's. A loom of a kind a trope declares carries its `kind` there. A line Loom knows comes first: when one line names a chapter or a discussion and another could name a kind, `identityWeft` takes the chapter's or the discussion's, so a stray line never hides what the loom is. The `trope` of a trope chapter rides on its membership line, and the `Rooted in` field of the trope's other chapters is read on its own, since it sits beside the membership lines rather than in them. So is the `Entries` field a trope's root lists, and so is the `Book` field that names a loom's book. The `Language`, `Status`, and `Priority` fields join the tangle target, each read by name. The target answers to `Target`, or to `Package` — the older spelling it is replacing, still honoured so a file may use either during the move.
 
 =>
 
@@ -482,17 +482,10 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
-  const chapterFields = Option.match(
-    Option.fromNullishOr(
-      wefts.find(
-        (w) => w.chapter !== undefined || w.discussion !== undefined || w.title !== undefined,
-      ),
-    ),
-    {
-      onNone: () => ({}),
-      onSome: (w) => ({ chapter: w.chapter, discussion: w.discussion, title: w.title }),
-    },
-  )
+  const chapterFields = Option.match(identityWeft(wefts), {
+    onNone: () => ({}),
+    onSome: (w) => ({ chapter: w.chapter, discussion: w.discussion, kind: w.kind, title: w.title }),
+  })
   return Option.some(
     LoomFrontmatterSchema.make({
       position: {
@@ -522,6 +515,15 @@ const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<L
 `frontmatterField` reads a `key: value` field's value by name — the `Target` (or `Package`) a `{Tangle}` section writes to, the `Language` its sections inherit, or the `Status` and `Priority` a roadmap reads — lifting the missing case to `Option` at the `.find`.
 
 =>
+
+const identityWeft = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<FrontmatterWeft> =>
+  Option.orElse(
+    Array.findFirst(
+      wefts,
+      (w) => w.kind === undefined && (w.chapter !== undefined || w.discussion !== undefined || w.title !== undefined),
+    ),
+    () => Array.findFirst(wefts, (w) => w.kind !== undefined),
+  )
 
 const frontmatterField = (
   wefts: ReadonlyArray<FrontmatterWeft>,

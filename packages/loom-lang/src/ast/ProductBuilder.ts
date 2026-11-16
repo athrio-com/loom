@@ -26,6 +26,7 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  type Codeless,
   conceptKind,
   headingLang,
   manifestKind,
@@ -83,6 +84,7 @@ import {
   TangleBesideSink,
   TangleWithoutFile,
   FileInDiscussion,
+  FileInKind,
   ManifestOutsideTrope,
   UnsettledModule,
   UnsettledSection,
@@ -152,7 +154,7 @@ type NameEntry = {
   readonly pos: Position
   readonly language: string
   readonly written: boolean
-  readonly codeless: Option.Option<string>
+  readonly codeless: Option.Option<Codeless>
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -343,7 +345,7 @@ const buildSection =
       [
         duplicateHealth(first, section),
         labelHealth(section, languageId),
-        discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
+        fileHealth(section, pkg, discussion),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
         codeInCodeless(section),
@@ -352,7 +354,8 @@ const buildSection =
       withHealth,
     )
     const code = buildCode(section, values, index, origin, languageId, health)
-    const file = discussion ? Option.none<File>() : tangleFile(section, pkg, code)
+    const file =
+      discussion || writesNoFile(section) ? Option.none<File>() : tangleFile(section, pkg, code)
     return { code, file }
   }
 
@@ -426,13 +429,27 @@ const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health 
 
 const isDiscussion = (doc: LoomDocument): boolean => doc.frontmatter?.discussion !== undefined
 
-const fileInDiscussion = (section: LoomSection): Health =>
+const fileWhereNone = (section: LoomSection, fault: LoomFault): Health =>
   Option.match(
     Option.orElse(Option.fromNullishOr(section.heading.sink), () => tangleMark(section)),
     {
       onNone: () => okHealth,
-      onSome: (mark) => faulty(FileInDiscussion(), mark.position),
+      onSome: (mark) => faulty(fault, mark.position),
     },
+  )
+
+const fileInDiscussion = (section: LoomSection): Health =>
+  fileWhereNone(section, FileInDiscussion())
+
+const fileHealth = (
+  section: LoomSection,
+  pkg: Option.Option<string>,
+  discussion: boolean,
+): Health =>
+  Match.value({ discussion, codeless: writesNoFile(section) }).pipe(
+    Match.when({ discussion: true }, () => fileInDiscussion(section)),
+    Match.when({ codeless: true }, () => fileInCodeless(section)),
+    Match.orElse(() => tangleHealth(section, pkg)),
   )
 
 const removalOf = (specifier: ParametersToken, sink: SinkToken): Position =>
@@ -464,29 +481,41 @@ const manifestOutsideTrope = (section: LoomSection): Health =>
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
 
-const codelessKind = (section: LoomSection): Option.Option<string> =>
-  section.codeless === true ? Option.fromNullishOr(section.kind) : Option.none()
+const codelessKind = (section: LoomSection): Option.Option<Codeless> =>
+  Option.fromNullishOr(section.codeless)
 
-const withoutCode = (name: string, kind: Option.Option<string>): LoomFault =>
+const isConcept = (codeless: Codeless): boolean =>
+  codeless.of === 'section' && codeless.kind === conceptKind
+
+const withoutCode = (name: string, codeless: Option.Option<Codeless>): LoomFault =>
   Option.match(
-    Option.filter(kind, (named) => named !== conceptKind),
+    Option.filter(codeless, (held) => !isConcept(held)),
     {
       onNone: () => ConceptWithoutCode({ name }),
-      onSome: (named) => KindWithoutCode({ name, kind: named }),
+      onSome: (held) => KindWithoutCode({ name, ...held }),
     },
   )
 
 const codeInCodeless = (section: LoomSection): Health =>
   Option.match(codelessKind(section), {
     onNone: () => okHealth,
-    onSome: (kind) =>
+    onSome: (codeless) =>
       pipe(
         Array.filter(section.code, isArrow),
         Array.map((weft) =>
-          faulty(kind === conceptKind ? CodeInConcept() : CodeInKind({ kind }), weft.arrow.position),
+          faulty(isConcept(codeless) ? CodeInConcept() : CodeInKind(codeless), weft.arrow.position),
         ),
         Array.reduce(okHealth, withHealth),
       ),
+  })
+
+const writesNoFile = (section: LoomSection): boolean =>
+  Option.exists(codelessKind(section), (codeless) => codeless.of === 'loom')
+
+const fileInCodeless = (section: LoomSection): Health =>
+  Option.match(codelessKind(section), {
+    onNone: () => okHealth,
+    onSome: (codeless) => fileWhereNone(section, FileInKind({ kind: codeless.kind })),
   })
 
 const codeInProse = (section: LoomSection, languageId: string): Health =>
@@ -921,7 +950,7 @@ const reachedHealth = (
   at: Position,
   host: string,
   code: Code,
-  codeless: Option.Option<string>,
+  codeless: Option.Option<Codeless>,
   whole: boolean,
   label: Option.Option<Position>,
 ): Health =>

@@ -58,6 +58,8 @@ A Loom book has the same three zones:
 - **Body:** the numbered parts in their order, then the numberless parts by name, such as Work in progress, and last the orphan chapters, the chapters that name no part.
 - **Back matter:** the book's discussions.
 
+A trope may declare a kind of loom of its own, as Part XIII, Tropes, describes, and the kind says which of the two zones its looms sit in. A loom of a kind for the body stands among its part's chapters, after them. A loom of a kind for the back stands in the back matter, after the discussions of its part. The front matter stays the book loom's.
+
 The orphan chapters sit in the body because they are chapters like any other, written to be read with the rest. The back matter holds what a reader consults rather than reads through, such as the discussions behind the decisions.
 
 ## Numbers belong to the body
@@ -66,13 +68,13 @@ Only the body numbers its chapters, so nothing added to the front or the back of
 
 A printed book keeps this rule strictly. Its front matter numbers its pages in roman numerals, so the body's first page stays page 1 however long the preface grows. Its appendices take letters, a sequence of their own. Its index takes no number, since it is the only one of its kind.
 
-Loom follows the same rule. A chapter takes its number within its part, and a part takes its number within its book, so the game's Part I and the website's Part I are two parts. A discussion takes its number within its part too, in a sequence apart from the chapters, the way an appendix takes a letter.
+Loom follows the same rule. A chapter takes its number within its part, and a part takes its number within its book, so the game's Part I and the website's Part I are two parts. A discussion takes its number within its part too, in a sequence apart from the chapters, the way an appendix takes a letter. So does a loom of each kind a trope declares with a number: a part's first task list is `Tasks 1` whatever its chapters count to.
 
 ## The back of the book
 
 A discussion belongs to a part, and it still sits in the back matter of its book, listed under its part. A printed book treats its endnotes the same way, gathering them at the back under each chapter's name.
 
-The back matter lists the discussions part by part, and a discussion that names no part comes after them.
+The back matter lists the discussions part by part, and a discussion that names no part comes after them. Within a part, the looms of each declared kind for the back follow its discussions, one kind after another.
 
 ## The contents of a book, and of a corpus
 

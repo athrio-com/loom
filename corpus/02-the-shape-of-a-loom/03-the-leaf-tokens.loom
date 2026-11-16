@@ -257,7 +257,7 @@ export const anchorKeys: Keys = { kind: 'text', provides: { list: 'text' } }
 
 A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. A heading may name any language, since Loom composes code in a language it has never heard of. The compiler warns of a language a loom uses that no service of the workspace serves, as the chapter "The compile layer" describes. The pass that claims kinds judges the name of a kind.
 
-The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A concept holds words and no code, and `codelessKinds` lists the core's kinds of which that is true. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
+The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A concept holds words and no code, and `codelessKinds` lists the core's kinds of which that is true. A `Codeless` records the kind that keeps code out of a section, and whether that kind is the section's own or its loom's, since a trope may declare a kind of loom that holds no code. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
 
 =>
 
@@ -270,6 +270,12 @@ export const manifestKind = 'Manifest'
 export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, manifestKind]
 
 export const codelessKinds: ReadonlyArray<string> = [conceptKind]
+
+export const CodelessSchema = Schema.Struct({
+  kind: Schema.String,
+  of: Schema.Literals(['section', 'loom']),
+})
+export type Codeless = typeof CodelessSchema.Type
 
 export const headingKeys: Keys = { lang: 'text', kind: 'text' }
 
@@ -361,6 +367,10 @@ A loom names the book it belongs to with a `Book:` line, as `Book: The game` doe
 
 Every other line is a `key: value` pair, such as `Package` or `Language`: a `FrontmatterKey` and the `FrontmatterValue` it binds. Only the fence carries a `Probe`. The tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
 
+A trope may declare a kind of loom of its own, as Part XIII, Tropes, describes, and a loom of that kind names it where a chapter writes `Chapter`, as in `Part XI, Tasks 1: The next release`. `FrontmatterKind` holds the kind's words in `value` and the number after them in `number`, empty when the line writes none. The tokeniser knows no trope, so it reads any such line into the token, and the row of small passes judges the kind against what tropes declare, as the chapter "Small passes over the tree" describes. That row also marks the token with the `zone` of the book a loom of the kind sits in, a `ZoneSchema` word. A token with no `zone` names a kind that no trope declares.
+
+A kind's words must not be mistaken for a line the frontmatter already reads. `identityWords` holds the words of Loom's own identity lines, `frontmatterFields` the keys of the plain `key: value` lines, and `frontmatterKeys` every key that is not an identity line.
+
 =>
 
 export const FrontmatterFenceTokenSchema = loomNode('FrontmatterFence', {}).annotate({
@@ -417,6 +427,33 @@ export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
   value: Schema.String,
 })
 export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
+
+export const ZoneSchema = Schema.Literals(['body', 'back'])
+export type Zone = typeof ZoneSchema.Type
+
+export const FrontmatterKindTokenSchema = loomNode('FrontmatterKind', {
+  value: Schema.String,
+  number: Schema.String,
+  zone: Schema.optional(ZoneSchema),
+})
+export type FrontmatterKindToken = typeof FrontmatterKindTokenSchema.Type
+
+export const identityWords: ReadonlyArray<string> = ['Part', 'Chapter', 'Discussion', 'Trope']
+
+export const frontmatterFields: ReadonlyArray<string> = [
+  'Target',
+  'Package',
+  'Language',
+  'Status',
+  'Priority',
+]
+
+export const frontmatterKeys: ReadonlyArray<string> = [
+  'Book',
+  'Rooted in',
+  'Entries',
+  ...frontmatterFields,
+]
 
 ## Transition markers
 
@@ -544,7 +581,7 @@ export type BoxToken = typeof BoxTokenSchema.Type
 
 A box's braces name its kind. A box takes the key `kind`, and a label alone stands for it, so `{Note}` is the short form of `{kind=Note}`. A box that names no kind is a note, a remark for whoever opens the loom next. A box of the `Conclusion` kind closes a topic of a discussion with the answer the topic settled on, as the chapter "The document builder" describes. `boxKeys` holds the keys a box takes with their types, and `boxKinds` the five kinds, `noteKind`, `chapterKind`, `discussionKind`, `tropeKind`, and `conclusionKind`.
 
-Two of the kinds point to a loom of their own. A box of the `Chapter` kind points to the chapter its name titles, and a box of the `Discussion` kind points to the discussion its name titles. The body of either holds a copy of the loom's summary, as the chapter "The multi-file AST" describes. A `LoomKind` is one of these two kinds, and `isLoomKind` tells whether a box's kind is one of them.
+Two of the kinds point to a loom of their own. A box of the `Chapter` kind points to the chapter its name titles, and a box of the `Discussion` kind points to the discussion its name titles. The body of either holds a copy of the loom's summary, as the chapter "The multi-file AST" describes. A `LoomKind` is one of these two kinds, the core's own kinds of loom, and `loomKinds` holds both. `isLoomKind` tells whether a box's kind is one of them.
 
 A box of the `Trope` kind names a trope, a concept whose size the author does not know yet, as Part XIII, Tropes, describes. It takes two keys besides `kind`. Its `provides` key lists the names the trope promises, and its `anchors` key names the section or chapter that holds the trope, once the author decides where that is. So `provides` holds a list of text, and `anchors` holds a reference. A `PointingKind` is a kind of box that points somewhere, a chapter, a discussion, or a trope, and `isPointingKind` tells whether a box's kind is one.
 
@@ -574,6 +611,8 @@ export type LoomKind = typeof chapterKind | typeof discussionKind
 
 export const isLoomKind = (kind: string): kind is LoomKind =>
   kind === chapterKind || kind === discussionKind
+
+export const loomKinds: ReadonlyArray<LoomKind> = [chapterKind, discussionKind]
 
 export type PointingKind = LoomKind | typeof tropeKind
 

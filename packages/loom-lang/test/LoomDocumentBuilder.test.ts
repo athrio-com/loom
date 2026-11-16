@@ -500,7 +500,7 @@ describe('a kind that holds no code', () => {
   }
 
   const codeless = (heading: string) =>
-    builtWith(`${heading}\n\nProse.\n`, options).sections[0]?.codeless === true
+    builtWith(`${heading}\n\nProse.\n`, options).sections[0]?.codeless !== undefined
 
   it('marks a section of a declared kind that holds none', () => {
     expect(codeless('## Postgres {Option}')).toBe(true)
@@ -515,6 +515,72 @@ describe('a kind that holds no code', () => {
     expect(codeless('## Stew {Recipe}')).toBe(false)
     expect(codeless('## Build {Tangle}')).toBe(false)
     expect(codeless('## Build {Bash}')).toBe(false)
+  })
+})
+
+describe('a loom of a kind a trope declares', () => {
+  const tasks: Declared = {
+    ...nothingDeclared,
+    section: [{ kind: 'Task', parameters: { status: 'text' }, codeless: false }],
+    loom: [
+      { kind: 'Tasks', numbered: true, zone: 'back', codeless: true, holds: ['Task'] },
+      { kind: 'Glossary', numbered: false, zone: 'body', codeless: false, holds: [] },
+    ],
+  }
+
+  const loomOf = (identity: string, ...body: ReadonlyArray<string>) =>
+    builtWith(['---', identity, '---', '', '# The next release', '', ...body, ''].join('\n'), tasks)
+
+  const saidOf = (identity: string) =>
+    (loomOf(identity).frontmatter?.kind?.health.diagnostics ?? []).map((found) => found.message)
+
+  it('claims the kind under the name its trope gives it, with its zone', () => {
+    const kind = loomOf('Part XI, tasks 1: The next release').frontmatter?.kind
+    expect([kind?.value, kind?.number, kind?.zone]).toEqual(['Tasks', '1', 'back'])
+    expect(saidOf('Part XI, tasks 1: The next release')).toEqual([])
+  })
+
+  it('faults a kind no trope declares, and gives it no zone', () => {
+    expect(loomOf('Taks 1: The next release').frontmatter?.kind?.zone).toBeUndefined()
+    expect(saidOf('Taks 1: The next release')).toEqual([
+      'A loom takes no `Taks` kind. It takes `Chapter`, `Discussion`, `Tasks`, and `Glossary`.',
+    ])
+  })
+
+  it('faults a number on a kind that takes none', () => {
+    expect(saidOf('Glossary 2: Words')).toEqual([
+      'A loom of the `Glossary` kind takes no number. Take the number off this line.',
+    ])
+    expect(saidOf('Glossary: Words')).toEqual([])
+  })
+
+  it('lets a section claim a kind its loom holds', () => {
+    const publish = loomOf('Tasks 1: The next release', '## Publish {kind=Task status=todo}', '', 'Push.')
+      .sections[1]
+    expect(publish?.kind).toBe('Task')
+    expect(messagesIn(publish?.heading.specifier)).toEqual([])
+  })
+
+  it('faults that kind in a chapter, and names the kind of loom it belongs in', () => {
+    const publish = loomOf('Chapter 1: The next release', '## Publish {Task}', '', 'Push.').sections[1]
+    expect(publish?.kind).toBeUndefined()
+    expect(messagesIn(publish?.heading.specifier)).toEqual([
+      'A section of the `Task` kind belongs in a loom of the `Tasks` kind. Move the section there, or take the kind off its heading.',
+    ])
+  })
+
+  it('marks every section of a loom whose kind holds no code', () => {
+    const marks = loomOf('Tasks 1: The next release', '## Publish {Task}', '', 'Push.', '', '## Notes')
+      .sections.map((section) => section.codeless)
+    expect(marks).toEqual([
+      { kind: 'Tasks', of: 'loom' },
+      { kind: 'Tasks', of: 'loom' },
+      { kind: 'Tasks', of: 'loom' },
+    ])
+    expect(loomOf('Glossary: Words', '## Loom').sections.map((section) => section.codeless)).toEqual([
+      undefined,
+      undefined,
+    ])
   })
 })
 

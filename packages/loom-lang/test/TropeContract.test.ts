@@ -10,6 +10,8 @@ import {
   anchorKindsOf,
   boxKindsOf,
   headingKeysOf,
+  heldBy,
+  loomKindsOf,
   parametersOf,
   readManifest,
   sectionKindsOf,
@@ -132,6 +134,66 @@ describe('a manifest section', () => {
   })
 })
 
+describe("a loom's kind in its identity line", () => {
+  const identity = (...rows: ReadonlyArray<string>) =>
+    parse(lines('---', ...rows, '---', '', '# The next release')).frontmatter
+
+  it('reads the kind, its number, and the part it belongs to', () => {
+    const fm = identity('Part XI, Tasks 1: The next release')
+    expect([fm?.part?.value, fm?.kind?.value, fm?.kind?.number, fm?.title?.value]).toEqual([
+      'XI',
+      'Tasks',
+      '1',
+      'The next release',
+    ])
+    expect([fm?.chapter, fm?.discussion, fm?.partName]).toEqual([undefined, undefined, undefined])
+  })
+
+  it('reads a kind of several words, and a kind with no number', () => {
+    const listed = identity('Task list 12: The next release')
+    expect([listed?.kind?.value, listed?.kind?.number]).toEqual(['Task list', '12'])
+    const bare = identity('Part: Work in progress', 'Tasks: The next release')
+    expect([bare?.partName?.value, bare?.kind?.value, bare?.kind?.number]).toEqual([
+      'Work in progress',
+      'Tasks',
+      '',
+    ])
+  })
+
+  it('reads no kind in a field of the frontmatter', () => {
+    const fm = identity('Chapter 1: The next release', 'Package: src/release.ts', 'Book: The game')
+    expect([fm?.kind, fm?.chapter?.value, fm?.package?.value]).toEqual([
+      undefined,
+      '1',
+      'src/release.ts',
+    ])
+  })
+
+  it('keeps a chapter a chapter, whatever line stands before it', () => {
+    const fm = identity('Reviewed by: Ada', 'Chapter 2: The next release')
+    expect([fm?.kind, fm?.chapter?.value, fm?.title?.value]).toEqual([
+      undefined,
+      '2',
+      'The next release',
+    ])
+  })
+
+  it('reads a discussion or a chapter that names its part and no number', () => {
+    const talk = identity('Part II, Discussion: The next release')
+    expect([talk?.part?.value, talk?.discussion?.value, talk?.partName]).toEqual([
+      'II',
+      '',
+      undefined,
+    ])
+    const chapter = identity('Part II, Chapter: The next release')
+    expect([chapter?.part?.value, chapter?.title?.value, chapter?.partName]).toEqual([
+      'II',
+      'The next release',
+      undefined,
+    ])
+  })
+})
+
 describe('reading a manifest', () => {
   const reason = (text: string) =>
     Result.match(readManifest(text), { onSuccess: () => '', onFailure: (why) => why })
@@ -201,6 +263,38 @@ describe('reading a manifest', () => {
       'prose',
       undefined,
     ])
+  })
+
+  it('reads the kinds of loom a manifest declares, with what each says', () => {
+    const tasks = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          loom: [
+            { kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] },
+            { kind: 'Task list' },
+          ],
+          section: [{ kind: 'Task' }],
+        },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(tasks))
+    expect(read && loomKindsOf(read)).toEqual([
+      { kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] },
+      { kind: 'Task list' },
+    ])
+    expect(read && loomKindsOf(read).map(heldBy)).toEqual([['Task'], []])
+  })
+
+  it('refuses a kind of loom whose word holds a number, and a zone the book lacks', () => {
+    const kindsOf = (loom: unknown) =>
+      JSON.stringify({ contract: '1', contributes: { kinds: { loom: [loom] } } })
+    expect(reason(kindsOf({ kind: 'Sprint 3' }))).toContain(
+      'a kind of loom must be words of letters, got `Sprint 3`',
+    )
+    expect(reason(kindsOf({ kind: 'Tasks', zone: 'front' }))).toContain(
+      'its manifest does not fit contract 1:',
+    )
   })
 
   it('refuses a rule the contract does not know', () => {

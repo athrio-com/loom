@@ -9,7 +9,7 @@ Language: TypeScript
 
 Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. What the core leaves out, a trope adds: a kind of box that draws a diagram, say, or a mark for citing a paper. The word comes from writing, where a trope is a familiar turn that any author may take up. A Loom trope is the same for books: a way of doing something, written once, that any book can take up.
 
-A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box, of section and of anchor a manifest declares, the parameters it lets any heading carry, the boundary a trope draws around its chapters, the tropes a workspace installs from its store, and the scope a trope gives the concepts its chapters define. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
+A trope tells Loom what it adds through its manifest, a description of the trope written as data. Loom reads the manifest and never runs any of the trope's code to learn what the trope offers. The manifest follows the trope contract, the agreement between Loom and every trope, which one version number covers. This part holds the contract as Loom reads it: the chapters of a trope, the root that holds its manifest, the kinds of box, of section, of anchor and of loom a manifest declares, the parameters it lets any heading carry, the boundary a trope draws around its chapters, the tropes a workspace installs from its store, and the scope a trope gives the concepts its chapters define. The chapter "Tropes" in Work in progress sets out the rest of the design, from views and decorators to the sandbox a trope's own code runs in.
 
 ## A trope is chapters
 
@@ -47,7 +47,7 @@ These tropes are implicit. No frontmatter declares them, they hold no manifest, 
 
 The manifest's `contract` field names the version of the contract the trope was written against, and this Loom reads `contractVersion`, version 1. Contract 1 lets a trope declare two things under the manifest's `contributes` key: kinds, under `kinds`, and parameters that any heading may carry, under `headings`. A manifest writes what it needs and leaves out the rest.
 
-`kinds` holds three tables: kinds of box under `box`, kinds of section under `section`, and kinds of anchor under `anchor`. Every kind has a `kind`, the word that braces name it by. Every kind may also list `parameters`, the keys its braces may hold beside the core's own, each with the type of its values, as the chapter "The leaf tokens" describes. `parametersOf` reads them, and gives an empty table for a kind that lists none.
+`kinds` holds four tables: kinds of box under `box`, kinds of section under `section`, kinds of anchor under `anchor`, and kinds of loom under `loom`. Every kind has a `kind`, the word that names it. Braces name a kind of box, of section, or of anchor, and each of those may also list `parameters`, the keys its braces may hold beside the core's own, each with the type of its values, as the chapter "The leaf tokens" describes. `parametersOf` reads them, and gives an empty table for a kind that lists none. A loom has no braces. Its identity line names its kind, so a kind of loom lists no parameters.
 
 A `BoxKindDeclaration` names one kind of box, as `{Mermaid}` names it on a box. Its `body` is the format the box's body is written in, such as `mermaid` for a diagram's source or `prose` for words a reader reads. A trope for research notebooks declares a box for each dataset a notebook reads, with a parameter that names the file the data comes from:
 
@@ -71,13 +71,27 @@ An `AnchorKindDeclaration` names one kind of anchor, as `{Decision}` names it in
 
 An anchor stands in code, where it composes its section, or in prose, where it is a link. `standsIn` names the one place a kind is for, and an anchor of the kind written in the other place is a fault. A kind that leaves `standsIn` out stands in either.
 
+A `LoomKindDeclaration` names one kind of loom, as `Tasks` names it in the identity line `Part XI, Tasks 1: The next release`, where a chapter writes `Chapter`. A trope for tasks keeps a team's work in the book, the way a board of cards keeps it on a wall. It declares a kind of loom for a list of tasks, and a kind of section for each task:
+
+```
+"loom":    [{ "kind": "Tasks", "numbered": true, "zone": "back", "code": "none", "holds": ["Task"] }],
+"section": [{ "kind": "Task", "parameters": { "status": { "choice": ["todo", "doing", "done"] } } }]
+```
+
+A kind of loom is words of letters, such as `Tasks` or `Task list`, so that a number after it in an identity line is never part of its name. `LoomKindNameSchema` holds a kind's word to that. Beside its word, a kind of loom says four things about its looms:
+
+- **`numbered`** says a loom of the kind takes a number within its part, in a sequence the kind keeps to itself, as a discussion does. A kind that leaves it out takes no number.
+- **`zone`** says where a loom of the kind sits in its book, as the chapter "Books" describes: in the `body`, among the chapters, or at the `back`, with the discussions. A kind that leaves it out sits in the body.
+- **`code`** says, as it does for a kind of section, that the kind holds no code. No section of such a loom holds any.
+- **`holds`** lists the kinds of section that belong to the kind of loom. A kind of loom is a scope: a section of the `Task` kind stands in a `Tasks` loom and in no other.
+
 A `HeadingsDeclaration` holds the parameters that any heading may carry, whatever kind its section claims. A trope for translations declares two: the section a translation varies, and the locale it is written in.
 
 ```
 "headings": { "parameters": { "translates": "reference", "locale": "locale" } }
 ```
 
-`boxKindsOf`, `sectionKindsOf`, and `anchorKindsOf` read the three tables of a manifest, and each gives an empty table for one the manifest leaves out. `headingKeysOf` reads the parameters any heading may carry, and gives an empty table when the manifest declares none.
+`boxKindsOf`, `sectionKindsOf`, `anchorKindsOf`, and `loomKindsOf` read the four tables of a manifest, and each gives an empty table for one the manifest leaves out. `heldBy` reads the kinds of section a kind of loom holds, none when it lists none. `headingKeysOf` reads the parameters any heading may carry, and gives an empty table when the manifest declares none.
 
 A `TropeManifest` holds nothing else. The schema decides what no trope can do, since no manifest can declare what the schema cannot express. So a manifest that writes a key contract 1 does not know, such as the `views` a later contract adds, does not fit, and Loom refuses the whole trope rather than load the parts it understands. A parameter of a type the contract lacks, such as a date, does not fit either.
 
@@ -106,6 +120,23 @@ export const AnchorKindDeclarationSchema = Schema.Struct({
 })
 export type AnchorKindDeclaration = typeof AnchorKindDeclarationSchema.Type
 
+export const LoomKindNameSchema = Schema.String.check(
+  Schema.makeFilter((word) =>
+    /^[A-Za-z]+(?: [A-Za-z]+)*$/.test(word)
+      ? undefined
+      : `a kind of loom must be words of letters, got \`${word}\``,
+  ),
+)
+
+export const LoomKindDeclarationSchema = Schema.Struct({
+  kind: LoomKindNameSchema,
+  numbered: Schema.optional(Schema.Boolean),
+  zone: Schema.optional(ZoneSchema),
+  code: Schema.optional(Schema.Literal('none')),
+  holds: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+})
+export type LoomKindDeclaration = typeof LoomKindDeclarationSchema.Type
+
 export const HeadingsDeclarationSchema = Schema.Struct({ parameters: KeysSchema })
 export type HeadingsDeclaration = typeof HeadingsDeclarationSchema.Type
 
@@ -117,6 +148,7 @@ export const TropeManifestSchema = Schema.Struct({
         box: Schema.optional(Schema.Array(BoxKindDeclarationSchema)),
         section: Schema.optional(Schema.Array(SectionKindDeclarationSchema)),
         anchor: Schema.optional(Schema.Array(AnchorKindDeclarationSchema)),
+        loom: Schema.optional(Schema.Array(LoomKindDeclarationSchema)),
       }),
     ),
     headings: Schema.optional(HeadingsDeclarationSchema),
@@ -136,6 +168,12 @@ export const sectionKindsOf = (manifest: TropeManifest): ReadonlyArray<SectionKi
 
 export const anchorKindsOf = (manifest: TropeManifest): ReadonlyArray<AnchorKindDeclaration> =>
   tableOf(manifest.contributes.kinds?.anchor)
+
+export const loomKindsOf = (manifest: TropeManifest): ReadonlyArray<LoomKindDeclaration> =>
+  tableOf(manifest.contributes.kinds?.loom)
+
+export const heldBy = (declaration: LoomKindDeclaration): ReadonlyArray<string> =>
+  tableOf(declaration.holds)
 
 export const parametersOf = (declaration: { readonly parameters?: Keys | undefined }): Keys =>
   Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))
@@ -193,12 +231,12 @@ export const readManifest = (text: string): Result.Result<TropeManifest, string>
 
 ## What the contract draws on
 
-The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, `Keys`, the table it reads, and `StandingSchema`, the two places an anchor stands.
+The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, `Keys`, the table it reads, `StandingSchema`, the two places an anchor stands, and `ZoneSchema`, the two zones of a book a kind of loom may sit in.
 
 =>
 
 import { Option, pipe, Result, Schema } from 'effect'
-import { type Keys, KeysSchema, StandingSchema } from '@athrio/loom-ast/LoomTokens'
+import { type Keys, KeysSchema, StandingSchema, ZoneSchema } from '@athrio/loom-ast/LoomTokens'
 
 ## The module [src/ast/TropeManifest.ts]
 
@@ -230,6 +268,8 @@ import {
   anchorKindsOf,
   boxKindsOf,
   headingKeysOf,
+  heldBy,
+  loomKindsOf,
   parametersOf,
   readManifest,
   sectionKindsOf,
@@ -364,9 +404,77 @@ describe('a manifest section', () => {
   })
 })
 
+## A loom names its kind
+
+A loom of a kind a trope declares names the kind in its identity line, where a chapter writes `Chapter`. The parse reads the kind's words and the number after them, with the part before the comma when the line names one. It reads the line without asking whether any trope declares the kind, since that is judged later, against the registry.
+
+A line Loom already reads keeps its meaning. A field such as `Package` is never a kind, and a loom whose block names a chapter stays a chapter whatever other lines stand beside it. A discussion or a chapter that names its part and writes no number reads as what it is.
+
+=>
+
+describe("a loom's kind in its identity line", () => {
+  const identity = (...rows: ReadonlyArray<string>) =>
+    parse(lines('---', ...rows, '---', '', '# The next release')).frontmatter
+
+  it('reads the kind, its number, and the part it belongs to', () => {
+    const fm = identity('Part XI, Tasks 1: The next release')
+    expect([fm?.part?.value, fm?.kind?.value, fm?.kind?.number, fm?.title?.value]).toEqual([
+      'XI',
+      'Tasks',
+      '1',
+      'The next release',
+    ])
+    expect([fm?.chapter, fm?.discussion, fm?.partName]).toEqual([undefined, undefined, undefined])
+  })
+
+  it('reads a kind of several words, and a kind with no number', () => {
+    const listed = identity('Task list 12: The next release')
+    expect([listed?.kind?.value, listed?.kind?.number]).toEqual(['Task list', '12'])
+    const bare = identity('Part: Work in progress', 'Tasks: The next release')
+    expect([bare?.partName?.value, bare?.kind?.value, bare?.kind?.number]).toEqual([
+      'Work in progress',
+      'Tasks',
+      '',
+    ])
+  })
+
+  it('reads no kind in a field of the frontmatter', () => {
+    const fm = identity('Chapter 1: The next release', 'Package: src/release.ts', 'Book: The game')
+    expect([fm?.kind, fm?.chapter?.value, fm?.package?.value]).toEqual([
+      undefined,
+      '1',
+      'src/release.ts',
+    ])
+  })
+
+  it('keeps a chapter a chapter, whatever line stands before it', () => {
+    const fm = identity('Reviewed by: Ada', 'Chapter 2: The next release')
+    expect([fm?.kind, fm?.chapter?.value, fm?.title?.value]).toEqual([
+      undefined,
+      '2',
+      'The next release',
+    ])
+  })
+
+  it('reads a discussion or a chapter that names its part and no number', () => {
+    const talk = identity('Part II, Discussion: The next release')
+    expect([talk?.part?.value, talk?.discussion?.value, talk?.partName]).toEqual([
+      'II',
+      '',
+      undefined,
+    ])
+    const chapter = identity('Part II, Chapter: The next release')
+    expect([chapter?.part?.value, chapter?.title?.value, chapter?.partName]).toEqual([
+      'II',
+      'The next release',
+      undefined,
+    ])
+  })
+})
+
 ## Reading a manifest whole or not at all
 
-A manifest that fits contract 1 reads as the kinds it declares, of box, of section, and of anchor, and as the keys it lets any heading carry. A table it leaves out reads as empty, and so does a manifest that declares no kinds at all. A kind reads with the rule it follows, and a rule the contract does not know keeps the trope off. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope. So does a kind with no name, and a parameter of a type the contract lacks.
+A manifest that fits contract 1 reads as the kinds it declares, of box, of section, of anchor, and of loom, and as the keys it lets any heading carry. A table it leaves out reads as empty, and so does a manifest that declares no kinds at all. A kind reads with the rule it follows, and a rule the contract does not know keeps the trope off. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope. So does a kind with no name, a parameter of a type the contract lacks, and a kind of loom whose word could not stand in an identity line.
 
 =>
 
@@ -441,6 +549,38 @@ describe('reading a manifest', () => {
     ])
   })
 
+  it('reads the kinds of loom a manifest declares, with what each says', () => {
+    const tasks = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          loom: [
+            { kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] },
+            { kind: 'Task list' },
+          ],
+          section: [{ kind: 'Task' }],
+        },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(tasks))
+    expect(read && loomKindsOf(read)).toEqual([
+      { kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] },
+      { kind: 'Task list' },
+    ])
+    expect(read && loomKindsOf(read).map(heldBy)).toEqual([['Task'], []])
+  })
+
+  it('refuses a kind of loom whose word holds a number, and a zone the book lacks', () => {
+    const kindsOf = (loom: unknown) =>
+      JSON.stringify({ contract: '1', contributes: { kinds: { loom: [loom] } } })
+    expect(reason(kindsOf({ kind: 'Sprint 3' }))).toContain(
+      'a kind of loom must be words of letters, got `Sprint 3`',
+    )
+    expect(reason(kindsOf({ kind: 'Tasks', zone: 'front' }))).toContain(
+      'its manifest does not fit contract 1:',
+    )
+  })
+
   it('refuses a rule the contract does not know', () => {
     const elsewhere = JSON.stringify({
       contract: '1',
@@ -502,5 +642,7 @@ describe('reading a manifest', () => {
 ::[A chapter names its trope]
 
 ::[A manifest only in a trope]
+
+::[A loom names its kind]
 
 ::[Reading a manifest whole or not at all]

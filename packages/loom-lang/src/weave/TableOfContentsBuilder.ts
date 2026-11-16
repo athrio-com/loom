@@ -1,7 +1,12 @@
 import { Array, Option, Order, pipe, Schema } from 'effect'
+import { discussionKind } from '@athrio/loom-ast/LoomTokens'
 import {
   bookOf,
+  claimedKind,
   isBookLoom,
+  loomKindOf,
+  ordinalOf,
+  zoneOf,
   type Location,
   type LoomCorpusAst,
   type LoomModule,
@@ -13,6 +18,7 @@ export const TocChapterSchema = Schema.Struct({
   status: Schema.optional(Schema.String),
   priority: Schema.optional(Schema.String),
   language: Schema.optional(Schema.String),
+  kind: Schema.optional(Schema.String),
   path: Schema.String,
 })
 export type TocChapter = typeof TocChapterSchema.Type
@@ -24,16 +30,17 @@ export const TocPartSchema = Schema.Struct({
 })
 export type TocPart = typeof TocPartSchema.Type
 
-export const TocDiscussionSchema = Schema.Struct({
+export const TocBackLoomSchema = Schema.Struct({
+  kind: Schema.String,
   place: Schema.String,
   number: Schema.String,
   title: Schema.String,
   path: Schema.String,
 })
-export type TocDiscussion = typeof TocDiscussionSchema.Type
+export type TocBackLoom = typeof TocBackLoomSchema.Type
 
 export const TocBackMatterSchema = Schema.Struct({
-  discussions: Schema.Array(TocDiscussionSchema),
+  looms: Schema.Array(TocBackLoomSchema),
 })
 export type TocBackMatter = typeof TocBackMatterSchema.Type
 
@@ -60,7 +67,7 @@ export const buildContents = (corpus: LoomCorpusAst, root?: Location): TableOfCo
     modules,
     parts: dedupeParts(Array.getSomes(Array.map(modules, partDeclOf))),
     chapters: Array.getSomes(Array.map(modules, chapterDeclOf)),
-    discussions: Array.getSomes(Array.map(modules, discussionDeclOf)),
+    backLooms: Array.getSomes(Array.map(modules, backLoomOf)),
   }
   const defaultBook = contentsOf(declared, '')
   return TableOfContentsSchema.make({
@@ -75,7 +82,7 @@ type Declared = {
   readonly modules: ReadonlyArray<LoomModule>
   readonly parts: ReadonlyArray<PartDecl>
   readonly chapters: ReadonlyArray<Chapter>
-  readonly discussions: ReadonlyArray<Discussion>
+  readonly backLooms: ReadonlyArray<BackLoom>
 }
 
 const contentsOf = (declared: Declared, book: string): TocBook =>
@@ -107,14 +114,14 @@ const contentsOf = (declared: Declared, book: string): TocBook =>
         declared.chapters,
         (chapter) => chapter.book === book && chapter.partId === undefined,
       ),
-      Array.sort(byNumber),
+      Array.sort(byKind),
       Array.map(toTocChapter),
     ),
     backMatter: TocBackMatterSchema.make({
-      discussions: pipe(
-        Array.filter(declared.discussions, (discussion) => discussion.book === book),
-        Array.sort(byDiscussion),
-        Array.map(toTocDiscussion),
+      looms: pipe(
+        Array.filter(declared.backLooms, (loom) => loom.book === book),
+        Array.sort(byBackLoom),
+        Array.map(toTocBackLoom),
       ),
     }),
   })
@@ -128,7 +135,7 @@ const bookNamesIn = (modules: ReadonlyArray<LoomModule>): ReadonlyArray<string> 
   )
 
 const holdsAnything = (book: TocBook): boolean =>
-  book.parts.length > 0 || book.orphans.length > 0 || book.backMatter.discussions.length > 0
+  book.parts.length > 0 || book.orphans.length > 0 || book.backMatter.looms.length > 0
 
 type PartDecl = { readonly book: string; readonly number: string; readonly name: string }
 
@@ -140,6 +147,7 @@ type Chapter = {
   readonly status: string | undefined
   readonly priority: string | undefined
   readonly language: string | undefined
+  readonly kind: string | undefined
   readonly path: string
 }
 
@@ -166,7 +174,7 @@ const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
 
 const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
   const frontmatter = module.doc.frontmatter
-  return frontmatter?.discussion !== undefined || isBookLoom(module)
+  return zoneOf(module) === 'back' || isBookLoom(module)
     ? Option.none()
     : Option.map(
         Option.orElse(
@@ -176,11 +184,12 @@ const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
         (title) => ({
           book: bookNameOf(module),
           partId: frontmatter?.part?.value ?? frontmatter?.partName?.value,
-          number: frontmatter?.chapter?.value ?? '',
+          number: Option.getOrElse(ordinalOf(module), () => ''),
           title,
           status: frontmatter?.status?.value,
           priority: frontmatter?.priority?.value,
           language: frontmatter?.language?.value,
+          kind: Option.getOrUndefined(Option.map(claimedKind(module), (named) => named.value)),
           path: module.path,
         }),
       )
@@ -193,6 +202,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
     status: chapter.status,
     priority: chapter.priority,
     language: chapter.language,
+    kind: chapter.kind,
     path: chapter.path,
   })
 
@@ -243,6 +253,11 @@ const byNumber: Order.Order<Numbered> = Order.combineAll([
   Order.mapInput(Order.String, (entry: Numbered) => entry.title),
 ])
 
+const byKind: Order.Order<Chapter> = Order.combineAll([
+  Order.mapInput(Order.String, (chapter: Chapter) => chapter.kind ?? ''),
+  byNumber,
+])
+
 const chaptersUnder = (
   chapters: ReadonlyArray<Chapter>,
   part: PartDecl,
@@ -252,13 +267,14 @@ const chaptersUnder = (
       chapters,
       (chapter) => chapter.book === part.book && chapter.partId === identityOf(part),
     ),
-    Array.sort(byNumber),
+    Array.sort(byKind),
     Array.map(toTocChapter),
   )
 
-type Discussion = {
+type BackLoom = {
   readonly book: string
   readonly part: PartDecl
+  readonly kind: string
   readonly number: string
   readonly title: string
   readonly path: string
@@ -268,41 +284,40 @@ export const backMatterHeading = 'Back matter'
 
 export const orphansHeading = 'Orphan chapters'
 
-const discussionDeclOf = (module: LoomModule): Option.Option<Discussion> =>
+const backLoomOf = (module: LoomModule): Option.Option<BackLoom> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
+    Option.filter(() => zoneOf(module) === 'back'),
     Option.flatMap((frontmatter) =>
-      Option.map(
-        Option.all({
-          discussion: Option.fromNullishOr(frontmatter.discussion),
-          title: Option.fromNullishOr(frontmatter.title),
-        }),
-        ({ discussion, title }) => ({
+      Option.map(Option.fromNullishOr(frontmatter.title), (title) => ({
+        book: bookNameOf(module),
+        part: {
           book: bookNameOf(module),
-          part: {
-            book: bookNameOf(module),
-            number: frontmatter.part?.value ?? '',
-            name: frontmatter.partName?.value ?? '',
-          },
-          number: discussion.value,
-          title: title.value,
-          path: module.path,
-        }),
-      ),
+          number: frontmatter.part?.value ?? '',
+          name: frontmatter.partName?.value ?? '',
+        },
+        kind: loomKindOf(module),
+        number: Option.getOrElse(ordinalOf(module), () => ''),
+        title: title.value,
+        path: module.path,
+      })),
     ),
   )
 
-const byDiscussion: Order.Order<Discussion> = Order.combineAll([
-  Order.mapInput(byPart, (discussion: Discussion) => discussion.part),
+const byBackLoom: Order.Order<BackLoom> = Order.combineAll([
+  Order.mapInput(byPart, (loom: BackLoom) => loom.part),
+  Order.mapInput(Order.Number, (loom: BackLoom) => (loom.kind === discussionKind ? 0 : 1)),
+  Order.mapInput(Order.String, (loom: BackLoom) => loom.kind),
   byNumber,
 ])
 
 const placeOf = (part: PartDecl): string => (part.number === '' ? part.name : `Part ${part.number}`)
 
-const toTocDiscussion = (discussion: Discussion): TocDiscussion =>
-  TocDiscussionSchema.make({
-    place: placeOf(discussion.part),
-    number: discussion.number,
-    title: discussion.title,
-    path: discussion.path,
+const toTocBackLoom = (loom: BackLoom): TocBackLoom =>
+  TocBackLoomSchema.make({
+    kind: loom.kind,
+    place: placeOf(loom.part),
+    number: loom.number,
+    title: loom.title,
+    path: loom.path,
   })

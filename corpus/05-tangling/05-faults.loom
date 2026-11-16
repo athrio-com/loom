@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnclosedFence` carries the fence that opened fenced code, so its message can show the line that would close it. A `FenceLabelAgainstLanguage` carries the label a fence wears and the language its section composes. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `CompositionCycle` carries the `loop` a composing anchor closes: the titles of the sections it passes through, from the anchor's own section back to that section again. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too, and so are two book looms that open one book. An `UnopenedBook` is a warning: it carries the name of a book that a `Book:` line names and no book loom opens. An `UnservedLanguage` is a warning too: it carries a language that a loom uses and no language service of its workspace serves. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `DividerAgainstCode` is its twin for a line of dashes, which most likely belonged to the code, such as a YAML file's separator. A `FileInDiscussion` carries nothing: it marks a sink or a `{Tangle}` on a heading of a discussion, which writes no file. A `CodeInProse` carries nothing either: it marks an arrow in a section written in prose, which holds no code. A `CodeInConcept` is its twin for an arrow in a concept, and a `ConceptWithoutCode` carries the name of a concept that a code anchor names, since a concept holds no code to compose. A trope may declare a kind of section that holds no code either. A `CodeInKind` carries the `kind` of such a section that holds an arrow, and a `KindWithoutCode` carries the `name` of such a section that a code anchor names, with its `kind`. A `MisplacedAnchor` carries the `kind` of an anchor and the place that kind `standsIn`, when the anchor stands in the other. An `UnresolvedLink` is a warning: it carries the name a link in prose writes when nothing is called that, no section, chapter, or form of a concept. An `UnresolvedReference` is its twin for a reference that braces hold: it carries the `key` the reference stands under and the `name` that nothing is called. A `ManifestOutsideTrope` carries nothing either: it marks a `{Manifest}` on a heading of a loom that names no trope. A `TropeRefused` carries the `reason` Loom refuses a trope's root for, such as a manifest that does not fit the contract, as Part XIII, Tropes, describes. A `ConclusionOutsideTopic` carries nothing either: it marks a conclusion anywhere but in a topic of a discussion. A `SecondConclusion` marks a conclusion in a topic that another already closed. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Five faults judge what the braces of an anchor, a box, or a heading hold. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear, and the `key` its full form writes. An `UnknownKey` carries a key that the bearer of the braces does not take, with the `keys` it does take, and an `UnknownKind` carries a kind it does not take, with the `kinds` it does. Each of the two also carries `on`, which says whether the braces stand on an anchor, a box, or a heading, since each takes keys and kinds of its own. A `RenamedKind` carries a former name of a kind, as the author wrote it, and the name the kind goes by `now`. A `ManyValues` carries a key that holds one value and was given several. A `WrongValue` carries a key, a `value` that does not read as the key's type, and the `Unread` that says what the type wanted, as the chapter "The leaf tokens" describes. A `MissingSymbol` carries a name an anchor says its section provides, and the section that declares no such name. When a trope box promised the name, it carries the `trope` too. A `KeyOutsideTrope` carries a key that only a trope box takes, `provides` or `anchors`, written on a box of another kind. A `StrayTarget` carries a file an anchor writes in parentheses after its name, such as `(greeting.loom)`, when the anchor composes code, and the span it covers. Only a module anchor, an anchor of the `Module` kind, names a file, so the parentheses mean nothing on any other anchor.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnclosedFence` carries the fence that opened fenced code, so its message can show the line that would close it. A `FenceLabelAgainstLanguage` carries the label a fence wears and the language its section composes. An `UnresolvedAnchor` carries the name that matched no section, and a `Declaration` when the anchor's own loom is the place to declare that section: the text of a heading for it, and the point where the heading goes. It also carries `settleAt`, the point just past the anchor where a `{To be settled}` label can go. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `CompositionCycle` carries the `loop` a composing anchor closes: the titles of the sections it passes through, from the anchor's own section back to that section again. Two notes in the catalog mark no mistake. An `UnsettledSection` carries the name a code anchor composes before its section holds any code, and whether a section of that name is declared yet. The section is to be settled: nothing is wrong while the author writes it. A `SettledLabel` carries the name of a section that holds code now, though the anchor still labels it `{To be settled}`, with the span of that label. A `DuplicateName` carries a name that two siblings share, the kind of sibling, and where the name already stands. Two sections of one loom are siblings, because a section's name is its identity within its loom. Two chapters of one part are siblings too, and so are two book looms that open one book. An `UnopenedBook` is a warning: it carries the name of a book that a `Book:` line names and no book loom opens. An `UnservedLanguage` is a warning too: it carries a language that a loom uses and no language service of its workspace serves. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `DividerAgainstCode` is its twin for a line of dashes, which most likely belonged to the code, such as a YAML file's separator. A `FileInDiscussion` carries nothing: it marks a sink or a `{Tangle}` on a heading of a discussion, which writes no file. A `FileInKind` is its twin for a loom of a kind that a trope declares with no code, and carries that `kind`. A `CodeInProse` carries nothing either: it marks an arrow in a section written in prose, which holds no code. A `CodeInConcept` is its twin for an arrow in a concept, and a `ConceptWithoutCode` carries the name of a concept that a code anchor names, since a concept holds no code to compose. A trope may declare a kind of section that holds no code either, or a kind of loom that holds none in any of its sections. A `CodeInKind` carries the `kind` that keeps code out of a section that holds an arrow, and `of`, which says whether the kind is the section's or its loom's. A `KindWithoutCode` carries the same two for a section that a code anchor names, with the section's `name`. A `MisplacedAnchor` carries the `kind` of an anchor and the place that kind `standsIn`, when the anchor stands in the other. An `UnresolvedLink` is a warning: it carries the name a link in prose writes when nothing is called that, no section, chapter, or form of a concept. An `UnresolvedReference` is its twin for a reference that braces hold: it carries the `key` the reference stands under and the `name` that nothing is called. A `ManifestOutsideTrope` carries nothing either: it marks a `{Manifest}` on a heading of a loom that names no trope. A `TropeRefused` carries the `reason` Loom refuses a trope's root for, such as a manifest that does not fit the contract, as Part XIII, Tropes, describes. A `ConclusionOutsideTopic` carries nothing either: it marks a conclusion anywhere but in a topic of a discussion. A `SecondConclusion` marks a conclusion in a topic that another already closed. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. Five faults judge what the braces of an anchor, a box, or a heading hold. A `RepeatedKey` carries a key written twice. A `LabelBesideParameter` carries a label written alone beside parameters, where only its full form is clear, and the `key` its full form writes. An `UnknownKey` carries a key that the bearer of the braces does not take, with the `keys` it does take, and an `UnknownKind` carries a kind it does not take, with the `kinds` it does. Each of the two also carries `on`, which says whether the braces stand on an anchor, a box, or a heading, since each takes keys and kinds of its own. A loom names its kind in its identity line, with no braces, so an `UnknownKind` may also stand `on` a loom. A `KindOutsideLoom` carries a `kind` of section written outside the kinds of loom that hold it, with those `looms`. A `NumberOnKind` carries the `kind` of a loom whose identity line writes a number its kind does not take. A `RenamedKind` carries a former name of a kind, as the author wrote it, and the name the kind goes by `now`. A `ManyValues` carries a key that holds one value and was given several. A `WrongValue` carries a key, a `value` that does not read as the key's type, and the `Unread` that says what the type wanted, as the chapter "The leaf tokens" describes. A `MissingSymbol` carries a name an anchor says its section provides, and the section that declares no such name. When a trope box promised the name, it carries the `trope` too. A `KeyOutsideTrope` carries a key that only a trope box takes, `provides` or `anchors`, written on a box of another kind. A `StrayTarget` carries a file an anchor writes in parentheses after its name, such as `(greeting.loom)`, when the anchor composes code, and the span it covers. Only a module anchor, an anchor of the `Module` kind, names a file, so the parentheses mean nothing on any other anchor.
 
 Five faults judge a module anchor, as the chapter "Referring to modules" describes. A `NoSuchFile` carries the name a module anchor finds, the file it names in parentheses, the files the node it finds does emit, and the span of the parentheses. A `SeveralFiles` carries the name and the files, when the module anchor names none of them, with the point just past the anchor where a file can be named. A `SectionWithoutFile` carries the name of a section with no sink, the files it lands in, and whether one of them is the file the module anchor stands in, since a path can name none of those. An `UnsettledModule` is a note, like an `UnsettledSection`: it carries the name of a module nobody has written yet, and whether a chapter or section of that name is declared. A `SpecifierUnknown` carries the name of a module anchor whose path the package could not write, with the language and the reason. Three faults keep boxes whole, as the chapter "The tokeniser stage" describes. A `ColonRun` carries a run of four or more colons, which opens and closes nothing. A `NestedBox` carries nothing: it marks three colons that would open a box inside one already open. An `UnclosedBox` carries nothing either: it marks a box that runs to the end of its loom, because no line of three colons alone closes it. Five more judge a box that points somewhere: to a chapter, to a discussion, or, for a trope, to the section or chapter that holds it, as the chapter "The multi-file AST" describes. An `UnnamedBox` carries the box's `kind`, so its message can show a named box of that kind. An `UnwrittenLoom` is a note: it carries the kind and the name of a loom nobody has written yet, and the `opening` that writes it, a new loom's `file` and its `text`. An `UnsettledTrope` is a note too: it carries the name of a trope that points nowhere yet, and the `target` its `anchors` key names, when it names one. A `StaleSummary` carries what the box copies from, a chapter, a discussion, or a section, with its name, the `summary` the box should copy, and the span of the box's body, which no longer matches it. A `ChapterBoxBesideCode` carries the name of a chapter box written in a section that holds code. Two faults keep a heading to one mark for the file its section writes. A `TangleBesideSink` carries the sink a heading writes beside its `{Tangle}` specifier, and the span the fix removes. A `TangleWithoutFile` carries the folder a chapter's `Package` names, when it names one, since a `{Tangle}` specifier means the chapter's one file and a folder is no file.
 
@@ -33,6 +33,8 @@ export type Sibling = 'section' | 'chapter' | 'book'
 export type Declaration = { readonly at: Position; readonly text: string }
 
 export type BracesOn = 'anchor' | 'box' | 'heading'
+
+export type KindBearer = BracesOn | 'loom'
 
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
@@ -74,8 +76,10 @@ export type LoomFault = Data.TaggedEnum<{
   UnknownKind: {
     readonly kind: string
     readonly kinds: ReadonlyArray<string>
-    readonly on: BracesOn
+    readonly on: KindBearer
   }
+  KindOutsideLoom: { readonly kind: string; readonly looms: ReadonlyArray<string> }
+  NumberOnKind: { readonly kind: string }
   RenamedKind: { readonly kind: string; readonly now: string }
   ManyValues: { readonly key: string }
   WrongValue: { readonly key: string; readonly value: string; readonly unread: Unread }
@@ -114,11 +118,12 @@ export type LoomFault = Data.TaggedEnum<{
   HeadingAgainstCode: {}
   DividerAgainstCode: {}
   FileInDiscussion: {}
+  FileInKind: { readonly kind: string }
   CodeInProse: {}
   CodeInConcept: {}
   ConceptWithoutCode: { readonly name: string }
-  CodeInKind: { readonly kind: string }
-  KindWithoutCode: { readonly name: string; readonly kind: string }
+  CodeInKind: Codeless
+  KindWithoutCode: Codeless & { readonly name: string }
   MisplacedAnchor: { readonly kind: string; readonly standsIn: Standing }
   UnresolvedLink: { readonly name: string }
   UnresolvedReference: { readonly key: string; readonly name: string }
@@ -171,6 +176,8 @@ export const {
   LabelBesideParameter,
   UnknownKey,
   UnknownKind,
+  KindOutsideLoom,
+  NumberOnKind,
   RenamedKind,
   ManyValues,
   WrongValue,
@@ -195,6 +202,7 @@ export const {
   HeadingAgainstCode,
   DividerAgainstCode,
   FileInDiscussion,
+  FileInKind,
   CodeInProse,
   CodeInConcept,
   ConceptWithoutCode,
@@ -237,6 +245,8 @@ An ambiguous anchor ends its message with the way out. `disambiguation` names th
 
 An anchor stands in prose or in code, and `otherPlace` gives the place an anchor of a kind does not belong, for the message of a misplaced anchor.
 
+A kind that holds no code is a section's own or its loom's, and the two messages about it read differently for each. `codeHome` says where the code may go instead, and `heldIn` says how the section an anchor names comes under the kind.
+
 =>
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -276,10 +286,21 @@ const rule: Record<MalformedConstruct, string> = {
   anchorName: 'may not contain `]`',
 }
 
-const bearer: Record<BracesOn, string> = {
+const bearer: Record<KindBearer, string> = {
   anchor: 'an anchor',
   box: 'a box',
   heading: 'a heading',
+  loom: 'a loom',
+}
+
+const codeHome: Record<Codeless['of'], string> = {
+  section: 'another section',
+  loom: 'a chapter',
+}
+
+const heldIn: Record<Codeless['of'], string> = {
+  section: 'is a section',
+  loom: 'stands in a loom',
 }
 
 const exampleName: Record<PointingKind, string> = {
@@ -430,6 +451,12 @@ export const describe = (fault: LoomFault): Note =>
       error(`${cap(bearer[on])} takes no \`${key}\` key. It takes ${knownList(keys)}.`),
     UnknownKind: ({ kind, kinds, on }) =>
       error(`${cap(bearer[on])} takes no \`${kind}\` kind. It takes ${knownList(kinds)}.`),
+    KindOutsideLoom: ({ kind, looms }) =>
+      error(
+        `A section of the \`${kind}\` kind belongs in a loom of the ${orList(looms)} kind. Move the section there, or take the kind off its heading.`,
+      ),
+    NumberOnKind: ({ kind }) =>
+      error(`A loom of the \`${kind}\` kind takes no number. Take the number off this line.`),
     RenamedKind: ({ kind, now }) =>
       error(`The \`${kind}\` kind is now called \`${now}\`. Write \`${now}\`.`),
     ManyValues: ({ key }) =>
@@ -528,6 +555,10 @@ export const describe = (fault: LoomFault): Note =>
       error(
         'A discussion writes no file, so it takes no sink or `{Tangle}`. Remove it, or move the section into a chapter.',
       ),
+    FileInKind: ({ kind }) =>
+      error(
+        `A loom of the \`${kind}\` kind writes no file, so it takes no sink or \`{Tangle}\`. Remove it, or move the section into a chapter.`,
+      ),
     CodeInProse: () =>
       error(
         'Prose holds no code. Quote this code in a fence, or name its language on the heading, as in `{TypeScript}`.',
@@ -540,13 +571,13 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `\`${name}\` is a concept, and a concept holds no code. Name the section whose code you mean.`,
       ),
-    CodeInKind: ({ kind }) =>
+    CodeInKind: ({ kind, of }) =>
       error(
-        `A section of the \`${kind}\` kind holds no code. Quote this code in a fence, or move it to another section.`,
+        `A ${of} of the \`${kind}\` kind holds no code. Quote this code in a fence, or move it to ${codeHome[of]}.`,
       ),
-    KindWithoutCode: ({ name, kind }) =>
+    KindWithoutCode: ({ name, kind, of }) =>
       error(
-        `\`${name}\` is a section of the \`${kind}\` kind, which holds no code. Name the section whose code you mean.`,
+        `\`${name}\` ${heldIn[of]} of the \`${kind}\` kind, which holds no code. Name the section whose code you mean.`,
       ),
     MisplacedAnchor: ({ kind, standsIn }) =>
       error(
@@ -694,7 +725,7 @@ export const faulty = (fault: LoomFault, position: Position): Health => ({
 
 ## What this module draws on
 
-`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds that an anchor or a box takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration and the point where it can be settled. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds — and gives `settleKind`, the kind the settling fix writes, the `LoomKind` and `PointingKind` a box that points somewhere names, `Opening`, the new loom an unwritten loom's fix writes, `CopiedFrom`, what a box copies from, `Unread`, what a key's type wanted in place of a value, and `Standing`, the place an anchor stands.
+`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds that an anchor or a box takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration and the point where it can be settled. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds — and gives `settleKind`, the kind the settling fix writes, the `LoomKind` and `PointingKind` a box that points somewhere names, `Opening`, the new loom an unwritten loom's fix writes, `CopiedFrom`, what a box copies from, `Unread`, what a key's type wanted in place of a value, `Standing`, the place an anchor stands, and `Codeless`, the kind that keeps code out of a section.
 
 =>
 
@@ -702,6 +733,7 @@ import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  type Codeless,
   type LoomKind,
   type PointingKind,
   settleKind,

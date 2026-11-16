@@ -7,6 +7,7 @@ import type {
   ExpandedHeading,
   ExpandedSection,
   LoomDocument,
+  LoomFrontmatter,
   ParsedDocument,
   ParsedHeading,
 } from '@athrio/loom-ast/LoomAst'
@@ -17,6 +18,7 @@ import {
   type BoxToken,
   codelessKinds,
   eachType,
+  type FrontmatterKindToken,
   headingKeys,
   holdsReferences,
   isList,
@@ -24,6 +26,7 @@ import {
   keyType,
   kindNamed,
   labelKey,
+  loomKinds,
   ParameterKeyTokenSchema,
   type ParameterToken,
   ParameterTokenSchema,
@@ -41,6 +44,7 @@ import {
   type Standing,
   type ValueType,
   type WarpAnchorToken,
+  type Zone,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
 import type {
@@ -54,10 +58,12 @@ import type {
 import {
   type BracesOn,
   faulty,
+  KindOutsideLoom,
   LabelBesideParameter,
   type LoomFault,
   ManyValues,
   MisplacedAnchor,
+  NumberOnKind,
   RenamedKind,
   RepeatedKey,
   UnknownKey,
@@ -71,16 +77,31 @@ export type SectionKind = KeyedKind & { readonly codeless: boolean }
 
 export type AnchorKind = KeyedKind & { readonly standsIn: Option.Option<Standing> }
 
+export type KindOfLoom = {
+  readonly kind: string
+  readonly numbered: boolean
+  readonly zone: Zone
+  readonly codeless: boolean
+  readonly holds: ReadonlyArray<string>
+}
+
 export type Declared = {
   readonly section: ReadonlyArray<SectionKind>
   readonly anchor: ReadonlyArray<AnchorKind>
   readonly box: ReadonlyArray<KeyedKind>
+  readonly loom: ReadonlyArray<KindOfLoom>
   readonly headings: Keys
 }
 
-export const nothingDeclared: Declared = { section: [], anchor: [], box: [], headings: {} }
+export const nothingDeclared: Declared = {
+  section: [],
+  anchor: [],
+  box: [],
+  loom: [],
+  headings: {},
+}
 
-const kindsOf = (declared: ReadonlyArray<KeyedKind>): ReadonlyArray<string> =>
+const kindsOf = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
   Array.map(declared, (each) => each.kind)
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
@@ -96,7 +117,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
         return pipe(
           parsed,
           expandedDocument(kinds),
-          claimedDocument(kinds, codeless),
+          claimedDocument(kinds, codeless, declared.loom),
           checkedDocument(coreKeys, declared),
           referringDocument(coreKeys, declared),
           placedDocument(declared.anchor),
@@ -205,10 +226,69 @@ const besideParameters =
   (braces: Braces): Option.Option<Braces> =>
     braces.type === 'Parameters' ? faultedLabels(keyOf)(braces) : Option.none()
 
+type Held = { readonly kind: string; readonly looms: ReadonlyArray<string> }
+
+type Scope = {
+  readonly kinds: ReadonlyArray<string>
+  readonly codeless: ReadonlyArray<string>
+  readonly elsewhere: ReadonlyArray<Held>
+  readonly loom: Option.Option<KindOfLoom>
+}
+
+const sameWord = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase()
+
+const holdsKind =
+  (kind: string) =>
+  (loom: KindOfLoom): boolean =>
+    Array.some(loom.holds, (held) => sameWord(held, kind))
+
+const loomNamed = (looms: ReadonlyArray<KindOfLoom>, word: string): Option.Option<KindOfLoom> =>
+  Array.findFirst(looms, (loom) => sameWord(loom.kind, word))
+
+const ownKind = (
+  looms: ReadonlyArray<KindOfLoom>,
+  expanded: ExpandedDocument,
+): Option.Option<KindOfLoom> =>
+  Option.flatMap(Option.fromNullishOr(expanded.frontmatter?.kind), (named) =>
+    loomNamed(looms, named.value),
+  )
+
+const heldElsewhere = (
+  looms: ReadonlyArray<KindOfLoom>,
+  own: Option.Option<KindOfLoom>,
+): ReadonlyArray<Held> =>
+  pipe(
+    Array.flatMap(looms, (loom) => loom.holds),
+    Array.dedupeWith(sameWord),
+    Array.filter((kind) => !Option.exists(own, holdsKind(kind))),
+    Array.map((kind): Held => ({ kind, looms: kindsOf(Array.filter(looms, holdsKind(kind))) })),
+  )
+
+const isHeld =
+  (kind: string) =>
+  (held: Held): boolean =>
+    sameWord(held.kind, kind)
+
 export const claimedDocument =
-  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string> = codelessKinds) =>
-  (expanded: ExpandedDocument): ClaimedDocument =>
-    rewritten(expanded, { LoomSection: claimedSection(kinds, codeless) })
+  (
+    kinds: ReadonlyArray<string>,
+    codeless: ReadonlyArray<string> = codelessKinds,
+    looms: ReadonlyArray<KindOfLoom> = [],
+  ) =>
+  (expanded: ExpandedDocument): ClaimedDocument => {
+    const loom = ownKind(looms, expanded)
+    const elsewhere = heldElsewhere(looms, loom)
+    const scope: Scope = {
+      kinds: Array.filter(kinds, (kind) => !Array.some(elsewhere, isHeld(kind))),
+      codeless,
+      elsewhere,
+      loom,
+    }
+    return rewritten(expanded, {
+      LoomFrontmatter: claimedFrontmatter(looms),
+      LoomSection: claimedSection(scope),
+    })
+  }
 
 type KindStated = {
   readonly held: ParametersToken
@@ -229,26 +309,46 @@ const kindStated = (heading: ExpandedHeading): Option.Option<KindStated> =>
     ),
   )
 
+const inCodelessLoom =
+  (loom: Option.Option<KindOfLoom>) =>
+  (section: ClaimedSection): ClaimedSection =>
+    Option.match(
+      Option.filter(loom, (own) => own.codeless && section.codeless === undefined),
+      {
+        onNone: () => section,
+        onSome: (own) => ({ ...section, codeless: { kind: own.kind, of: 'loom' as const } }),
+      },
+    )
+
 const claimedSection =
-  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string>) =>
+  (scope: Scope) =>
   (section: ExpandedSection): ClaimedSection =>
-    Option.match(kindStated(section.heading), {
-      onNone: () => section,
-      onSome: (stated) =>
-        Option.match(kindNamed(kinds)(stated.value.value), {
-          onSome: (kind) =>
-            Array.contains(codeless, kind)
-              ? { ...section, kind, codeless: true as const }
-              : { ...section, kind },
-          onNone: () => ({ ...section, heading: unclaimed(kinds)(section.heading, stated) }),
-        }),
-    })
+    inCodelessLoom(scope.loom)(
+      Option.match(kindStated(section.heading), {
+        onNone: (): ClaimedSection => section,
+        onSome: (stated) =>
+          Option.match(kindNamed(scope.kinds)(stated.value.value), {
+            onSome: (kind): ClaimedSection =>
+              Array.contains(scope.codeless, kind)
+                ? { ...section, kind, codeless: { kind, of: 'section' as const } }
+                : { ...section, kind },
+            onNone: (): ClaimedSection => ({
+              ...section,
+              heading: unclaimed(scope)(section.heading, stated),
+            }),
+          }),
+      }),
+    )
 
 const unclaimed =
-  (kinds: ReadonlyArray<string>) =>
+  (scope: Scope) =>
   (heading: ExpandedHeading, stated: KindStated): ExpandedHeading => {
     const fault = faulty(
-      UnknownKind({ kind: stated.value.value, kinds, on: 'heading' }),
+      Option.match(Array.findFirst(scope.elsewhere, isHeld(stated.value.value)), {
+        onNone: (): LoomFault =>
+          UnknownKind({ kind: stated.value.value, kinds: scope.kinds, on: 'heading' }),
+        onSome: (held): LoomFault => KindOutsideLoom(held),
+      }),
       stated.value.position,
     )
     return {
@@ -263,6 +363,36 @@ const unclaimed =
       },
     }
   }
+
+const claimedKind =
+  (looms: ReadonlyArray<KindOfLoom>) =>
+  (named: FrontmatterKindToken): FrontmatterKindToken =>
+    Option.match(loomNamed(looms, named.value), {
+      onNone: () => ({
+        ...named,
+        health: faulty(
+          UnknownKind({ kind: named.value, kinds: [...loomKinds, ...kindsOf(looms)], on: 'loom' }),
+          named.position,
+        ),
+      }),
+      onSome: (loom) => ({
+        ...named,
+        value: loom.kind,
+        zone: loom.zone,
+        health:
+          loom.numbered || named.number === ''
+            ? named.health
+            : faulty(NumberOnKind({ kind: loom.kind }), named.position),
+      }),
+    })
+
+const claimedFrontmatter =
+  (looms: ReadonlyArray<KindOfLoom>) =>
+  (frontmatter: LoomFrontmatter): LoomFrontmatter =>
+    Option.match(Option.fromNullishOr(frontmatter.kind), {
+      onNone: () => frontmatter,
+      onSome: (named) => ({ ...frontmatter, kind: claimedKind(looms)(named) }),
+    })
 
 type Takes = {
   readonly on: BracesOn

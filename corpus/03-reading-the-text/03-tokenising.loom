@@ -86,9 +86,13 @@ A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles 
 
 A `Part <Roman>` line announces a numbered part, and a `Chapter <n>` line a numbered chapter, each carrying an ordinal past its keyword and a name beside it. Drop the ordinal and the membership is numberless: a bare `Part` names a part with no number, and a bare `Chapter` a chapter with no number, for a chapter a reader orders by hand rather than by position. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. A discussion reads the same way, with `Discussion` in place of `Chapter`, and a bare `Discussion` gives a discussion with no number.
 
+A trope may declare a kind of loom of its own, and a loom of that kind names it in the same place, as `Part XI, Tasks 1` does. The tokeniser knows no trope, so `kindOf` reads any line whose key is words of letters, with a number after them or none, and which no other rule claims. The words become the `value` of a `FrontmatterKind` and the number its `number`. The row of small passes then judges the words against the kinds tropes declare.
+
+`identityOf` reads what a loom says it is, from a key alone or from the part of a joined key that follows the comma: a chapter, a discussion, or a loom of another kind, each with the title beside it. `belongingField` reads the joined form through it and adds the part.
+
 A trope chapter reads as a chapter too, with `Trope Chapter` in place of `Chapter`, as `Part III, Trope Chapter 4: Payments` does, and `tropeChapterField` reads it. The chapter roots a trope named by its title, so a `FrontmatterTrope` on the word `Trope` holds the title as the trope's name. A `Rooted in` line names the trope a chapter belongs to, and its value becomes a `FrontmatterTrope` too. An `Entries` line lists chapters, and `listSpans` cuts its value at each comma, so each name becomes a `FrontmatterEntry` with a span of its own, and a rename can rewrite one name alone.
 
-A `Book` line names the book a loom belongs to, and its value becomes a `FrontmatterBook`. `Target`, `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
+A `Book` line names the book a loom belongs to, and its value becomes a `FrontmatterBook`. `Target`, `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. `frontmatterFields`, from the chapter "The leaf tokens", lists them. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
 
 =>
 
@@ -104,8 +108,6 @@ const tokeniseFrontmatter = (weft: FrontmatterWeft): LoomWeft => {
   return buildFrontmatterField(weft, line, key, value)
 }
 
-const frontmatterFields = new Set(['Target', 'Package', 'Language', 'Status', 'Priority'])
-
 const buildFrontmatterField = (
   weft: FrontmatterWeft,
   line: number,
@@ -114,10 +116,8 @@ const buildFrontmatterField = (
 ): FrontmatterWeft => {
   if (/(?:^|,\s*)Trope Chapter(?:\s|$)/.test(key.value))
     return tropeChapterField(weft, line, key, value)
-  if (key.value.startsWith('Part ') && key.value.includes(', Chapter '))
-    return belongingField(weft, line, key, value)
-  if (key.value.startsWith('Part ') && key.value.includes(', Discussion '))
-    return belongingDiscussion(weft, line, key, value)
+  const belonging = belongingField(weft, line, key, value)
+  if (Option.isSome(belonging)) return belonging.value
   if (key.value.startsWith('Part '))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -132,29 +132,6 @@ const buildFrontmatterField = (
       source: weft.source,
       health: okHealth,
       partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
-    })
-  if (key.value.startsWith('Chapter '))
-    return FrontmatterWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      chapter: ordinalToken(FrontmatterChapterTokenSchema, line, key, 'Chapter '),
-      title: fieldToken(FrontmatterTitleTokenSchema, line, value),
-    })
-  if (key.value === 'Chapter')
-    return FrontmatterWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      title: fieldToken(FrontmatterTitleTokenSchema, line, value),
-    })
-  if (key.value === 'Discussion' || key.value.startsWith('Discussion '))
-    return FrontmatterWeftSchema.make({
-      position: weft.position,
-      source: weft.source,
-      health: okHealth,
-      discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, key, 'Discussion'),
-      title: fieldToken(FrontmatterTitleTokenSchema, line, value),
     })
   if (key.value === 'Rooted in')
     return FrontmatterWeftSchema.make({
@@ -179,7 +156,7 @@ const buildFrontmatterField = (
       health: okHealth,
       book: fieldToken(FrontmatterBookTokenSchema, line, value),
     })
-  if (frontmatterFields.has(key.value))
+  if (frontmatterFields.includes(key.value))
     return FrontmatterWeftSchema.make({
       position: weft.position,
       source: weft.source,
@@ -187,26 +164,51 @@ const buildFrontmatterField = (
       key: fieldToken(FrontmatterKeyTokenSchema, line, key),
       value: fieldToken(FrontmatterValueTokenSchema, line, value),
     })
-  return bareFrontmatter(weft)
+  return Option.match(identityOf(line, key, value), {
+    onNone: () => bareFrontmatter(weft),
+    onSome: (identity) =>
+      FrontmatterWeftSchema.make({
+        position: weft.position,
+        source: weft.source,
+        health: okHealth,
+        ...identity,
+      }),
+  })
 }
 
-const belongingDiscussion = (
-  weft: FrontmatterWeft,
-  line: number,
-  key: TrimmedSpan,
-  value: TrimmedSpan,
-): FrontmatterWeft => {
-  const comma = key.value.indexOf(',')
-  const partSpan = trimSpan(key.value.slice(0, comma), key.start)
-  const discussionSpan = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
-  return FrontmatterWeftSchema.make({
-    position: weft.position,
-    source: weft.source,
-    health: okHealth,
-    part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
-    discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, discussionSpan, 'Discussion'),
-    title: fieldToken(FrontmatterTitleTokenSchema, line, value),
-  })
+type Identity = Pick<FrontmatterWeft, 'chapter' | 'discussion' | 'kind' | 'title'>
+
+const kindLine = /^([A-Za-z]+(?: [A-Za-z]+)*)(?: +(\d\S*))?$/
+
+const kindOf = (line: number, own: TrimmedSpan): Option.Option<FrontmatterKindToken> =>
+  pipe(
+    Option.fromNullishOr(kindLine.exec(own.value)),
+    Option.filter(([, words]) => words !== 'Part' && !frontmatterKeys.includes(words ?? '')),
+    Option.map(([, words, number]) =>
+      FrontmatterKindTokenSchema.make({
+        position: span(line, own.start, own.end),
+        source: own.value,
+        health: okHealth,
+        value: words ?? '',
+        number: number ?? '',
+      }),
+    ),
+  )
+
+const identityOf = (line: number, own: TrimmedSpan, value: TrimmedSpan): Option.Option<Identity> => {
+  const title = fieldToken(FrontmatterTitleTokenSchema, line, value)
+  if (own.value === 'Chapter') return Option.some({ title })
+  if (own.value.startsWith('Chapter '))
+    return Option.some({
+      chapter: ordinalToken(FrontmatterChapterTokenSchema, line, own, 'Chapter '),
+      title,
+    })
+  if (own.value === 'Discussion' || own.value.startsWith('Discussion '))
+    return Option.some({
+      discussion: ordinalToken(FrontmatterDiscussionTokenSchema, line, own, 'Discussion'),
+      title,
+    })
+  return Option.map(kindOf(line, own), (kind) => ({ kind, title }))
 }
 
 const tropeChapterField = (
@@ -251,18 +253,20 @@ const belongingField = (
   line: number,
   key: TrimmedSpan,
   value: TrimmedSpan,
-): FrontmatterWeft => {
+): Option.Option<FrontmatterWeft> => {
   const comma = key.value.indexOf(',')
+  if (!key.value.startsWith('Part ') || comma < 0) return Option.none()
   const partSpan = trimSpan(key.value.slice(0, comma), key.start)
-  const chapterSpan = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
-  return FrontmatterWeftSchema.make({
-    position: weft.position,
-    source: weft.source,
-    health: okHealth,
-    part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
-    chapter: ordinalToken(FrontmatterChapterTokenSchema, line, chapterSpan, 'Chapter '),
-    title: fieldToken(FrontmatterTitleTokenSchema, line, value),
-  })
+  const own = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
+  return Option.map(identityOf(line, own, value), (identity) =>
+    FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
+      ...identity,
+    }),
+  )
 }
 
 ~
@@ -1956,6 +1960,10 @@ import {
   FrontmatterBookTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterDiscussionTokenSchema,
+  frontmatterFields,
+  frontmatterKeys,
+  type FrontmatterKindToken,
+  FrontmatterKindTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterTropeTokenSchema,
   FrontmatterEntryTokenSchema,

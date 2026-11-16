@@ -72,7 +72,7 @@ One service runs the passes in order. It takes the tree the parser built, the `P
 
 The passes read the tree against two things. The first is the core's own: its kinds of section, and `coreKeys`, the keys the core lets a heading, an anchor, and a box take. The second is what the workspace's tropes declare, which the caller hands in as `declared`, since the registry is gathered from the book and not from one loom, as Part XIII, Tropes, describes.
 
-A `Declared` holds what the row reads of the registry. A `KeyedKind` is one declared kind: its name, and the `parameters` its braces may hold beside the core's keys. A kind of box is no more than that. A `SectionKind` adds whether the kind is `codeless`, and an `AnchorKind` adds where the kind `standsIn`, when it keeps to prose or to code. `Declared` holds the declared kinds of section, of anchor, and of box, and `headings`, the keys that any heading may carry. `kindsOf` gives the names of a list of kinds. A loom read with `nothingDeclared` is read with core Loom alone.
+A `Declared` holds what the row reads of the registry. A `KeyedKind` is one declared kind: its name, and the `parameters` its braces may hold beside the core's keys. A kind of box is no more than that. A `SectionKind` adds whether the kind is `codeless`, and an `AnchorKind` adds where the kind `standsIn`, when it keeps to prose or to code. A `KindOfLoom` is a declared kind of loom, which braces never name: its name, whether a loom of the kind is `numbered`, the `zone` of the book it sits in, whether the kind is `codeless`, and the kinds of section it `holds`. `Declared` holds the declared kinds of section, of anchor, of box, and of loom, and `headings`, the keys that any heading may carry. `kindsOf` gives the names of a list of kinds. A loom read with `nothingDeclared` is read with core Loom alone.
 
 =>
 
@@ -82,16 +82,31 @@ export type SectionKind = KeyedKind & { readonly codeless: boolean }
 
 export type AnchorKind = KeyedKind & { readonly standsIn: Option.Option<Standing> }
 
+export type KindOfLoom = {
+  readonly kind: string
+  readonly numbered: boolean
+  readonly zone: Zone
+  readonly codeless: boolean
+  readonly holds: ReadonlyArray<string>
+}
+
 export type Declared = {
   readonly section: ReadonlyArray<SectionKind>
   readonly anchor: ReadonlyArray<AnchorKind>
   readonly box: ReadonlyArray<KeyedKind>
+  readonly loom: ReadonlyArray<KindOfLoom>
   readonly headings: Keys
 }
 
-export const nothingDeclared: Declared = { section: [], anchor: [], box: [], headings: {} }
+export const nothingDeclared: Declared = {
+  section: [],
+  anchor: [],
+  box: [],
+  loom: [],
+  headings: {},
+}
 
-const kindsOf = (declared: ReadonlyArray<KeyedKind>): ReadonlyArray<string> =>
+const kindsOf = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
   Array.map(declared, (each) => each.kind)
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
@@ -107,7 +122,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
         return pipe(
           parsed,
           expandedDocument(kinds),
-          claimedDocument(kinds, codeless),
+          claimedDocument(kinds, codeless, declared.loom),
           checkedDocument(coreKeys, declared),
           referringDocument(coreKeys, declared),
           placedDocument(declared.anchor),
@@ -246,16 +261,77 @@ const besideParameters =
 
 The second pass gives each section the kind its heading names. A heading names a kind under its `kind` key, which the first pass has written in full. The pass looks the name up among the kinds it is handed, in any case of letters, and the section carries the kind under the name the core gives it. So `{tangle}` and `{kind=Tangle}` both claim `Tangle`. Every later reader takes a section's kind from the section, and none reads it from the braces.
 
-`claimedDocument` hands the fold one case, for a section. `kindStated` finds the parameter that names a kind and the value it holds. A section whose heading names no kind passes through as it is.
+`claimedDocument` hands the fold two cases, one for a section and one for the frontmatter, where a loom names its own kind. `kindStated` finds the parameter that names a kind and the value it holds. A section whose heading names no kind passes through as it is.
 
 A kind may hold no code. A concept holds none, and a trope may say the same of a kind it declares. The pass is handed the names of such kinds, and a section that claims one carries `codeless` beside its kind. The product pass reads that mark to fault an arrow in the section, and an anchor that composes it, as the chapter "The product pass" describes.
 
+A kind of loom is a scope. The kinds of section it holds exist in its looms alone, so the pass first works out the `Scope` of the loom it reads. `ownKind` finds the declared kind the loom's identity line names, through `loomNamed`, which finds a kind of loom by a word in any case of letters, as `sameWord` compares two. `heldElsewhere` lists the kinds of section that some kind of loom holds and this loom's kind does not, each a `Held` with the kinds of loom that hold it. `holdsKind` tells whether a kind of loom holds a kind of section, and `isHeld` finds a kind in that list. A section claims only a kind outside that list. When the loom's own kind holds no code, `inCodelessLoom` marks every section `codeless` for the loom's kind, unless the section's own kind marked it already.
+
 =>
 
+type Held = { readonly kind: string; readonly looms: ReadonlyArray<string> }
+
+type Scope = {
+  readonly kinds: ReadonlyArray<string>
+  readonly codeless: ReadonlyArray<string>
+  readonly elsewhere: ReadonlyArray<Held>
+  readonly loom: Option.Option<KindOfLoom>
+}
+
+const sameWord = (one: string, other: string): boolean => one.toLowerCase() === other.toLowerCase()
+
+const holdsKind =
+  (kind: string) =>
+  (loom: KindOfLoom): boolean =>
+    Array.some(loom.holds, (held) => sameWord(held, kind))
+
+const loomNamed = (looms: ReadonlyArray<KindOfLoom>, word: string): Option.Option<KindOfLoom> =>
+  Array.findFirst(looms, (loom) => sameWord(loom.kind, word))
+
+const ownKind = (
+  looms: ReadonlyArray<KindOfLoom>,
+  expanded: ExpandedDocument,
+): Option.Option<KindOfLoom> =>
+  Option.flatMap(Option.fromNullishOr(expanded.frontmatter?.kind), (named) =>
+    loomNamed(looms, named.value),
+  )
+
+const heldElsewhere = (
+  looms: ReadonlyArray<KindOfLoom>,
+  own: Option.Option<KindOfLoom>,
+): ReadonlyArray<Held> =>
+  pipe(
+    Array.flatMap(looms, (loom) => loom.holds),
+    Array.dedupeWith(sameWord),
+    Array.filter((kind) => !Option.exists(own, holdsKind(kind))),
+    Array.map((kind): Held => ({ kind, looms: kindsOf(Array.filter(looms, holdsKind(kind))) })),
+  )
+
+const isHeld =
+  (kind: string) =>
+  (held: Held): boolean =>
+    sameWord(held.kind, kind)
+
 export const claimedDocument =
-  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string> = codelessKinds) =>
-  (expanded: ExpandedDocument): ClaimedDocument =>
-    rewritten(expanded, { LoomSection: claimedSection(kinds, codeless) })
+  (
+    kinds: ReadonlyArray<string>,
+    codeless: ReadonlyArray<string> = codelessKinds,
+    looms: ReadonlyArray<KindOfLoom> = [],
+  ) =>
+  (expanded: ExpandedDocument): ClaimedDocument => {
+    const loom = ownKind(looms, expanded)
+    const elsewhere = heldElsewhere(looms, loom)
+    const scope: Scope = {
+      kinds: Array.filter(kinds, (kind) => !Array.some(elsewhere, isHeld(kind))),
+      codeless,
+      elsewhere,
+      loom,
+    }
+    return rewritten(expanded, {
+      LoomFrontmatter: claimedFrontmatter(looms),
+      LoomSection: claimedSection(scope),
+    })
+  }
 
 type KindStated = {
   readonly held: ParametersToken
@@ -276,34 +352,54 @@ const kindStated = (heading: ExpandedHeading): Option.Option<KindStated> =>
     ),
   )
 
+const inCodelessLoom =
+  (loom: Option.Option<KindOfLoom>) =>
+  (section: ClaimedSection): ClaimedSection =>
+    Option.match(
+      Option.filter(loom, (own) => own.codeless && section.codeless === undefined),
+      {
+        onNone: () => section,
+        onSome: (own) => ({ ...section, codeless: { kind: own.kind, of: 'loom' as const } }),
+      },
+    )
+
 const claimedSection =
-  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string>) =>
+  (scope: Scope) =>
   (section: ExpandedSection): ClaimedSection =>
-    Option.match(kindStated(section.heading), {
-      onNone: () => section,
-      onSome: (stated) =>
-        Option.match(kindNamed(kinds)(stated.value.value), {
-          onSome: (kind) =>
-            Array.contains(codeless, kind)
-              ? { ...section, kind, codeless: true as const }
-              : { ...section, kind },
-          onNone: () => ({ ...section, heading: unclaimed(kinds)(section.heading, stated) }),
-        }),
-    })
+    inCodelessLoom(scope.loom)(
+      Option.match(kindStated(section.heading), {
+        onNone: (): ClaimedSection => section,
+        onSome: (stated) =>
+          Option.match(kindNamed(scope.kinds)(stated.value.value), {
+            onSome: (kind): ClaimedSection =>
+              Array.contains(scope.codeless, kind)
+                ? { ...section, kind, codeless: { kind, of: 'section' as const } }
+                : { ...section, kind },
+            onNone: (): ClaimedSection => ({
+              ...section,
+              heading: unclaimed(scope)(section.heading, stated),
+            }),
+          }),
+      }),
+    )
 
 ## A kind nothing declares
 
-A kind that is none of the kinds the pass was handed claims nothing, and the section has no kind. `unclaimed` gives the value that names it the `UnknownKind` fault, whose message lists the kinds a heading takes. The fault stands on the parameter, and the braces and the heading take its status, as they do for a fault the tokeniser raises.
+A kind that is none of the kinds in scope claims nothing, and the section has no kind. `unclaimed` gives the value that names it a fault. A kind that belongs to another kind of loom gets the `KindOutsideLoom` fault, which names the kinds of loom that hold it. Any other gets the `UnknownKind` fault, whose message lists the kinds a heading takes here. The fault stands on the parameter, and the braces and the heading take its status, as they do for a fault the tokeniser raises.
 
 The pass is the one place that judges a heading's kind. The tokeniser reads a heading's braces without judging the kind they name.
 
 =>
 
 const unclaimed =
-  (kinds: ReadonlyArray<string>) =>
+  (scope: Scope) =>
   (heading: ExpandedHeading, stated: KindStated): ExpandedHeading => {
     const fault = faulty(
-      UnknownKind({ kind: stated.value.value, kinds, on: 'heading' }),
+      Option.match(Array.findFirst(scope.elsewhere, isHeld(stated.value.value)), {
+        onNone: (): LoomFault =>
+          UnknownKind({ kind: stated.value.value, kinds: scope.kinds, on: 'heading' }),
+        onSome: (held): LoomFault => KindOutsideLoom(held),
+      }),
       stated.value.position,
     )
     return {
@@ -318,6 +414,42 @@ const unclaimed =
       },
     }
   }
+
+## A loom names its kind
+
+A loom of a kind a trope declares names the kind in its identity line, and the tokeniser reads the line into a `FrontmatterKind` without judging it, as the chapter "The leaf tokens" describes. `claimedFrontmatter` judges it. A kind some trope declares is claimed: `claimedKind` writes the kind under the name its trope gives it, and marks the token with the `zone` the kind sits in, so the corpus places the loom without asking any trope. A kind that takes no number and is written with one gets the `NumberOnKind` fault. A kind that no trope declares gets the `UnknownKind` fault, which lists the kinds a loom takes: the core's `Chapter` and `Discussion`, and the declared ones. Such a token carries no `zone`, and the loom reads as a chapter.
+
+=>
+
+const claimedKind =
+  (looms: ReadonlyArray<KindOfLoom>) =>
+  (named: FrontmatterKindToken): FrontmatterKindToken =>
+    Option.match(loomNamed(looms, named.value), {
+      onNone: () => ({
+        ...named,
+        health: faulty(
+          UnknownKind({ kind: named.value, kinds: [...loomKinds, ...kindsOf(looms)], on: 'loom' }),
+          named.position,
+        ),
+      }),
+      onSome: (loom) => ({
+        ...named,
+        value: loom.kind,
+        zone: loom.zone,
+        health:
+          loom.numbered || named.number === ''
+            ? named.health
+            : faulty(NumberOnKind({ kind: loom.kind }), named.position),
+      }),
+    })
+
+const claimedFrontmatter =
+  (looms: ReadonlyArray<KindOfLoom>) =>
+  (frontmatter: LoomFrontmatter): LoomFrontmatter =>
+    Option.match(Option.fromNullishOr(frontmatter.kind), {
+      onNone: () => frontmatter,
+      onSome: (named) => ({ ...frontmatter, kind: claimedKind(looms)(named) }),
+    })
 
 ## Checking parameters
 
@@ -716,6 +848,7 @@ import type {
   ExpandedHeading,
   ExpandedSection,
   LoomDocument,
+  LoomFrontmatter,
   ParsedDocument,
   ParsedHeading,
 } from '@athrio/loom-ast/LoomAst'
@@ -726,6 +859,7 @@ import {
   type BoxToken,
   codelessKinds,
   eachType,
+  type FrontmatterKindToken,
   headingKeys,
   holdsReferences,
   isList,
@@ -733,6 +867,7 @@ import {
   keyType,
   kindNamed,
   labelKey,
+  loomKinds,
   ParameterKeyTokenSchema,
   type ParameterToken,
   ParameterTokenSchema,
@@ -750,6 +885,7 @@ import {
   type Standing,
   type ValueType,
   type WarpAnchorToken,
+  type Zone,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
 import type {
@@ -763,10 +899,12 @@ import type {
 import {
   type BracesOn,
   faulty,
+  KindOutsideLoom,
   LabelBesideParameter,
   type LoomFault,
   ManyValues,
   MisplacedAnchor,
+  NumberOnKind,
   RenamedKind,
   RepeatedKey,
   UnknownKey,
@@ -791,6 +929,8 @@ import {
 ::[Claiming kinds]
 
 ::[A kind nothing declares]
+
+::[A loom names its kind]
 
 ::[Checking parameters]
 
@@ -1398,7 +1538,7 @@ describe('a kind that holds no code', () => {
   }
 
   const codeless = (heading: string) =>
-    builtWith(`${heading}\n\nProse.\n`, options).sections[0]?.codeless === true
+    builtWith(`${heading}\n\nProse.\n`, options).sections[0]?.codeless !== undefined
 
   it('marks a section of a declared kind that holds none', () => {
     expect(codeless('## Postgres {Option}')).toBe(true)
@@ -1413,6 +1553,80 @@ describe('a kind that holds no code', () => {
     expect(codeless('## Stew {Recipe}')).toBe(false)
     expect(codeless('## Build {Tangle}')).toBe(false)
     expect(codeless('## Build {Bash}')).toBe(false)
+  })
+})
+
+## A loom of a kind a trope declares
+
+A loom names its kind in its identity line, and the row claims it. The tests declare two kinds of loom: `Tasks`, which is numbered, sits at the back, holds no code, and holds the `Task` kind of section, and `Glossary`, which takes no number. `loomOf` builds a loom from its identity line and its body, and `saidOf` gives the messages on the kind its identity line names.
+
+A claimed kind carries the name its trope gives it and the zone it sits in. A kind no trope declares is a fault and carries no zone. A `Task` section is claimed in a `Tasks` loom and is a fault in a chapter. Every section of a `Tasks` loom carries the mark of a loom that holds no code.
+
+=>
+
+describe('a loom of a kind a trope declares', () => {
+  const tasks: Declared = {
+    ...nothingDeclared,
+    section: [{ kind: 'Task', parameters: { status: 'text' }, codeless: false }],
+    loom: [
+      { kind: 'Tasks', numbered: true, zone: 'back', codeless: true, holds: ['Task'] },
+      { kind: 'Glossary', numbered: false, zone: 'body', codeless: false, holds: [] },
+    ],
+  }
+
+  const loomOf = (identity: string, ...body: ReadonlyArray<string>) =>
+    builtWith(['---', identity, '---', '', '# The next release', '', ...body, ''].join('\n'), tasks)
+
+  const saidOf = (identity: string) =>
+    (loomOf(identity).frontmatter?.kind?.health.diagnostics ?? []).map((found) => found.message)
+
+  it('claims the kind under the name its trope gives it, with its zone', () => {
+    const kind = loomOf('Part XI, tasks 1: The next release').frontmatter?.kind
+    expect([kind?.value, kind?.number, kind?.zone]).toEqual(['Tasks', '1', 'back'])
+    expect(saidOf('Part XI, tasks 1: The next release')).toEqual([])
+  })
+
+  it('faults a kind no trope declares, and gives it no zone', () => {
+    expect(loomOf('Taks 1: The next release').frontmatter?.kind?.zone).toBeUndefined()
+    expect(saidOf('Taks 1: The next release')).toEqual([
+      'A loom takes no `Taks` kind. It takes `Chapter`, `Discussion`, `Tasks`, and `Glossary`.',
+    ])
+  })
+
+  it('faults a number on a kind that takes none', () => {
+    expect(saidOf('Glossary 2: Words')).toEqual([
+      'A loom of the `Glossary` kind takes no number. Take the number off this line.',
+    ])
+    expect(saidOf('Glossary: Words')).toEqual([])
+  })
+
+  it('lets a section claim a kind its loom holds', () => {
+    const publish = loomOf('Tasks 1: The next release', '## Publish {kind=Task status=todo}', '', 'Push.')
+      .sections[1]
+    expect(publish?.kind).toBe('Task')
+    expect(messagesIn(publish?.heading.specifier)).toEqual([])
+  })
+
+  it('faults that kind in a chapter, and names the kind of loom it belongs in', () => {
+    const publish = loomOf('Chapter 1: The next release', '## Publish {Task}', '', 'Push.').sections[1]
+    expect(publish?.kind).toBeUndefined()
+    expect(messagesIn(publish?.heading.specifier)).toEqual([
+      'A section of the `Task` kind belongs in a loom of the `Tasks` kind. Move the section there, or take the kind off its heading.',
+    ])
+  })
+
+  it('marks every section of a loom whose kind holds no code', () => {
+    const marks = loomOf('Tasks 1: The next release', '## Publish {Task}', '', 'Push.', '', '## Notes')
+      .sections.map((section) => section.codeless)
+    expect(marks).toEqual([
+      { kind: 'Tasks', of: 'loom' },
+      { kind: 'Tasks', of: 'loom' },
+      { kind: 'Tasks', of: 'loom' },
+    ])
+    expect(loomOf('Glossary: Words', '## Loom').sections.map((section) => section.codeless)).toEqual([
+      undefined,
+      undefined,
+    ])
   })
 })
 
@@ -1568,6 +1782,8 @@ describe('the tree the row writes', () => {
 ::[A parameter that holds a reference is marked]
 
 ::[A kind that holds no code]
+
+::[A loom of a kind a trope declares]
 
 ::[An anchor of a kind that keeps to one place]
 
