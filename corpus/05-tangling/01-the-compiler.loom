@@ -31,11 +31,11 @@ A module anchor, an anchor of the `Module` kind, names a module rather than comp
 
 A workspace may install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their declared kinds join the registry every judgement reads. The compiler reaches them through the `TropePackages` service when the environment provides one, the same way it reaches the language packages. `installedKinds` asks it for the kinds the workspace of a loom installs. With no `TropePackages`, as in a test or over remote storage, a workspace installs no trope.
 
-A loom names the languages its code is written in, and its workspace may hold no service for one of them. `servedFor` asks the `LanguagePackages` service which languages the packages of a loom's workspace serve. It answers nothing when the environment provides no `LanguagePackages`, and when the packages of the loom's workspace are not known, so no loom is judged against a guess.
+A loom says which languages its code is written in, and its workspace may hold no service for one of them. `servedFor` asks the `LanguagePackages` service which languages the packages of a loom's workspace serve. It answers nothing when the environment provides no `LanguagePackages`, and when the packages of the loom's workspace are not known, so no loom is judged against a guess.
 
 A book's own tropes declare kinds too, and a declared kind of section changes how a loom is read: the label `{Option}` names a kind once a trope declares it, and a language until then. So a loom's build reads the registry, and the registry is read from looms. Loom breaks the circle by reading the declarations first. The registry comes from the chapters of tropes alone, each read with core Loom, and every loom is then built with the kinds the registry holds.
 
-`corpusOf` runs those steps and gives a `Corpus`: the modules, and the registry they were built with. `loadCorpus` loads every loom of the corpus. `registryOf` then picks out the chapters of tropes, each trope's root and its members, which `inTrope` tells, and gathers the registry from them. `coreChapterOf` gives such a chapter as core Loom reads it. While the corpus was built with nothing declared, that is the module the corpus already holds. Once a trope declares anything, `coreChapterOf` builds the chapter again with nothing declared, and keeps that build in `coreChapters`. A manifest therefore draws only on sections that the chapters of tropes hold, since no other loom is read before the registry exists.
+`corpusOf` runs those steps and gives a `Corpus`: the modules, and the registry they were built with. `loadCorpus` loads every loom of the corpus. `registryOf` then picks out the chapters of tropes, each trope's root and its members, which `inTrope` tells, and gathers the registry from them. `coreChapterOf` gives such a chapter as core Loom reads it. While the corpus was built with nothing declared, that is the module the corpus already holds. Once a trope declares anything, `coreChapterOf` builds the chapter again with nothing declared, and keeps that build in `coreChapters`. The registry then composes each manifest against the chapters of its own trope alone, as the chapter "The kinds tropes declare" describes. So an anchor in a manifest composes a section of the manifest's own trope, and no other.
 
 `declaredFor` keeps, for each loom, what its module was built with, as the `Declared` the row of small passes reads, and `declaredOf` reads it for one loom. `staleIn` finds the looms of a corpus that were built with something other than the registry now holds. For those looms, `corpusOf` notes what the registry holds now, evicts the modules, and loads the corpus once more. The registry does not depend on what the corpus was built with, so the second load is the last. `buildCorpus` gives the modules alone, for the many verbs that read no registry. `evict` drops a loom's module and its core reading together.
 
@@ -238,7 +238,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           const core: Modules = new Map(
             Array.map(chapters, (chapter) => [chapter.path, chapter] as const),
           )
-          return declaredKindsOf(core, catalogueOf(core), installed)
+          return declaredKindsOf(core, installed)
         }),
       )
 
@@ -855,7 +855,11 @@ A trope's boundary needs the corpus too, since the chapters that reach a trope m
 
 A drifted reference needs the corpus as well, since the section a reference points to lies in another loom. `driftFaults` judges a module's relations against what the workspace keeps of them, as the chapter "Fingerprints on relations" describes. Drift is a warning, and a tangle gates on errors alone, so the tangle hands in no relations and reads no file for them.
 
-A language a loom names needs the workspace, since only a language service of the workspace can serve it. A loom names a language in two places: the `Language` field of its frontmatter, and the braces of a heading, as `{Bash}` or `{lang=Bash}` does. `namedLanguages` gathers each name with its place, folded to lower case as the product pass folds it. `languageFaults` judges the names against the languages the workspace serves, which `diagnose` hands in, and gives each name that nothing serves the `UnservedLanguage` fault. Loom serves three languages itself, whatever the workspace turns on, and `ownLanguages` holds them: its own syntax, prose, and `plaintext`, the name the product pass gives code in no language. A sink is not judged, because a sink names a file and not a language. The fault is a warning, since Loom composes and tangles code in a language it has no service for. The tangle hands in no served languages, as it hands in no relations.
+A language a loom uses needs the workspace, since only a language service of the workspace can serve it. A loom says which languages it uses in four places. Two name a language outright: the `Language` field of its frontmatter, and the braces of a heading, as `{Bash}` or `{lang=Bash}` does. Two name a file, and a file's extension belongs to a language, as the product pass's `extensionLanguage` tells: a sink, such as `[package.json]`, and the frontmatter's `Package`, when it names a file and not a folder. A file with no extension names a language too, since the product pass takes its whole name for one: a `Dockerfile` is written in `dockerfile`, and every ignore file, such as `.gitignore` or `.dockerignore`, in `ignore`. A file of plain text, such as a `LICENSE`, composes `plaintext`, which Loom serves itself.
+
+`namedLanguages` gathers each language with the place that names it. A heading that names a language in its braces composes that language whatever its sink says, so `sectionLanguageAt` reads the braces first and the sink after. `namedLanguages` keeps the first place for each language, so a loom is told once about a language however many of its sections use it.
+
+`languageFaults` judges those languages against the languages the workspace serves, which `diagnose` hands in, and gives each one that nothing serves the `UnservedLanguage` fault. Loom serves three languages itself, whatever the workspace turns on, and `ownLanguages` holds them: its own syntax, prose, and `plaintext`, the name the product pass gives code in no language. The fault is a warning, since Loom composes and tangles code in a language it has no service for. The tangle hands in no served languages, as it hands in no relations.
 
 =>
 
@@ -916,24 +920,42 @@ const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
 
 type NamedLanguage = { readonly language: string; readonly position: Position }
 
+type Wording = { readonly value: string; readonly position: Position }
+
 const ownLanguages: ReadonlyArray<string> = ['loom', 'prose', 'plaintext']
 
-const namedLanguage = (written: {
-  readonly value: string
-  readonly position: Position
-}): NamedLanguage => ({ language: written.value.trim().toLowerCase(), position: written.position })
+const namedLanguage = (written: Wording): NamedLanguage => ({
+  language: written.value.trim().toLowerCase(),
+  position: written.position,
+})
+
+const fileLanguage = (file: Wording): NamedLanguage => ({
+  language: extensionLanguage(file.value),
+  position: file.position,
+})
+
+const sectionLanguageAt = (section: LoomSection): Option.Option<NamedLanguage> =>
+  pipe(
+    Option.fromNullishOr(section.heading.specifier),
+    Option.flatMap(headingLangToken),
+    Option.map(namedLanguage),
+    Option.orElse(() =>
+      Option.map(Option.fromNullishOr(section.heading.sink), (sink) => fileLanguage(sink.file)),
+    ),
+  )
 
 const namedLanguages = (module: LoomModule): ReadonlyArray<NamedLanguage> =>
-  Array.getSomes([
-    Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), namedLanguage),
-    ...Array.map(module.doc.sections, (section) =>
-      pipe(
-        Option.fromNullishOr(section.heading.specifier),
-        Option.flatMap(headingLangToken),
-        Option.map(namedLanguage),
+  pipe(
+    [
+      Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), namedLanguage),
+      Option.flatMap(Option.fromNullishOr(module.doc.frontmatter?.package), (named) =>
+        Option.map(singleFile(Option.some(named.value)), () => fileLanguage(named)),
       ),
-    ),
-  ])
+      ...Array.map(module.doc.sections, sectionLanguageAt),
+    ],
+    Array.getSomes,
+    Array.dedupeWith((one, other) => one.language === other.language),
+  )
 
 const languageFaults = (
   served: Option.Option<ReadonlyArray<string>>,
@@ -1604,7 +1626,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Catalogue` that a judgement and a projection resolve names through, with `catalogueOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `bookTwinsOf` and `unopenedBookOf`, which judge the book a `Book:` line names, `linksOf` and `anchorTrails`, which find the links in prose and resolve them, with `pathsTo`, which names each candidate of an ambiguous link, `hoverAt`, which gives a concept's card, `conceptSymbolsIn`, which gives the concepts a symbol search finds, and `conceptRenameAt`, which keeps a concept's old name as a form, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, and `usedSections` and `unusedSections`, which find the code no file includes; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels, `headingLangToken`, which gives the token that names a heading's language, and the `Keys` a kind's parameters are; the fault catalog's `faulty`, with the `AmbiguousAnchor`, `DuplicateName`, `UnopenedBook`, `UnservedLanguage`, `UnresolvedLink`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, as the `DeclaredKinds` a corpus is built with, and judge each module's boxes against them, with `Declarations` and `noDeclarations` for what a workspace installs, `tropeOf`, which reads the trope a chapter names, `tropesOf`, which gathers each trope's chapters, and, from the row of small passes, the `Declared` a build is handed, the `KeyedKind` it lists, and `nothingDeclared`, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. The scopes of concepts lend `vocabulariesIn`, which gives every vocabulary of a corpus, and the answers recognition gives the editor: `recognisedDefinitionAt`, `recognisedHoverAt`, `recognisedRangeAt`, and `conceptReferencesAt` for a recognised word, `linksAt` for a word two concepts claim, and `movesAt` for a concept that moves up, each offer a `ConceptFix`. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameEdit`, a range paired with the text a rename writes there when it is not the new name, `FrameHover`, a range paired with the card `hover` returns, `FrameSymbol`, a concept as `symbols` returns it, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, `FrameFix`, an offer the editor applies as it stands, which `links` returns, `FrameMove`, the targets of a concept's move, which `moves` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Catalogue` that a judgement and a projection resolve names through, with `catalogueOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `bookTwinsOf` and `unopenedBookOf`, which judge the book a `Book:` line names, `linksOf` and `anchorTrails`, which find the links in prose and resolve them, with `pathsTo`, which names each candidate of an ambiguous link, `hoverAt`, which gives a concept's card, `conceptSymbolsIn`, which gives the concepts a symbol search finds, and `conceptRenameAt`, which keeps a concept's old name as a form, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, `usedSections` and `unusedSections`, which find the code no file includes, `extensionLanguage`, which tells the language an extension belongs to, and `singleFile`, which tells a `Package` that names a file; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels, `headingLangToken`, which gives the token that names a heading's language, and the `Keys` a kind's parameters are; the fault catalog's `faulty`, with the `AmbiguousAnchor`, `DuplicateName`, `UnopenedBook`, `UnservedLanguage`, `UnresolvedLink`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, as the `DeclaredKinds` a corpus is built with, and judge each module's boxes against them, with `Declarations` and `noDeclarations` for what a workspace installs, `tropeOf`, which reads the trope a chapter names, `tropesOf`, which gathers each trope's chapters, and, from the row of small passes, the `Declared` a build is handed, the `KeyedKind` it lists, and `nothingDeclared`, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. The scopes of concepts lend `vocabulariesIn`, which gives every vocabulary of a corpus, and the answers recognition gives the editor: `recognisedDefinitionAt`, `recognisedHoverAt`, `recognisedRangeAt`, and `conceptReferencesAt` for a recognised word, `linksAt` for a word two concepts claim, and `movesAt` for a concept that moves up, each offer a `ConceptFix`. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameEdit`, a range paired with the text a rename writes there when it is not the new name, `FrameHover`, a range paired with the card `hover` returns, `FrameSymbol`, a concept as `symbols` returns it, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, `FrameFix`, an offer the editor applies as it stands, which `links` returns, `FrameMove`, the targets of a concept's move, which `moves` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. `LoomSection` is a section of a loom, whose heading may name a language. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 Module anchors add a few more. From the product pass comes what fits a module anchor to its file: `moduleFileOf`, the `ModuleFile` it answers, the `Landing` it reads, `landingOf`, which builds the landing, and `holdsModuleRefs`, which tells whether a corpus holds a module anchor at all. The projection gives `moduleRefsIn`, which gathers a root's module anchors as `HeldModuleRef`s, and the `Specifiers` the projection writes them with, `noSpecifiers` among them. The product model gives the `Code` of a root, and `Position` keys a specifier by its anchor's place. The fault catalog gives `UnsettledModule` and `SpecifierUnknown`, and the language-service contract gives the `SpecifierRequest` a package answers and the `ServiceError` it fails with. `LanguagePackages` is the service that asks the packages, which the environment may provide.
 
@@ -1615,6 +1637,7 @@ import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref }
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
+import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
@@ -1671,11 +1694,13 @@ import {
 import {
   compositionCycles,
   crossFileFaults,
+  extensionLanguage,
   holdsModuleRefs,
   type Landing,
   landingOf,
   ModuleFile,
   moduleFileOf,
+  singleFile,
   unusedSections,
   usedSections,
 } from '#ast/ProductBuilder'
@@ -3406,7 +3431,9 @@ describe('code in prose', () => {
 
 ## A language no service serves
 
-A loom may name a language that no language service of its workspace serves. The compiler warns of the name where it stands, in the frontmatter's `Language` field or in a heading's braces, and tangles the code all the same. `servingLayer` builds the compiler over a stand-in for `LanguagePackages` that serves the languages a case names. A stand-in that answers nothing stands for a workspace whose packages are not known. `unserved` keeps the line, the severity, and the message of each warning, and `unservedFault` writes the message for one language. The `recipe` loom names three languages that nothing serves: Lua for the chapter, and Bash and `sh` on two headings.
+A loom may use a language that no language service of its workspace serves. The compiler warns of the language where the loom first names it, in the frontmatter's `Language` field, in a heading's braces, or in a file whose extension belongs to the language. A file with no extension names the language its whole name stands for, and a file of plain text names none. It tangles the code all the same.
+
+`servingLayer` builds the compiler over a stand-in for `LanguagePackages` that serves the languages a case names. A stand-in that answers nothing stands for a workspace whose packages are not known. `unserved` keeps the line, the severity, and the message of each warning, and `unservedFault` writes the message for one language. The `recipe` loom names three languages that nothing serves: Lua for the chapter, and Bash and `sh` on two headings. Its sink writes a Lua file, which names no new language.
 
 =>
 
@@ -3484,6 +3511,106 @@ describe('a language no service serves', () => {
     }),
   )
 
+  it.effect('warns of the language a sink\'s extension belongs to, once for the loom', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/packaging.loom': lines(
+          '# The program [main.ts]',
+          '',
+          '=>',
+          'const main = 1',
+          '',
+          '## The manifest [package.json]',
+          '',
+          '=>',
+          '{ "name": "main" }',
+          '',
+          '## The compiler\'s settings [tsconfig.json]',
+          '',
+          '=>',
+          '{ "strict": true }',
+          '',
+          '## The read-me [README.md]',
+          '',
+          '=>',
+          'Programs written to be read.',
+        ),
+      }
+      expect(yield* unserved(files, '/corpus/packaging.loom')).toEqual([
+        { line: 6, severity: 'warning', message: unservedFault('json') },
+        { line: 16, severity: 'warning', message: unservedFault('markdown') },
+      ])
+    }),
+  )
+
+  it.effect('reads the language of the file a chapter\'s Package names', () =>
+    Effect.gen(function* () {
+      const chapterInto = (file: string) => ({
+        '/corpus/room.loom': lines(
+          '---',
+          `Package: ${file}`,
+          '---',
+          '',
+          '# A room {Tangle}',
+          '',
+          '=>',
+          'room = {}',
+        ),
+      })
+      expect(yield* unserved(chapterInto('src/room.lua'), '/corpus/room.loom')).toEqual([
+        { line: 2, severity: 'warning', message: unservedFault('lua') },
+      ])
+      expect(yield* unserved(chapterInto('src/room.ts'), '/corpus/room.loom')).toEqual([])
+      expect(yield* unserved(chapterInto('src/'), '/corpus/room.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('reads one language from every ignore file, and none from plain text', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/shipping.loom': lines(
+          '# The licence [LICENSE]',
+          '',
+          '=>',
+          'MIT',
+          '',
+          '## What git ignores [.gitignore]',
+          '',
+          '=>',
+          'node_modules',
+          '',
+          '## The image [docker/Dockerfile]',
+          '',
+          '=>',
+          'FROM oven/bun',
+          '',
+          '## The notes [notes.txt]',
+          '',
+          '=>',
+          'Shipped on a Friday.',
+          '',
+          '## What the image leaves out [.dockerignore]',
+          '',
+          '=>',
+          'node_modules',
+        ),
+      }
+      expect(yield* unserved(files, '/corpus/shipping.loom')).toEqual([
+        { line: 6, severity: 'warning', message: unservedFault('ignore') },
+        { line: 11, severity: 'warning', message: unservedFault('dockerfile') },
+      ])
+    }),
+  )
+
+  it.effect('reads a heading\'s own language before its sink\'s', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines('# Notes {TypeScript} [notes.txt]', '', '=>', 'const notes = 1'),
+      }
+      expect(yield* unserved(files, '/corpus/notes.loom')).toEqual([])
+    }),
+  )
+
   it.effect('keeps quiet about a language a service serves beside its own', () =>
     Effect.gen(function* () {
       const files = {
@@ -3492,7 +3619,7 @@ describe('a language no service serves', () => {
           'Language: JavaScript',
           '---',
           '',
-          '# A script [script.js]',
+          '# A script [script.mjs]',
           '',
           '=>',
           'const main = 1',
@@ -3507,7 +3634,7 @@ describe('a language no service serves', () => {
     }),
   )
 
-  it.effect('keeps quiet about prose, a kind, and a sink', () =>
+  it.effect('keeps quiet about prose, a kind, and code in no language', () =>
     Effect.gen(function* () {
       const files = {
         '/corpus/notes.loom': lines(
@@ -3522,11 +3649,6 @@ describe('a language no service serves', () => {
           '',
           '=>',
           'const notes = 1',
-          '',
-          '## The read-me [README.md]',
-          '',
-          '=>',
-          'Programs written to be read.',
           '',
           '## Plain {plaintext}',
           '',

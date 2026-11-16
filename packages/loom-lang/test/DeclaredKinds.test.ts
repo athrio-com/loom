@@ -132,8 +132,8 @@ describe('a box of a kind a trope declares', () => {
     ])
   })
 
-  it('may come from a manifest that draws in another section', async () => {
-    const drawn = lines(
+  it('may come from a manifest whose anchor composes another section', async () => {
+    const withinRoot = lines(
       '---',
       'Trope Chapter: Mermaid',
       '---',
@@ -152,7 +152,7 @@ describe('a box of a kind a trope declares', () => {
       anchor('The Mermaid kind'),
       '] } } }',
     )
-    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawn }
+    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: withinRoot }
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
     expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
   })
@@ -171,7 +171,7 @@ describe('a box of a kind a trope declares', () => {
       '{ "kind": "Mermaid", "body": "mermaid" }',
     )
 
-  const drawing = rootLoom('Mermaid', [
+  const anchoring = rootLoom('Mermaid', [
     '{ "contract": "1", "contributes": { "kinds": { "box": [',
     anchor('The Mermaid kind'),
     '] } } }',
@@ -179,21 +179,32 @@ describe('a box of a kind a trope declares', () => {
 
   const kindAt = '/corpus/mermaid/the-kind.loom'
 
-  it('may come from a manifest that draws in a section of a member', async () => {
+  it('may come from a manifest whose anchor composes a section of a member', async () => {
     const files = {
       [cells]: chapterWith('{Mermaid}'),
-      [mermaid]: drawing,
+      [mermaid]: anchoring,
       [kindAt]: kindLoom(['Rooted in: Mermaid']),
     }
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
     expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
   })
 
+  const outside = refusedFor(
+    'an anchor in its manifest names `The Mermaid kind`, and no chapter of the trope holds a section called that',
+  )
+
   it('comes from no chapter outside a trope', async () => {
-    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawing, [kindAt]: kindLoom([]) }
-    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([
-      refusedFor('its manifest draws on `The Mermaid kind`, which no chapter of a trope holds'),
-    ])
+    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: anchoring, [kindAt]: kindLoom([]) }
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([outside])
+  })
+
+  it('comes from no chapter of another trope', async () => {
+    const files = {
+      [cells]: chapterWith('{Mermaid}'),
+      [mermaid]: anchoring,
+      [kindAt]: kindLoom(['Rooted in: Charts']),
+    }
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([outside])
   })
 })
 

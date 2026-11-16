@@ -20,6 +20,7 @@ import {
 } from '@athrio/loom-ast/LoomTokens'
 import {
   type Catalogue,
+  catalogueOf,
   type Location,
   type LoomModule,
   openedBoxesOf,
@@ -135,7 +136,9 @@ const composedOf = (
   Array.match(unfoundIn(modules, code, catalogue), {
     onEmpty: () => Result.succeed(fromCode(modules, code, catalogue).code),
     onNonEmpty: ([name]) =>
-      Result.fail(`its manifest draws on \`${name}\`, which no chapter of a trope holds`),
+      Result.fail(
+        `an anchor in its manifest names \`${name}\`, and no chapter of the trope holds a section called that`,
+      ),
   })
 
 const manifestOf = (
@@ -330,12 +333,10 @@ const withRoot = (
       }),
   })
 
-const withTrope = (
-  modules: ReadonlyMap<Location, LoomModule>,
-  catalogue: Catalogue,
-  kinds: DeclaredKinds,
-  trope: Trope,
-): DeclaredKinds => {
+const chaptersOf = (trope: Trope): ReadonlyMap<Location, LoomModule> =>
+  new Map(Array.map(trope.chapters, (chapter) => [chapter.path, chapter] as const))
+
+const withTrope = (kinds: DeclaredKinds, trope: Trope): DeclaredKinds => {
   const others = Array.filter(
     trope.chapters,
     (chapter) => !Option.exists(trope.root, (root) => root.path === chapter.path),
@@ -352,19 +353,19 @@ const withTrope = (
   const settled: DeclaredKinds = { ...kinds, refusals: [...kinds.refusals, ...duplicates] }
   return Option.match(trope.root, {
     onNone: () => settled,
-    onSome: (root) => withRoot(modules, catalogue, settled, trope.name, root),
+    onSome: (root) => {
+      const own = chaptersOf(trope)
+      return withRoot(own, catalogueOf(own), settled, trope.name, root)
+    },
   })
 }
 
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  catalogue: Catalogue,
   installed: Declarations = noDeclarations,
 ): DeclaredKinds => {
   const fromInstalled: DeclaredKinds = { ...installed, refusals: [] }
-  return Array.reduce(tropesOf(modules), fromInstalled, (kinds, trope) =>
-    withTrope(modules, catalogue, kinds, trope),
-  )
+  return Array.reduce(tropesOf(modules), fromInstalled, withTrope)
 }
 
 const writtenKind = (

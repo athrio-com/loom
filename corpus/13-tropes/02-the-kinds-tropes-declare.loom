@@ -10,7 +10,11 @@ A trope extends Loom's language by declaring kinds. Under contract 1 a kind is a
 
 Loom applies what tropes declare without running any trope. It gathers every trope's declared kinds into the registry, a set of tables it consults for each box, each heading, and each anchor of the book, and it refuses a trope's root whose manifest it cannot read or whose kinds clash with kinds already taken.
 
-A declared kind of section changes how a loom is read, so the registry must exist before any loom is built with it. Loom therefore gathers the registry from the chapters of tropes alone, each trope's root and its members, each read with core Loom. It then builds every loom with what the registry holds, as the chapter "The compile layer" describes. A manifest is read the same whatever its own trope declares. It draws only on sections of those chapters, so a trope may spread what it declares over its members, and a chapter of no trope lends a manifest nothing. Every step is Loom's own code, a lookup and a composition in memory, so the registry fits wherever Loom judges a loom: in the editor on every keystroke, and before every tangle.
+A declared kind of section changes how a loom is read, so the registry must exist before any loom is built with it. Loom therefore gathers the registry from the chapters of tropes alone, each trope's root and its members, each read with core Loom. It then builds every loom with what the registry holds, as the chapter "The compile layer" describes. A manifest is read the same whatever its own trope declares.
+
+A manifest is a section's code, so it may hold anchors, and each anchor composes the code of the section it names into the manifest, as an anchor does in any code. Such a section must stand in the manifest's own trope, in the root or in a member. So a trope may keep each of its declarations in the chapter that explains it, and compose them into one manifest. A section in a chapter of another trope, or of no trope, is not the manifest's to compose, since a trope declares what it ships.
+
+Every step is Loom's own code, a lookup and a composition in memory, so the registry fits wherever Loom judges a loom: in the editor on every keystroke, and before every tangle.
 
 ## The registry
 
@@ -81,7 +85,7 @@ A trope is a cluster of chapters, and each of them names the trope in its frontm
 
 The root is also where the trope's manifest belongs, a section of the `Manifest` kind, which `manifestSectionsOf` finds. A manifest anywhere else is the product pass's to fault, as the chapter "The product pass" describes. A root with two manifests leaves Loom unsure which to read, so Loom refuses it. `manifestOf` composes the one manifest into its text with the product pass's own composition, `fromCode`, so an anchor in the manifest draws in the code it names. The composed text then goes to `readManifest`, as the chapter "The trope contract" describes. Each refusal of a manifest stands at the manifest's heading.
 
-A manifest is composed against the chapters of tropes alone, so an anchor that names a section of any other chapter finds nothing there. A composition leaves such an anchor's place empty, and the manifest would read as if the author had declared less. `composedOf` therefore asks `unfoundIn` for the names the composition cannot find, and refuses the manifest for the first of them.
+A manifest is composed against the chapters of its own trope alone, so an anchor in it that names a section of any other chapter finds nothing there. A composition leaves such an anchor's place empty, and the manifest would read as if the author had declared less. `composedOf` therefore asks `unfoundIn` for the names the manifest's anchors cannot find, and refuses the manifest for the first of them.
 
 =>
 
@@ -127,7 +131,9 @@ const composedOf = (
   Array.match(unfoundIn(modules, code, catalogue), {
     onEmpty: () => Result.succeed(fromCode(modules, code, catalogue).code),
     onNonEmpty: ([name]) =>
-      Result.fail(`its manifest draws on \`${name}\`, which no chapter of a trope holds`),
+      Result.fail(
+        `an anchor in its manifest names \`${name}\`, and no chapter of the trope holds a section called that`,
+      ),
   })
 
 const manifestOf = (
@@ -254,6 +260,8 @@ const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<
 
 `declaredKindsOf` builds the registry from a corpus. It gathers the tropes and folds over them, carrying the registry so far, and `withTrope` adds one trope. A workspace may also install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their declarations arrive as `installed`. The fold starts from them, so a trope of the book that declares a kind an installed trope declares is refused, as any later clash is. One trope keeps one root, so a second trope chapter of the same title is refused, at the word `Trope` of its identity line. `titleOf` reads a chapter's title.
 
+A trope declares what it ships, so its manifest is read against its own chapters and no others. `chaptersOf` gathers a trope's chapters, and `withTrope` hands `withRoot` those chapters with a catalogue of them alone.
+
 `withRoot` reads the root's manifest, when the root holds one. A root whose manifest reads and clashes with nothing adds everything it declares. `boxesOf`, `sectionsOf`, and `anchorsOf` turn its kinds into rows of the registry, and `headingsOf` does the same for its keys for headings. A root Loom refuses adds its refusal and none of its kinds, since the author agreed to the trope as a whole, and a trope that runs half its offer is not the trope the author agreed to.
 
 =>
@@ -344,12 +352,10 @@ const withRoot = (
       }),
   })
 
-const withTrope = (
-  modules: ReadonlyMap<Location, LoomModule>,
-  catalogue: Catalogue,
-  kinds: DeclaredKinds,
-  trope: Trope,
-): DeclaredKinds => {
+const chaptersOf = (trope: Trope): ReadonlyMap<Location, LoomModule> =>
+  new Map(Array.map(trope.chapters, (chapter) => [chapter.path, chapter] as const))
+
+const withTrope = (kinds: DeclaredKinds, trope: Trope): DeclaredKinds => {
   const others = Array.filter(
     trope.chapters,
     (chapter) => !Option.exists(trope.root, (root) => root.path === chapter.path),
@@ -366,19 +372,19 @@ const withTrope = (
   const settled: DeclaredKinds = { ...kinds, refusals: [...kinds.refusals, ...duplicates] }
   return Option.match(trope.root, {
     onNone: () => settled,
-    onSome: (root) => withRoot(modules, catalogue, settled, trope.name, root),
+    onSome: (root) => {
+      const own = chaptersOf(trope)
+      return withRoot(own, catalogueOf(own), settled, trope.name, root)
+    },
   })
 }
 
 export const declaredKindsOf = (
   modules: ReadonlyMap<Location, LoomModule>,
-  catalogue: Catalogue,
   installed: Declarations = noDeclarations,
 ): DeclaredKinds => {
   const fromInstalled: DeclaredKinds = { ...installed, refusals: [] }
-  return Array.reduce(tropesOf(modules), fromInstalled, (kinds, trope) =>
-    withTrope(modules, catalogue, kinds, trope),
-  )
+  return Array.reduce(tropesOf(modules), fromInstalled, withTrope)
 }
 
 ## Judging a loom against the registry
@@ -450,7 +456,7 @@ const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
 
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds`, `sectionKinds`, and `anchorKinds` the core keeps, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are and the `ValueType` of one key, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, and `parametersOf`, which reads a kind's parameters.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds`, `sectionKinds`, and `anchorKinds` the core keeps, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are and the `ValueType` of one key, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, and `parametersOf`, which reads a kind's parameters.
 
 =>
 
@@ -476,6 +482,7 @@ import {
 } from '@athrio/loom-ast/LoomTokens'
 import {
   type Catalogue,
+  catalogueOf,
   type Location,
   type LoomModule,
   openedBoxesOf,
@@ -642,7 +649,7 @@ describe('a box of a kind nobody declares', () => {
 
 ## A kind a trope declares
 
-Once a trope's root declares a kind, a box of that kind raises nothing, in any case of letters, and in any loom of the book. A box of a kind still unknown then lists the declared kinds after the core's. A manifest's code composes like any section's, so a manifest may draw its kinds from another section with an anchor. The section may stand in the root or in a member of any trope. A chapter of no trope lends a manifest nothing, so Loom refuses a manifest that draws on one, and names the section it could not find.
+Once a trope's root declares a kind, a box of that kind raises nothing, in any case of letters, and in any loom of the book. A box of a kind still unknown then lists the declared kinds after the core's. A manifest's code composes like any section's, so an anchor in a manifest composes another section's code into it. That section may stand in the root or in a member of the same trope. Loom refuses a manifest whose anchor names a section in a chapter of another trope, or of no trope, and the refusal gives the name.
 
 =>
 
@@ -664,8 +671,8 @@ describe('a box of a kind a trope declares', () => {
     ])
   })
 
-  it('may come from a manifest that draws in another section', async () => {
-    const drawn = lines(
+  it('may come from a manifest whose anchor composes another section', async () => {
+    const withinRoot = lines(
       '---',
       'Trope Chapter: Mermaid',
       '---',
@@ -684,7 +691,7 @@ describe('a box of a kind a trope declares', () => {
       anchor('The Mermaid kind'),
       '] } } }',
     )
-    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawn }
+    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: withinRoot }
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
     expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
   })
@@ -703,7 +710,7 @@ describe('a box of a kind a trope declares', () => {
       '{ "kind": "Mermaid", "body": "mermaid" }',
     )
 
-  const drawing = rootLoom('Mermaid', [
+  const anchoring = rootLoom('Mermaid', [
     '{ "contract": "1", "contributes": { "kinds": { "box": [',
     anchor('The Mermaid kind'),
     '] } } }',
@@ -711,21 +718,32 @@ describe('a box of a kind a trope declares', () => {
 
   const kindAt = '/corpus/mermaid/the-kind.loom'
 
-  it('may come from a manifest that draws in a section of a member', async () => {
+  it('may come from a manifest whose anchor composes a section of a member', async () => {
     const files = {
       [cells]: chapterWith('{Mermaid}'),
-      [mermaid]: drawing,
+      [mermaid]: anchoring,
       [kindAt]: kindLoom(['Rooted in: Mermaid']),
     }
     expect(faultsOf(await diagnosed(files, cells))).toEqual([])
     expect(faultsOf(await diagnosed(files, mermaid))).toEqual([])
   })
 
+  const outside = refusedFor(
+    'an anchor in its manifest names `The Mermaid kind`, and no chapter of the trope holds a section called that',
+  )
+
   it('comes from no chapter outside a trope', async () => {
-    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: drawing, [kindAt]: kindLoom([]) }
-    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([
-      refusedFor('its manifest draws on `The Mermaid kind`, which no chapter of a trope holds'),
-    ])
+    const files = { [cells]: chapterWith('{Mermaid}'), [mermaid]: anchoring, [kindAt]: kindLoom([]) }
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([outside])
+  })
+
+  it('comes from no chapter of another trope', async () => {
+    const files = {
+      [cells]: chapterWith('{Mermaid}'),
+      [mermaid]: anchoring,
+      [kindAt]: kindLoom(['Rooted in: Charts']),
+    }
+    expect(faultsOf(await diagnosed(files, mermaid))).toEqual([outside])
   })
 })
 

@@ -895,9 +895,7 @@ const ICONS: ReadonlyMap<string, string> = new Map([
   ['sh', 'bash'],
   ['lua', 'lua'],
   ['dockerfile', 'dockerfile'],
-  ['gitignore', 'git'],
   ['gitattributes', 'git'],
-  ['vscodeignore', 'vscode'],
   ['prose', 'loom'],
 ])
 

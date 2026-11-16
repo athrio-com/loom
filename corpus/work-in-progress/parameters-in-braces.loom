@@ -87,7 +87,7 @@ The pass that checks parameters, which the chapter "Small passes over the tree" 
 
 The core's own keys are typed as well. `lang` and `kind` each hold one value of text, `provides` holds a list, and the `anchors` key of a trope box holds a reference.
 
-The `lang` key takes any name, because Loom composes and tangles code in a language it has never heard of. The name still matters to the editor. A language is checked there only when a language service of the workspace serves it, so Loom warns of a name that no service serves, as the chapter "The compile layer" describes. The code tangles all the same.
+The `lang` key takes any name, because Loom composes and tangles code in a language it has never heard of. The name still matters to the editor. A language is checked there only when a language service of the workspace serves it, so Loom warns of a language that no service serves, as the chapter "The compile layer" describes. It warns the same of a sink whose extension belongs to such a language. The code tangles all the same.
 
 A kind's name is judged apart from its type, by the passes that claim kinds and check them.
 

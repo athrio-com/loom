@@ -787,7 +787,7 @@ const keepsTsExtension = (config: string): boolean =>
 
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `languages` are the four languages `tsExtension` holds, so Loom counts a JavaScript section as served wherever TypeScript is on. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a module anchor names.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the compilers a project may ask for from `TypescriptSdk`, loading none of them, and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. The frame runs no TypeScript, so every TypeScript program the editor holds is one this service owns. Its `extensions` are the four that `tsExtension` holds, so Loom counts a JavaScript section as served wherever TypeScript is on. Its `format` is `formatProduct`, and its `moduleSpecifier` writes the path a module anchor names.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -796,8 +796,7 @@ The package exports the service as its default. That default is the entry the dy
 export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
-  extensions: ['.ts', '.tsx'],
-  languages: Array.fromIterable(tsExtension.keys()),
+  extensions: Array.fromIterable(tsExtension.values()),
   plugins: ({ settings }) =>
     Effect.gen(function* () {
       const sdk = yield* TypescriptSdk

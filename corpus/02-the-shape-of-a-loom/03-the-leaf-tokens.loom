@@ -247,7 +247,7 @@ export const anchorKeys: Keys = { kind: 'text', provides: { list: 'text' } }
 
 ## What a heading's braces say
 
-A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. A heading may name any language, since Loom composes code in a language it has never heard of. The compiler warns of a language that no service of the workspace serves, as the chapter "The compile layer" describes. The pass that claims kinds judges the name of a kind.
+A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. A heading may name any language, since Loom composes code in a language it has never heard of. The compiler warns of a language a loom uses that no service of the workspace serves, as the chapter "The compile layer" describes. The pass that claims kinds judges the name of a kind.
 
 The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
 

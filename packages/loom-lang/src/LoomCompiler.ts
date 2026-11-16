@@ -3,6 +3,7 @@ import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref }
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
+import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
 import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
@@ -59,11 +60,13 @@ import {
 import {
   compositionCycles,
   crossFileFaults,
+  extensionLanguage,
   holdsModuleRefs,
   type Landing,
   landingOf,
   ModuleFile,
   moduleFileOf,
+  singleFile,
   unusedSections,
   usedSections,
 } from '#ast/ProductBuilder'
@@ -242,24 +245,42 @@ const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
 
 type NamedLanguage = { readonly language: string; readonly position: Position }
 
+type Wording = { readonly value: string; readonly position: Position }
+
 const ownLanguages: ReadonlyArray<string> = ['loom', 'prose', 'plaintext']
 
-const namedLanguage = (written: {
-  readonly value: string
-  readonly position: Position
-}): NamedLanguage => ({ language: written.value.trim().toLowerCase(), position: written.position })
+const namedLanguage = (written: Wording): NamedLanguage => ({
+  language: written.value.trim().toLowerCase(),
+  position: written.position,
+})
+
+const fileLanguage = (file: Wording): NamedLanguage => ({
+  language: extensionLanguage(file.value),
+  position: file.position,
+})
+
+const sectionLanguageAt = (section: LoomSection): Option.Option<NamedLanguage> =>
+  pipe(
+    Option.fromNullishOr(section.heading.specifier),
+    Option.flatMap(headingLangToken),
+    Option.map(namedLanguage),
+    Option.orElse(() =>
+      Option.map(Option.fromNullishOr(section.heading.sink), (sink) => fileLanguage(sink.file)),
+    ),
+  )
 
 const namedLanguages = (module: LoomModule): ReadonlyArray<NamedLanguage> =>
-  Array.getSomes([
-    Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), namedLanguage),
-    ...Array.map(module.doc.sections, (section) =>
-      pipe(
-        Option.fromNullishOr(section.heading.specifier),
-        Option.flatMap(headingLangToken),
-        Option.map(namedLanguage),
+  pipe(
+    [
+      Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), namedLanguage),
+      Option.flatMap(Option.fromNullishOr(module.doc.frontmatter?.package), (named) =>
+        Option.map(singleFile(Option.some(named.value)), () => fileLanguage(named)),
       ),
-    ),
-  ])
+      ...Array.map(module.doc.sections, sectionLanguageAt),
+    ],
+    Array.getSomes,
+    Array.dedupeWith((one, other) => one.language === other.language),
+  )
 
 const languageFaults = (
   served: Option.Option<ReadonlyArray<string>>,
@@ -1037,7 +1058,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           const core: Modules = new Map(
             Array.map(chapters, (chapter) => [chapter.path, chapter] as const),
           )
-          return declaredKindsOf(core, catalogueOf(core), installed)
+          return declaredKindsOf(core, installed)
         }),
       )
 

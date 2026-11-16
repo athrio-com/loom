@@ -244,13 +244,19 @@ const languageByExtension: ReadonlyMap<string, string> = new Map([
   ['json', 'json'],
   ['md', 'markdown'],
   ['yml', 'yaml'],
+  ['txt', 'plaintext'],
+  ['license', 'plaintext'],
+  ['licence', 'plaintext'],
+  ['gitignore', 'ignore'],
 ])
 
-const extensionLanguage = (path: string): string => {
+const isIgnoreFile = (name: string): boolean => name.startsWith('.') && name.endsWith('ignore')
+
+export const extensionLanguage = (path: string): string => {
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
   const dot = name.lastIndexOf('.')
   const ext = dot < 0 ? name : name.slice(dot + 1)
-  return languageByExtension.get(ext) ?? ext
+  return languageByExtension.get(ext) ?? (isIgnoreFile(name) ? 'ignore' : ext)
 }
 
 interface ValueWarp {
@@ -365,7 +371,7 @@ const filePath = (
     onNone: () => Option.map(sink, (s) => s.file.value),
   })
 
-const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
+export const singleFile = (pkg: Option.Option<string>): Option.Option<string> =>
   Option.filter(pkg, (p) => !p.endsWith('/'))
 
 const isTangle = (section: LoomSection): boolean => section.kind === tangleKind

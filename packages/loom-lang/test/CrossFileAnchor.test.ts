@@ -1015,6 +1015,106 @@ describe('a language no service serves', () => {
     }),
   )
 
+  it.effect('warns of the language a sink\'s extension belongs to, once for the loom', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/packaging.loom': lines(
+          '# The program [main.ts]',
+          '',
+          '=>',
+          'const main = 1',
+          '',
+          '## The manifest [package.json]',
+          '',
+          '=>',
+          '{ "name": "main" }',
+          '',
+          '## The compiler\'s settings [tsconfig.json]',
+          '',
+          '=>',
+          '{ "strict": true }',
+          '',
+          '## The read-me [README.md]',
+          '',
+          '=>',
+          'Programs written to be read.',
+        ),
+      }
+      expect(yield* unserved(files, '/corpus/packaging.loom')).toEqual([
+        { line: 6, severity: 'warning', message: unservedFault('json') },
+        { line: 16, severity: 'warning', message: unservedFault('markdown') },
+      ])
+    }),
+  )
+
+  it.effect('reads the language of the file a chapter\'s Package names', () =>
+    Effect.gen(function* () {
+      const chapterInto = (file: string) => ({
+        '/corpus/room.loom': lines(
+          '---',
+          `Package: ${file}`,
+          '---',
+          '',
+          '# A room {Tangle}',
+          '',
+          '=>',
+          'room = {}',
+        ),
+      })
+      expect(yield* unserved(chapterInto('src/room.lua'), '/corpus/room.loom')).toEqual([
+        { line: 2, severity: 'warning', message: unservedFault('lua') },
+      ])
+      expect(yield* unserved(chapterInto('src/room.ts'), '/corpus/room.loom')).toEqual([])
+      expect(yield* unserved(chapterInto('src/'), '/corpus/room.loom')).toEqual([])
+    }),
+  )
+
+  it.effect('reads one language from every ignore file, and none from plain text', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/shipping.loom': lines(
+          '# The licence [LICENSE]',
+          '',
+          '=>',
+          'MIT',
+          '',
+          '## What git ignores [.gitignore]',
+          '',
+          '=>',
+          'node_modules',
+          '',
+          '## The image [docker/Dockerfile]',
+          '',
+          '=>',
+          'FROM oven/bun',
+          '',
+          '## The notes [notes.txt]',
+          '',
+          '=>',
+          'Shipped on a Friday.',
+          '',
+          '## What the image leaves out [.dockerignore]',
+          '',
+          '=>',
+          'node_modules',
+        ),
+      }
+      expect(yield* unserved(files, '/corpus/shipping.loom')).toEqual([
+        { line: 6, severity: 'warning', message: unservedFault('ignore') },
+        { line: 11, severity: 'warning', message: unservedFault('dockerfile') },
+      ])
+    }),
+  )
+
+  it.effect('reads a heading\'s own language before its sink\'s', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/notes.loom': lines('# Notes {TypeScript} [notes.txt]', '', '=>', 'const notes = 1'),
+      }
+      expect(yield* unserved(files, '/corpus/notes.loom')).toEqual([])
+    }),
+  )
+
   it.effect('keeps quiet about a language a service serves beside its own', () =>
     Effect.gen(function* () {
       const files = {
@@ -1023,7 +1123,7 @@ describe('a language no service serves', () => {
           'Language: JavaScript',
           '---',
           '',
-          '# A script [script.js]',
+          '# A script [script.mjs]',
           '',
           '=>',
           'const main = 1',
@@ -1038,7 +1138,7 @@ describe('a language no service serves', () => {
     }),
   )
 
-  it.effect('keeps quiet about prose, a kind, and a sink', () =>
+  it.effect('keeps quiet about prose, a kind, and code in no language', () =>
     Effect.gen(function* () {
       const files = {
         '/corpus/notes.loom': lines(
@@ -1053,11 +1153,6 @@ describe('a language no service serves', () => {
           '',
           '=>',
           'const notes = 1',
-          '',
-          '## The read-me [README.md]',
-          '',
-          '=>',
-          'Programs written to be read.',
           '',
           '## Plain {plaintext}',
           '',

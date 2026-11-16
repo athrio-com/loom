@@ -476,7 +476,7 @@ describe('the held layer answers from the packages the server holds', () => {
       const packages = yield* LanguagePackages
       const loom = join(workspace, 'corpus', 'b.loom')
       expect(yield* packages.languagesFor(loom)).toEqual(Option.none())
-      yield* packages.hold(workspace, [{ ...answering, languages: ['tsx', 'typescript'] }])
+      yield* packages.hold(workspace, [{ ...answering, extensions: ['.ts', '.tsx', '.mts'] }])
       expect(yield* packages.languagesFor(loom)).toEqual(Option.some(['typescript', 'tsx']))
       expect(yield* packages.languagesFor(join(bare, 'b.loom'))).toEqual(Option.none())
     }).pipe(Effect.provide(LanguagePackages.held.pipe(Layer.provide(LoomConfig.layer)))),

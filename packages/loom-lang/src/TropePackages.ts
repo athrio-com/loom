@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { installedTropeVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
-import { catalogueOf, type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   type Declarations,
@@ -61,7 +61,7 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
           builder.build(fromDisk, path).pipe(Effect.map((module) => [path, module] as const)),
       ).pipe(
         Effect.map((pairs): ReadonlyMap<Location, LoomModule> => new Map(pairs)),
-        Effect.map((modules) => declaredKindsOf(modules, catalogueOf(modules))),
+        Effect.map((modules) => declaredKindsOf(modules)),
         Effect.tap((kinds) =>
           Effect.forEach(
             kinds.refusals,

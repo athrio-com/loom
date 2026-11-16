@@ -144,8 +144,8 @@ A trope may contribute several kinds at once. A trope for research papers contri
   "process": "dist/trope.js",
   "contributes": {
     "syntax": [
-      { "mark": "citation", "in": "prose", "open": "[@", "close": "]" },
-      { "mark": "authors", "in": "frontmatter", "field": "Authors" }
+      { "mark": "citation", "standsIn": "prose", "open": "[@", "close": "]" },
+      { "mark": "authors", "standsIn": "frontmatter", "field": "Authors" }
     ],
     "kinds": { "box": [{ "kind": "Abstract", "body": "prose" }] },
     "views": [{ "name": "References", "type": "web", "page": "dist/references.html" }],
@@ -158,7 +158,7 @@ A trope may contribute several kinds at once. A trope for research papers contri
 }
 ```
 
-- The `syntax` key declares two marks: a citation such as `[@knuth1984]` in prose, found by its opening and closing delimiters, and an `Authors` field in the frontmatter.
+- The `syntax` key declares two marks: a citation such as `[@knuth1984]` in prose, found by its opening and closing delimiters, and an `Authors` field in the frontmatter. A mark's `standsIn` says where in a loom the mark stands, as it does for a kind of anchor.
 - The `kinds` key declares one kind of box, `Abstract`, so a box of that kind is no fault.
 - The `views` key names a web page that lists the works a chapter cites.
 - The `assists` key names one question the trope answers. The `cite` assist finds a reference by its title or by its digital object identifier, its DOI. The `needs` key asks for the one host that answer takes, `api.crossref.org`.
@@ -181,11 +181,11 @@ A trope extends Loom's language by declaring kinds. A kind is a named sort of lo
 "kinds": {
   "loom":    [{ "kind": "Decision", "numbered": true, "zone": "back", "code": "none", "holds": ["Option"] }],
   "section": [{ "kind": "Option", "code": "none", "parameters": { "status": { "choice": ["chosen", "rejected"] }, "replaces": "reference" } }],
-  "anchor":  [{ "kind": "Decision", "in": "prose" }]
+  "anchor":  [{ "kind": "Decision", "standsIn": "prose" }]
 }
 ```
 
-A decision is a loom of its own, numbered among the book's decisions and placed in its back matter. Each option it weighs is a section. The `status` parameter of an option takes one of two words, and its `replaces` parameter names an option that an earlier decision chose. A prose anchor of the `Decision` kind cites a decision from any chapter.
+A decision is a loom of its own, numbered among the book's decisions and placed in its back matter. Each option it weighs is a section. The `status` parameter of an option takes one of two words, and its `replaces` parameter names an option that an earlier decision chose. An anchor of the `Decision` kind cites a decision from any chapter. An anchor stands in code, where it composes its section into a file, or in prose, where it is a link a reader follows. A kind's `standsIn` says which of the two it is for. A citation belongs in prose, so the `Decision` kind stands in prose, and the same anchor written in code is a fault.
 
 A kind lists the parameters its specifier may hold, and each parameter has a key and a value type. The key belongs to the trope. It is new syntax, which Loom learns only from the manifest. The value type comes from a fixed list in the contract: text, a number, a boolean, a choice among words the key lists, a locale tag, a reference, or a list of any one of these. A manifest writes a list as `{ "list": "reference" }` and a choice as `{ "choice": ["draft", "done"] }`. The chapter "Parameters in braces" describes each type, and how the core reads a value through its key's declared type rather than from the value's look. The type is all the core needs to handle a value. A trope that needs a type the list lacks, such as a date, asks for the contract to grow.
 

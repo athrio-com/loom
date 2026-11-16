@@ -89,7 +89,7 @@ Loading a package takes an import, which waits, and the editor projects a loom, 
 
 `firstAnswer` asks each package that takes the question, in the order the workspace activates them, and keeps the first answer.
 
-The compiler asks the packages one thing more: which languages they serve. A loom may name a language no package of its workspace serves, and the compiler warns of it, as the chapter "The compile layer" describes. A package serves the language its `id` names and the ones its `languages` list, and `servedBy` gives both. `languagesFor` gives the languages that the packages of a loom's workspace serve between them. It answers nothing when those packages are not known, so the compiler warns only of what it knows.
+The compiler asks the packages one thing more: which languages they serve. A loom may use a language no package of its workspace serves, and the compiler warns of it, as the chapter "The compile layer" describes. A package serves the language its `id` names and the language each of its `extensions` belongs to, which the product pass's `extensionLanguage` tells, and `servedBy` gives both. `languagesFor` gives the languages that the packages of a loom's workspace serve between them. It answers nothing when those packages are not known, so the compiler warns only of what it knows.
 
 =>
 
@@ -106,7 +106,7 @@ export interface LanguagePackagesApi {
 
 const servedBy = (service: LanguageService): ReadonlyArray<string> => [
   service.id,
-  ...Option.getOrElse(Option.fromNullishOr(service.languages), () => []),
+  ...Array.map(service.extensions, extensionLanguage),
 ]
 
 type Question<A> = Effect.Effect<Option.Option<A>, ServiceError>
@@ -207,7 +207,7 @@ export class LanguagePackages extends Context.Service<LanguagePackages>()('Langu
 
 ## What the service draws on
 
-Effect gives the service and its layers, `Ref` for the packages it holds, and `Array` and `Option` for the answers. Node's `createRequire` gives a loaded package the `require` it expects to find. `LoomConfig` resolves the workspace a loom belongs to and the languages it activates. `loadActive` loads them, after `installHostRuntime` lends them the host's runtime, and the service imports both only when it first loads a package. The contract gives the `LanguageService` each package is, the `SpecifierRequest` the question takes, and the `ServiceError` a package fails with. A `Location` names a loom and its workspace.
+Effect gives the service and its layers, `Ref` for the packages it holds, and `Array` and `Option` for the answers. Node's `createRequire` gives a loaded package the `require` it expects to find. `LoomConfig` resolves the workspace a loom belongs to and the languages it activates. `loadActive` loads them, after `installHostRuntime` lends them the host's runtime, and the service imports both only when it first loads a package. The contract gives the `LanguageService` each package is, the `SpecifierRequest` the question takes, and the `ServiceError` a package fails with. The product pass gives `extensionLanguage`, the language an extension belongs to. A `Location` names a loom and its workspace.
 
 =>
 
@@ -220,6 +220,7 @@ import {
   type ServiceError,
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
+import { extensionLanguage } from '#ast/ProductBuilder'
 
 ## The service module [src/LanguagePackages.ts]
 
@@ -729,7 +730,7 @@ describe('the TypeScript service writes a module anchor end to end', () => {
 
 The language server runs the `held` layer, which never loads a package. Until the server holds a workspace's packages, a question about a loom of that workspace gets no answer, and the module anchor's path stays unwritten. Once the server holds them, the service asks them. The first case holds a stand-in package that writes one path for every module anchor.
 
-The second case asks which languages a workspace serves. The layer knows none until the server holds the workspace's packages. Then it names the language of each package's `id` and the ones the package lists, each once. A loom that lies in no workspace has no packages to know.
+The second case asks which languages a workspace serves. The layer knows none until the server holds the workspace's packages. Then it names the language of each package's `id` and the language each of its extensions belongs to, each once. A loom that lies in no workspace has no packages to know.
 
 =>
 
@@ -765,7 +766,7 @@ describe('the held layer answers from the packages the server holds', () => {
       const packages = yield* LanguagePackages
       const loom = join(workspace, 'corpus', 'b.loom')
       expect(yield* packages.languagesFor(loom)).toEqual(Option.none())
-      yield* packages.hold(workspace, [{ ...answering, languages: ['tsx', 'typescript'] }])
+      yield* packages.hold(workspace, [{ ...answering, extensions: ['.ts', '.tsx', '.mts'] }])
       expect(yield* packages.languagesFor(loom)).toEqual(Option.some(['typescript', 'tsx']))
       expect(yield* packages.languagesFor(join(bare, 'b.loom'))).toEqual(Option.none())
     }).pipe(Effect.provide(LanguagePackages.held.pipe(Layer.provide(LoomConfig.layer)))),

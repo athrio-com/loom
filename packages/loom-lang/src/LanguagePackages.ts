@@ -7,6 +7,7 @@ import {
   type ServiceError,
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
+import { extensionLanguage } from '#ast/ProductBuilder'
 
 export interface LanguagePackagesApi {
   readonly hold: (
@@ -21,7 +22,7 @@ export interface LanguagePackagesApi {
 
 const servedBy = (service: LanguageService): ReadonlyArray<string> => [
   service.id,
-  ...Option.getOrElse(Option.fromNullishOr(service.languages), () => []),
+  ...Array.map(service.extensions, extensionLanguage),
 ]
 
 type Question<A> = Effect.Effect<Option.Option<A>, ServiceError>

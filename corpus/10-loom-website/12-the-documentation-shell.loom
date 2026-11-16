@@ -1072,7 +1072,7 @@ Prose is Loom's own language, so it wears Loom's own icon, kept beside the other
 
 The icon comes in two faces, as the mark does. On paper, `loom.svg` sets the flowers on a navy tile, because a parchment letter on a cream page would vanish. On the dark page, `loom-dark.svg` leaves the ground out, and the flowers and the letter stand on the page itself. `iconMark` draws both faces of an icon that has two, and the stylesheet shows the one that suits the theme. Every other icon is one image.
 
-A section's language comes from the weave, which names it the way the tangler does: by the section's specifier, else by the extension of the file it writes, else by the chapter's language. An extension the tangler does not know stands as itself, so `.rs` reads `rs` and `.sh` reads `sh`. `iconOf` maps each of these names to its icon, and `nameOf` to the name a tag shows, a tree-sitter query reading `Query`; so `rs` and `rust` share Rust's, `sh` and `bash` share Bash's, a `.h` header shares C's, and `.gitignore` and `.gitattributes` share Git's. A section is compared with its chapter through the same map, so a Rust chapter's `.rs` file is not mistaken for another language. A name with no icon, such as a `LICENSE`, wears nothing.
+A section's language comes from the weave, which names it the way the tangler does: by the section's specifier, else by the extension of the file it writes, else by the chapter's language. An extension the tangler does not know stands as itself, so `.rs` reads `rs` and `.sh` reads `sh`. `iconOf` maps each of these names to its icon, and `nameOf` to the name a tag shows, a tree-sitter query reading `Query`; so `rs` and `rust` share Rust's, `sh` and `bash` share Bash's, a `.h` header shares C's, and `.gitattributes` wears Git's. A section is compared with its chapter through the same map, so a Rust chapter's `.rs` file is not mistaken for another language. A language with no icon wears nothing. `ignore` is one, the language of every ignore file whichever tool reads it, and so is `plaintext`, the language of a `LICENSE`.
 
 The same emblem marks each chapter in the menu, at sixteen pixels beside its name, the way an editor marks each file in its sidebar by type. So a reader scanning the book's ninety chapters sees at once which are TypeScript, which are packaging in JSON, and which are the grammar's C.
 
@@ -1110,9 +1110,7 @@ const ICONS: ReadonlyMap<string, string> = new Map([
   ['sh', 'bash'],
   ['lua', 'lua'],
   ['dockerfile', 'dockerfile'],
-  ['gitignore', 'git'],
   ['gitattributes', 'git'],
-  ['vscodeignore', 'vscode'],
   ['prose', 'loom'],
 ])
 
