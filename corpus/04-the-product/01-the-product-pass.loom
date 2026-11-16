@@ -1535,7 +1535,7 @@ A section's code is used when a file includes it: the section writes a file of i
 
 `usedSections` gathers a corpus's `Usage` once, so each loom's judgement only looks it up. Its `used` sections are the section behind every file a loom writes, and every section an anchor composes, through `composedTargetsOf`. It also says whether the corpus `writes` any file at all. A corpus that writes none is documentation rather than a program, as a book that only weaves is, so none of its code counts as unused. A manifest is read by Loom itself, so its section counts as used. A section that holds no code yet has nothing to use, and the note that it is to be settled covers it already.
 
-Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter marked `Canvas` or `Planned` is unfinished, as the chapter "Canvases" describes, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose holds no code, and any arrow in it already carries the `CodeInProse` fault, so `isProse` keeps the warning from saying the same thing twice.
+Some code is never meant for a file, and `unusedSections` passes over it. A discussion holds no code at all. A chapter whose status is `Planned` is unfinished, so its sketches wait for the file that will include them, and `unfinished` tells such a chapter. A section written in prose holds no code, and any arrow in it already carries the `CodeInProse` fault, so `isProse` keeps the warning from saying the same thing twice.
 
 =>
 
@@ -1561,8 +1561,9 @@ export const usedSections = (
 }
 
 const unfinished = (module: LoomModule): boolean =>
-  Option.exists(Option.fromNullishOr(module.doc.frontmatter?.status), (status) =>
-    ['Canvas', 'Planned'].includes(status.value),
+  Option.exists(
+    Option.fromNullishOr(module.doc.frontmatter?.status),
+    (status) => status.value === 'Planned',
   )
 
 const holdsCode = (code: Code): boolean =>

@@ -2503,7 +2503,7 @@ const summaryOf = (module: LoomModule): string =>
 
 A box may point to a loom nobody has written. The editor then offers to write it, and `openingOf` gives the `Opening` it writes: the new loom's `file` and its `text`. The new loom belongs to the box's own book and part, and takes the part's next number of its kind, which `nextNumber` finds, since chapters and discussions are numbered apart. A box in a loom that stands in no part gives the new loom only the box's book, which `noPartIn` holds. A part without numbers names its looms by title alone, so there the new loom takes no number. `membership` writes the identity line in the form the part already uses, and names the new loom a `Chapter` or a `Discussion` in it. The new loom's opening prose is the box's body, so the copy and its source agree from the start.
 
-The two kinds differ in where the new loom stands and what its identity holds besides. `fileOf` places it. A new chapter stands beside the loom of the box, in a file named for its number and its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A new discussion stands in the `discussions` folder beside the loom of the box, which `discussionsFolderOf` finds, in a file named for its title alone, as `discussions/waking.loom`. `fieldsOf` adds the rest of the identity. A new loom names the box's book, when the box stands in a named book, so it joins the same book. A new chapter's status is `Canvas`, as the chapter "Canvases" describes, and it keeps the language of the box's chapter. A discussion holds no code, so it takes neither.
+The two kinds differ in where the new loom stands and what its identity holds besides. `fileOf` places it. A new chapter stands beside the loom of the box, in a file named for its number and its title, which `slugOf` turns into lowercase words joined by hyphens, as `07-rooms.loom`. A new discussion stands in the `discussions` folder beside the loom of the box, which `discussionsFolderOf` finds, in a file named for its title alone, as `discussions/waking.loom`. `fieldsOf` adds the rest of the identity. A new loom names the box's book, when the box stands in a named book, so it joins the same book. A new chapter keeps the language of the box's chapter. A discussion holds no code, so it takes none.
 
 =>
 
@@ -2591,9 +2591,8 @@ const fieldsOf = (
 ): ReadonlyArray<string> => [
   ...Option.toArray(Option.map(book, (name) => `Book: ${name}`)),
   ...Match.value(kind).pipe(
-    Match.when(chapterKind, () => [
-      'Status: Canvas',
-      ...Option.toArray(
+    Match.when(chapterKind, () =>
+      Option.toArray(
         Option.map(
           Option.flatMap(own, (chapter) =>
             Option.fromNullishOr(chapter.module.doc.frontmatter?.language),
@@ -2601,7 +2600,7 @@ const fieldsOf = (
           (written) => `Language: ${written.value}`,
         ),
       ),
-    ]),
+    ),
     Match.when(discussionKind, (): ReadonlyArray<string> => []),
     Match.exhaustive,
   ),

@@ -1350,8 +1350,9 @@ export const usedSections = (
 }
 
 const unfinished = (module: LoomModule): boolean =>
-  Option.exists(Option.fromNullishOr(module.doc.frontmatter?.status), (status) =>
-    ['Canvas', 'Planned'].includes(status.value),
+  Option.exists(
+    Option.fromNullishOr(module.doc.frontmatter?.status),
+    (status) => status.value === 'Planned',
   )
 
 const holdsCode = (code: Code): boolean =>

@@ -31,7 +31,7 @@ How to model the room without a game engine: a grid of cells and the things that
 
 Such a box moves the opposite way to an anchor. An anchor pulls a section's code into the place where the anchor stands. A box that points to a loom pushes a thought out of the text, into a loom of its own, and leaves a short account of the thought behind.
 
-The loom may not exist yet. The box then leaves its loom to be settled: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes. A new discussion stands in the `discussions` folder beside the box's loom, and holds no code, so it takes no status. Chapter boxes and discussion boxes do all this already, as the chapter "The multi-file AST" describes.
+The loom may not exist yet. The box then leaves its loom to be settled: a reference to the box resolves, and the editor marks it as unsettled until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new discussion stands in the `discussions` folder beside the box's loom. Chapter boxes and discussion boxes do all this already, as the chapter "The multi-file AST" describes.
 
 Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the text of the discussion's conclusions. Each conclusion arrives as plain prose, without its box, because a box never holds another. The loom holds the summary's source, and the box holds a copy.
 
@@ -504,7 +504,6 @@ const roomsLoom = (opening: string) =>
   lines(
     '---',
     'Part II, Chapter 3: Rooms',
-    'Status: Canvas',
     'Language: TypeScript',
     '---',
     '',
@@ -517,7 +516,7 @@ const unwritten = { [world]: worldLoom(['A room is a grid of cells.']), [light]:
 
 ## A chapter nobody has written
 
-Until its chapter exists, a chapter box carries a note rather than an error. The note's fix writes the chapter as the next of its part. The new chapter's number follows the part's last chapter, its status is `Canvas`, and the box's body becomes its opening. In a part without numbers the new chapter takes its title alone, and its file sits beside the box's loom. An anchor beside the box resolves to the chapter, as a section to be settled, so the anchor is never unresolved.
+Until its chapter exists, a chapter box carries a note rather than an error. The note's fix writes the chapter as the next of its part. The new chapter's number follows the part's last chapter, and the box's body becomes its opening. In a part without numbers the new chapter takes its title alone, and its file sits beside the box's loom. An anchor beside the box resolves to the chapter, as a section to be settled, so the anchor is never unresolved.
 
 =>
 
@@ -576,7 +575,6 @@ describe('a chapter box whose chapter is not written', () => {
             '---',
             'Part: Work in progress',
             'Chapter: Rooms',
-            'Status: Canvas',
             '---',
             '',
             '# Rooms',

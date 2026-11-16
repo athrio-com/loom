@@ -20,7 +20,7 @@ A decorator has three parts. Its place is a range, a line, or a point in a loom.
 
 A decorator is never saved. The language server works out each decorator from the corpus whenever the editor asks, so a decorator is always as current as the text it decorates.
 
-A fault is not a decorator. A fault says what is wrong with a loom, and Loom's diagnostics report it, as Part VI's chapter "The Loom language" describes. A decorator shows what is true of a loom: that a test passed, that a term means this, that a chapter is still a canvas.
+A fault is not a decorator. A fault says what is wrong with a loom, and Loom's diagnostics report it, as Part VI's chapter "The Loom language" describes. A decorator shows what is true of a loom: that a test passed, that a term means this.
 
 ## Six kinds
 

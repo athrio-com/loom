@@ -2330,9 +2330,8 @@ const fieldsOf = (
 ): ReadonlyArray<string> => [
   ...Option.toArray(Option.map(book, (name) => `Book: ${name}`)),
   ...Match.value(kind).pipe(
-    Match.when(chapterKind, () => [
-      'Status: Canvas',
-      ...Option.toArray(
+    Match.when(chapterKind, () =>
+      Option.toArray(
         Option.map(
           Option.flatMap(own, (chapter) =>
             Option.fromNullishOr(chapter.module.doc.frontmatter?.language),
@@ -2340,7 +2339,7 @@ const fieldsOf = (
           (written) => `Language: ${written.value}`,
         ),
       ),
-    ]),
+    ),
     Match.when(discussionKind, (): ReadonlyArray<string> => []),
     Match.exhaustive,
   ),

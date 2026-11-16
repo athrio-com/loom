@@ -3040,7 +3040,7 @@ Composing one section twice is no loop. `A` and `B` both compose `C`, and the ta
 
 ## Code that no file includes
 
-A section whose code no file includes is never used, and its heading carries a warning. A section an anchor composes is used, and so is one that writes a file. A corpus that writes no file at all is documentation, so its code raises nothing, and neither does the code of an unfinished chapter, one marked `Canvas` or `Planned`, nor a chapter written in prose, whose arrows carry a fault of their own. `unused` keeps the line and the message of each such warning.
+A section whose code no file includes is never used, and its heading carries a warning. A section an anchor composes is used, and so is one that writes a file. A corpus that writes no file at all is documentation, so its code raises nothing, and neither does the code of an unfinished chapter, one whose status is `Planned`, nor a chapter written in prose, whose arrows carry a fault of their own. `unused` keeps the line and the message of each such warning.
 
 =>
 
@@ -3090,7 +3090,7 @@ describe('code that no file includes', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/main.loom': lines('# Main [main.ts]', '', '=>', 'const main = 1'),
-        '/corpus/sketch.loom': withHelper(['---', 'Status: Canvas', '---', '', '# Sketch']),
+        '/corpus/sketch.loom': withHelper(['---', 'Status: Planned', '---', '', '# Sketch']),
       }
       expect(yield* unused(files, '/corpus/sketch.loom')).toEqual([])
     }),

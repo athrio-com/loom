@@ -99,7 +99,6 @@ const roomsLoom = (opening: string) =>
   lines(
     '---',
     'Part II, Chapter 3: Rooms',
-    'Status: Canvas',
     'Language: TypeScript',
     '---',
     '',
@@ -165,7 +164,6 @@ describe('a chapter box whose chapter is not written', () => {
             '---',
             'Part: Work in progress',
             'Chapter: Rooms',
-            'Status: Canvas',
             '---',
             '',
             '# Rooms',

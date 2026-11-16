@@ -843,7 +843,7 @@ describe('code that no file includes', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/main.loom': lines('# Main [main.ts]', '', '=>', 'const main = 1'),
-        '/corpus/sketch.loom': withHelper(['---', 'Status: Canvas', '---', '', '# Sketch']),
+        '/corpus/sketch.loom': withHelper(['---', 'Status: Planned', '---', '', '# Sketch']),
       }
       expect(yield* unused(files, '/corpus/sketch.loom')).toEqual([])
     }),

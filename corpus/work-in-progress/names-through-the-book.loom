@@ -68,7 +68,7 @@ So an anchor that composes, or one that names a module, names one of three thing
 
 - **Something missing.** No node in reach carries the name, and the anchor promises none: it carries no `{To be settled}` label and states no `provides`. It is a typo, or a section not yet declared. The `UnresolvedAnchor` fault reports it. The editor offers two fixes: one declares the section, a heading below the section that names it, and the other labels the anchor `{To be settled}`.
 - **Something unsettled.** The anchor promises its section, with the label or with `provides`, and its name finds nothing, or the node exists but holds no code yet: a section with prose alone, a box whose chapter is not written, a trope that points nowhere, or a chapter that emits no file yet. The reference resolves, and nothing is wrong while the author writes. The `UnsettledSection` note marks the reference in the editor, the graph of the book lists every unsettled reference, and the woven page marks each one, the way the website marks a page it has not written yet as "Being written".
-- **Something written.** The node holds code, and the reference composes it or names it as a module. When the node belongs to a canvas in another chapter, a composing reference also raises the warning the chapter "Canvases" describes.
+- **Something written.** The node holds code, and the reference composes it or names it as a module.
 
 Being unsettled belongs to the reference, not to the section. Many sections hold prose alone by design, such as the opening section of most chapters. A section with no code becomes unsettled only when a composing anchor names it.
 
