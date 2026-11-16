@@ -12,9 +12,10 @@ import {
   checkedDocument,
   claimedDocument,
   coreKeys,
+  type Declared,
   expandedDocument,
   LoomDocumentBuilder,
-  type SectionKind,
+  nothingDeclared,
 } from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
@@ -284,30 +285,34 @@ describe('checking the values of braces', () => {
   })
 })
 
+const builtWith = (text: string, declared: Declared): LoomDocument =>
+  Effect.runSync(
+    Effect.gen(function* () {
+      const documents = yield* LoomDocumentBuilder
+      return documents.build(yield* parsedDocument(text), declared)
+    }).pipe(Effect.provide(ParseLayer)),
+  )
+
 describe('a kind of section a trope declares', () => {
-  const declared: ReadonlyArray<SectionKind> = [
-    { kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } },
-  ]
+  const options: Declared = {
+    ...nothingDeclared,
+    section: [{ kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } }],
+  }
 
-  const builtWith = (heading: string, kinds: ReadonlyArray<SectionKind> = declared) =>
-    Effect.runSync(
-      Effect.gen(function* () {
-        const documents = yield* LoomDocumentBuilder
-        return documents.build(yield* parsedDocument(`${heading}\n\nProse.\n`), kinds)
-      }).pipe(Effect.provide(ParseLayer)),
-    ).sections[0]
+  const sectionWith = (heading: string, declared: Declared = options) =>
+    builtWith(`${heading}\n\nProse.\n`, declared).sections[0]
 
-  const stated = (heading: string, kinds?: ReadonlyArray<SectionKind>) =>
-    (builtWith(heading, kinds)?.heading.specifier?.parameters ?? []).map(
+  const stated = (heading: string, declared?: Declared) =>
+    (sectionWith(heading, declared)?.heading.specifier?.parameters ?? []).map(
       (parameter) => [parameter.key.value, parameter.values[0]?.value] as const,
     )
 
-  const said = (heading: string) => messagesIn(builtWith(heading)?.heading.specifier)
+  const said = (heading: string) => messagesIn(sectionWith(heading)?.heading.specifier)
 
   it('is claimed by a label, which states a language when nothing declares the kind', () => {
     expect(stated('## Postgres {Option}')).toEqual([['kind', 'Option']])
-    expect(builtWith('## Postgres {option}')?.kind).toBe('Option')
-    expect(stated('## Postgres {Option}', [])).toEqual([['lang', 'Option']])
+    expect(sectionWith('## Postgres {option}')?.kind).toBe('Option')
+    expect(stated('## Postgres {Option}', nothingDeclared)).toEqual([['lang', 'Option']])
   })
 
   it("takes the kind's parameters, read through their types", () => {
@@ -332,6 +337,101 @@ describe('a kind of section a trope declares', () => {
   it('lists the declared kinds after the core kinds, for a kind nothing declares', () => {
     expect(said('## Postgres {kind=Bogus}')).toEqual([
       'A heading takes no `Bogus` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Option`.',
+    ])
+  })
+})
+
+describe('keys any heading may carry', () => {
+  const translations: Declared = {
+    ...nothingDeclared,
+    section: [{ kind: 'Option', parameters: { status: 'text' } }],
+    headings: { translates: 'reference', locale: 'locale' },
+  }
+
+  const said = (heading: string) =>
+    messagesIn(builtWith(`${heading}\n\nProse.\n`, translations).sections[0]?.heading.specifier)
+
+  it('stand on a heading of no kind and of any kind', () => {
+    expect(said('## Tere {translates=Hello locale=et}')).toEqual([])
+    expect(said('## Tere {kind=Option status=chosen locale=et}')).toEqual([])
+    expect(said('## Tere {lang=Bash locale=et}')).toEqual([])
+  })
+
+  it('are read through their types', () => {
+    expect(said('## Tere {locale=pt_BR}')).toEqual([
+      '`locale` takes a language tag, and `pt_BR` is not one. Write a tag such as `et` or `pt-BR`.',
+    ])
+  })
+
+  it('are listed after the keys of the core', () => {
+    expect(said('## Tere {flavour=dry}')).toEqual([
+      'A heading takes no `flavour` key. It takes `lang`, `kind`, `translates`, and `locale`.',
+    ])
+  })
+})
+
+describe('a kind of anchor a trope declares', () => {
+  const decisions: Declared = {
+    ...nothingDeclared,
+    anchor: [{ kind: 'Decision', parameters: { weight: 'number' } }],
+  }
+
+  const said = (braces: string) =>
+    messagesIn(
+      builtWith(`# A\n\n=>\n\n${greeting(braces)}\n`, decisions).sections[0]?.code.flatMap(
+        (weft) => weft.anchors,
+      )[0]?.specifier,
+    )
+
+  it('is no fault, as a label or as a parameter', () => {
+    expect(said('{Decision}')).toEqual([])
+    expect(said('{decision}')).toEqual([])
+    expect(said('{kind=Decision}')).toEqual([])
+  })
+
+  it("takes the kind's parameters beside an anchor's own", () => {
+    expect(said('{kind=Decision weight=3 provides=greet}')).toEqual([])
+    expect(said('{kind=Decision weight=heavy}')).toEqual([
+      '`weight` takes a number, and `heavy` is not one. Write a number, such as `480`.',
+    ])
+  })
+
+  it("keeps the kind's parameters from an anchor of another kind", () => {
+    expect(said('{kind=Module weight=3}')).toEqual([
+      'An anchor takes no `weight` key. It takes `kind` and `provides`.',
+    ])
+  })
+
+  it('lists the declared kinds after the core kinds, for a kind nothing declares', () => {
+    expect(said('{Bogus}')).toEqual([
+      'An anchor takes no `Bogus` kind. It takes `To be settled`, `Module`, and `Decision`.',
+    ])
+  })
+})
+
+describe('the keys of a declared kind of box', () => {
+  const datasets: Declared = {
+    ...nothingDeclared,
+    box: [{ kind: 'Dataset', parameters: { source: 'text', rows: 'number' } }],
+  }
+
+  const said = (opening: string) =>
+    messagesIn(
+      builtWith(`# A\n\n${opening}\nBody.\n:::\n`, datasets).sections[0]?.preamble.flatMap(
+        (weft) => (weft.box ? [weft.box] : []),
+      )[0]?.specifier,
+    )
+
+  it("takes the kind's parameters, read through their types", () => {
+    expect(said('::: Survey {kind=Dataset source="data/survey.csv" rows=40}')).toEqual([])
+    expect(said('::: Survey {kind=Dataset rows=many}')).toEqual([
+      '`rows` takes a number, and `many` is not one. Write a number, such as `480`.',
+    ])
+  })
+
+  it("keeps the kind's parameters from a box of another kind", () => {
+    expect(said('::: Survey {kind=Note source="data/survey.csv"}')).toEqual([
+      'A box takes no `source` key. It takes `kind`, `provides`, and `anchors`.',
     ])
   })
 })

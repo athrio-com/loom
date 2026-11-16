@@ -329,7 +329,7 @@ describe('reading a value through a type', () => {
 
 ## What this chapter grows into
 
-1. The keys a trope declares for a kind of anchor and for a kind of box, and the keys any heading may carry, each with its type. A kind of section declares its keys already, as Part XIII, Tropes, describes.
+1. A parameter that holds a reference, read as a relation: resolved, renamed with its section, and shown in the book's graph.
 2. Completion of a value from its key's type, and a hover on a key that shows the type and the trope that declared it.
 
-When the value types and the keys of tropes land, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.
+A trope declares the keys of its kinds and the keys any heading may carry already, as Part XIII, Tropes, describes. When references and the editor's help land, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

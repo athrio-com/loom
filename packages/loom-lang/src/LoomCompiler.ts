@@ -67,7 +67,7 @@ import {
   unusedSections,
   usedSections,
 } from '#ast/ProductBuilder'
-import { anchorKinds, headingLangToken } from '@athrio/loom-ast/LoomTokens'
+import { anchorKinds, headingLangToken, type Keys } from '@athrio/loom-ast/LoomTokens'
 import { type Code, keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
@@ -97,7 +97,7 @@ import {
   tropeOf,
   tropesOf,
 } from '#ast/DeclaredKinds'
-import { type SectionKind } from '#ast/LoomDocumentBuilder'
+import { type Declared, type KeyedKind, nothingDeclared } from '#ast/LoomDocumentBuilder'
 import {
   type Approval,
   approvalsAt,
@@ -161,13 +161,19 @@ const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
 
 const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
 
-const sectionKindsIn = (kinds: DeclaredKinds): ReadonlyArray<SectionKind> =>
-  Array.map(kinds.section, (declared): SectionKind => ({
-    kind: declared.kind,
-    parameters: declared.parameters,
-  }))
+const keyedKinds = (
+  declared: ReadonlyArray<{ readonly kind: string; readonly parameters: Keys }>,
+): ReadonlyArray<KeyedKind> =>
+  Array.map(declared, (each): KeyedKind => ({ kind: each.kind, parameters: each.parameters }))
 
-const sameSections = (one: ReadonlyArray<SectionKind>, other: ReadonlyArray<SectionKind>): boolean =>
+const declaredIn = (kinds: DeclaredKinds): Declared => ({
+  section: keyedKinds(kinds.section),
+  anchor: keyedKinds(kinds.anchor),
+  box: keyedKinds(kinds.box),
+  headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
+})
+
+const sameDeclared = (one: Declared, other: Declared): boolean =>
   JSON.stringify(one) === JSON.stringify(other)
 
 const entryOf = (
@@ -849,9 +855,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const packages = yield* Effect.serviceOption(LanguagePackages)
     const tropes = yield* Effect.serviceOption(TropePackages)
     const coreChapters = yield* Ref.make<Modules>(new Map())
-    const declaredFor = yield* Ref.make<ReadonlyMap<Location, ReadonlyArray<SectionKind>>>(
-      new Map(),
-    )
+    const declaredFor = yield* Ref.make<ReadonlyMap<Location, Declared>>(new Map())
 
     const installedKinds = (loom: Location): Effect.Effect<Declarations> =>
       Option.match(tropes, {
@@ -929,9 +933,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       ).pipe(Effect.map((pairs) => new Map(pairs)))
     }
 
-    const declaredOf = (path: Location): Effect.Effect<ReadonlyArray<SectionKind>> =>
+    const declaredOf = (path: Location): Effect.Effect<Declared> =>
       Ref.get(declaredFor).pipe(
-        Effect.map((kept) => Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => [])),
+        Effect.map((kept) =>
+          Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => nothingDeclared),
+        ),
       )
 
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
@@ -998,7 +1004,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Option.match(Option.fromNullishOr(kept.get(chapter.path)), {
             onSome: (core) => Effect.succeed(core),
             onNone: () =>
-              (Array.isReadonlyArrayEmpty(declared)
+              (sameDeclared(declared, nothingDeclared)
                 ? Effect.succeed(chapter)
                 : builder.build(
                     source,
@@ -1037,15 +1043,15 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
     const staleIn = (
       modules: Modules,
-      declared: ReadonlyArray<SectionKind>,
+      declared: Declared,
     ): Effect.Effect<ReadonlyArray<Location>> =>
       Ref.get(declaredFor).pipe(
         Effect.map((kept) =>
           Array.filter(
             Array.fromIterable(modules.keys()),
             (path) =>
-              !sameSections(
-                Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => []),
+              !sameDeclared(
+                Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => nothingDeclared),
                 declared,
               ),
           ),
@@ -1057,7 +1063,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         Effect.flatMap((modules) =>
           registryOf(source, modules, entry).pipe(
             Effect.flatMap((kinds) => {
-              const declared = sectionKindsIn(kinds)
+              const declared = declaredIn(kinds)
               return staleIn(modules, declared).pipe(
                 Effect.flatMap((stale) =>
                   Array.isReadonlyArrayEmpty(stale)

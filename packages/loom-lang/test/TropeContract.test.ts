@@ -6,7 +6,14 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
-import { boxKindsOf, readManifest, sectionKindsOf } from '../src/ast/TropeManifest'
+import {
+  anchorKindsOf,
+  boxKindsOf,
+  headingKeysOf,
+  parametersOf,
+  readManifest,
+  sectionKindsOf,
+} from '../src/ast/TropeManifest'
 import { parseDocument, ParseLayer } from './parse'
 
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
@@ -152,6 +159,38 @@ describe('reading a manifest', () => {
       { kind: 'Context' },
     ])
     expect(read && boxKindsOf(read)).toEqual([])
+  })
+
+  it('reads the kinds of anchor, the parameters of a box, and the keys for headings', () => {
+    const notebooks = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          box: [{ kind: 'Dataset', body: 'yaml', parameters: { source: 'text' } }],
+          anchor: [{ kind: 'Decision', parameters: { weight: 'number' } }, { kind: 'Cited' }],
+        },
+        headings: { parameters: { translates: 'reference', locale: 'locale' } },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(notebooks))
+    expect(read && boxKindsOf(read).map(parametersOf)).toEqual([{ source: 'text' }])
+    expect(read && anchorKindsOf(read).map((declared) => declared.kind)).toEqual([
+      'Decision',
+      'Cited',
+    ])
+    expect(read && anchorKindsOf(read).map(parametersOf)).toEqual([{ weight: 'number' }, {}])
+    expect(read && headingKeysOf(read)).toEqual({ translates: 'reference', locale: 'locale' })
+  })
+
+  it('reads a manifest that declares keys for headings and no kinds', () => {
+    const translations = JSON.stringify({
+      contract: '1',
+      contributes: { headings: { parameters: { locale: 'locale' } } },
+    })
+    const read = Result.getOrUndefined(readManifest(translations))
+    expect(read && headingKeysOf(read)).toEqual({ locale: 'locale' })
+    expect(read && boxKindsOf(read)).toEqual([])
+    expect(read && anchorKindsOf(read)).toEqual([])
   })
 
   it('refuses a parameter of a type the contract lacks', () => {

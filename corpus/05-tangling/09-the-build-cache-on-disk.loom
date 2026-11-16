@@ -12,7 +12,7 @@ The build cache in memory lives only as long as the process that holds it. Every
 
 ## What makes a kept module valid
 
-A kept module is valid only if building the loom now would produce the same module. Building depends on the loom's path and text, on the settings the configuration gives it — the anchor delimiters, the primary language and the variables — on the kinds of section the workspace's tropes declare, and on the Loom that does the building. `keyOf` hashes all of them into one key with SHA-256, and a kept module is used only when its key matches the key of the loom as it stands.
+A kept module is valid only if building the loom now would produce the same module. Building depends on the loom's path and text, on the settings the configuration gives it — the anchor delimiters, the primary language and the variables — on what the workspace's tropes declare, and on the Loom that does the building. `keyOf` hashes all of them into one key with SHA-256, and a kept module is used only when its key matches the key of the loom as it stands.
 
 The Loom that builds is named by `fingerprint`. A released Loom is fixed, so its version names it: `serviceVersion`, the same version a language service is checked against. A Loom running from its own source is not fixed, since its parser may have changed since the last run without a new version. So when the source folders of the compiler and of the corpus model can be read, `fingerprint` adds the newest modification time among their files, and an edited parser never reads a module an older parser built. A compiled executable carries no such folders, and its fingerprint is its version alone. `cacheFormat` names the layout of the kept file itself, and changes whenever that layout does.
 
@@ -49,7 +49,7 @@ const keyOf = (
   path: Location,
   text: string,
   settings: BuildSettings,
-  declared: ReadonlyArray<SectionKind>,
+  declared: Declared,
 ): string =>
   createHash('sha256')
     .update(
@@ -181,7 +181,7 @@ const keep = (
 
 ## The cache as a service
 
-`LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. It takes the loom's source, the `saved` source that `keep` checks against, the loom's path and settings, the declared kinds of section the build reads, and the `build` that would produce its module. It returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
+`LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. It takes the loom's source, the `saved` source that `keep` checks against, the loom's path and settings, what tropes declare for the build to read, and the `build` that would produce its module. It returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
 
 The cache is kept in a folder, so it reads the folder it keeps a loom's module in, the loom's workspace, from the `LoomConfig` service. The build settings carry no folders. A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
 
@@ -199,7 +199,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
         saved: Source,
         path: Location,
         settings: BuildSettings,
-        declared: ReadonlyArray<SectionKind>,
+        declared: Declared,
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
@@ -239,7 +239,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
       _saved: Source,
       _path: Location,
       _settings: BuildSettings,
-      _declared: ReadonlyArray<SectionKind>,
+      _declared: Declared,
       build: Effect.Effect<LoomModule>,
     ): Effect.Effect<LoomModule> => build,
   })
@@ -276,7 +276,7 @@ import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { type BuildSettings } from './WorkspaceSettings'
-import { type SectionKind } from '#ast/LoomDocumentBuilder'
+import { type Declared } from '#ast/LoomDocumentBuilder'
 
 ## The module {Tangle}
 

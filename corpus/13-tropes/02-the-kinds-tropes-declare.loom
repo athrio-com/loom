@@ -6,9 +6,9 @@ Language: TypeScript
 
 # The kinds tropes declare
 
-A trope extends Loom's language by declaring kinds. Under contract 1 a kind is a kind of box or a kind of section. A trope that declares the `Mermaid` kind of box lets every loom of the book write a box `::: Cells {Mermaid}`. Before any trope declares it, such a box is a fault, so a misspelt kind never passes for content. A trope that declares the `Option` kind of section lets every loom write a heading `## Postgres {Option}`, with the parameters the kind takes.
+A trope extends Loom's language by declaring kinds. Under contract 1 a kind is a kind of box, of section, or of anchor. A trope that declares the `Mermaid` kind of box lets every loom of the book write a box `::: Cells {Mermaid}`. Before any trope declares it, such a box is a fault, so a misspelt kind never passes for content. A trope that declares the `Option` kind of section lets every loom write a heading `## Postgres {Option}`, with the parameters the kind takes. A trope may also let any heading carry a key, whatever kind its section claims.
 
-Loom applies what tropes declare without running any trope. It gathers every trope's declared kinds into the registry, a set of tables it consults for each box and each heading of the book, and it refuses a trope's root whose manifest it cannot read or whose kinds clash with kinds already taken.
+Loom applies what tropes declare without running any trope. It gathers every trope's declared kinds into the registry, a set of tables it consults for each box, each heading, and each anchor of the book, and it refuses a trope's root whose manifest it cannot read or whose kinds clash with kinds already taken.
 
 A declared kind of section changes how a loom is read, so the registry must exist before any loom is built with it. Loom therefore gathers the registry from the chapters of tropes alone, each trope's root and its members, each read with core Loom. It then builds every loom with what the registry holds, as the chapter "The compile layer" describes. A manifest is read the same whatever its own trope declares. It draws only on sections of those chapters, so a trope may spread what it declares over its members, and a chapter of no trope lends a manifest nothing. Every step is Loom's own code, a lookup and a composition in memory, so the registry fits wherever Loom judges a loom: in the editor on every keystroke, and before every tangle.
 
@@ -16,7 +16,7 @@ A declared kind of section changes how a loom is read, so the registry must exis
 
 `DeclaredKinds` is the registry. It holds the `Declarations` of every trope, and `refusals`, every root Loom refuses and why. A `Trope` gathers one trope's chapters: its name, its `chapters`, every chapter that names the trope, and its `root`, when it has one.
 
-`Declarations` holds a table for each sort of kind: `box` and `section`. A `DeclaredBox` records a kind of box: its name, the format of its body, and the trope that declared it, with the loom of the trope's root. A `DeclaredSection` records a kind of section: its name, the `parameters` a heading of the kind may carry, and the same trope and loom. `noDeclarations` holds two empty tables. A `Refusal` records a root's loom, the reason Loom refuses it, and the place in the loom the reason concerns.
+`Declarations` holds a table for each sort of kind, `box`, `section`, and `anchor`, and `headings`, the keys any heading may carry. A `DeclaredBox` records a kind of box: its name, the format of its body, the `parameters` a box of the kind may carry, and the trope that declared it, with the loom of the trope's root. A `DeclaredSection` and a `DeclaredAnchor` record a kind of section and a kind of anchor the same way, without a body. A `DeclaredKey` records one key any heading may carry: the key, the type of its values, and the same trope and loom. `noDeclarations` holds four empty tables, and `declarationsOf` gives the tables of a registry without its refusals. A `Refusal` records a root's loom, the reason Loom refuses it, and the place in the loom the reason concerns.
 
 =>
 
@@ -29,6 +29,7 @@ export type Trope = {
 export type DeclaredBox = {
   readonly kind: string
   readonly body: string
+  readonly parameters: Keys
   readonly trope: string
   readonly module: Location
 }
@@ -40,16 +41,39 @@ export type DeclaredSection = {
   readonly module: Location
 }
 
+export type DeclaredAnchor = {
+  readonly kind: string
+  readonly parameters: Keys
+  readonly trope: string
+  readonly module: Location
+}
+
+export type DeclaredKey = {
+  readonly key: string
+  readonly type: ValueType
+  readonly trope: string
+  readonly module: Location
+}
+
 export type Declarations = {
   readonly box: ReadonlyArray<DeclaredBox>
   readonly section: ReadonlyArray<DeclaredSection>
+  readonly anchor: ReadonlyArray<DeclaredAnchor>
+  readonly headings: ReadonlyArray<DeclaredKey>
 }
 
-export const noDeclarations: Declarations = { box: [], section: [] }
+export const noDeclarations: Declarations = { box: [], section: [], anchor: [], headings: [] }
 
 export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
 
 export type DeclaredKinds = Declarations & { readonly refusals: ReadonlyArray<Refusal> }
+
+export const declarationsOf = (kinds: DeclaredKinds): Declarations => ({
+  box: kinds.box,
+  section: kinds.section,
+  anchor: kinds.anchor,
+  headings: kinds.headings,
+})
 
 ## A trope's root and its manifest
 
@@ -135,9 +159,13 @@ const manifestOf = (
 
 A kind means one thing in a book, so two tropes cannot both decide what one kind means. `clashOf` takes the kinds a manifest declares for one table, and looks for the first that is already taken. The core keeps its own kinds for itself, so a trope that declares the `Note` kind of box is refused, and so is one that declares the `Tangle` kind of section. A kind an earlier trope declared is taken too, and the root that comes later in the order of paths is refused, with the earlier trope named. A root that declares one kind twice is refused as well. Kinds compare in any case of letters, as braces read them.
 
-Each table is judged alone. A box and a section stand in different places, so a kind of box and a kind of section may share a name.
+Each table is judged alone. A box, a section, and an anchor stand in different places, so a kind of box and a kind of section may share a name.
 
-A key means one thing on a heading as well. `ownKeyOf` looks for a parameter that a kind of section declares under one of the core's own keys, `lang` or `kind`, and such a root is refused. `refusalIn` gives the first reason a manifest is refused: a clash among its kinds of box, a clash among its kinds of section, or a key of the core's.
+A key means one thing wherever it stands. `ownKeyOf` looks among the parameters a manifest declares for one bearer for a key the core keeps for that bearer: `lang` or `kind` on a heading, `kind`, `provides`, or `anchors` on a box, and `kind` or `provides` on an anchor. Such a root is refused.
+
+A key any heading may carry must be new to every heading. `headingClash` refuses a root whose key for headings another trope declared for headings already, or which a kind of section lists among its parameters, since a heading of that kind would then hold one key with two meanings. It refuses a root the same way when one of its kinds of section lists a key that another trope lets any heading carry.
+
+`refusalIn` gives the first reason a manifest is refused: a clash among its kinds of box, of section, or of anchor, then a key of the core's, then a clash over a key for headings.
 
 =>
 
@@ -165,31 +193,68 @@ const clashOf = (
     ),
   )
 
-const parametersOf = (declaration: SectionKindDeclaration): Keys =>
-  Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))
-
-const ownKeyOf = (declared: ReadonlyArray<SectionKindDeclaration>): Option.Option<string> =>
+const ownKeyOf = (declared: ReadonlyArray<Keys>, own: Keys): Option.Option<string> =>
   pipe(
-    Array.flatMap(declared, (declaration) => Object.keys(parametersOf(declaration))),
-    Array.findFirst((key) => Option.isSome(keyType(headingKeys, key))),
+    Array.flatMap(declared, (parameters) => Object.keys(parameters)),
+    Array.findFirst((key) => Option.isSome(keyType(own, key))),
     Option.map((key) => `\`${key}\` is one of Loom's own keys`),
   )
 
 const kindsIn = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
   Array.map(declared, (declaration) => declaration.kind)
 
+type KindWithKeys = { readonly kind: string; readonly parameters: Keys }
+
+const headingClash = (manifest: TropeManifest, taken: Declarations): Option.Option<string> => {
+  const forHeadings = Object.keys(headingKeysOf(manifest))
+  const ownSections = Array.map(
+    sectionKindsOf(manifest),
+    (declaration): KindWithKeys => ({ kind: declaration.kind, parameters: parametersOf(declaration) }),
+  )
+  const sections: ReadonlyArray<KindWithKeys> = [...taken.section, ...ownSections]
+  const onHeadings = [
+    ...forHeadings,
+    ...Array.flatMap(ownSections, (section) => Object.keys(section.parameters)),
+  ]
+  return pipe(
+    Array.findFirst(onHeadings, (key) =>
+      Array.findFirst(taken.headings, (other) => other.key === key),
+    ),
+    Option.map(
+      (other) => `the \`${other.trope}\` trope lets any heading carry \`${other.key}\` already`,
+    ),
+    Option.orElse(() =>
+      Array.findFirst(forHeadings, (key) =>
+        Option.map(
+          Array.findFirst(sections, (section) => Option.isSome(keyType(section.parameters, key))),
+          (section) => `\`${key}\` is a parameter of the \`${section.kind}\` kind of section already`,
+        ),
+      ),
+    ),
+  )
+}
+
 const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<string> =>
   pipe(
     clashOf(kindsIn(boxKindsOf(manifest)), boxKinds, taken.box),
     Option.orElse(() => clashOf(kindsIn(sectionKindsOf(manifest)), sectionKinds, taken.section)),
-    Option.orElse(() => ownKeyOf(sectionKindsOf(manifest))),
+    Option.orElse(() => clashOf(kindsIn(anchorKindsOf(manifest)), anchorKinds, taken.anchor)),
+    Option.orElse(() => ownKeyOf(Array.map(boxKindsOf(manifest), parametersOf), boxKeys)),
+    Option.orElse(() =>
+      ownKeyOf(
+        [...Array.map(sectionKindsOf(manifest), parametersOf), headingKeysOf(manifest)],
+        headingKeys,
+      ),
+    ),
+    Option.orElse(() => ownKeyOf(Array.map(anchorKindsOf(manifest), parametersOf), anchorKeys)),
+    Option.orElse(() => headingClash(manifest, taken)),
   )
 
 ## Gathering the registry
 
 `declaredKindsOf` builds the registry from a corpus. It gathers the tropes and folds over them, carrying the registry so far, and `withTrope` adds one trope. A workspace may also install tropes from its store, as the chapter "Tropes a workspace installs" describes, and their declarations arrive as `installed`. The fold starts from them, so a trope of the book that declares a kind an installed trope declares is refused, as any later clash is. One trope keeps one root, so a second trope chapter of the same title is refused, at the word `Trope` of its identity line. `titleOf` reads a chapter's title.
 
-`withRoot` reads the root's manifest, when the root holds one. A root whose manifest reads and clashes with nothing adds every kind it declares, and `boxesOf` and `sectionsOf` turn them into rows of the registry. A root Loom refuses adds its refusal and none of its kinds, since the author agreed to the trope as a whole, and a trope that runs half its offer is not the trope the author agreed to.
+`withRoot` reads the root's manifest, when the root holds one. A root whose manifest reads and clashes with nothing adds everything it declares. `boxesOf`, `sectionsOf`, and `anchorsOf` turn its kinds into rows of the registry, and `headingsOf` does the same for its keys for headings. A root Loom refuses adds its refusal and none of its kinds, since the author agreed to the trope as a whole, and a trope that runs half its offer is not the trope the author agreed to.
 
 =>
 
@@ -207,6 +272,7 @@ const boxesOf = (
   Array.map(boxKindsOf(manifest), (declaration): DeclaredBox => ({
     kind: declaration.kind,
     body: declaration.body,
+    parameters: parametersOf(declaration),
     trope,
     module: root.path,
   }))
@@ -219,6 +285,30 @@ const sectionsOf = (
   Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
+    trope,
+    module: root.path,
+  }))
+
+const anchorsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredAnchor> =>
+  Array.map(anchorKindsOf(manifest), (declaration): DeclaredAnchor => ({
+    kind: declaration.kind,
+    parameters: parametersOf(declaration),
+    trope,
+    module: root.path,
+  }))
+
+const headingsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredKey> =>
+  Array.map(Object.entries(headingKeysOf(manifest)), ([key, type]): DeclaredKey => ({
+    key,
+    type,
     trope,
     module: root.path,
   }))
@@ -247,6 +337,8 @@ const withRoot = (
               ...kinds,
               box: [...kinds.box, ...boxesOf(trope, root, manifest)],
               section: [...kinds.section, ...sectionsOf(trope, root, manifest)],
+              anchor: [...kinds.anchor, ...anchorsOf(trope, root, manifest)],
+              headings: [...kinds.headings, ...headingsOf(trope, root, manifest)],
             }),
           }),
       }),
@@ -358,7 +450,7 @@ const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
 
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds` and `sectionKinds` the core keeps, the `headingKeys` it keeps with `keyType` and the `Keys` a kind's parameters are, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shapes it reads and the two functions that read a manifest's tables.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds`, `sectionKinds`, and `anchorKinds` the core keeps, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are and the `ValueType` of one key, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue`, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, and `parametersOf`, which reads a kind's parameters.
 
 =>
 
@@ -366,6 +458,9 @@ import { Array, Match, Option, Order, pipe, Result } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
+  anchorKeys,
+  anchorKinds,
+  boxKeys,
   boxKind,
   boxKinds,
   type FrontmatterTropeToken,
@@ -377,6 +472,7 @@ import {
   sectionKinds,
   type SpecifierToken,
   tropeKind,
+  type ValueType,
 } from '@athrio/loom-ast/LoomTokens'
 import {
   type Catalogue,
@@ -389,9 +485,11 @@ import type { Code } from '@athrio/loom-ast/ProductAst'
 import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
 import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
 import {
+  anchorKindsOf,
   boxKindsOf,
+  headingKeysOf,
+  parametersOf,
   readManifest,
-  type SectionKindDeclaration,
   sectionKindsOf,
   type TropeManifest,
 } from './TropeManifest'
@@ -890,6 +988,143 @@ describe('a heading of a kind a trope declares', () => {
   })
 })
 
+## Anchors, boxes, and headings a trope gives keys to
+
+A trope may declare a kind of anchor, list the parameters of a kind of box, and let any heading carry a key. Each reaches every loom of the book, as a kind of section does. The cases compile a book whose trope declares all three, and a chapter that uses each.
+
+`contributing` writes a manifest from what it contributes. `said` keeps the faults that speak of what a bearer takes, and `usingAll` is a chapter with a heading that carries a key for any heading, a box of the declared kind, and an anchor of the declared kind.
+
+=>
+
+describe('what a trope declares for anchors, boxes, and headings', () => {
+  const notebooks = '/corpus/notebooks/declaring.loom'
+  const second = '/corpus/notebooks/z-other.loom'
+  const chapter = '/corpus/survey.loom'
+
+  const contributing = (contributes: Record<string, unknown>): string =>
+    JSON.stringify({ contract: '1', contributes })
+
+  const all = contributing({
+    kinds: {
+      box: [{ kind: 'Dataset', body: 'yaml', parameters: { source: 'text' } }],
+      anchor: [{ kind: 'Decision', parameters: { weight: 'number' } }],
+    },
+    headings: { parameters: { locale: 'locale' } },
+  })
+
+  const usingAll = (heading: string, box: string, braces: string) =>
+    lines(
+      '---',
+      'Part I, Chapter 1: A survey',
+      '---',
+      '',
+      '# A survey',
+      '',
+      `## The sample ${heading}`,
+      '',
+      `::: Sample ${box}`,
+      'columns: [age]',
+      ':::',
+      '',
+      '=>',
+      'const sample = 1',
+      '',
+      '## The count [count.ts]',
+      '',
+      '=>',
+      `${anchor('The sample')}${braces}`,
+    )
+
+  const said = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes(' takes '))
+
+  const book = (heading: string, box: string, braces: string) => ({
+    [chapter]: usingAll(heading, box, braces),
+    [notebooks]: rootLoom('Notebooks', [all]),
+  })
+
+  it('lets every loom use them', async () => {
+    const files = book('{locale=et}', '{kind=Dataset source="survey.csv"}', '{kind=Decision weight=3}')
+    expect(said(await diagnosed(files, chapter))).toEqual([])
+  })
+
+  it('reads each of their values through its type', async () => {
+    const files = book('{locale=pt_BR}', '{Dataset}', '{kind=Decision weight=heavy}')
+    expect(said(await diagnosed(files, chapter))).toEqual([
+      '`locale` takes a language tag, and `pt_BR` is not one. Write a tag such as `et` or `pt-BR`.',
+      '`weight` takes a number, and `heavy` is not one. Write a number, such as `480`.',
+    ])
+  })
+
+  it('lists a declared kind of anchor among the kinds an anchor takes', async () => {
+    const files = book('', '{Dataset}', '{Verdict}')
+    expect(said(await diagnosed(files, chapter))).toEqual([
+      'An anchor takes no `Verdict` kind. It takes `To be settled`, `Module`, and `Decision`.',
+    ])
+  })
+
+  it("refuses a root that declares one of the core's kinds of anchor", async () => {
+    const files = {
+      [notebooks]: rootLoom('Notebooks', [contributing({ kinds: { anchor: [{ kind: 'module' }] } })]),
+    }
+    expect(faultsOf(await diagnosed(files, notebooks))).toEqual([
+      refusedFor("`module` is one of Loom's own kinds"),
+    ])
+  })
+
+  it("refuses a parameter of a box or an anchor under one of the core's own keys", async () => {
+    const box = contributing({
+      kinds: { box: [{ kind: 'Dataset', body: 'yaml', parameters: { anchors: 'reference' } }] },
+    })
+    const braces = contributing({
+      kinds: { anchor: [{ kind: 'Decision', parameters: { provides: 'text' } }] },
+    })
+    expect(
+      faultsOf(await diagnosed({ [notebooks]: rootLoom('Notebooks', [box]) }, notebooks)),
+    ).toEqual([refusedFor("`anchors` is one of Loom's own keys")])
+    expect(
+      faultsOf(await diagnosed({ [notebooks]: rootLoom('Notebooks', [braces]) }, notebooks)),
+    ).toEqual([refusedFor("`provides` is one of Loom's own keys")])
+  })
+
+  it("refuses a key for headings that is one of the core's own", async () => {
+    const files = {
+      [notebooks]: rootLoom('Notebooks', [contributing({ headings: { parameters: { lang: 'text' } } })]),
+    }
+    expect(faultsOf(await diagnosed(files, notebooks))).toEqual([
+      refusedFor("`lang` is one of Loom's own keys"),
+    ])
+  })
+
+  it('refuses the later of two roots that give headings one key', async () => {
+    const files = {
+      [notebooks]: rootLoom('Notebooks', [all]),
+      [second]: rootLoom('Other', [contributing({ headings: { parameters: { locale: 'text' } } })]),
+    }
+    expect(faultsOf(await diagnosed(files, notebooks))).toEqual([])
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      refusedFor('the `Notebooks` trope lets any heading carry `locale` already'),
+    ])
+  })
+
+  it('refuses a key for headings that a kind of section lists', async () => {
+    const both = contributing({
+      kinds: { section: [{ kind: 'Option', parameters: { status: 'text' } }] },
+      headings: { parameters: { status: 'text' } },
+    })
+    const later = contributing({
+      kinds: { section: [{ kind: 'Verdict', parameters: { locale: 'text' } }] },
+    })
+    expect(
+      faultsOf(await diagnosed({ [notebooks]: rootLoom('Notebooks', [both]) }, notebooks)),
+    ).toEqual([refusedFor('`status` is a parameter of the `Option` kind of section already')])
+    const files = { [notebooks]: rootLoom('Notebooks', [all]), [second]: rootLoom('Other', [later]) }
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      refusedFor('the `Notebooks` trope lets any heading carry `locale` already'),
+    ])
+  })
+})
+
 ## The test file [test/DeclaredKinds.test.ts]
 
 =>
@@ -907,3 +1142,5 @@ describe('a heading of a kind a trope declares', () => {
 ::[A kind of section, taken or free]
 
 ::[A heading of a kind a trope declares]
+
+::[Anchors, boxes, and headings a trope gives keys to]

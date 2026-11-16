@@ -2,6 +2,9 @@ import { Array, Match, Option, Order, pipe, Result } from 'effect'
 import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
+  anchorKeys,
+  anchorKinds,
+  boxKeys,
   boxKind,
   boxKinds,
   type FrontmatterTropeToken,
@@ -13,6 +16,7 @@ import {
   sectionKinds,
   type SpecifierToken,
   tropeKind,
+  type ValueType,
 } from '@athrio/loom-ast/LoomTokens'
 import {
   type Catalogue,
@@ -25,9 +29,11 @@ import type { Code } from '@athrio/loom-ast/ProductAst'
 import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
 import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
 import {
+  anchorKindsOf,
   boxKindsOf,
+  headingKeysOf,
+  parametersOf,
   readManifest,
-  type SectionKindDeclaration,
   sectionKindsOf,
   type TropeManifest,
 } from './TropeManifest'
@@ -41,6 +47,7 @@ export type Trope = {
 export type DeclaredBox = {
   readonly kind: string
   readonly body: string
+  readonly parameters: Keys
   readonly trope: string
   readonly module: Location
 }
@@ -52,16 +59,39 @@ export type DeclaredSection = {
   readonly module: Location
 }
 
+export type DeclaredAnchor = {
+  readonly kind: string
+  readonly parameters: Keys
+  readonly trope: string
+  readonly module: Location
+}
+
+export type DeclaredKey = {
+  readonly key: string
+  readonly type: ValueType
+  readonly trope: string
+  readonly module: Location
+}
+
 export type Declarations = {
   readonly box: ReadonlyArray<DeclaredBox>
   readonly section: ReadonlyArray<DeclaredSection>
+  readonly anchor: ReadonlyArray<DeclaredAnchor>
+  readonly headings: ReadonlyArray<DeclaredKey>
 }
 
-export const noDeclarations: Declarations = { box: [], section: [] }
+export const noDeclarations: Declarations = { box: [], section: [], anchor: [], headings: [] }
 
 export type Refusal = { readonly module: Location; readonly reason: string; readonly at: Position }
 
 export type DeclaredKinds = Declarations & { readonly refusals: ReadonlyArray<Refusal> }
+
+export const declarationsOf = (kinds: DeclaredKinds): Declarations => ({
+  box: kinds.box,
+  section: kinds.section,
+  anchor: kinds.anchor,
+  headings: kinds.headings,
+})
 
 const tropeLine = (module: LoomModule): Option.Option<FrontmatterTropeToken> =>
   Option.orElse(Option.fromNullishOr(module.doc.frontmatter?.trope), () =>
@@ -157,24 +187,61 @@ const clashOf = (
     ),
   )
 
-const parametersOf = (declaration: SectionKindDeclaration): Keys =>
-  Option.getOrElse(Option.fromNullishOr(declaration.parameters), (): Keys => ({}))
-
-const ownKeyOf = (declared: ReadonlyArray<SectionKindDeclaration>): Option.Option<string> =>
+const ownKeyOf = (declared: ReadonlyArray<Keys>, own: Keys): Option.Option<string> =>
   pipe(
-    Array.flatMap(declared, (declaration) => Object.keys(parametersOf(declaration))),
-    Array.findFirst((key) => Option.isSome(keyType(headingKeys, key))),
+    Array.flatMap(declared, (parameters) => Object.keys(parameters)),
+    Array.findFirst((key) => Option.isSome(keyType(own, key))),
     Option.map((key) => `\`${key}\` is one of Loom's own keys`),
   )
 
 const kindsIn = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
   Array.map(declared, (declaration) => declaration.kind)
 
+type KindWithKeys = { readonly kind: string; readonly parameters: Keys }
+
+const headingClash = (manifest: TropeManifest, taken: Declarations): Option.Option<string> => {
+  const forHeadings = Object.keys(headingKeysOf(manifest))
+  const ownSections = Array.map(
+    sectionKindsOf(manifest),
+    (declaration): KindWithKeys => ({ kind: declaration.kind, parameters: parametersOf(declaration) }),
+  )
+  const sections: ReadonlyArray<KindWithKeys> = [...taken.section, ...ownSections]
+  const onHeadings = [
+    ...forHeadings,
+    ...Array.flatMap(ownSections, (section) => Object.keys(section.parameters)),
+  ]
+  return pipe(
+    Array.findFirst(onHeadings, (key) =>
+      Array.findFirst(taken.headings, (other) => other.key === key),
+    ),
+    Option.map(
+      (other) => `the \`${other.trope}\` trope lets any heading carry \`${other.key}\` already`,
+    ),
+    Option.orElse(() =>
+      Array.findFirst(forHeadings, (key) =>
+        Option.map(
+          Array.findFirst(sections, (section) => Option.isSome(keyType(section.parameters, key))),
+          (section) => `\`${key}\` is a parameter of the \`${section.kind}\` kind of section already`,
+        ),
+      ),
+    ),
+  )
+}
+
 const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<string> =>
   pipe(
     clashOf(kindsIn(boxKindsOf(manifest)), boxKinds, taken.box),
     Option.orElse(() => clashOf(kindsIn(sectionKindsOf(manifest)), sectionKinds, taken.section)),
-    Option.orElse(() => ownKeyOf(sectionKindsOf(manifest))),
+    Option.orElse(() => clashOf(kindsIn(anchorKindsOf(manifest)), anchorKinds, taken.anchor)),
+    Option.orElse(() => ownKeyOf(Array.map(boxKindsOf(manifest), parametersOf), boxKeys)),
+    Option.orElse(() =>
+      ownKeyOf(
+        [...Array.map(sectionKindsOf(manifest), parametersOf), headingKeysOf(manifest)],
+        headingKeys,
+      ),
+    ),
+    Option.orElse(() => ownKeyOf(Array.map(anchorKindsOf(manifest), parametersOf), anchorKeys)),
+    Option.orElse(() => headingClash(manifest, taken)),
   )
 
 export const titleOf = (module: LoomModule): string =>
@@ -191,6 +258,7 @@ const boxesOf = (
   Array.map(boxKindsOf(manifest), (declaration): DeclaredBox => ({
     kind: declaration.kind,
     body: declaration.body,
+    parameters: parametersOf(declaration),
     trope,
     module: root.path,
   }))
@@ -203,6 +271,30 @@ const sectionsOf = (
   Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
+    trope,
+    module: root.path,
+  }))
+
+const anchorsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredAnchor> =>
+  Array.map(anchorKindsOf(manifest), (declaration): DeclaredAnchor => ({
+    kind: declaration.kind,
+    parameters: parametersOf(declaration),
+    trope,
+    module: root.path,
+  }))
+
+const headingsOf = (
+  trope: string,
+  root: LoomModule,
+  manifest: TropeManifest,
+): ReadonlyArray<DeclaredKey> =>
+  Array.map(Object.entries(headingKeysOf(manifest)), ([key, type]): DeclaredKey => ({
+    key,
+    type,
     trope,
     module: root.path,
   }))
@@ -231,6 +323,8 @@ const withRoot = (
               ...kinds,
               box: [...kinds.box, ...boxesOf(trope, root, manifest)],
               section: [...kinds.section, ...sectionsOf(trope, root, manifest)],
+              anchor: [...kinds.anchor, ...anchorsOf(trope, root, manifest)],
+              headings: [...kinds.headings, ...headingsOf(trope, root, manifest)],
             }),
           }),
       }),

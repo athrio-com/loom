@@ -33,6 +33,7 @@ import {
   renamedTo,
   type ScalarType,
   sectionKinds,
+  specifierKind,
   type SpecifierLabelToken,
   type SpecifierToken,
   type ValueType,
@@ -52,14 +53,26 @@ import {
   WrongValue,
 } from '#ast/LoomFault'
 
-export type SectionKind = { readonly kind: string; readonly parameters: Keys }
+export type KeyedKind = { readonly kind: string; readonly parameters: Keys }
+
+export type Declared = {
+  readonly section: ReadonlyArray<KeyedKind>
+  readonly anchor: ReadonlyArray<KeyedKind>
+  readonly box: ReadonlyArray<KeyedKind>
+  readonly headings: Keys
+}
+
+export const nothingDeclared: Declared = { section: [], anchor: [], box: [], headings: {} }
+
+const kindsOf = (declared: ReadonlyArray<KeyedKind>): ReadonlyArray<string> =>
+  Array.map(declared, (each) => each.kind)
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
   {
     make: Effect.succeed({
-      build: (parsed: ParsedDocument, declared: ReadonlyArray<SectionKind> = []): LoomDocument => {
-        const kinds = [...sectionKinds, ...Array.map(declared, (each) => each.kind)]
+      build: (parsed: ParsedDocument, declared: Declared = nothingDeclared): LoomDocument => {
+        const kinds = [...sectionKinds, ...kindsOf(declared.section)]
         return pipe(
           parsed,
           expandedDocument(kinds),
@@ -239,44 +252,63 @@ export const coreKeys: Record<BracesOn, Keys> = {
 }
 
 const takesOn =
-  (keys: Record<BracesOn, Keys>) =>
-  (on: BracesOn): Takes => ({
-    on,
-    keys: keys[on],
-    kinds: on === 'anchor' ? Option.some(anchorKinds) : Option.none(),
-  })
+  (keys: Record<BracesOn, Keys>, declared: Declared) =>
+  (on: BracesOn): Takes =>
+    Match.value(on).pipe(
+      Match.when('heading', () => ({
+        on,
+        keys: { ...keys.heading, ...declared.headings },
+        kinds: Option.none(),
+      })),
+      Match.when('anchor', () => ({
+        on,
+        keys: keys.anchor,
+        kinds: Option.some([...anchorKinds, ...kindsOf(declared.anchor)]),
+      })),
+      Match.when('box', () => ({ on, keys: keys.box, kinds: Option.none() })),
+      Match.exhaustive,
+    )
 
-const kindTakes = (
+const withKind = (
   takes: Takes,
-  declared: ReadonlyArray<SectionKind>,
-  kind: string | undefined,
+  declared: ReadonlyArray<KeyedKind>,
+  kind: Option.Option<string>,
 ): Takes =>
   pipe(
-    Option.fromNullishOr(kind),
-    Option.flatMap((claimed) => Array.findFirst(declared, (each) => each.kind === claimed)),
+    kind,
+    Option.flatMap((named) =>
+      Array.findFirst(declared, (each) => each.kind.toLowerCase() === named.toLowerCase()),
+    ),
     Option.match({
       onNone: () => takes,
       onSome: (found) => ({ ...takes, keys: { ...takes.keys, ...found.parameters } }),
     }),
   )
 
+const bracedKind = (bearer: Braced): Option.Option<string> =>
+  Option.flatMap(Option.fromNullishOr(bearer.specifier), specifierKind)
+
 const checkedSection =
-  (takes: Takes, declared: ReadonlyArray<SectionKind>) =>
+  (takes: Takes, declared: ReadonlyArray<KeyedKind>) =>
   (section: ClaimedSection): ClaimedSection => {
-    const heading = judged(faultedBraces(kindTakes(takes, declared, section.kind)))(section.heading)
+    const ofKind = withKind(takes, declared, Option.fromNullishOr(section.kind))
+    const heading = judged(faultedBraces(ofKind))(section.heading)
     return heading === section.heading ? section : { ...section, heading }
   }
 
 export const checkedDocument =
-  (keys: Record<BracesOn, Keys>, declared: ReadonlyArray<SectionKind> = []) =>
+  (keys: Record<BracesOn, Keys>, declared: Declared = nothingDeclared) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
-    const takes = takesOn(keys)
+    const takes = takesOn(keys, declared)
     const inside: ClaimedDocument = rewritten(claimed, {
       WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
-        judged(faultedBraces(takes('anchor')))(anchor),
-      Box: (box: BoxToken): BoxToken => judged(faultedBraces(takes('box')))(box),
+        judged(faultedBraces(withKind(takes('anchor'), declared.anchor, bracedKind(anchor))))(
+          anchor,
+        ),
+      Box: (box: BoxToken): BoxToken =>
+        judged(faultedBraces(withKind(takes('box'), declared.box, bracedKind(box))))(box),
     })
-    return rewritten(inside, { LoomSection: checkedSection(takes('heading'), declared) })
+    return rewritten(inside, { LoomSection: checkedSection(takes('heading'), declared.section) })
   }
 
 const faultedBraces =

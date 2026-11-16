@@ -5,7 +5,12 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { installedTropeVersion, tropeDir } from '@athrio/loom-lang-services/LoomStore'
 import { catalogueOf, type Location, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { type Declarations, declaredKindsOf, noDeclarations } from '#ast/DeclaredKinds'
+import {
+  type Declarations,
+  declarationsOf,
+  declaredKindsOf,
+  noDeclarations,
+} from '#ast/DeclaredKinds'
 
 export interface TropePackagesApi {
   readonly kindsFor: (loom: Location) => Effect.Effect<Declarations>
@@ -67,7 +72,7 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
             { discard: true },
           ),
         ),
-        Effect.map((kinds): Declarations => ({ box: kinds.box, section: kinds.section })),
+        Effect.map(declarationsOf),
       )
 
     const kindsFor = (loom: Location): Effect.Effect<Declarations> =>

@@ -23,7 +23,7 @@ import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { type BuildSettings } from './WorkspaceSettings'
-import { type SectionKind } from '#ast/LoomDocumentBuilder'
+import { type Declared } from '#ast/LoomDocumentBuilder'
 
 const cacheFormat = 1
 
@@ -56,7 +56,7 @@ const keyOf = (
   path: Location,
   text: string,
   settings: BuildSettings,
-  declared: ReadonlyArray<SectionKind>,
+  declared: Declared,
 ): string =>
   createHash('sha256')
     .update(
@@ -170,7 +170,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
         saved: Source,
         path: Location,
         settings: BuildSettings,
-        declared: ReadonlyArray<SectionKind>,
+        declared: Declared,
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
@@ -210,7 +210,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
       _saved: Source,
       _path: Location,
       _settings: BuildSettings,
-      _declared: ReadonlyArray<SectionKind>,
+      _declared: Declared,
       build: Effect.Effect<LoomModule>,
     ): Effect.Effect<LoomModule> => build,
   })

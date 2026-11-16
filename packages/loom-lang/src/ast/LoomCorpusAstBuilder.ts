@@ -10,7 +10,7 @@ import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
 import type { ParsedDocument } from '@athrio/loom-ast/LoomAst'
-import { LoomDocumentBuilder, type SectionKind } from '#ast/LoomDocumentBuilder'
+import { type Declared, LoomDocumentBuilder, nothingDeclared } from '#ast/LoomDocumentBuilder'
 import { ProductBuilder } from '#ast/ProductBuilder'
 import type { LoomModule, Location } from '@athrio/loom-ast/LoomCorpusAst'
 
@@ -81,7 +81,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         delims: AnchorDelims = defaultAnchorDelims,
         primaryLanguage?: string,
         variables: Record<string, string> = {},
-        declared: ReadonlyArray<SectionKind> = [],
+        declared: Declared = nothingDeclared,
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const { text, tree } = yield* parsed(source, path, delims)

@@ -427,3 +427,132 @@ describe('a heading of a kind a trope declares', () => {
     expect(said(found.after)).toEqual([])
   })
 })
+
+describe('what a trope declares for anchors, boxes, and headings', () => {
+  const notebooks = '/corpus/notebooks/declaring.loom'
+  const second = '/corpus/notebooks/z-other.loom'
+  const chapter = '/corpus/survey.loom'
+
+  const contributing = (contributes: Record<string, unknown>): string =>
+    JSON.stringify({ contract: '1', contributes })
+
+  const all = contributing({
+    kinds: {
+      box: [{ kind: 'Dataset', body: 'yaml', parameters: { source: 'text' } }],
+      anchor: [{ kind: 'Decision', parameters: { weight: 'number' } }],
+    },
+    headings: { parameters: { locale: 'locale' } },
+  })
+
+  const usingAll = (heading: string, box: string, braces: string) =>
+    lines(
+      '---',
+      'Part I, Chapter 1: A survey',
+      '---',
+      '',
+      '# A survey',
+      '',
+      `## The sample ${heading}`,
+      '',
+      `::: Sample ${box}`,
+      'columns: [age]',
+      ':::',
+      '',
+      '=>',
+      'const sample = 1',
+      '',
+      '## The count [count.ts]',
+      '',
+      '=>',
+      `${anchor('The sample')}${braces}`,
+    )
+
+  const said = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes(' takes '))
+
+  const book = (heading: string, box: string, braces: string) => ({
+    [chapter]: usingAll(heading, box, braces),
+    [notebooks]: rootLoom('Notebooks', [all]),
+  })
+
+  it('lets every loom use them', async () => {
+    const files = book('{locale=et}', '{kind=Dataset source="survey.csv"}', '{kind=Decision weight=3}')
+    expect(said(await diagnosed(files, chapter))).toEqual([])
+  })
+
+  it('reads each of their values through its type', async () => {
+    const files = book('{locale=pt_BR}', '{Dataset}', '{kind=Decision weight=heavy}')
+    expect(said(await diagnosed(files, chapter))).toEqual([
+      '`locale` takes a language tag, and `pt_BR` is not one. Write a tag such as `et` or `pt-BR`.',
+      '`weight` takes a number, and `heavy` is not one. Write a number, such as `480`.',
+    ])
+  })
+
+  it('lists a declared kind of anchor among the kinds an anchor takes', async () => {
+    const files = book('', '{Dataset}', '{Verdict}')
+    expect(said(await diagnosed(files, chapter))).toEqual([
+      'An anchor takes no `Verdict` kind. It takes `To be settled`, `Module`, and `Decision`.',
+    ])
+  })
+
+  it("refuses a root that declares one of the core's kinds of anchor", async () => {
+    const files = {
+      [notebooks]: rootLoom('Notebooks', [contributing({ kinds: { anchor: [{ kind: 'module' }] } })]),
+    }
+    expect(faultsOf(await diagnosed(files, notebooks))).toEqual([
+      refusedFor("`module` is one of Loom's own kinds"),
+    ])
+  })
+
+  it("refuses a parameter of a box or an anchor under one of the core's own keys", async () => {
+    const box = contributing({
+      kinds: { box: [{ kind: 'Dataset', body: 'yaml', parameters: { anchors: 'reference' } }] },
+    })
+    const braces = contributing({
+      kinds: { anchor: [{ kind: 'Decision', parameters: { provides: 'text' } }] },
+    })
+    expect(
+      faultsOf(await diagnosed({ [notebooks]: rootLoom('Notebooks', [box]) }, notebooks)),
+    ).toEqual([refusedFor("`anchors` is one of Loom's own keys")])
+    expect(
+      faultsOf(await diagnosed({ [notebooks]: rootLoom('Notebooks', [braces]) }, notebooks)),
+    ).toEqual([refusedFor("`provides` is one of Loom's own keys")])
+  })
+
+  it("refuses a key for headings that is one of the core's own", async () => {
+    const files = {
+      [notebooks]: rootLoom('Notebooks', [contributing({ headings: { parameters: { lang: 'text' } } })]),
+    }
+    expect(faultsOf(await diagnosed(files, notebooks))).toEqual([
+      refusedFor("`lang` is one of Loom's own keys"),
+    ])
+  })
+
+  it('refuses the later of two roots that give headings one key', async () => {
+    const files = {
+      [notebooks]: rootLoom('Notebooks', [all]),
+      [second]: rootLoom('Other', [contributing({ headings: { parameters: { locale: 'text' } } })]),
+    }
+    expect(faultsOf(await diagnosed(files, notebooks))).toEqual([])
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      refusedFor('the `Notebooks` trope lets any heading carry `locale` already'),
+    ])
+  })
+
+  it('refuses a key for headings that a kind of section lists', async () => {
+    const both = contributing({
+      kinds: { section: [{ kind: 'Option', parameters: { status: 'text' } }] },
+      headings: { parameters: { status: 'text' } },
+    })
+    const later = contributing({
+      kinds: { section: [{ kind: 'Verdict', parameters: { locale: 'text' } }] },
+    })
+    expect(
+      faultsOf(await diagnosed({ [notebooks]: rootLoom('Notebooks', [both]) }, notebooks)),
+    ).toEqual([refusedFor('`status` is a parameter of the `Option` kind of section already')])
+    const files = { [notebooks]: rootLoom('Notebooks', [all]), [second]: rootLoom('Other', [later]) }
+    expect(faultsOf(await diagnosed(files, second))).toEqual([
+      refusedFor('the `Notebooks` trope lets any heading carry `locale` already'),
+    ])
+  })
+})
