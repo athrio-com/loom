@@ -15,7 +15,6 @@ import {
 import {
   type Catalogue,
   conceptsCalled,
-  isConceptSection,
   type Location,
   type LoomModule,
   pathsTo,
@@ -27,6 +26,7 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  conceptKind,
   headingLang,
   manifestKind,
   moduleKind,
@@ -64,9 +64,12 @@ import {
   AmbiguousAnchor,
   ChapterWithoutCode,
   CodeInConcept,
+  CodeInKind,
   CodeInProse,
   CompositionCycle,
   ConceptWithoutCode,
+  KindWithoutCode,
+  type LoomFault,
   CrossLanguageAnchor,
   type Declaration,
   DuplicateName,
@@ -149,7 +152,7 @@ type NameEntry = {
   readonly pos: Position
   readonly language: string
   readonly written: boolean
-  readonly concept: boolean
+  readonly codeless: Option.Option<string>
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -214,7 +217,7 @@ const nameIndex = (
               pos: title.position,
               language: sectionLanguage(s, defaultLang, pkg),
               written: Array.isReadonlyArrayNonEmpty(codeRuns(s.code)),
-              concept: isConceptSection(s),
+              codeless: codelessKind(s),
             },
           ] as const,
       ),
@@ -343,7 +346,7 @@ const buildSection =
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
-        codeInConcept(section),
+        codeInCodeless(section),
       ],
       okHealth,
       withHealth,
@@ -461,14 +464,30 @@ const manifestOutsideTrope = (section: LoomSection): Health =>
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
 
-const codeInConcept = (section: LoomSection): Health =>
-  isConceptSection(section)
-    ? pipe(
+const codelessKind = (section: LoomSection): Option.Option<string> =>
+  section.codeless === true ? Option.fromNullishOr(section.kind) : Option.none()
+
+const withoutCode = (name: string, kind: Option.Option<string>): LoomFault =>
+  Option.match(
+    Option.filter(kind, (named) => named !== conceptKind),
+    {
+      onNone: () => ConceptWithoutCode({ name }),
+      onSome: (named) => KindWithoutCode({ name, kind: named }),
+    },
+  )
+
+const codeInCodeless = (section: LoomSection): Health =>
+  Option.match(codelessKind(section), {
+    onNone: () => okHealth,
+    onSome: (kind) =>
+      pipe(
         Array.filter(section.code, isArrow),
-        Array.map((weft) => faulty(CodeInConcept(), weft.arrow.position)),
+        Array.map((weft) =>
+          faulty(kind === conceptKind ? CodeInConcept() : CodeInKind({ kind }), weft.arrow.position),
+        ),
         Array.reduce(okHealth, withHealth),
-      )
-    : okHealth
+      ),
+  })
 
 const codeInProse = (section: LoomSection, languageId: string): Health =>
   languageId === 'prose'
@@ -733,11 +752,11 @@ const localHealth = (
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept: entry.concept,
+    codeless: Option.isSome(entry.codeless),
     written: entry.written,
     sameLanguage: entry.language === host,
   }).pipe(
-    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
+    Match.when({ codeless: true }, () => faulty(withoutCode(name, entry.codeless), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
     Match.orElse(() => settledHealth(name, at, label)),
@@ -876,7 +895,7 @@ const trailHealth = (
     Option.flatMap(sectionOf(trail), (reached) =>
       Option.map(codeOf(modules, reached), (code) => ({
         code,
-        concept: isConceptSection(reached.section),
+        codeless: codelessKind(reached.section),
       })),
     ),
     {
@@ -884,13 +903,13 @@ const trailHealth = (
         Array.lastNonEmpty(trail).place._tag === 'Box'
           ? faulty(UnsettledSection({ name: ref.name, declared: true }), ref.anchor)
           : unresolved(ref.name, ref.anchor),
-      onSome: ({ code, concept }) =>
+      onSome: ({ code, codeless }) =>
         reachedHealth(
           ref.name,
           ref.anchor,
           host.languageId,
           code,
-          concept,
+          codeless,
           Array.lastNonEmpty(trail).place._tag === 'Chapter',
           ref.toBeSettled,
         ),
@@ -902,17 +921,17 @@ const reachedHealth = (
   at: Position,
   host: string,
   code: Code,
-  concept: boolean,
+  codeless: Option.Option<string>,
   whole: boolean,
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept,
+    codeless: Option.isSome(codeless),
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
   }).pipe(
-    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
+    Match.when({ codeless: true }, () => faulty(withoutCode(name, codeless), at)),
     Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),

@@ -226,6 +226,8 @@ An anchor takes two keys. The `kind` key names the kind of thing the anchor refe
 
 `anchorKinds` holds the two kinds an anchor takes. `settleKind`, the kind `To be settled`, marks a section nobody has written yet. `moduleKind`, the kind `Module`, marks an anchor that names a module rather than composing a section, as the chapter "Referring to modules" describes. The pass that checks parameters faults a kind or a key outside these lists, as the chapter "Small passes over the tree" describes.
 
+An anchor stands in one of two places. In code it composes its section into a file, and in prose it is a link a reader follows. A `Standing` names the place, and a kind of anchor that a trope declares may keep to one of the two, as Part XIII, Tropes, describes.
+
 A kind may change its name, and an author may still write the name it went by before. `formerAnchorKinds` pairs each former name of an anchor's kind with the name the kind goes by now. It holds one pair, which says that `Reference` is a former name of `Module`. `renamedTo` gives the present name for a word that is a former name, in any case of letters, so the pass that checks parameters can tell the author what to write.
 
 =>
@@ -235,6 +237,9 @@ export const settleKind = 'To be settled'
 export const moduleKind = 'Module'
 
 export const anchorKinds: ReadonlyArray<string> = [settleKind, moduleKind]
+
+export const StandingSchema = Schema.Literals(['prose', 'code'])
+export type Standing = typeof StandingSchema.Type
 
 export const formerAnchorKinds: ReadonlyArray<{ readonly was: string; readonly now: string }> = [
   { was: 'Reference', now: moduleKind },
@@ -252,7 +257,7 @@ export const anchorKeys: Keys = { kind: 'text', provides: { list: 'text' } }
 
 A heading takes two keys. The `lang` key names the language its section's code is written in, as `{lang=Bash}` does. The `kind` key names the role the section plays beyond holding code, as `{kind=Tangle}` does. `headingKeys` holds the two keys, and each holds one value of text. Neither type says more than that. A heading may name any language, since Loom composes code in a language it has never heard of. The compiler warns of a language a loom uses that no service of the workspace serves, as the chapter "The compile layer" describes. The pass that claims kinds judges the name of a kind.
 
-The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
+The core knows three kinds of section. A `Tangle` section writes its code to a file, a `Concept` section defines a concept of the book, and a `Manifest` section holds the manifest of a trope. `sectionKinds` holds the three kinds, `tangleKind`, `conceptKind`, and `manifestKind`. A concept holds words and no code, and `codelessKinds` lists the core's kinds of which that is true. A kind is matched in any case of letters. `kindNamed` gives the kind a word names among a list of kinds, so `tangle` names the `Tangle` kind.
 
 =>
 
@@ -263,6 +268,8 @@ export const conceptKind = 'Concept'
 export const manifestKind = 'Manifest'
 
 export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, manifestKind]
+
+export const codelessKinds: ReadonlyArray<string> = [conceptKind]
 
 export const headingKeys: Keys = { lang: 'text', kind: 'text' }
 

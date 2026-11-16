@@ -163,6 +163,9 @@ export const moduleKind = 'Module'
 
 export const anchorKinds: ReadonlyArray<string> = [settleKind, moduleKind]
 
+export const StandingSchema = Schema.Literals(['prose', 'code'])
+export type Standing = typeof StandingSchema.Type
+
 export const formerAnchorKinds: ReadonlyArray<{ readonly was: string; readonly now: string }> = [
   { was: 'Reference', now: moduleKind },
 ]
@@ -182,6 +185,8 @@ export const conceptKind = 'Concept'
 export const manifestKind = 'Manifest'
 
 export const sectionKinds: ReadonlyArray<string> = [tangleKind, conceptKind, manifestKind]
+
+export const codelessKinds: ReadonlyArray<string> = [conceptKind]
 
 export const headingKeys: Keys = { lang: 'text', kind: 'text' }
 

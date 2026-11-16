@@ -1,5 +1,5 @@
 import { Option, pipe, Result, Schema } from 'effect'
-import { type Keys, KeysSchema } from '@athrio/loom-ast/LoomTokens'
+import { type Keys, KeysSchema, StandingSchema } from '@athrio/loom-ast/LoomTokens'
 
 export const contractVersion = '1'
 
@@ -12,12 +12,14 @@ export type BoxKindDeclaration = typeof BoxKindDeclarationSchema.Type
 
 export const SectionKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
+  code: Schema.optional(Schema.Literal('none')),
   parameters: Schema.optional(KeysSchema),
 })
 export type SectionKindDeclaration = typeof SectionKindDeclarationSchema.Type
 
 export const AnchorKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
+  standsIn: Schema.optional(StandingSchema),
   parameters: Schema.optional(KeysSchema),
 })
 export type AnchorKindDeclaration = typeof AnchorKindDeclarationSchema.Type

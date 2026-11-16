@@ -182,6 +182,35 @@ describe('reading a manifest', () => {
     expect(read && headingKeysOf(read)).toEqual({ translates: 'reference', locale: 'locale' })
   })
 
+  it('reads the rule a kind of section or of anchor follows', () => {
+    const decisions = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [{ kind: 'Option', code: 'none' }, { kind: 'Context' }],
+          anchor: [{ kind: 'Decision', standsIn: 'prose' }, { kind: 'Seen' }],
+        },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(decisions))
+    expect(read && sectionKindsOf(read).map((declared) => declared.code)).toEqual([
+      'none',
+      undefined,
+    ])
+    expect(read && anchorKindsOf(read).map((declared) => declared.standsIn)).toEqual([
+      'prose',
+      undefined,
+    ])
+  })
+
+  it('refuses a rule the contract does not know', () => {
+    const elsewhere = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { anchor: [{ kind: 'Decision', standsIn: 'frontmatter' }] } },
+    })
+    expect(reason(elsewhere)).toContain('its manifest does not fit contract 1:')
+  })
+
   it('reads a manifest that declares keys for headings and no kinds', () => {
     const translations = JSON.stringify({
       contract: '1',

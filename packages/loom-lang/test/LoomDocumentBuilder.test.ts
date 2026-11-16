@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { Effect, Match, pipe, Schema } from 'effect'
+import { Effect, Match, Option, pipe, Schema } from 'effect'
 import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import {
@@ -296,7 +296,13 @@ const builtWith = (text: string, declared: Declared): LoomDocument =>
 describe('a kind of section a trope declares', () => {
   const options: Declared = {
     ...nothingDeclared,
-    section: [{ kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } }],
+    section: [
+      {
+        kind: 'Option',
+        parameters: { status: { choice: ['chosen', 'rejected'] } },
+        codeless: false,
+      },
+    ],
   }
 
   const sectionWith = (heading: string, declared: Declared = options) =>
@@ -344,7 +350,7 @@ describe('a kind of section a trope declares', () => {
 describe('keys any heading may carry', () => {
   const translations: Declared = {
     ...nothingDeclared,
-    section: [{ kind: 'Option', parameters: { status: 'text' } }],
+    section: [{ kind: 'Option', parameters: { status: 'text' }, codeless: false }],
     headings: { translates: 'reference', locale: 'locale' },
   }
 
@@ -373,7 +379,7 @@ describe('keys any heading may carry', () => {
 describe('a kind of anchor a trope declares', () => {
   const decisions: Declared = {
     ...nothingDeclared,
-    anchor: [{ kind: 'Decision', parameters: { weight: 'number' } }],
+    anchor: [{ kind: 'Decision', parameters: { weight: 'number' }, standsIn: Option.none() }],
   }
 
   const said = (braces: string) =>
@@ -481,6 +487,80 @@ describe('a parameter that holds a reference', () => {
       ['translates', true],
       ['locale', false],
     ])
+  })
+})
+
+describe('a kind that holds no code', () => {
+  const options: Declared = {
+    ...nothingDeclared,
+    section: [
+      { kind: 'Option', parameters: {}, codeless: true },
+      { kind: 'Recipe', parameters: {}, codeless: false },
+    ],
+  }
+
+  const codeless = (heading: string) =>
+    builtWith(`${heading}\n\nProse.\n`, options).sections[0]?.codeless === true
+
+  it('marks a section of a declared kind that holds none', () => {
+    expect(codeless('## Postgres {Option}')).toBe(true)
+    expect(codeless('## Postgres {kind=option}')).toBe(true)
+  })
+
+  it("marks a concept, the core's own", () => {
+    expect(codeless('## Tangling {Concept}')).toBe(true)
+  })
+
+  it('leaves every other section unmarked', () => {
+    expect(codeless('## Stew {Recipe}')).toBe(false)
+    expect(codeless('## Build {Tangle}')).toBe(false)
+    expect(codeless('## Build {Bash}')).toBe(false)
+  })
+})
+
+describe('an anchor of a kind that keeps to one place', () => {
+  const kinds: Declared = {
+    ...nothingDeclared,
+    anchor: [
+      { kind: 'Decision', parameters: { weight: 'number' }, standsIn: Option.some('prose') },
+      { kind: 'Inlined', parameters: {}, standsIn: Option.some('code') },
+      { kind: 'Seen', parameters: {}, standsIn: Option.none() },
+    ],
+  }
+
+  const inCode = (braces: string) =>
+    builtWith(`# A\n\n=>\n\n${greeting(braces)}\n`, kinds).sections[0]?.code.flatMap(
+      (weft) => weft.anchors,
+    )[0]
+
+  const inProse = (braces: string) =>
+    builtWith(`# A\n\nSee ${greeting(braces)} first.\n`, kinds).sections[0]?.preamble.flatMap(
+      (weft) => weft.anchors,
+    )[0]
+
+  const misplaced = (kind: string, place: string, other: string) =>
+    `An anchor of the \`${kind}\` kind belongs in ${place}, and this one stands in ${other}. Move it into ${place}.`
+
+  it('faults a prose kind written in code, and fails the anchor', () => {
+    const anchor = inCode('{Decision}')
+    expect(messagesIn(anchor?.specifier)).toEqual([misplaced('Decision', 'prose', 'code')])
+    expect(anchor?.health.status).toBe('error')
+  })
+
+  it('faults a code kind written in prose, named by a parameter', () => {
+    expect(messagesIn(inProse('{kind=inlined}')?.specifier)).toEqual([
+      misplaced('Inlined', 'code', 'prose'),
+    ])
+  })
+
+  it('raises nothing for an anchor in its own place', () => {
+    expect(messagesIn(inProse('{kind=Decision weight=3}')?.specifier)).toEqual([])
+    expect(messagesIn(inCode('{Inlined}')?.specifier)).toEqual([])
+  })
+
+  it('lets a kind that keeps to no place stand in either', () => {
+    expect(messagesIn(inCode('{Seen}')?.specifier)).toEqual([])
+    expect(messagesIn(inProse('{Seen}')?.specifier)).toEqual([])
   })
 })
 

@@ -800,7 +800,7 @@ const scopedTo = (modules: Modules, paths: ReadonlyArray<Location>): Modules => 
 
 ~
 
-A `Corpus` pairs the modules with the registry they were built with, as `corpusOf` gives them. `without` drops the modules a set of paths names. `inTrope` tells a chapter of a trope, a root or a member, by the trope its frontmatter names. `declaredIn` reads from a registry what a build is handed: each kind of section, of anchor, and of box as a name with its parameters, and the keys any heading may carry as one table. `sameDeclared` tells whether two builds were handed the same.
+A `Corpus` pairs the modules with the registry they were built with, as `corpusOf` gives them. `without` drops the modules a set of paths names. `inTrope` tells a chapter of a trope, a root or a member, by the trope its frontmatter names. `declaredIn` reads from a registry what a build is handed: each kind of section, of anchor, and of box as a name with its parameters, with the rule a kind of section or of anchor follows, and the keys any heading may carry as one table. `sameDeclared` tells whether two builds were handed the same.
 
 =>
 
@@ -813,15 +813,15 @@ const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
 
 const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
 
-const keyedKinds = (
-  declared: ReadonlyArray<{ readonly kind: string; readonly parameters: Keys }>,
-): ReadonlyArray<KeyedKind> =>
-  Array.map(declared, (each): KeyedKind => ({ kind: each.kind, parameters: each.parameters }))
+const keyedKind = (declared: {
+  readonly kind: string
+  readonly parameters: Keys
+}): KeyedKind => ({ kind: declared.kind, parameters: declared.parameters })
 
 const declaredIn = (kinds: DeclaredKinds): Declared => ({
-  section: keyedKinds(kinds.section),
-  anchor: keyedKinds(kinds.anchor),
-  box: keyedKinds(kinds.box),
+  section: Array.map(kinds.section, (each) => ({ ...keyedKind(each), codeless: each.codeless })),
+  anchor: Array.map(kinds.anchor, (each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
+  box: Array.map(kinds.box, keyedKind),
   headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
 })
 

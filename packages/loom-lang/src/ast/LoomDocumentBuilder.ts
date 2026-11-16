@@ -15,6 +15,7 @@ import {
   anchorKinds,
   boxKeys,
   type BoxToken,
+  codelessKinds,
   eachType,
   headingKeys,
   holdsReferences,
@@ -37,16 +38,26 @@ import {
   specifierKind,
   type SpecifierLabelToken,
   type SpecifierToken,
+  type Standing,
   type ValueType,
   type WarpAnchorToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
+import type {
+  ArrowWeft,
+  CodeWeft,
+  FenceWeft,
+  PreambleWeft,
+  ProseWeft,
+  TildeWeft,
+} from '@athrio/loom-ast/Weft'
 import {
   type BracesOn,
   faulty,
   LabelBesideParameter,
   type LoomFault,
   ManyValues,
+  MisplacedAnchor,
   RenamedKind,
   RepeatedKey,
   UnknownKey,
@@ -56,9 +67,13 @@ import {
 
 export type KeyedKind = { readonly kind: string; readonly parameters: Keys }
 
+export type SectionKind = KeyedKind & { readonly codeless: boolean }
+
+export type AnchorKind = KeyedKind & { readonly standsIn: Option.Option<Standing> }
+
 export type Declared = {
-  readonly section: ReadonlyArray<KeyedKind>
-  readonly anchor: ReadonlyArray<KeyedKind>
+  readonly section: ReadonlyArray<SectionKind>
+  readonly anchor: ReadonlyArray<AnchorKind>
   readonly box: ReadonlyArray<KeyedKind>
   readonly headings: Keys
 }
@@ -74,12 +89,17 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
     make: Effect.succeed({
       build: (parsed: ParsedDocument, declared: Declared = nothingDeclared): LoomDocument => {
         const kinds = [...sectionKinds, ...kindsOf(declared.section)]
+        const codeless = [
+          ...codelessKinds,
+          ...kindsOf(Array.filter(declared.section, (each) => each.codeless)),
+        ]
         return pipe(
           parsed,
           expandedDocument(kinds),
-          claimedDocument(kinds),
+          claimedDocument(kinds, codeless),
           checkedDocument(coreKeys, declared),
           referringDocument(coreKeys, declared),
+          placedDocument(declared.anchor),
         )
       },
     }),
@@ -186,9 +206,9 @@ const besideParameters =
     braces.type === 'Parameters' ? faultedLabels(keyOf)(braces) : Option.none()
 
 export const claimedDocument =
-  (kinds: ReadonlyArray<string>) =>
+  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string> = codelessKinds) =>
   (expanded: ExpandedDocument): ClaimedDocument =>
-    rewritten(expanded, { LoomSection: claimedSection(kinds) })
+    rewritten(expanded, { LoomSection: claimedSection(kinds, codeless) })
 
 type KindStated = {
   readonly held: ParametersToken
@@ -210,13 +230,16 @@ const kindStated = (heading: ExpandedHeading): Option.Option<KindStated> =>
   )
 
 const claimedSection =
-  (kinds: ReadonlyArray<string>) =>
+  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string>) =>
   (section: ExpandedSection): ClaimedSection =>
     Option.match(kindStated(section.heading), {
       onNone: () => section,
       onSome: (stated) =>
         Option.match(kindNamed(kinds)(stated.value.value), {
-          onSome: (kind) => ({ ...section, kind }),
+          onSome: (kind) =>
+            Array.contains(codeless, kind)
+              ? { ...section, kind, codeless: true as const }
+              : { ...section, kind },
           onNone: () => ({ ...section, heading: unclaimed(kinds)(section.heading, stated) }),
         }),
     })
@@ -477,3 +500,87 @@ export const referringDocument = (
   declared: Declared = nothingDeclared,
 ): ((claimed: ClaimedDocument) => ClaimedDocument) =>
   overBraces(keys, declared, (takes) => rebraced(referringBraces(takes)))
+
+const kindFaulted =
+  (fault: LoomFault) =>
+  (braces: Braces): Option.Option<Braces> =>
+    Match.value(braces).pipe(
+      Match.when({ type: 'Specifier' }, (labelled) => {
+        const health = faulty(fault, labelled.label.position)
+        return Option.some<Braces>({
+          ...labelled,
+          health: { ...labelled.health, status: health.status },
+          label: { ...labelled.label, health },
+        })
+      }),
+      Match.when({ type: 'Parameters' }, (held) =>
+        Option.map(
+          Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
+          (stated): Braces => {
+            const health = faulty(
+              fault,
+              Option.getOrElse(
+                Option.map(Array.head(stated.values), (value) => value.position),
+                () => stated.position,
+              ),
+            )
+            return {
+              ...held,
+              health: { ...held.health, status: health.status },
+              parameters: Array.map(held.parameters, (parameter) =>
+                parameter === stated ? { ...parameter, health } : parameter,
+              ),
+            }
+          },
+        ),
+      ),
+      Match.exhaustive,
+    )
+
+const placedAnchor =
+  (kinds: ReadonlyArray<AnchorKind>, standing: Standing) =>
+  (anchor: WarpAnchorToken): WarpAnchorToken =>
+    pipe(
+      bracedKind(anchor),
+      Option.flatMap((named) =>
+        Array.findFirst(kinds, (each) => each.kind.toLowerCase() === named.toLowerCase()),
+      ),
+      Option.flatMap((kind) =>
+        Option.map(
+          Option.filter(kind.standsIn, (place) => place !== standing),
+          (place) => MisplacedAnchor({ kind: kind.kind, standsIn: place }),
+        ),
+      ),
+      Option.match({
+        onNone: () => anchor,
+        onSome: (fault) => judged(kindFaulted(fault))(anchor),
+      }),
+    )
+
+type Lined = { readonly anchors: ReadonlyArray<WarpAnchorToken> }
+
+const placedLine =
+  (kinds: ReadonlyArray<AnchorKind>, standing: Standing) =>
+  <Line extends Lined>(line: Line): Line => {
+    const anchors = Array.map(line.anchors, placedAnchor(kinds, standing))
+    return Array.every(anchors, (anchor, at) => anchor === line.anchors[at])
+      ? line
+      : { ...line, anchors }
+  }
+
+export const placedDocument =
+  (kinds: ReadonlyArray<AnchorKind>) =>
+  (claimed: ClaimedDocument): ClaimedDocument => {
+    const inProse = placedLine(kinds, 'prose')
+    const inCode = placedLine(kinds, 'code')
+    return Array.some(kinds, (each) => Option.isSome(each.standsIn))
+      ? rewritten(claimed, {
+          PreambleWeft: (line: PreambleWeft): PreambleWeft => inProse(line),
+          TildeWeft: (line: TildeWeft): TildeWeft => inProse(line),
+          ProseWeft: (line: ProseWeft): ProseWeft => inProse(line),
+          ArrowWeft: (line: ArrowWeft): ArrowWeft => inCode(line),
+          CodeWeft: (line: CodeWeft): CodeWeft => inCode(line),
+          FenceWeft: (line: FenceWeft): FenceWeft => inCode(line),
+        })
+      : claimed
+  }

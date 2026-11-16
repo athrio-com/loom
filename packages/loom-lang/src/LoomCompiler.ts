@@ -168,15 +168,15 @@ const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
 
 const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
 
-const keyedKinds = (
-  declared: ReadonlyArray<{ readonly kind: string; readonly parameters: Keys }>,
-): ReadonlyArray<KeyedKind> =>
-  Array.map(declared, (each): KeyedKind => ({ kind: each.kind, parameters: each.parameters }))
+const keyedKind = (declared: {
+  readonly kind: string
+  readonly parameters: Keys
+}): KeyedKind => ({ kind: declared.kind, parameters: declared.parameters })
 
 const declaredIn = (kinds: DeclaredKinds): Declared => ({
-  section: keyedKinds(kinds.section),
-  anchor: keyedKinds(kinds.anchor),
-  box: keyedKinds(kinds.box),
+  section: Array.map(kinds.section, (each) => ({ ...keyedKind(each), codeless: each.codeless })),
+  anchor: Array.map(kinds.anchor, (each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
+  box: Array.map(kinds.box, keyedKind),
   headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
 })
 

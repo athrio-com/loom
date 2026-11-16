@@ -5,6 +5,7 @@ import {
   type LoomKind,
   type PointingKind,
   settleKind,
+  type Standing,
   type Unread,
 } from '@athrio/loom-ast/LoomTokens'
 
@@ -101,6 +102,9 @@ export type LoomFault = Data.TaggedEnum<{
   CodeInProse: {}
   CodeInConcept: {}
   ConceptWithoutCode: { readonly name: string }
+  CodeInKind: { readonly kind: string }
+  KindWithoutCode: { readonly name: string; readonly kind: string }
+  MisplacedAnchor: { readonly kind: string; readonly standsIn: Standing }
   UnresolvedLink: { readonly name: string }
   UnresolvedReference: { readonly key: string; readonly name: string }
   ManifestOutsideTrope: {}
@@ -173,6 +177,9 @@ export const {
   CodeInProse,
   CodeInConcept,
   ConceptWithoutCode,
+  CodeInKind,
+  KindWithoutCode,
+  MisplacedAnchor,
   UnresolvedLink,
   UnresolvedReference,
   ManifestOutsideTrope,
@@ -200,6 +207,8 @@ const warning = (message: string): Note => ({ severity: 'warning', message })
 const information = (message: string): Note => ({ severity: 'info', message })
 
 const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
+
+const otherPlace: Record<Standing, Standing> = { prose: 'code', code: 'prose' }
 
 const withArticle = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`)
 
@@ -489,6 +498,18 @@ export const describe = (fault: LoomFault): Note =>
     ConceptWithoutCode: ({ name }) =>
       error(
         `\`${name}\` is a concept, and a concept holds no code. Name the section whose code you mean.`,
+      ),
+    CodeInKind: ({ kind }) =>
+      error(
+        `A section of the \`${kind}\` kind holds no code. Quote this code in a fence, or move it to another section.`,
+      ),
+    KindWithoutCode: ({ name, kind }) =>
+      error(
+        `\`${name}\` is a section of the \`${kind}\` kind, which holds no code. Name the section whose code you mean.`,
+      ),
+    MisplacedAnchor: ({ kind, standsIn }) =>
+      error(
+        `An anchor of the \`${kind}\` kind belongs in ${standsIn}, and this one stands in ${otherPlace[standsIn]}. Move it into ${standsIn}.`,
       ),
     UnresolvedLink: ({ name }) =>
       warning(

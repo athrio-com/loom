@@ -55,17 +55,21 @@ A `BoxKindDeclaration` names one kind of box, as `{Mermaid}` names it on a box. 
 { "kind": "Dataset", "body": "yaml", "parameters": { "source": "text" } }
 ```
 
-A `SectionKindDeclaration` names one kind of section, as `{Option}` names it on a heading. A trope for decision records, the short documents in which a team records a choice and the options it weighed, declares a section for each option, with a parameter that says how the option fared:
+A `SectionKindDeclaration` names one kind of section, as `{Option}` names it on a heading. A trope for decision records, the short documents in which a team records a choice and the options it weighed, declares a section for each option, with a parameter that says how the option fared. An option is words about a choice, so the kind holds no code, which its `code` says:
 
 ```
-{ "kind": "Option", "parameters": { "status": { "choice": ["chosen", "rejected"] } } }
+{ "kind": "Option", "code": "none", "parameters": { "status": { "choice": ["chosen", "rejected"] } } }
 ```
 
-An `AnchorKindDeclaration` names one kind of anchor, as `{Decision}` names it in the braces that touch an anchor. The same trope declares it for an anchor that cites a decision, with a parameter for the weight the citing chapter gives it:
+A kind that leaves `code` out holds code as any section does. In a section of a kind that holds none, an arrow is a fault, and so is an anchor that composes the section, as both are for a concept.
+
+An `AnchorKindDeclaration` names one kind of anchor, as `{Decision}` names it in the braces that touch an anchor. The same trope declares it for an anchor that cites a decision, with a parameter for the weight the citing chapter gives it. A citation belongs in prose, so the kind's `standsIn` keeps it there:
 
 ```
-{ "kind": "Decision", "parameters": { "weight": "number" } }
+{ "kind": "Decision", "standsIn": "prose", "parameters": { "weight": "number" } }
 ```
+
+An anchor stands in code, where it composes its section, or in prose, where it is a link. `standsIn` names the one place a kind is for, and an anchor of the kind written in the other place is a fault. A kind that leaves `standsIn` out stands in either.
 
 A `HeadingsDeclaration` holds the parameters that any heading may carry, whatever kind its section claims. A trope for translations declares two: the section a translation varies, and the locale it is written in.
 
@@ -90,12 +94,14 @@ export type BoxKindDeclaration = typeof BoxKindDeclarationSchema.Type
 
 export const SectionKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
+  code: Schema.optional(Schema.Literal('none')),
   parameters: Schema.optional(KeysSchema),
 })
 export type SectionKindDeclaration = typeof SectionKindDeclarationSchema.Type
 
 export const AnchorKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
+  standsIn: Schema.optional(StandingSchema),
   parameters: Schema.optional(KeysSchema),
 })
 export type AnchorKindDeclaration = typeof AnchorKindDeclarationSchema.Type
@@ -187,12 +193,12 @@ export const readManifest = (text: string): Result.Result<TropeManifest, string>
 
 ## What the contract draws on
 
-The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, and `Keys`, the table it reads.
+The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, `Keys`, the table it reads, and `StandingSchema`, the two places an anchor stands.
 
 =>
 
 import { Option, pipe, Result, Schema } from 'effect'
-import { type Keys, KeysSchema } from '@athrio/loom-ast/LoomTokens'
+import { type Keys, KeysSchema, StandingSchema } from '@athrio/loom-ast/LoomTokens'
 
 ## The module [src/ast/TropeManifest.ts]
 
@@ -360,7 +366,7 @@ describe('a manifest section', () => {
 
 ## Reading a manifest whole or not at all
 
-A manifest that fits contract 1 reads as the kinds it declares, of box, of section, and of anchor, and as the keys it lets any heading carry. A table it leaves out reads as empty, and so does a manifest that declares no kinds at all. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope. So does a kind with no name, and a parameter of a type the contract lacks.
+A manifest that fits contract 1 reads as the kinds it declares, of box, of section, and of anchor, and as the keys it lets any heading carry. A table it leaves out reads as empty, and so does a manifest that declares no kinds at all. A kind reads with the rule it follows, and a rule the contract does not know keeps the trope off. Text that is no JSON, a manifest written for another contract, and a manifest with a key contract 1 does not know each read as the reason Loom refuses the trope. So does a kind with no name, and a parameter of a type the contract lacks.
 
 =>
 
@@ -412,6 +418,35 @@ describe('reading a manifest', () => {
     ])
     expect(read && anchorKindsOf(read).map(parametersOf)).toEqual([{ weight: 'number' }, {}])
     expect(read && headingKeysOf(read)).toEqual({ translates: 'reference', locale: 'locale' })
+  })
+
+  it('reads the rule a kind of section or of anchor follows', () => {
+    const decisions = JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [{ kind: 'Option', code: 'none' }, { kind: 'Context' }],
+          anchor: [{ kind: 'Decision', standsIn: 'prose' }, { kind: 'Seen' }],
+        },
+      },
+    })
+    const read = Result.getOrUndefined(readManifest(decisions))
+    expect(read && sectionKindsOf(read).map((declared) => declared.code)).toEqual([
+      'none',
+      undefined,
+    ])
+    expect(read && anchorKindsOf(read).map((declared) => declared.standsIn)).toEqual([
+      'prose',
+      undefined,
+    ])
+  })
+
+  it('refuses a rule the contract does not know', () => {
+    const elsewhere = JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { anchor: [{ kind: 'Decision', standsIn: 'frontmatter' }] } },
+    })
+    expect(reason(elsewhere)).toContain('its manifest does not fit contract 1:')
   })
 
   it('reads a manifest that declares keys for headings and no kinds', () => {

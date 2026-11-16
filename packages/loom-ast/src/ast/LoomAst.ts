@@ -79,6 +79,7 @@ export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
 export const ClaimedSectionSchema = Schema.Struct({
   ...ExpandedSectionSchema.fields,
   kind: Schema.optional(Schema.String),
+  codeless: Schema.optional(Schema.Literal(true)),
 })
 export type ClaimedSection = typeof ClaimedSectionSchema.Type
 

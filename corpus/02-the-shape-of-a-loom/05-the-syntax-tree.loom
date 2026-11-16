@@ -103,13 +103,14 @@ export type ExpandedDocument = typeof ExpandedDocumentSchema.Type
 
 ~
 
-The pass that claims kinds gives a section the kind its heading names, when the core knows that kind. `ClaimedSectionSchema` adds the `kind` field. It holds the kind under the name the core gives it, so a heading that writes `{kind=tangle}` claims `Tangle`. A section whose heading names no kind, or names one the core does not know, has no `kind`. `ClaimedDocumentSchema` holds the claimed sections.
+The pass that claims kinds gives a section the kind its heading names, when the core knows that kind. `ClaimedSectionSchema` adds the `kind` field. It holds the kind under the name the core gives it, so a heading that writes `{kind=tangle}` claims `Tangle`. A section whose heading names no kind, or names one the core does not know, has no `kind`. A kind may hold no code, as a concept holds none, and a section of such a kind carries `codeless`, so a later pass reads the rule from the section without asking which kinds follow it. `ClaimedDocumentSchema` holds the claimed sections.
 
 =>
 
 export const ClaimedSectionSchema = Schema.Struct({
   ...ExpandedSectionSchema.fields,
   kind: Schema.optional(Schema.String),
+  codeless: Schema.optional(Schema.Literal(true)),
 })
 export type ClaimedSection = typeof ClaimedSectionSchema.Type
 

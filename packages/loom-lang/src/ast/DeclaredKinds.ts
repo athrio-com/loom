@@ -15,6 +15,7 @@ import {
   type ParametersToken,
   sectionKinds,
   type SpecifierToken,
+  type Standing,
   tropeKind,
   type ValueType,
 } from '@athrio/loom-ast/LoomTokens'
@@ -56,6 +57,7 @@ export type DeclaredBox = {
 export type DeclaredSection = {
   readonly kind: string
   readonly parameters: Keys
+  readonly codeless: boolean
   readonly trope: string
   readonly module: Location
 }
@@ -63,6 +65,7 @@ export type DeclaredSection = {
 export type DeclaredAnchor = {
   readonly kind: string
   readonly parameters: Keys
+  readonly standsIn: Option.Option<Standing>
   readonly trope: string
   readonly module: Location
 }
@@ -274,6 +277,7 @@ const sectionsOf = (
   Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
+    codeless: declaration.code === 'none',
     trope,
     module: root.path,
   }))
@@ -286,6 +290,7 @@ const anchorsOf = (
   Array.map(anchorKindsOf(manifest), (declaration): DeclaredAnchor => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
+    standsIn: Option.fromNullishOr(declaration.standsIn),
     trope,
     module: root.path,
   }))

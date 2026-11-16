@@ -682,3 +682,80 @@ describe('a parameter that names a section', () => {
     expect(spansOf(found).map(([path]) => path)).toEqual([recordAt, rulesAt])
   })
 })
+
+describe('the rules a kind follows', () => {
+  const decisions = '/corpus/decisions/declaring.loom'
+  const chapter = '/corpus/record.loom'
+
+  const declaring = JSON.stringify({
+    contract: '1',
+    contributes: {
+      kinds: {
+        section: [{ kind: 'Option', code: 'none' }],
+        anchor: [{ kind: 'Decision', standsIn: 'prose' }],
+      },
+    },
+  })
+
+  const book = (...body: ReadonlyArray<string>): Record<string, string> => ({
+    [chapter]: lines('---', 'Part I, Chapter 1: A record', '---', '', '# A record', '', ...body),
+    [decisions]: rootLoom('Decisions', [declaring]),
+  })
+
+  const ruled = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes('` kind'))
+
+  it('faults an arrow in a section of a kind that holds no code', async () => {
+    const files = book('## Postgres {Option}', '', 'We chose it.', '', '=>', 'const chosen = 1')
+    expect(ruled(await diagnosed(files, chapter))).toEqual([
+      'A section of the `Option` kind holds no code. Quote this code in a fence, or move it to another section.',
+    ])
+  })
+
+  it('raises nothing for such a section that holds words alone', async () => {
+    const files = book('## Postgres {Option}', '', 'We chose it.')
+    expect(ruled(await diagnosed(files, chapter))).toEqual([])
+  })
+
+  it('faults an anchor that composes such a section', async () => {
+    const files = book(
+      '## Postgres {Option}',
+      '',
+      'We chose it.',
+      '',
+      '## The store [store.ts]',
+      '',
+      '=>',
+      anchor('Postgres'),
+    )
+    expect(ruled(await diagnosed(files, chapter))).toEqual([
+      '`Postgres` is a section of the `Option` kind, which holds no code. Name the section whose code you mean.',
+    ])
+  })
+
+  it('faults an anchor of a prose kind written in code, and none written in prose', async () => {
+    const misplaced =
+      'An anchor of the `Decision` kind belongs in prose, and this one stands in code. Move it into prose.'
+    const inCode = book(
+      '## Postgres',
+      '',
+      'We chose it.',
+      '',
+      '## The store [store.ts]',
+      '',
+      '=>',
+      `${anchor('Postgres')}{Decision}`,
+    )
+    const inProse = book(
+      '## Postgres',
+      '',
+      'We chose it.',
+      '',
+      '## The store',
+      '',
+      `The store follows ${anchor('Postgres')}{Decision}.`,
+    )
+    expect(ruled(await diagnosed(inCode, chapter))).toEqual([misplaced])
+    expect(ruled(await diagnosed(inProse, chapter))).toEqual([])
+  })
+})

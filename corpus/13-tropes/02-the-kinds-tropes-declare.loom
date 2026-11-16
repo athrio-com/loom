@@ -20,7 +20,7 @@ Every step is Loom's own code, a lookup and a composition in memory, so the regi
 
 `DeclaredKinds` is the registry. It holds the `Declarations` of every trope, and `refusals`, every root Loom refuses and why. A `Trope` gathers one trope's chapters: its name, its `chapters`, every chapter that names the trope, and its `root`, when it has one.
 
-`Declarations` holds a table for each sort of kind, `box`, `section`, and `anchor`, and `headings`, the keys any heading may carry. A `DeclaredBox` records a kind of box: its name, the format of its body, the `parameters` a box of the kind may carry, and the trope that declared it, with the loom of the trope's root. A `DeclaredSection` and a `DeclaredAnchor` record a kind of section and a kind of anchor the same way, without a body. A `DeclaredKey` records one key any heading may carry: the key, the type of its values, and the same trope and loom. `noDeclarations` holds four empty tables, and `declarationsOf` gives the tables of a registry without its refusals. A `Refusal` records a root's loom, the reason Loom refuses it, and the place in the loom the reason concerns.
+`Declarations` holds a table for each sort of kind, `box`, `section`, and `anchor`, and `headings`, the keys any heading may carry. A `DeclaredBox` records a kind of box: its name, the format of its body, the `parameters` a box of the kind may carry, and the trope that declared it, with the loom of the trope's root. A `DeclaredSection` and a `DeclaredAnchor` record a kind of section and a kind of anchor the same way, without a body. Each carries the rule its kind follows: a `DeclaredSection` says whether the kind is `codeless`, and a `DeclaredAnchor` says where the kind `standsIn`, when it keeps to one place. A `DeclaredKey` records one key any heading may carry: the key, the type of its values, and the same trope and loom. `noDeclarations` holds four empty tables, and `declarationsOf` gives the tables of a registry without its refusals. A `Refusal` records a root's loom, the reason Loom refuses it, and the place in the loom the reason concerns.
 
 =>
 
@@ -41,6 +41,7 @@ export type DeclaredBox = {
 export type DeclaredSection = {
   readonly kind: string
   readonly parameters: Keys
+  readonly codeless: boolean
   readonly trope: string
   readonly module: Location
 }
@@ -48,6 +49,7 @@ export type DeclaredSection = {
 export type DeclaredAnchor = {
   readonly kind: string
   readonly parameters: Keys
+  readonly standsIn: Option.Option<Standing>
   readonly trope: string
   readonly module: Location
 }
@@ -293,6 +295,7 @@ const sectionsOf = (
   Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
+    codeless: declaration.code === 'none',
     trope,
     module: root.path,
   }))
@@ -305,6 +308,7 @@ const anchorsOf = (
   Array.map(anchorKindsOf(manifest), (declaration): DeclaredAnchor => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
+    standsIn: Option.fromNullishOr(declaration.standsIn),
     trope,
     module: root.path,
   }))
@@ -456,7 +460,7 @@ const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
 
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds`, `sectionKinds`, and `anchorKinds` the core keeps, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are and the `ValueType` of one key, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, and `parametersOf`, which reads a kind's parameters.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds`, `sectionKinds`, and `anchorKinds` the core keeps, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are, the `ValueType` of one key, and the `Standing` of a kind of anchor, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, and `parametersOf`, which reads a kind's parameters.
 
 =>
 
@@ -477,6 +481,7 @@ import {
   type ParametersToken,
   sectionKinds,
   type SpecifierToken,
+  type Standing,
   tropeKind,
   type ValueType,
 } from '@athrio/loom-ast/LoomTokens'
@@ -1266,6 +1271,89 @@ describe('a parameter that names a section', () => {
   })
 })
 
+## The rules a kind follows
+
+A kind of section may hold no code, and a kind of anchor may keep to prose or to code. The cases compile a book whose trope declares an `Option` kind of section with no code, and a `Decision` kind of anchor that stands in prose. A chapter then writes an option that holds code, composes an option into a file, and cites a decision from code and from prose.
+
+=>
+
+describe('the rules a kind follows', () => {
+  const decisions = '/corpus/decisions/declaring.loom'
+  const chapter = '/corpus/record.loom'
+
+  const declaring = JSON.stringify({
+    contract: '1',
+    contributes: {
+      kinds: {
+        section: [{ kind: 'Option', code: 'none' }],
+        anchor: [{ kind: 'Decision', standsIn: 'prose' }],
+      },
+    },
+  })
+
+  const book = (...body: ReadonlyArray<string>): Record<string, string> => ({
+    [chapter]: lines('---', 'Part I, Chapter 1: A record', '---', '', '# A record', '', ...body),
+    [decisions]: rootLoom('Decisions', [declaring]),
+  })
+
+  const ruled = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes('` kind'))
+
+  it('faults an arrow in a section of a kind that holds no code', async () => {
+    const files = book('## Postgres {Option}', '', 'We chose it.', '', '=>', 'const chosen = 1')
+    expect(ruled(await diagnosed(files, chapter))).toEqual([
+      'A section of the `Option` kind holds no code. Quote this code in a fence, or move it to another section.',
+    ])
+  })
+
+  it('raises nothing for such a section that holds words alone', async () => {
+    const files = book('## Postgres {Option}', '', 'We chose it.')
+    expect(ruled(await diagnosed(files, chapter))).toEqual([])
+  })
+
+  it('faults an anchor that composes such a section', async () => {
+    const files = book(
+      '## Postgres {Option}',
+      '',
+      'We chose it.',
+      '',
+      '## The store [store.ts]',
+      '',
+      '=>',
+      anchor('Postgres'),
+    )
+    expect(ruled(await diagnosed(files, chapter))).toEqual([
+      '`Postgres` is a section of the `Option` kind, which holds no code. Name the section whose code you mean.',
+    ])
+  })
+
+  it('faults an anchor of a prose kind written in code, and none written in prose', async () => {
+    const misplaced =
+      'An anchor of the `Decision` kind belongs in prose, and this one stands in code. Move it into prose.'
+    const inCode = book(
+      '## Postgres',
+      '',
+      'We chose it.',
+      '',
+      '## The store [store.ts]',
+      '',
+      '=>',
+      `${anchor('Postgres')}{Decision}`,
+    )
+    const inProse = book(
+      '## Postgres',
+      '',
+      'We chose it.',
+      '',
+      '## The store',
+      '',
+      `The store follows ${anchor('Postgres')}{Decision}.`,
+    )
+    expect(ruled(await diagnosed(inCode, chapter))).toEqual([misplaced])
+    expect(ruled(await diagnosed(inProse, chapter))).toEqual([])
+  })
+})
+
 ## The test file [test/DeclaredKinds.test.ts]
 
 =>
@@ -1287,3 +1375,5 @@ describe('a parameter that names a section', () => {
 ::[Anchors, boxes, and headings a trope gives keys to]
 
 ::[A parameter that names a section]
+
+::[The rules a kind follows]

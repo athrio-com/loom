@@ -44,7 +44,6 @@ import {
 import {
   type Catalogue,
   conceptsCalled,
-  isConceptSection,
   type Location,
   type LoomModule,
   pathsTo,
@@ -56,6 +55,7 @@ import {
   trailsOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
+  conceptKind,
   headingLang,
   manifestKind,
   moduleKind,
@@ -93,9 +93,12 @@ import {
   AmbiguousAnchor,
   ChapterWithoutCode,
   CodeInConcept,
+  CodeInKind,
   CodeInProse,
   CompositionCycle,
   ConceptWithoutCode,
+  KindWithoutCode,
+  type LoomFault,
   CrossLanguageAnchor,
   type Declaration,
   DuplicateName,
@@ -199,7 +202,7 @@ Some files hold plain text and no language at all. A licence is one, under eithe
 
 A heading's specifier names the section's language under its `lang` key, as the chapter "The leaf tokens" describes, and a section carries the kind it claimed, as the chapter "Small passes over the tree" describes. Two kinds imply a language of their own. A `Tangle` section composes the language of the file it writes, and a `Manifest` section composes JSON, since a trope writes its manifest in JSON, as Part XIII, Tropes, describes. A `Concept` section holds no code, so its kind implies no language. `kindLanguage` gives the language a kind implies, when it implies one.
 
-`sectionLanguage` resolves any section's language by these rules, in order: the specifier's `lang`, the language the section's kind implies, a sink's extension, and the document default. `unmarkedLanguage` gives the last two. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled. And it records whether the section is a concept, which holds no code to compose.
+`sectionLanguage` resolves any section's language by these rules, in order: the specifier's `lang`, the language the section's kind implies, a sink's extension, and the document default. `unmarkedLanguage` gives the last two. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ. It also records whether the section holds any code yet, so an anchor that reaches a section of prose alone is marked as composing a section to be settled. And it records the kind of a section that holds no code to compose, a concept or a section of a kind a trope declares with none.
 
 =>
 
@@ -208,7 +211,7 @@ type NameEntry = {
   readonly pos: Position
   readonly language: string
   readonly written: boolean
-  readonly concept: boolean
+  readonly codeless: Option.Option<string>
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
@@ -273,7 +276,7 @@ const nameIndex = (
               pos: title.position,
               language: sectionLanguage(s, defaultLang, pkg),
               written: Array.isReadonlyArrayNonEmpty(codeRuns(s.code)),
-              concept: isConceptSection(s),
+              codeless: codelessKind(s),
             },
           ] as const,
       ),
@@ -420,7 +423,7 @@ const buildSection =
         discussion ? fileInDiscussion(section) : tangleHealth(section, pkg),
         trope ? okHealth : manifestOutsideTrope(section),
         codeInProse(section, languageId),
-        codeInConcept(section),
+        codeInCodeless(section),
       ],
       okHealth,
       withHealth,
@@ -568,20 +571,38 @@ A section written in prose holds words for a reader and no code. A section is wr
 
 A Markdown file is no exception, because its section is not written in prose. A sink such as `[README.md]` gives its section the `markdown` language, so the section holds the file's text as code, as any other section holds its own.
 
-A concept holds no code either, as the chapter "Concepts" describes. `isConceptSection` tells a section that claimed the `Concept` kind, and `codeInConcept` gives each arrow in such a section the `CodeInConcept` fault. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
+A concept holds no code either, as the chapter "Concepts" describes, and neither does a section of a kind that a trope declares with no code. The row of small passes marks every such section `codeless`, and `codelessKind` gives the kind of one. `codeInCodeless` gives each arrow in such a section a fault: `CodeInConcept` in a concept, and `CodeInKind` in a section of a declared kind. The code that makes an idea real belongs in the sections that realise the concept, never in the concept itself.
+
+An anchor that composes such a section finds no code to compose. `withoutCode` gives the fault for it by the same split: `ConceptWithoutCode` for a concept, and `KindWithoutCode` for a section of a declared kind.
 
 =>
 
 const isArrow = (weft: SectionBodyWeft): weft is ArrowWeft => weft.type === 'ArrowWeft'
 
-const codeInConcept = (section: LoomSection): Health =>
-  isConceptSection(section)
-    ? pipe(
+const codelessKind = (section: LoomSection): Option.Option<string> =>
+  section.codeless === true ? Option.fromNullishOr(section.kind) : Option.none()
+
+const withoutCode = (name: string, kind: Option.Option<string>): LoomFault =>
+  Option.match(
+    Option.filter(kind, (named) => named !== conceptKind),
+    {
+      onNone: () => ConceptWithoutCode({ name }),
+      onSome: (named) => KindWithoutCode({ name, kind: named }),
+    },
+  )
+
+const codeInCodeless = (section: LoomSection): Health =>
+  Option.match(codelessKind(section), {
+    onNone: () => okHealth,
+    onSome: (kind) =>
+      pipe(
         Array.filter(section.code, isArrow),
-        Array.map((weft) => faulty(CodeInConcept(), weft.arrow.position)),
+        Array.map((weft) =>
+          faulty(kind === conceptKind ? CodeInConcept() : CodeInKind({ kind }), weft.arrow.position),
+        ),
         Array.reduce(okHealth, withHealth),
-      )
-    : okHealth
+      ),
+  })
 
 const codeInProse = (section: LoomSection, languageId: string): Health =>
   languageId === 'prose'
@@ -880,11 +901,11 @@ const localHealth = (
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept: entry.concept,
+    codeless: Option.isSome(entry.codeless),
     written: entry.written,
     sameLanguage: entry.language === host,
   }).pipe(
-    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
+    Match.when({ codeless: true }, () => faulty(withoutCode(name, entry.codeless), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
     Match.orElse(() => settledHealth(name, at, label)),
@@ -980,7 +1001,7 @@ const moduleRefHealth = (
 
 An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name. A name that is a form of a concept names that concept, which holds no code, so the anchor carries the `ConceptWithoutCode` fault, which names the concept by its heading. An anchor labelled `{To be settled}`, or one that states what its section provides, meant exactly that, so it carries the `UnsettledSection` note. Any other anchor is unresolved, and `unresolvedHealth` raises the fault, for a composing edge and a module anchor alike. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. `settleAt` finds the point just past the anchor where the label can go instead, unless the anchor already carries braces of its own. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
-The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions in turn: whether the section it reached is a concept, whether its `Code` is written, whether its language is the host's, and whether the anchor's label has outlived its use. A concept holds no code to compose, so an anchor that reaches one carries the `ConceptWithoutCode` fault, here and in the anchor's own loom alike.
+The place is a section, or a chapter that stands for its opening section, or a box that points to a chapter nobody has written yet. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A box declares its chapter before the chapter exists, so an anchor that reaches the box carries the `UnsettledSection` note, as for a section declared without code. A section that holds no code yet is to be settled. Reached through the chapter it opens, it raises the `ChapterWithoutCode` warning. Reached by its own title, it carries the `UnsettledSection` note. Any other section must share the host's language, and an anchor that still labels it `{To be settled}` carries the `SettledLabel` note. `codeOf` finds the `Code` a reached section composed. `reachedHealth` asks those questions in turn: whether the section it reached is of a kind that holds no code, whether its `Code` is written, whether its language is the host's, and whether the anchor's label has outlived its use. A concept holds no code to compose, and neither does a section of a kind a trope declares with none, so an anchor that reaches one carries the fault `withoutCode` gives, here and in the anchor's own loom alike.
 
 `declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. `headingMarkOf` gives that level's run of `#` marks, and a division, which a divider opens, counts as a heading of the second level, as Markdown reads a line underlined with dashes. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
@@ -1041,7 +1062,7 @@ const trailHealth = (
     Option.flatMap(sectionOf(trail), (reached) =>
       Option.map(codeOf(modules, reached), (code) => ({
         code,
-        concept: isConceptSection(reached.section),
+        codeless: codelessKind(reached.section),
       })),
     ),
     {
@@ -1049,13 +1070,13 @@ const trailHealth = (
         Array.lastNonEmpty(trail).place._tag === 'Box'
           ? faulty(UnsettledSection({ name: ref.name, declared: true }), ref.anchor)
           : unresolved(ref.name, ref.anchor),
-      onSome: ({ code, concept }) =>
+      onSome: ({ code, codeless }) =>
         reachedHealth(
           ref.name,
           ref.anchor,
           host.languageId,
           code,
-          concept,
+          codeless,
           Array.lastNonEmpty(trail).place._tag === 'Chapter',
           ref.toBeSettled,
         ),
@@ -1067,17 +1088,17 @@ const reachedHealth = (
   at: Position,
   host: string,
   code: Code,
-  concept: boolean,
+  codeless: Option.Option<string>,
   whole: boolean,
   label: Option.Option<Position>,
 ): Health =>
   Match.value({
-    concept,
+    codeless: Option.isSome(codeless),
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
   }).pipe(
-    Match.when({ concept: true }, () => faulty(ConceptWithoutCode({ name }), at)),
+    Match.when({ codeless: true }, () => faulty(withoutCode(name, codeless), at)),
     Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
     Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
     Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),

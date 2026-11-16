@@ -50,9 +50,9 @@ The first passes apply the specifier grammar of the chapter "Parameters in brace
 2. **Claiming kinds.** Each kind named in an identity line or a specifier is looked up in the registry, among the core's own kinds and the declared ones. A section of kind `Term` becomes a node of that kind, and a kind that nothing declares is a fault.
 3. **Checking parameters and bodies.** Each parameter is decoded against the type its kind declares. A key that the kind does not declare, a repeated key, and a value of the wrong type are each a fault on that parameter. A box whose kind declares a data body is decoded against the body's schema, and each fault sits on the field that is wrong.
 4. **Marking references.** Each parameter whose key holds references is marked. The corpus then resolves each of its values through the book, as it resolves an anchor's name, and a reference to nothing is a fault. The book's relations then hold the parameter, named by its key.
-5. **Setting data apart.** A data section leaves the book's reading order. It shapes no nesting, takes no number, and gives the product and the weave nothing. It stays in the tree, for the editor and for any program that reads the loom.
+5. **Keeping an anchor to its place.** A kind of anchor may keep to prose or to code. An anchor of such a kind written in the other place is a fault, and it composes nothing.
 
-`ProductBuilder` and `WeaveBuilder` then read the last pass's tree. That tree differs from today's only by the claimed kinds and the data set apart, so neither pass loses anything it does today.
+`ProductBuilder` and `WeaveBuilder` then read the last pass's tree. The row removes nothing from the tree the parser built. It claims kinds, sets marks, and puts a fault on each node that earns one, and every section stays where its author wrote it. So neither pass loses anything it reads.
 
 ## Synchronous by construction
 
@@ -72,15 +72,19 @@ One service runs the passes in order. It takes the tree the parser built, the `P
 
 The passes read the tree against two things. The first is the core's own: its kinds of section, and `coreKeys`, the keys the core lets a heading, an anchor, and a box take. The second is what the workspace's tropes declare, which the caller hands in as `declared`, since the registry is gathered from the book and not from one loom, as Part XIII, Tropes, describes.
 
-A `Declared` holds what the row reads of the registry. A `KeyedKind` is one declared kind: its name, and the `parameters` its braces may hold beside the core's keys. `Declared` holds the declared kinds of section, of anchor, and of box, and `headings`, the keys that any heading may carry. `kindsOf` gives the names of a list of kinds. A loom read with `nothingDeclared` is read with core Loom alone.
+A `Declared` holds what the row reads of the registry. A `KeyedKind` is one declared kind: its name, and the `parameters` its braces may hold beside the core's keys. A kind of box is no more than that. A `SectionKind` adds whether the kind is `codeless`, and an `AnchorKind` adds where the kind `standsIn`, when it keeps to prose or to code. `Declared` holds the declared kinds of section, of anchor, and of box, and `headings`, the keys that any heading may carry. `kindsOf` gives the names of a list of kinds. A loom read with `nothingDeclared` is read with core Loom alone.
 
 =>
 
 export type KeyedKind = { readonly kind: string; readonly parameters: Keys }
 
+export type SectionKind = KeyedKind & { readonly codeless: boolean }
+
+export type AnchorKind = KeyedKind & { readonly standsIn: Option.Option<Standing> }
+
 export type Declared = {
-  readonly section: ReadonlyArray<KeyedKind>
-  readonly anchor: ReadonlyArray<KeyedKind>
+  readonly section: ReadonlyArray<SectionKind>
+  readonly anchor: ReadonlyArray<AnchorKind>
   readonly box: ReadonlyArray<KeyedKind>
   readonly headings: Keys
 }
@@ -96,12 +100,17 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
     make: Effect.succeed({
       build: (parsed: ParsedDocument, declared: Declared = nothingDeclared): LoomDocument => {
         const kinds = [...sectionKinds, ...kindsOf(declared.section)]
+        const codeless = [
+          ...codelessKinds,
+          ...kindsOf(Array.filter(declared.section, (each) => each.codeless)),
+        ]
         return pipe(
           parsed,
           expandedDocument(kinds),
-          claimedDocument(kinds),
+          claimedDocument(kinds, codeless),
           checkedDocument(coreKeys, declared),
           referringDocument(coreKeys, declared),
+          placedDocument(declared.anchor),
         )
       },
     }),
@@ -239,12 +248,14 @@ The second pass gives each section the kind its heading names. A heading names a
 
 `claimedDocument` hands the fold one case, for a section. `kindStated` finds the parameter that names a kind and the value it holds. A section whose heading names no kind passes through as it is.
 
+A kind may hold no code. A concept holds none, and a trope may say the same of a kind it declares. The pass is handed the names of such kinds, and a section that claims one carries `codeless` beside its kind. The product pass reads that mark to fault an arrow in the section, and an anchor that composes it, as the chapter "The product pass" describes.
+
 =>
 
 export const claimedDocument =
-  (kinds: ReadonlyArray<string>) =>
+  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string> = codelessKinds) =>
   (expanded: ExpandedDocument): ClaimedDocument =>
-    rewritten(expanded, { LoomSection: claimedSection(kinds) })
+    rewritten(expanded, { LoomSection: claimedSection(kinds, codeless) })
 
 type KindStated = {
   readonly held: ParametersToken
@@ -266,13 +277,16 @@ const kindStated = (heading: ExpandedHeading): Option.Option<KindStated> =>
   )
 
 const claimedSection =
-  (kinds: ReadonlyArray<string>) =>
+  (kinds: ReadonlyArray<string>, codeless: ReadonlyArray<string>) =>
   (section: ExpandedSection): ClaimedSection =>
     Option.match(kindStated(section.heading), {
       onNone: () => section,
       onSome: (stated) =>
         Option.match(kindNamed(kinds)(stated.value.value), {
-          onSome: (kind) => ({ ...section, kind }),
+          onSome: (kind) =>
+            Array.contains(codeless, kind)
+              ? { ...section, kind, codeless: true as const }
+              : { ...section, kind },
           onNone: () => ({ ...section, heading: unclaimed(kinds)(section.heading, stated) }),
         }),
     })
@@ -593,9 +607,103 @@ export const referringDocument = (
 ): ((claimed: ClaimedDocument) => ClaimedDocument) =>
   overBraces(keys, declared, (takes) => rebraced(referringBraces(takes)))
 
+## Keeping an anchor to its place
+
+The fifth pass keeps each anchor of a declared kind to the place its kind is for. An anchor stands in code, where it composes its section, or in prose, where it is a link a reader follows. A kind may keep to one of the two: an anchor that cites a decision belongs in prose, and composing it into a file would never be meant. An anchor of such a kind written in the other place carries the `MisplacedAnchor` fault, on the word that names its kind, and the anchor fails with it, so it composes nothing.
+
+A line of prose is a line of a preamble, a line after a tilde, or the tilde's own line. Every other line that carries anchors is code. `placedDocument` hands the fold one case for each sort of line, and `placedLine` judges the anchors of one line, returning the line it was given when none is misplaced. A book whose tropes keep no kind to a place skips the walk.
+
+`placedAnchor` finds the kind an anchor's braces name among the declared ones, and `kindFaulted` puts a fault on the word that names the kind, a label or the value of a `kind` parameter.
+
+=>
+
+const kindFaulted =
+  (fault: LoomFault) =>
+  (braces: Braces): Option.Option<Braces> =>
+    Match.value(braces).pipe(
+      Match.when({ type: 'Specifier' }, (labelled) => {
+        const health = faulty(fault, labelled.label.position)
+        return Option.some<Braces>({
+          ...labelled,
+          health: { ...labelled.health, status: health.status },
+          label: { ...labelled.label, health },
+        })
+      }),
+      Match.when({ type: 'Parameters' }, (held) =>
+        Option.map(
+          Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
+          (stated): Braces => {
+            const health = faulty(
+              fault,
+              Option.getOrElse(
+                Option.map(Array.head(stated.values), (value) => value.position),
+                () => stated.position,
+              ),
+            )
+            return {
+              ...held,
+              health: { ...held.health, status: health.status },
+              parameters: Array.map(held.parameters, (parameter) =>
+                parameter === stated ? { ...parameter, health } : parameter,
+              ),
+            }
+          },
+        ),
+      ),
+      Match.exhaustive,
+    )
+
+const placedAnchor =
+  (kinds: ReadonlyArray<AnchorKind>, standing: Standing) =>
+  (anchor: WarpAnchorToken): WarpAnchorToken =>
+    pipe(
+      bracedKind(anchor),
+      Option.flatMap((named) =>
+        Array.findFirst(kinds, (each) => each.kind.toLowerCase() === named.toLowerCase()),
+      ),
+      Option.flatMap((kind) =>
+        Option.map(
+          Option.filter(kind.standsIn, (place) => place !== standing),
+          (place) => MisplacedAnchor({ kind: kind.kind, standsIn: place }),
+        ),
+      ),
+      Option.match({
+        onNone: () => anchor,
+        onSome: (fault) => judged(kindFaulted(fault))(anchor),
+      }),
+    )
+
+type Lined = { readonly anchors: ReadonlyArray<WarpAnchorToken> }
+
+const placedLine =
+  (kinds: ReadonlyArray<AnchorKind>, standing: Standing) =>
+  <Line extends Lined>(line: Line): Line => {
+    const anchors = Array.map(line.anchors, placedAnchor(kinds, standing))
+    return Array.every(anchors, (anchor, at) => anchor === line.anchors[at])
+      ? line
+      : { ...line, anchors }
+  }
+
+export const placedDocument =
+  (kinds: ReadonlyArray<AnchorKind>) =>
+  (claimed: ClaimedDocument): ClaimedDocument => {
+    const inProse = placedLine(kinds, 'prose')
+    const inCode = placedLine(kinds, 'code')
+    return Array.some(kinds, (each) => Option.isSome(each.standsIn))
+      ? rewritten(claimed, {
+          PreambleWeft: (line: PreambleWeft): PreambleWeft => inProse(line),
+          TildeWeft: (line: TildeWeft): TildeWeft => inProse(line),
+          ProseWeft: (line: ProseWeft): ProseWeft => inProse(line),
+          ArrowWeft: (line: ArrowWeft): ArrowWeft => inCode(line),
+          CodeWeft: (line: CodeWeft): CodeWeft => inCode(line),
+          FenceWeft: (line: FenceWeft): FenceWeft => inCode(line),
+        })
+      : claimed
+  }
+
 ## What the row draws on
 
-The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, `Array`, `Match`, `Option`, and `pipe` for the passes, and `Result` for a value read through its type.
+The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", the lines that carry anchors from the chapter "Wefts", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, `Array`, `Match`, `Option`, and `pipe` for the passes, and `Result` for a value read through its type.
 
 =>
 
@@ -616,6 +724,7 @@ import {
   anchorKinds,
   boxKeys,
   type BoxToken,
+  codelessKinds,
   eachType,
   headingKeys,
   holdsReferences,
@@ -638,16 +747,26 @@ import {
   specifierKind,
   type SpecifierLabelToken,
   type SpecifierToken,
+  type Standing,
   type ValueType,
   type WarpAnchorToken,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
+import type {
+  ArrowWeft,
+  CodeWeft,
+  FenceWeft,
+  PreambleWeft,
+  ProseWeft,
+  TildeWeft,
+} from '@athrio/loom-ast/Weft'
 import {
   type BracesOn,
   faulty,
   LabelBesideParameter,
   type LoomFault,
   ManyValues,
+  MisplacedAnchor,
   RenamedKind,
   RepeatedKey,
   UnknownKey,
@@ -679,6 +798,8 @@ import {
 
 ::[Marking references]
 
+::[Keeping an anchor to its place]
+
 ## Testing the row
 
 The tests read one loom the way a build does: they parse it and run the row over the tree. `built` gives the document, `bracesOf` gives the braces of its first heading, and `statedBy` lists what those braces state, each key with its value. `textAt` reads the text a position covers, so a test can check that a parameter points at the author's own words.
@@ -688,7 +809,7 @@ The tests read one loom the way a build does: they parse it and run the row over
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Effect, Match, pipe, Schema } from 'effect'
+import { Effect, Match, Option, pipe, Schema } from 'effect'
 import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
 import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import {
@@ -1043,7 +1164,13 @@ const builtWith = (text: string, declared: Declared): LoomDocument =>
 describe('a kind of section a trope declares', () => {
   const options: Declared = {
     ...nothingDeclared,
-    section: [{ kind: 'Option', parameters: { status: { choice: ['chosen', 'rejected'] } } }],
+    section: [
+      {
+        kind: 'Option',
+        parameters: { status: { choice: ['chosen', 'rejected'] } },
+        codeless: false,
+      },
+    ],
   }
 
   const sectionWith = (heading: string, declared: Declared = options) =>
@@ -1097,7 +1224,7 @@ A trope may let any heading carry a key, whatever kind its section claims. The t
 describe('keys any heading may carry', () => {
   const translations: Declared = {
     ...nothingDeclared,
-    section: [{ kind: 'Option', parameters: { status: 'text' } }],
+    section: [{ kind: 'Option', parameters: { status: 'text' }, codeless: false }],
     headings: { translates: 'reference', locale: 'locale' },
   }
 
@@ -1132,7 +1259,7 @@ A trope may declare a kind of anchor, with the parameters its braces may hold. T
 describe('a kind of anchor a trope declares', () => {
   const decisions: Declared = {
     ...nothingDeclared,
-    anchor: [{ kind: 'Decision', parameters: { weight: 'number' } }],
+    anchor: [{ kind: 'Decision', parameters: { weight: 'number' }, standsIn: Option.none() }],
   }
 
   const said = (braces: string) =>
@@ -1255,6 +1382,92 @@ describe('a parameter that holds a reference', () => {
   })
 })
 
+## A kind that holds no code
+
+A section that claims a kind with no code carries `codeless`. A concept is such a kind in the core, and a trope may declare one. A section of any other kind, and a section of no kind, does not carry the mark.
+
+=>
+
+describe('a kind that holds no code', () => {
+  const options: Declared = {
+    ...nothingDeclared,
+    section: [
+      { kind: 'Option', parameters: {}, codeless: true },
+      { kind: 'Recipe', parameters: {}, codeless: false },
+    ],
+  }
+
+  const codeless = (heading: string) =>
+    builtWith(`${heading}\n\nProse.\n`, options).sections[0]?.codeless === true
+
+  it('marks a section of a declared kind that holds none', () => {
+    expect(codeless('## Postgres {Option}')).toBe(true)
+    expect(codeless('## Postgres {kind=option}')).toBe(true)
+  })
+
+  it("marks a concept, the core's own", () => {
+    expect(codeless('## Tangling {Concept}')).toBe(true)
+  })
+
+  it('leaves every other section unmarked', () => {
+    expect(codeless('## Stew {Recipe}')).toBe(false)
+    expect(codeless('## Build {Tangle}')).toBe(false)
+    expect(codeless('## Build {Bash}')).toBe(false)
+  })
+})
+
+## An anchor of a kind that keeps to one place
+
+A kind of anchor may keep to prose or to code. An anchor of the kind written in the other place carries a fault on the word that names its kind, and fails. In its own place it raises nothing, and a kind that keeps to no place stands in either.
+
+=>
+
+describe('an anchor of a kind that keeps to one place', () => {
+  const kinds: Declared = {
+    ...nothingDeclared,
+    anchor: [
+      { kind: 'Decision', parameters: { weight: 'number' }, standsIn: Option.some('prose') },
+      { kind: 'Inlined', parameters: {}, standsIn: Option.some('code') },
+      { kind: 'Seen', parameters: {}, standsIn: Option.none() },
+    ],
+  }
+
+  const inCode = (braces: string) =>
+    builtWith(`# A\n\n=>\n\n${greeting(braces)}\n`, kinds).sections[0]?.code.flatMap(
+      (weft) => weft.anchors,
+    )[0]
+
+  const inProse = (braces: string) =>
+    builtWith(`# A\n\nSee ${greeting(braces)} first.\n`, kinds).sections[0]?.preamble.flatMap(
+      (weft) => weft.anchors,
+    )[0]
+
+  const misplaced = (kind: string, place: string, other: string) =>
+    `An anchor of the \`${kind}\` kind belongs in ${place}, and this one stands in ${other}. Move it into ${place}.`
+
+  it('faults a prose kind written in code, and fails the anchor', () => {
+    const anchor = inCode('{Decision}')
+    expect(messagesIn(anchor?.specifier)).toEqual([misplaced('Decision', 'prose', 'code')])
+    expect(anchor?.health.status).toBe('error')
+  })
+
+  it('faults a code kind written in prose, named by a parameter', () => {
+    expect(messagesIn(inProse('{kind=inlined}')?.specifier)).toEqual([
+      misplaced('Inlined', 'code', 'prose'),
+    ])
+  })
+
+  it('raises nothing for an anchor in its own place', () => {
+    expect(messagesIn(inProse('{kind=Decision weight=3}')?.specifier)).toEqual([])
+    expect(messagesIn(inCode('{Inlined}')?.specifier)).toEqual([])
+  })
+
+  it('lets a kind that keeps to no place stand in either', () => {
+    expect(messagesIn(inCode('{Seen}')?.specifier)).toEqual([])
+    expect(messagesIn(inProse('{Seen}')?.specifier)).toEqual([])
+  })
+})
+
 ## An anchor's kind is one of its own
 
 With nothing declared, an anchor's kind is `To be settled` or `Module`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A kind written by its former name gets a fault of its own, whose fix writes the present name over the former one. A box's kind is left for the book to judge.
@@ -1354,6 +1567,10 @@ describe('the tree the row writes', () => {
 
 ::[A parameter that holds a reference is marked]
 
+::[A kind that holds no code]
+
+::[An anchor of a kind that keeps to one place]
+
 ::[An anchor's kind is one of its own]
 
 ::[The row writes the tree it claims]
@@ -1366,7 +1583,6 @@ describe('the tree the row writes', () => {
 
 1. Expanding the label of an anchor and of a box. Those labels stay as the author wrote them, and a later reader takes the kind they name through the `specifierKind` function of the chapter "The leaf tokens".
 2. Data bodies in the pass that checks parameters, as the chapter "Tropes" describes.
-3. The pass that follows: setting data apart.
-4. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
+3. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
 
 When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".
