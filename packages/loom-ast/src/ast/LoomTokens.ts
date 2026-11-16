@@ -62,6 +62,7 @@ export type ParameterValueToken = typeof ParameterValueTokenSchema.Type
 export const ParameterTokenSchema = loomNode('Parameter', {
   key: ParameterKeyTokenSchema,
   values: Schema.Array(ParameterValueTokenSchema),
+  refers: Schema.optional(Schema.Literal(true)),
 })
 export type ParameterToken = typeof ParameterTokenSchema.Type
 
@@ -111,6 +112,8 @@ export const isList = (type: ValueType): type is { readonly list: ScalarType } =
   typeof type === 'object' && 'list' in type
 
 export const eachType = (type: ValueType): ScalarType => (isList(type) ? type.list : type)
+
+export const holdsReferences = (type: ValueType): boolean => eachType(type) === 'reference'
 
 export type Read = string | number | boolean
 

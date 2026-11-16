@@ -4,10 +4,13 @@ import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
   type Catalogue,
+  isTropeEntry,
   type Location,
   type LoomModule,
+  referencesOf,
   resolveAnchor,
   resolveName,
+  resolveReference,
   sectionLinksOf,
   type SectionRef,
 } from '@athrio/loom-ast/LoomCorpusAst'
@@ -35,12 +38,9 @@ export type Relation = {
   readonly status: RelationStatus
 }
 
-type Found = Pick<Relation, 'section' | 'to' | 'at' | 'target'>
+type Found = Pick<Relation, 'section' | 'kind' | 'to' | 'at' | 'target'>
 
-export type RelationKind = {
-  readonly name: string
-  readonly referencesIn: (catalogue: Catalogue, module: LoomModule) => ReadonlyArray<Found>
-}
+type ReferenceFinder = (catalogue: Catalogue, module: LoomModule) => ReadonlyArray<Found>
 
 const inAnotherLoom =
   (module: LoomModule) =>
@@ -61,11 +61,19 @@ const openEdge =
       : pipe(
           resolveName(catalogue, module.path, edge.name),
           Option.filter(inAnotherLoom(module)),
-          Option.map((target): Found => ({ section, to: edge.name, at: edge.anchor, target })),
+          Option.map(
+            (target): Found => ({
+              section,
+              kind: 'anchor',
+              to: edge.name,
+              at: edge.anchor,
+              target,
+            }),
+          ),
           Option.toArray,
         )
 
-const anchorsIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found> =>
+const anchorsIn: ReferenceFinder = (catalogue, module) =>
   Array.flatMap(module.product.code, (host) =>
     Array.flatMap(host.fragments, (part) =>
       Match.value(part).pipe(
@@ -77,7 +85,7 @@ const anchorsIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Foun
     ),
   )
 
-const linksIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found> =>
+const linksIn: ReferenceFinder = (catalogue, module) =>
   Array.flatMap(module.doc.sections, (section) =>
     Array.flatMap(sectionLinksOf(section), (link) =>
       pipe(
@@ -86,6 +94,7 @@ const linksIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found>
         Option.map(
           (target): Found => ({
             section: sectionNameOf(section),
+            kind: 'link',
             to: link.name.value,
             at: link.name.position,
             target,
@@ -96,10 +105,31 @@ const linksIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found>
     ),
   )
 
-export const relationKinds: ReadonlyArray<RelationKind> = [
-  { name: 'anchor', referencesIn: anchorsIn },
-  { name: 'link', referencesIn: linksIn },
-]
+const parametersIn: ReferenceFinder = (catalogue, module) =>
+  Array.flatMap(referencesOf(module), (held) =>
+    pipe(
+      held.section,
+      Option.filter(() => !isTropeEntry(held)),
+      Option.flatMap((section) =>
+        pipe(
+          resolveReference(catalogue, module.path, held),
+          Option.filter(inAnotherLoom(module)),
+          Option.map(
+            (target): Found => ({
+              section: sectionNameOf(section),
+              kind: held.key,
+              to: held.value.value,
+              at: held.value.position,
+              target,
+            }),
+          ),
+        ),
+      ),
+      Option.toArray,
+    ),
+  )
+
+export const referenceFinders: ReadonlyArray<ReferenceFinder> = [anchorsIn, linksIn, parametersIn]
 
 const settled = (text: string): string =>
   pipe(
@@ -128,11 +158,11 @@ const keyOf = (named: Named): string =>
   JSON.stringify([named.loom, named.section, named.kind, named.to])
 
 const seenIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Seen> =>
-  Array.flatMap(relationKinds, (kind) =>
-    Array.map(kind.referencesIn(catalogue, module), (found): Seen => ({
+  Array.flatMap(referenceFinders, (find) =>
+    Array.map(find(catalogue, module), (found): Seen => ({
       loom: module.path,
       section: found.section,
-      kind: kind.name,
+      kind: found.kind,
       to: found.to,
       at: found.at,
       target: found.target,

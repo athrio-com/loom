@@ -567,3 +567,118 @@ describe('what a trope declares for anchors, boxes, and headings', () => {
     ])
   })
 })
+
+describe('a parameter that names a section', () => {
+  const decisions = '/corpus/decisions/declaring.loom'
+  const rulesAt = '/corpus/rules.loom'
+  const recordAt = '/corpus/record.loom'
+
+  const declaring = JSON.stringify({
+    contract: '1',
+    contributes: {
+      kinds: { section: [{ kind: 'Option', parameters: { replaces: 'reference' } }] },
+      headings: { parameters: { follows: 'reference', related: { list: 'reference' } } },
+    },
+  })
+
+  const rules = lines(
+    '---',
+    'Part I, Chapter 2: Rules',
+    '---',
+    '',
+    '# Rules',
+    '',
+    '## Overdrafts',
+    '',
+    'An overdraft is a balance below zero.',
+  )
+
+  const record = (braces: string) =>
+    lines(
+      '---',
+      'Part I, Chapter 1: A record',
+      '---',
+      '',
+      '# A record',
+      '',
+      `## Refusing a charge ${braces}`,
+      '',
+      'Prose.',
+    )
+
+  const book = (braces: string): Record<string, string> => ({
+    [recordAt]: record(braces),
+    [rulesAt]: rules,
+    [decisions]: rootLoom('Decisions', [declaring]),
+  })
+
+  const asked = <A>(
+    files: Record<string, string>,
+    use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>,
+  ) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+  const naming = (found: ReadonlyArray<string>) =>
+    found.filter((message) => message.includes(' names '))
+
+  const unfound = (key: string, name: string) =>
+    `\`${key}\` names \`${name}\`, and no section or chapter is called that. Name one that exists.`
+
+  it('raises nothing for a name that finds a section or a chapter', async () => {
+    expect(naming(await diagnosed(book('{follows="Rules, Overdrafts"}'), recordAt))).toEqual([])
+    expect(naming(await diagnosed(book('{follows=Rules}'), recordAt))).toEqual([])
+  })
+
+  it('warns of a name that finds nothing, under the key that holds it', async () => {
+    expect(naming(await diagnosed(book('{follows="Rules, Overdraughts"}'), recordAt))).toEqual([
+      unfound('follows', 'Rules, Overdraughts'),
+    ])
+    expect(naming(await diagnosed(book('{kind=Option replaces=Nowhere}'), recordAt))).toEqual([
+      unfound('replaces', 'Nowhere'),
+    ])
+  })
+
+  it('judges each name of a list', async () => {
+    const files = book('{related=["Rules, Overdrafts", Nowhere]}')
+    expect(naming(await diagnosed(files, recordAt))).toEqual([unfound('related', 'Nowhere')])
+  })
+
+  const spansOf = (
+    found: ReadonlyArray<{
+      readonly path: string
+      readonly range: {
+        readonly start: { readonly line: number; readonly character: number }
+        readonly end: { readonly character: number }
+      }
+    }>,
+  ) =>
+    found
+      .map((place) => [
+        place.path,
+        place.range.start.line,
+        place.range.start.character,
+        place.range.end.character,
+      ])
+      .sort()
+
+  it('is rewritten when its section is renamed, at the step that names the section', async () => {
+    const braces = '{follows="Rules, Overdrafts"}'
+    const heading = `## Refusing a charge ${braces}`
+    const start = heading.indexOf('Overdrafts')
+    const at = rules.indexOf('## Overdrafts') + 4
+    const found = await asked(book(braces), (compiler) => compiler.rename(rulesAt, at))
+    expect(spansOf(found)).toEqual(
+      [
+        [recordAt, 6, start, start + 'Overdrafts'.length],
+        [rulesAt, 6, 3, 3 + 'Overdrafts'.length],
+      ].sort(),
+    )
+  })
+
+  it('is listed among the references to its section', async () => {
+    const at = rules.indexOf('## Overdrafts') + 4
+    const found = await asked(book('{follows="Rules, Overdrafts"}'), (compiler) =>
+      compiler.references(rulesAt, at),
+    )
+    expect(spansOf(found).map(([path]) => path)).toEqual([recordAt, rulesAt])
+  })
+})

@@ -329,7 +329,7 @@ describe('reading a value through a type', () => {
 
 ## What this chapter grows into
 
-1. A parameter that holds a reference, read as a relation: resolved, renamed with its section, and shown in the book's graph.
-2. Completion of a value from its key's type, and a hover on a key that shows the type and the trope that declared it.
+1. Completion of a value from its key's type, and a hover on a key that shows the type and the trope that declared it.
+2. A reference's value as a place the editor follows to its section, as it follows an anchor's name.
 
-A trope declares the keys of its kinds and the keys any heading may carry already, as Part XIII, Tropes, describes. When references and the editor's help land, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.
+A trope declares the keys of its kinds and the keys any heading may carry already, as Part XIII, Tropes, describes. A reference is resolved through the book, rewritten when its section is renamed, and kept among the book's relations, as the chapters "The multi-file AST" and "Fingerprints on relations" describe. When the editor's help lands, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

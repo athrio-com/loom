@@ -23,12 +23,15 @@ import {
   conceptSymbolsIn,
   hintsAt,
   hoverAt,
+  isTropeEntry,
   labelSlotAt,
   linksOf,
   moduleDiagnostics,
   namesakesOf,
   reachable,
   referencesAt,
+  referencesOf,
+  referenceTrails,
   renameAt,
   renameRangeAt,
   navigationRangeAt,
@@ -50,6 +53,7 @@ import {
   SpecifierUnknown,
   StaleSummary,
   UnopenedBook,
+  UnresolvedReference,
   UnservedLanguage,
   UnresolvedLink,
   UnwrittenLoom,
@@ -224,6 +228,32 @@ const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
     })
   })
 
+const referenceFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  pipe(
+    referencesOf(module),
+    Array.filter((held) => !isTropeEntry(held)),
+    Array.flatMap((held) =>
+      Array.match(referenceTrails(catalogue, module.path, held), {
+        onEmpty: () =>
+          faulty(
+            UnresolvedReference({ key: held.key, name: held.value.value }),
+            held.value.position,
+          ).diagnostics,
+        onNonEmpty: (all) =>
+          all.length === 1
+            ? []
+            : faulty(
+                AmbiguousAnchor({
+                  name: held.value.value,
+                  count: all.length,
+                  paths: pathsTo(catalogue, module.path, all),
+                }),
+                held.value.position,
+              ).diagnostics,
+      }),
+    ),
+  )
+
 const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
   ...Option.match(bookTwinsOf(catalogue, module), {
     onNone: (): ReadonlyArray<Diagnostic> => [],
@@ -334,6 +364,7 @@ const corpusDiagnostics = (
     ...namesakeFaults(catalogue, module),
     ...bookFaults(catalogue, module),
     ...linkFaults(catalogue, module),
+    ...referenceFaults(catalogue, module),
     ...kindFaults(kinds, module),
     ...driftFaults(catalogue, module, relations),
     ...languageFaults(served, module),

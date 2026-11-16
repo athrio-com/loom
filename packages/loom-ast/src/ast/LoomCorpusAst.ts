@@ -14,13 +14,23 @@ import {
   isLoomKind,
   isPointingKind,
   type LoomKind,
+  type ParametersToken,
+  type ParameterToken,
   type ParameterValueToken,
   type PointingKind,
+  type SpecifierToken,
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
-import { boxOf, type LoomWeft, type PreambleWeft, type ProseWeft, type TildeWeft } from '#ast/Weft'
+import {
+  boxOf,
+  type LoomWeft,
+  type PreambleWeft,
+  type ProseWeft,
+  type SectionBodyWeft,
+  type TildeWeft,
+} from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
@@ -802,22 +812,6 @@ const sameBox =
     other.module === target.module &&
     other.name.position.start.offset === target.name.position.start.offset
 
-const valueLocation = (ref: BoxRef): Option.Option<CorpusLocation> =>
-  pipe(
-    ref.anchors,
-    Option.filter((value) => !value.value.includes(',')),
-    Option.map((value): CorpusLocation => {
-      const quoted = value.source.startsWith('"') ? 1 : 0
-      return {
-        path: ref.module,
-        position: {
-          start: shifted(value.position.start, quoted),
-          end: shifted(value.position.end, -quoted),
-        },
-      }
-    }),
-  )
-
 export const promisedThrough = (
   catalogue: Catalogue,
   from: Location,
@@ -858,16 +852,6 @@ export const tropeContractsIn = (
 const providedOf = (ref: BoxRef): ReadonlyArray<Provided> =>
   Array.map(ref.provides, (value): Provided => ({ name: value.value, at: value.position }))
 
-const tropeValuesNaming = (
-  catalogue: Catalogue,
-  names: (place: Place) => boolean,
-): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.flatten(Array.fromIterable(catalogue.boxes.values())),
-    Array.filter((ref) => Option.exists(tropePlaceOf(catalogue, ref), names)),
-    Array.flatMap((ref) => Option.toArray(valueLocation(ref))),
-  )
-
 const boxesPointingTo = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<BoxRef> =>
   Array.filter(Array.flatten(Array.fromIterable(catalogue.boxes.values())), (ref) =>
     Option.exists(boxTarget(catalogue, ref), (found) => found.module.path === chapter.module.path),
@@ -875,8 +859,109 @@ const boxesPointingTo = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<
 
 const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<CorpusLocation> => [
   ...Array.map(boxesPointingTo(catalogue, chapter), boxLocation),
-  ...tropeValuesNaming(catalogue, (place) => namesChapter(chapter)(place)),
+  ...referencesNaming(
+    catalogue,
+    (step) => !step.numbered && Option.isNone(step.through) && namesChapter(chapter)(step.place),
+  ),
 ]
+
+export type HeldReference = {
+  readonly on: 'heading' | 'anchor' | 'box'
+  readonly key: string
+  readonly value: ParameterValueToken
+  readonly section: Option.Option<LoomSection>
+}
+
+type Braces = SpecifierToken | ParametersToken
+
+const referringIn =
+  (on: HeldReference['on'], section: Option.Option<LoomSection>) =>
+  (braces: Braces | undefined): ReadonlyArray<HeldReference> =>
+    pipe(
+      Option.fromNullishOr(braces),
+      Option.flatMap((held) =>
+        held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
+      ),
+      Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
+      Array.filter((parameter) => parameter.refers === true),
+      Array.flatMap((parameter) =>
+        Array.map(parameter.values, (value): HeldReference => ({
+          on,
+          key: parameter.key.value,
+          value,
+          section,
+        })),
+      ),
+    )
+
+const referencesAmong = (
+  section: Option.Option<LoomSection>,
+  lines: ReadonlyArray<PreambleWeft | SectionBodyWeft>,
+): ReadonlyArray<HeldReference> =>
+  Array.flatMap(lines, (line) => [
+    ...Array.flatMap(line.anchors, (anchor) => referringIn('anchor', section)(anchor.specifier)),
+    ...Option.match(boxOf(line), {
+      onNone: (): ReadonlyArray<HeldReference> => [],
+      onSome: (box) => referringIn('box', section)(box.specifier),
+    }),
+  ])
+
+export const referencesOf = (module: LoomModule): ReadonlyArray<HeldReference> => [
+  ...referencesAmong(Option.none(), module.doc.preamble),
+  ...Array.flatMap(module.doc.sections, (section) => [
+    ...referringIn('heading', Option.some(section))(section.heading.specifier),
+    ...referencesAmong(Option.some(section), [...section.preamble, ...section.code]),
+  ]),
+]
+
+export const isTropeEntry = (held: HeldReference): boolean =>
+  held.on === 'box' && held.key === 'anchors'
+
+export const referenceTrails = (
+  catalogue: Catalogue,
+  from: Location,
+  held: HeldReference,
+): ReadonlyArray<Trail> =>
+  trailsOf(isTropeEntry(held) ? { ...catalogue, boxes: new Map() } : catalogue, from, held.value.value)
+
+export const resolveReference = (
+  catalogue: Catalogue,
+  from: Location,
+  held: HeldReference,
+): Option.Option<SectionRef> =>
+  Option.flatMap(soleTrail(referenceTrails(catalogue, from, held)), sectionOf)
+
+const valueSpan = (
+  path: Location,
+  value: ParameterValueToken,
+  segment: Segment,
+): Option.Option<CorpusLocation> => {
+  const quoted = value.source.startsWith('"') ? 1 : 0
+  const words = shifted(value.position.start, quoted)
+  return value.source.slice(quoted, value.source.length - quoted) === value.value
+    ? Option.some({
+        path,
+        position: { start: shifted(words, segment.start), end: shifted(words, segment.end) },
+      })
+    : Option.none()
+}
+
+const referencesNaming = (
+  catalogue: Catalogue,
+  names: (step: Step) => boolean,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(catalogue.modules.values()), (module) =>
+    Array.flatMap(referencesOf(module), (held) =>
+      pipe(
+        Option.match(soleTrail(referenceTrails(catalogue, module.path, held)), {
+          onNone: (): ReadonlyArray<Step> => [],
+          onSome: (trail) => trail,
+        }),
+        Array.filter(names),
+        Array.flatMap((step) => Option.toArray(valueSpan(module.path, held.value, step.segment))),
+      ),
+    ),
+  )
 
 export type ConceptForm = { readonly value: string; readonly position: Position }
 
@@ -1081,6 +1166,17 @@ export const reachesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArr
         target,
         at: boxReachAt(ref),
       })),
+    ),
+  ),
+  ...pipe(
+    referencesOf(module),
+    Array.filter((held) => !isTropeEntry(held)),
+    Array.flatMap((held) =>
+      Array.getSomes(
+        Array.map(referenceTrails(catalogue, module.path, held), (trail) =>
+          Option.map(moduleOf(trail), (target): Reach => ({ target, at: held.value.position })),
+        ),
+      ),
     ),
   ),
 ]
@@ -1316,7 +1412,10 @@ const sectionNames = (
     (step) => Option.isNone(step.through) && namesSection(ref)(step.place),
     spanOf,
   ),
-  ...tropeValuesNaming(catalogue, (place) => namesSection(ref)(place)),
+  ...referencesNaming(
+    catalogue,
+    (step) => Option.isNone(step.through) && namesSection(ref)(step.place),
+  ),
   ...Option.match(chapterTitledBy(catalogue, ref), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (chapter) => [

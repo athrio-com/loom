@@ -889,7 +889,7 @@ The navigation reads a box by its name. `boxLocation` is where a box's name stan
 
 A trope box promises what its `provides` key lists. While the trope points nowhere, `promisedThrough` gives an anchor that names it the trope's promised names, so the editor serves them in the code's place, as the chapter "Projecting to virtual code" describes. Once the trope has an entry point, `tropeContractsIn` gives each trope box of a loom as a `TropeContract`: the trope's name, its entry point's section, and the promised names, which the editor checks against the code there. `providedOf` reads each promised name with the place the box writes it.
 
-A trope box names its entry point with its `anchors` value rather than its name. `tropeValuesNaming` finds every trope box whose entry point passes a test, and gives where each `anchors` value stands, so a rename of the entry point rewrites the value with it. `valueLocation` gives the words of a value without its quotes. A value written as a path keeps its words, since a rename of one name in it would need more than one edit. `sameBox` tells whether two references are to one box.
+A trope box names its entry point with its `anchors` value rather than its name. That value is a reference, and a rename of the entry point rewrites it as it rewrites every reference, as the section "References that braces hold" describes. `sameBox` tells whether two references are to one box.
 
 =>
 
@@ -910,22 +910,6 @@ const sameBox =
   (other: BoxRef): boolean =>
     other.module === target.module &&
     other.name.position.start.offset === target.name.position.start.offset
-
-const valueLocation = (ref: BoxRef): Option.Option<CorpusLocation> =>
-  pipe(
-    ref.anchors,
-    Option.filter((value) => !value.value.includes(',')),
-    Option.map((value): CorpusLocation => {
-      const quoted = value.source.startsWith('"') ? 1 : 0
-      return {
-        path: ref.module,
-        position: {
-          start: shifted(value.position.start, quoted),
-          end: shifted(value.position.end, -quoted),
-        },
-      }
-    }),
-  )
 
 export const promisedThrough = (
   catalogue: Catalogue,
@@ -967,16 +951,6 @@ export const tropeContractsIn = (
 const providedOf = (ref: BoxRef): ReadonlyArray<Provided> =>
   Array.map(ref.provides, (value): Provided => ({ name: value.value, at: value.position }))
 
-const tropeValuesNaming = (
-  catalogue: Catalogue,
-  names: (place: Place) => boolean,
-): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.flatten(Array.fromIterable(catalogue.boxes.values())),
-    Array.filter((ref) => Option.exists(tropePlaceOf(catalogue, ref), names)),
-    Array.flatMap((ref) => Option.toArray(valueLocation(ref))),
-  )
-
 const boxesPointingTo = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<BoxRef> =>
   Array.filter(Array.flatten(Array.fromIterable(catalogue.boxes.values())), (ref) =>
     Option.exists(boxTarget(catalogue, ref), (found) => found.module.path === chapter.module.path),
@@ -984,8 +958,121 @@ const boxesPointingTo = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<
 
 const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<CorpusLocation> => [
   ...Array.map(boxesPointingTo(catalogue, chapter), boxLocation),
-  ...tropeValuesNaming(catalogue, (place) => namesChapter(chapter)(place)),
+  ...referencesNaming(
+    catalogue,
+    (step) => !step.numbered && Option.isNone(step.through) && namesChapter(chapter)(step.place),
+  ),
 ]
+
+## References that braces hold
+
+A parameter may hold a reference, the name of a section, as `replaces=Postgres` does under a key a trope declares as a reference. The row of small passes marks every such parameter with `refers`, as the chapter "Small passes over the tree" describes, so the corpus finds a loom's references without knowing what any trope declares. The core has one such key of its own, the `anchors` of a trope box, and it is marked like any other.
+
+A `HeldReference` is one value of a marked parameter: the `value` itself, the `key` it stands under, the bearer whose braces hold it, as `on`, and the `section` it stands in, when it stands in one. `referringIn` reads the references of one pair of braces, and `referencesAmong` those of the anchors and boxes on a run of lines. `referencesOf` reads every reference of a loom: in its preamble, on each heading, and within each section.
+
+A reference names a place the way an anchor's name does, through `trailsOf` from its own loom. `referenceTrails` gives every place a reference could name, so a judgement can tell a name that finds nothing from a name that finds several. A trope box's `anchors` value is looked up with the book's boxes set aside, so a trope never points to itself or through another trope, and `isTropeEntry` tells such a value. `resolveReference` gives the section a reference names, when it names exactly one place, as `resolveAnchor` does for an anchor.
+
+A rename of a section rewrites the references that name it. A reference may be written as a path, as `"Rules, Overdrafts"` is, and a rename then rewrites only the step of the path that names the section, as it does in an anchor's name. `referencesNaming` finds every step of every reference in the book that passes a test, and `valueSpan` gives where the step stands within the value, past an opening quote. A quoted value that holds an escape keeps its words, since a place in the name it spells is no longer the same place in the text.
+
+=>
+
+export type HeldReference = {
+  readonly on: 'heading' | 'anchor' | 'box'
+  readonly key: string
+  readonly value: ParameterValueToken
+  readonly section: Option.Option<LoomSection>
+}
+
+type Braces = SpecifierToken | ParametersToken
+
+const referringIn =
+  (on: HeldReference['on'], section: Option.Option<LoomSection>) =>
+  (braces: Braces | undefined): ReadonlyArray<HeldReference> =>
+    pipe(
+      Option.fromNullishOr(braces),
+      Option.flatMap((held) =>
+        held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
+      ),
+      Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
+      Array.filter((parameter) => parameter.refers === true),
+      Array.flatMap((parameter) =>
+        Array.map(parameter.values, (value): HeldReference => ({
+          on,
+          key: parameter.key.value,
+          value,
+          section,
+        })),
+      ),
+    )
+
+const referencesAmong = (
+  section: Option.Option<LoomSection>,
+  lines: ReadonlyArray<PreambleWeft | SectionBodyWeft>,
+): ReadonlyArray<HeldReference> =>
+  Array.flatMap(lines, (line) => [
+    ...Array.flatMap(line.anchors, (anchor) => referringIn('anchor', section)(anchor.specifier)),
+    ...Option.match(boxOf(line), {
+      onNone: (): ReadonlyArray<HeldReference> => [],
+      onSome: (box) => referringIn('box', section)(box.specifier),
+    }),
+  ])
+
+export const referencesOf = (module: LoomModule): ReadonlyArray<HeldReference> => [
+  ...referencesAmong(Option.none(), module.doc.preamble),
+  ...Array.flatMap(module.doc.sections, (section) => [
+    ...referringIn('heading', Option.some(section))(section.heading.specifier),
+    ...referencesAmong(Option.some(section), [...section.preamble, ...section.code]),
+  ]),
+]
+
+export const isTropeEntry = (held: HeldReference): boolean =>
+  held.on === 'box' && held.key === 'anchors'
+
+export const referenceTrails = (
+  catalogue: Catalogue,
+  from: Location,
+  held: HeldReference,
+): ReadonlyArray<Trail> =>
+  trailsOf(isTropeEntry(held) ? { ...catalogue, boxes: new Map() } : catalogue, from, held.value.value)
+
+export const resolveReference = (
+  catalogue: Catalogue,
+  from: Location,
+  held: HeldReference,
+): Option.Option<SectionRef> =>
+  Option.flatMap(soleTrail(referenceTrails(catalogue, from, held)), sectionOf)
+
+const valueSpan = (
+  path: Location,
+  value: ParameterValueToken,
+  segment: Segment,
+): Option.Option<CorpusLocation> => {
+  const quoted = value.source.startsWith('"') ? 1 : 0
+  const words = shifted(value.position.start, quoted)
+  return value.source.slice(quoted, value.source.length - quoted) === value.value
+    ? Option.some({
+        path,
+        position: { start: shifted(words, segment.start), end: shifted(words, segment.end) },
+      })
+    : Option.none()
+}
+
+const referencesNaming = (
+  catalogue: Catalogue,
+  names: (step: Step) => boolean,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(catalogue.modules.values()), (module) =>
+    Array.flatMap(referencesOf(module), (held) =>
+      pipe(
+        Option.match(soleTrail(referenceTrails(catalogue, module.path, held)), {
+          onNone: (): ReadonlyArray<Step> => [],
+          onSome: (trail) => trail,
+        }),
+        Array.filter(names),
+        Array.flatMap((step) => Option.toArray(valueSpan(module.path, held.value, step.segment))),
+      ),
+    ),
+  )
 
 ## Concepts and the links that name them
 
@@ -1161,7 +1248,7 @@ A run and a tangle need only part of the corpus: the entry and the sections it c
 
 `reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `placeModuleOf` reads the module a place stands in, and `moduleOf` the module a trail ends in.
 
-A `Reach` is one edge out of a module: the `target` loom, and the span `at` which the module reaches it. `reachesOf` lists a module's reaches. Each anchor the module carries reaches every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. Each box that points somewhere reaches the loom it points to, and a trope box reaches the loom of its entry point, at the value of its `anchors` key. The boundaries of a trope judge each reach at its span, as Part XIII, Tropes, describes.
+A `Reach` is one edge out of a module: the `target` loom, and the span `at` which the module reaches it. `reachesOf` lists a module's reaches. Each anchor the module carries reaches every module its name leads to: the one it resolves to, or each candidate of an ambiguous name. Each box that points somewhere reaches the loom it points to, and a trope box reaches the loom of its entry point, at the value of its `anchors` key. Every other reference that braces hold reaches the loom of each place its name leads to, at the value. The boundaries of a trope judge each reach at its span, as Part XIII, Tropes, describes.
 
 `anchorEdges` reads every reach of the corpus once, as an edge from its module to its target. A change to what a box copies then reaches the loom whose box holds the copy, a change to any module an anchor names reaches the anchor's own loom, and a tangle judges an ambiguous name with all of its candidates in view.
 
@@ -1222,6 +1309,17 @@ export const reachesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArr
         target,
         at: boxReachAt(ref),
       })),
+    ),
+  ),
+  ...pipe(
+    referencesOf(module),
+    Array.filter((held) => !isTropeEntry(held)),
+    Array.flatMap((held) =>
+      Array.getSomes(
+        Array.map(referenceTrails(catalogue, module.path, held), (trail) =>
+          Option.map(moduleOf(trail), (target): Reach => ({ target, at: held.value.position })),
+        ),
+      ),
     ),
   ),
 ]
@@ -1485,7 +1583,10 @@ const sectionNames = (
     (step) => Option.isNone(step.through) && namesSection(ref)(step.place),
     spanOf,
   ),
-  ...tropeValuesNaming(catalogue, (place) => namesSection(ref)(place)),
+  ...referencesNaming(
+    catalogue,
+    (step) => Option.isNone(step.through) && namesSection(ref)(step.place),
+  ),
   ...Option.match(chapterTitledBy(catalogue, ref), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (chapter) => [
@@ -3064,7 +3165,7 @@ export const unopenedBookOf = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. `headingKind` reads the kind a heading names, and `conceptKind` tells a concept's section. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. `headingKind` reads the kind a heading names, and `conceptKind` tells a concept's section. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, as every reference that braces hold is, read from the `ParameterToken`s of a `ParametersToken`, the braces that a `SpecifierToken` is the short form of, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
 
 =>
 
@@ -3084,13 +3185,23 @@ import {
   isLoomKind,
   isPointingKind,
   type LoomKind,
+  type ParametersToken,
+  type ParameterToken,
   type ParameterValueToken,
   type PointingKind,
+  type SpecifierToken,
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
-import { boxOf, type LoomWeft, type PreambleWeft, type ProseWeft, type TildeWeft } from '#ast/Weft'
+import {
+  boxOf,
+  type LoomWeft,
+  type PreambleWeft,
+  type ProseWeft,
+  type SectionBodyWeft,
+  type TildeWeft,
+} from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
@@ -3108,6 +3219,8 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 ::[Resolving names]
 
 ::[Boxes that point to looms]
+
+::[References that braces hold]
 
 ::[Concepts and the links that name them]
 

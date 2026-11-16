@@ -102,6 +102,7 @@ export type LoomFault = Data.TaggedEnum<{
   CodeInConcept: {}
   ConceptWithoutCode: { readonly name: string }
   UnresolvedLink: { readonly name: string }
+  UnresolvedReference: { readonly key: string; readonly name: string }
   ManifestOutsideTrope: {}
   TropeRefused: { readonly reason: string }
   UnrootedTrope: { readonly trope: string }
@@ -173,6 +174,7 @@ export const {
   CodeInConcept,
   ConceptWithoutCode,
   UnresolvedLink,
+  UnresolvedReference,
   ManifestOutsideTrope,
   TropeRefused,
   UnrootedTrope,
@@ -491,6 +493,10 @@ export const describe = (fault: LoomFault): Note =>
     UnresolvedLink: ({ name }) =>
       warning(
         `Nothing is called \`${name}\`, so this link leads nowhere. Name a section, a chapter, or a form of a concept.`,
+      ),
+    UnresolvedReference: ({ key, name }) =>
+      warning(
+        `\`${key}\` names \`${name}\`, and no section or chapter is called that. Name one that exists.`,
       ),
     ConclusionOutsideTopic: () =>
       error(

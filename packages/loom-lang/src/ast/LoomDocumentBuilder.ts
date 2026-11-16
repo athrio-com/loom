@@ -17,6 +17,7 @@ import {
   type BoxToken,
   eachType,
   headingKeys,
+  holdsReferences,
   isList,
   type Keys,
   keyType,
@@ -78,6 +79,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
           expandedDocument(kinds),
           claimedDocument(kinds),
           checkedDocument(coreKeys, declared),
+          referringDocument(coreKeys, declared),
         )
       },
     }),
@@ -288,28 +290,36 @@ const withKind = (
 const bracedKind = (bearer: Braced): Option.Option<string> =>
   Option.flatMap(Option.fromNullishOr(bearer.specifier), specifierKind)
 
-const checkedSection =
-  (takes: Takes, declared: ReadonlyArray<KeyedKind>) =>
+type OnBearer = (takes: Takes) => <Bearer extends Braced>(bearer: Bearer) => Bearer
+
+const bracedSection =
+  (takes: Takes, declared: ReadonlyArray<KeyedKind>, step: OnBearer) =>
   (section: ClaimedSection): ClaimedSection => {
     const ofKind = withKind(takes, declared, Option.fromNullishOr(section.kind))
-    const heading = judged(faultedBraces(ofKind))(section.heading)
+    const heading = step(ofKind)(section.heading)
     return heading === section.heading ? section : { ...section, heading }
   }
 
-export const checkedDocument =
-  (keys: Record<BracesOn, Keys>, declared: Declared = nothingDeclared) =>
+const overBraces =
+  (keys: Record<BracesOn, Keys>, declared: Declared, step: OnBearer) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
     const takes = takesOn(keys, declared)
     const inside: ClaimedDocument = rewritten(claimed, {
       WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
-        judged(faultedBraces(withKind(takes('anchor'), declared.anchor, bracedKind(anchor))))(
-          anchor,
-        ),
+        step(withKind(takes('anchor'), declared.anchor, bracedKind(anchor)))(anchor),
       Box: (box: BoxToken): BoxToken =>
-        judged(faultedBraces(withKind(takes('box'), declared.box, bracedKind(box))))(box),
+        step(withKind(takes('box'), declared.box, bracedKind(box)))(box),
     })
-    return rewritten(inside, { LoomSection: checkedSection(takes('heading'), declared.section) })
+    return rewritten(inside, {
+      LoomSection: bracedSection(takes('heading'), declared.section, step),
+    })
   }
+
+export const checkedDocument = (
+  keys: Record<BracesOn, Keys>,
+  declared: Declared = nothingDeclared,
+): ((claimed: ClaimedDocument) => ClaimedDocument) =>
+  overBraces(keys, declared, (takes) => judged(faultedBraces(takes)))
 
 const faultedBraces =
   (takes: Takes) =>
@@ -428,3 +438,42 @@ const judged =
         }),
       }),
     )
+
+const referringBraces =
+  (takes: Takes) =>
+  (braces: Braces): Option.Option<Braces> => {
+    const refers = (parameter: ParameterToken): boolean =>
+      Option.exists(keyType(takes.keys, parameter.key.value), holdsReferences)
+    return Match.value(braces).pipe(
+      Match.when({ type: 'Parameters' }, (held) =>
+        Array.some(held.parameters, refers)
+          ? Option.some<Braces>({
+              ...held,
+              parameters: Array.map(held.parameters, (parameter) =>
+                refers(parameter) ? { ...parameter, refers: true as const } : parameter,
+              ),
+            })
+          : Option.none<Braces>(),
+      ),
+      Match.when({ type: 'Specifier' }, () => Option.none<Braces>()),
+      Match.exhaustive,
+    )
+  }
+
+const rebraced =
+  (rewrite: (braces: Braces) => Option.Option<Braces>) =>
+  <Bearer extends Braced>(bearer: Bearer): Bearer =>
+    pipe(
+      Option.fromNullishOr(bearer.specifier),
+      Option.flatMap(rewrite),
+      Option.match({
+        onNone: () => bearer,
+        onSome: (braces) => ({ ...bearer, specifier: braces }),
+      }),
+    )
+
+export const referringDocument = (
+  keys: Record<BracesOn, Keys>,
+  declared: Declared = nothingDeclared,
+): ((claimed: ClaimedDocument) => ClaimedDocument) =>
+  overBraces(keys, declared, (takes) => rebraced(referringBraces(takes)))

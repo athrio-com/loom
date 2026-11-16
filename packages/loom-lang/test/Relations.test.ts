@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
+import { type Declared, nothingDeclared } from '#ast/LoomDocumentBuilder'
 import {
   approvalsAt,
   approvedRelations,
@@ -47,7 +48,10 @@ const billing = lines(
   'export const billable = (balance: number): boolean => !overdrawn(balance)',
 )
 
-const corpusOf = (files: Record<string, string>): ReadonlyMap<string, LoomModule> =>
+const corpusOf = (
+  files: Record<string, string>,
+  declared: Declared = nothingDeclared,
+): ReadonlyMap<string, LoomModule> =>
   Effect.runSync(
     Effect.gen(function* () {
       const builder = yield* LoomCorpusAstBuilder
@@ -56,7 +60,7 @@ const corpusOf = (files: Record<string, string>): ReadonlyMap<string, LoomModule
         list: Option.none(),
       }
       const built = yield* Effect.forEach(Object.keys(files), (path) =>
-        builder.build(source, path, defaultAnchorDelims, 'typescript'),
+        builder.build(source, path, defaultAnchorDelims, 'typescript', {}, declared),
       )
       return new Map(built.map((module) => [module.path, module] as const))
     }).pipe(Effect.provide(LoomCorpusAstBuilder.layer)),
@@ -99,6 +103,26 @@ describe('the references of a loom', () => {
     )
     const modules = corpusOf({ [billingPath]: alone })
     expect(relationsOf(catalogueOf(modules), modules.get(billingPath)!, [])).toEqual([])
+  })
+
+  it('include a parameter that holds a reference, under its key', () => {
+    const settling = lines(
+      '# Billing [billing.ts]',
+      '',
+      '## Refusing a charge {follows=Overdrafts}',
+      '',
+      '=>',
+      'export const refused = true',
+    )
+    const modules = corpusOf(
+      { [rulesPath]: rules('An overdraft is a balance below zero.'), [billingPath]: settling },
+      { ...nothingDeclared, headings: { follows: 'reference' } },
+    )
+    const found = relationsOf(catalogueOf(modules), modules.get(billingPath)!, [])
+    expect(
+      found.map((relation) => [relation.section, relation.kind, relation.to, relation.status]),
+    ).toEqual([['RefusingACharge', 'follows', 'Overdrafts', 'untracked']])
+    expect(found.map((relation) => relation.target.module)).toEqual([rulesPath])
   })
 })
 

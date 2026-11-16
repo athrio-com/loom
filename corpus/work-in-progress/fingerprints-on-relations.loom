@@ -50,20 +50,19 @@ export type Relation = {
 
 ## The references that make relations
 
-Two kinds of reference make a relation. An `anchor` is an anchor in code, which composes a section or names its module. A `link` is an anchor in prose, which links to a section. A box that points to a chapter makes none, since the box already copies a summary of what it points to and goes stale with it, as the chapter "Boxes" describes.
+Three sorts of reference make a relation. An anchor in code composes a section or names its module, and its relation is of the kind `anchor`. An anchor in prose links to a section, and its relation is of the kind `link`. A parameter that holds a reference names a section in a pair of braces, as `replaces=Postgres` does on a heading, and its relation takes the parameter's key for its kind, `replaces` here. Loom reads no meaning into the key. It follows the relation, and the trope that declared the key knows what the relation says.
+
+Two things that point somewhere make no relation. A box that points to a chapter already copies a summary of what it points to and goes stale with it, as the chapter "Boxes" describes. The `anchors` value of a trope box says where the trope lives, and the anchors that name the trope make the relations to it.
 
 A reference makes a relation only when it points into another loom. Inside one loom the prose and the code of every section sit together under the author's eyes, and a section that assembles a file refers to every section it composes. A fingerprint there would mark those references at every edit.
 
-The kinds are a table, `relationKinds`. Each entry holds a kind's name and how to find its references in a loom: for each, the section that holds it, the name it writes, where it stands, and the section it points to. A further kind of reference joins by adding an entry, and the relations it makes are told from the others by their `kind`.
+A `ReferenceFinder` finds one sort of reference in a loom. For each it gives the section that holds it, its kind, the name it writes, where it stands, and the section it points to. `referenceFinders` lists the three, and a further sort of reference joins by adding a finder.
 
 =>
 
-type Found = Pick<Relation, 'section' | 'to' | 'at' | 'target'>
+type Found = Pick<Relation, 'section' | 'kind' | 'to' | 'at' | 'target'>
 
-export type RelationKind = {
-  readonly name: string
-  readonly referencesIn: (catalogue: Catalogue, module: LoomModule) => ReadonlyArray<Found>
-}
+type ReferenceFinder = (catalogue: Catalogue, module: LoomModule) => ReadonlyArray<Found>
 
 const inAnotherLoom =
   (module: LoomModule) =>
@@ -90,11 +89,19 @@ const openEdge =
       : pipe(
           resolveName(catalogue, module.path, edge.name),
           Option.filter(inAnotherLoom(module)),
-          Option.map((target): Found => ({ section, to: edge.name, at: edge.anchor, target })),
+          Option.map(
+            (target): Found => ({
+              section,
+              kind: 'anchor',
+              to: edge.name,
+              at: edge.anchor,
+              target,
+            }),
+          ),
           Option.toArray,
         )
 
-const anchorsIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found> =>
+const anchorsIn: ReferenceFinder = (catalogue, module) =>
   Array.flatMap(module.product.code, (host) =>
     Array.flatMap(host.fragments, (part) =>
       Match.value(part).pipe(
@@ -112,7 +119,7 @@ A link stands in the prose of a section. `linksIn` resolves each link of each se
 
 =>
 
-const linksIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found> =>
+const linksIn: ReferenceFinder = (catalogue, module) =>
   Array.flatMap(module.doc.sections, (section) =>
     Array.flatMap(sectionLinksOf(section), (link) =>
       pipe(
@@ -121,6 +128,7 @@ const linksIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found>
         Option.map(
           (target): Found => ({
             section: sectionNameOf(section),
+            kind: 'link',
             to: link.name.value,
             at: link.name.position,
             target,
@@ -131,10 +139,37 @@ const linksIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Found>
     ),
   )
 
-export const relationKinds: ReadonlyArray<RelationKind> = [
-  { name: 'anchor', referencesIn: anchorsIn },
-  { name: 'link', referencesIn: linksIn },
-]
+~
+
+A reference that braces hold stands on a heading, an anchor, or a box, and the corpus reads every one a loom holds, as the chapter "The multi-file AST" describes. `parametersIn` keeps the ones that stand in a section and name one section of another loom. It passes by a trope box's `anchors` value.
+
+=>
+
+const parametersIn: ReferenceFinder = (catalogue, module) =>
+  Array.flatMap(referencesOf(module), (held) =>
+    pipe(
+      held.section,
+      Option.filter(() => !isTropeEntry(held)),
+      Option.flatMap((section) =>
+        pipe(
+          resolveReference(catalogue, module.path, held),
+          Option.filter(inAnotherLoom(module)),
+          Option.map(
+            (target): Found => ({
+              section: sectionNameOf(section),
+              kind: held.key,
+              to: held.value.value,
+              at: held.value.position,
+              target,
+            }),
+          ),
+        ),
+      ),
+      Option.toArray,
+    ),
+  )
+
+export const referenceFinders: ReadonlyArray<ReferenceFinder> = [anchorsIn, linksIn, parametersIn]
 
 ## A fingerprint says whether, never where
 
@@ -163,7 +198,7 @@ export const fingerprintOf = (section: LoomSection): string =>
 
 ## The relations of a loom
 
-`relationsOf` derives the relations of a loom: one for each reference the table finds, with the status that the kept relations give it. A `Seen` is one such reference as it stands now, with its labels and the fingerprint its section has `now`.
+`relationsOf` derives the relations of a loom: one for each reference the finders find, with the status that the kept relations give it. A `Seen` is one such reference as it stands now, with its labels and the fingerprint its section has `now`.
 
 A kept relation finds its reference by the labels first. `keyOf` joins the labels, and a reference that answers to them is the kept relation's reference. Its status is `inStep` when the section still has the kept fingerprint, and `drifted` when it does not.
 
@@ -183,11 +218,11 @@ const keyOf = (named: Named): string =>
   JSON.stringify([named.loom, named.section, named.kind, named.to])
 
 const seenIn = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Seen> =>
-  Array.flatMap(relationKinds, (kind) =>
-    Array.map(kind.referencesIn(catalogue, module), (found): Seen => ({
+  Array.flatMap(referenceFinders, (find) =>
+    Array.map(find(catalogue, module), (found): Seen => ({
       loom: module.path,
       section: found.section,
-      kind: kind.name,
+      kind: found.kind,
       to: found.to,
       at: found.at,
       target: found.target,
@@ -421,7 +456,7 @@ export const approvalsAt = (
 
 ## What relations draw on
 
-The corpus model gives the catalogue, a loom's module, the links of a section, and the two functions that resolve a name and an anchor to a section. The product pass gives a section's name, and the fault catalog gives `faulty` and the `DriftedReference` fault. Node's `createHash` computes the hash. Effect supplies `Schema` for the relation, and `Array`, `Match`, `Option`, `Order`, `Record`, and `pipe` for the rest.
+The corpus model gives the catalogue, a loom's module, the links of a section, the references its braces hold, and the three functions that resolve a name, an anchor, and such a reference to a section. The product pass gives a section's name, and the fault catalog gives `faulty` and the `DriftedReference` fault. Node's `createHash` computes the hash. Effect supplies `Schema` for the relation, and `Array`, `Match`, `Option`, `Order`, `Record`, and `pipe` for the rest.
 
 =>
 
@@ -431,10 +466,13 @@ import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
   type Catalogue,
+  isTropeEntry,
   type Location,
   type LoomModule,
+  referencesOf,
   resolveAnchor,
   resolveName,
+  resolveReference,
   sectionLinksOf,
   type SectionRef,
 } from '@athrio/loom-ast/LoomCorpusAst'
@@ -465,7 +503,7 @@ import { sectionNameOf } from '#ast/ProductBuilder'
 
 ## Testing relations
 
-The tests build a small book of two looms. The `rules` loom defines overdrafts, and the `billing` loom refers to that section twice: once by a link in its prose and once by an anchor in its code. `corpusOf` builds the modules of a book, and `anchor` builds an anchor from its pieces, so the code of this chapter holds none.
+The tests build a small book of two looms. The `rules` loom defines overdrafts, and the `billing` loom refers to that section twice: once by a link in its prose and once by an anchor in its code. `corpusOf` builds the modules of a book, with what tropes declare when a case needs it, and `anchor` builds an anchor from its pieces, so the code of this chapter holds none.
 
 =>
 
@@ -477,6 +515,7 @@ import { join } from 'node:path'
 import { catalogueOf, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
+import { type Declared, nothingDeclared } from '#ast/LoomDocumentBuilder'
 import {
   approvalsAt,
   approvedRelations,
@@ -518,7 +557,10 @@ const billing = lines(
   'export const billable = (balance: number): boolean => !overdrawn(balance)',
 )
 
-const corpusOf = (files: Record<string, string>): ReadonlyMap<string, LoomModule> =>
+const corpusOf = (
+  files: Record<string, string>,
+  declared: Declared = nothingDeclared,
+): ReadonlyMap<string, LoomModule> =>
   Effect.runSync(
     Effect.gen(function* () {
       const builder = yield* LoomCorpusAstBuilder
@@ -527,7 +569,7 @@ const corpusOf = (files: Record<string, string>): ReadonlyMap<string, LoomModule
         list: Option.none(),
       }
       const built = yield* Effect.forEach(Object.keys(files), (path) =>
-        builder.build(source, path, defaultAnchorDelims, 'typescript'),
+        builder.build(source, path, defaultAnchorDelims, 'typescript', {}, declared),
       )
       return new Map(built.map((module) => [module.path, module] as const))
     }).pipe(Effect.provide(LoomCorpusAstBuilder.layer)),
@@ -544,7 +586,7 @@ const every = (): boolean => true
 
 ## A reference into another loom makes a relation
 
-The `billing` loom holds an anchor and a link to a section of the `rules` loom, and each makes a relation, untracked until someone approves it. A loom whose anchor points to one of its own sections has none.
+The `billing` loom holds an anchor and a link to a section of the `rules` loom, and each makes a relation, untracked until someone approves it. A loom whose anchor points to one of its own sections has none. A heading whose braces hold a reference to a section of another loom makes a relation too, and the relation's kind is the key the reference stands under.
 
 =>
 
@@ -576,6 +618,26 @@ describe('the references of a loom', () => {
     )
     const modules = corpusOf({ [billingPath]: alone })
     expect(relationsOf(catalogueOf(modules), modules.get(billingPath)!, [])).toEqual([])
+  })
+
+  it('include a parameter that holds a reference, under its key', () => {
+    const settling = lines(
+      '# Billing [billing.ts]',
+      '',
+      '## Refusing a charge {follows=Overdrafts}',
+      '',
+      '=>',
+      'export const refused = true',
+    )
+    const modules = corpusOf(
+      { [rulesPath]: rules('An overdraft is a balance below zero.'), [billingPath]: settling },
+      { ...nothingDeclared, headings: { follows: 'reference' } },
+    )
+    const found = relationsOf(catalogueOf(modules), modules.get(billingPath)!, [])
+    expect(
+      found.map((relation) => [relation.section, relation.kind, relation.to, relation.status]),
+    ).toEqual([['RefusingACharge', 'follows', 'Overdrafts', 'untracked']])
+    expect(found.map((relation) => relation.target.module)).toEqual([rulesPath])
   })
 })
 

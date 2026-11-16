@@ -49,7 +49,7 @@ The first passes apply the specifier grammar of the chapter "Parameters in brace
 1. **Expanding short forms.** A lone label becomes its full parameter, so `{Bash}` becomes `{lang=Bash}` and a box's `{Mermaid}` becomes `{kind=Mermaid}`. No later pass ever handles a label.
 2. **Claiming kinds.** Each kind named in an identity line or a specifier is looked up in the registry, among the core's own kinds and the declared ones. A section of kind `Term` becomes a node of that kind, and a kind that nothing declares is a fault.
 3. **Checking parameters and bodies.** Each parameter is decoded against the type its kind declares. A key that the kind does not declare, a repeated key, and a value of the wrong type are each a fault on that parameter. A box whose kind declares a data body is decoded against the body's schema, and each fault sits on the field that is wrong.
-4. **Resolving references.** Each parameter whose value is a reference resolves through `resolveAnchor`, as an anchor does, and a reference to nothing is a fault. The book's graph then shows the parameter as a relation, named by its key.
+4. **Marking references.** Each parameter whose key holds references is marked. The corpus then resolves each of its values through the book, as it resolves an anchor's name, and a reference to nothing is a fault. The book's relations then hold the parameter, named by its key.
 5. **Setting data apart.** A data section leaves the book's reading order. It shapes no nesting, takes no number, and gives the product and the weave nothing. It stays in the tree, for the editor and for any program that reads the loom.
 
 `ProductBuilder` and `WeaveBuilder` then read the last pass's tree. That tree differs from today's only by the claimed kinds and the data set apart, so neither pass loses anything it does today.
@@ -101,6 +101,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
           expandedDocument(kinds),
           claimedDocument(kinds),
           checkedDocument(coreKeys, declared),
+          referringDocument(coreKeys, declared),
         )
       },
     }),
@@ -319,9 +320,11 @@ A value may also be a name the kind went by before, as `Reference` is a former n
 
 The pass judges the kind of an anchor alone. A box's kind is judged against the registry, beside the roots Loom refuses, as Part XIII, Tropes, describes. A heading's kind is claimed by the second pass. So `takesOn` gives kinds for an anchor and for no other bearer. It gives a heading the keys that tropes let any heading carry, beside the core's.
 
-The keys a bearer takes depend on its kind as well. A bearer of a kind a trope declares takes that kind's parameters beside the keys it takes already, and `withKind` adds them. `bracedKind` reads the kind an anchor's or a box's braces name, in any case of letters. A heading is checked through its section, which carries the kind it claimed, and `checkedSection` does that.
+The keys a bearer takes depend on its kind as well. A bearer of a kind a trope declares takes that kind's parameters beside the keys it takes already, and `withKind` adds them. `bracedKind` reads the kind an anchor's or a box's braces name, in any case of letters. A heading is checked through its section, which carries the kind it claimed.
 
-The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. `checkedDocument` walks the tree twice. The fold stops at a node that a case rewrites, so a walk that rewrites sections never reaches the anchors and boxes inside them. The first walk checks every anchor and every box, and the second checks each heading through its section.
+The pass changes the shape of no node, so the tree it returns is the tree it was given, with faults added. It walks the tree twice. The fold stops at a node that a case rewrites, so a walk that rewrites sections never reaches the anchors and boxes inside them. The first walk reaches every anchor and every box, and the second reaches each heading through its section.
+
+The pass that marks references walks the same way and needs the same keys, so the walk is written once. `overBraces` takes what to do with one bearer, once it is told what the bearer takes, and does it to every anchor, box, and heading. `OnBearer` is the type of such a step, and `bracedSection` applies one to a section's heading. `checkedDocument` hands `overBraces` the step that judges braces.
 
 =>
 
@@ -374,28 +377,36 @@ const withKind = (
 const bracedKind = (bearer: Braced): Option.Option<string> =>
   Option.flatMap(Option.fromNullishOr(bearer.specifier), specifierKind)
 
-const checkedSection =
-  (takes: Takes, declared: ReadonlyArray<KeyedKind>) =>
+type OnBearer = (takes: Takes) => <Bearer extends Braced>(bearer: Bearer) => Bearer
+
+const bracedSection =
+  (takes: Takes, declared: ReadonlyArray<KeyedKind>, step: OnBearer) =>
   (section: ClaimedSection): ClaimedSection => {
     const ofKind = withKind(takes, declared, Option.fromNullishOr(section.kind))
-    const heading = judged(faultedBraces(ofKind))(section.heading)
+    const heading = step(ofKind)(section.heading)
     return heading === section.heading ? section : { ...section, heading }
   }
 
-export const checkedDocument =
-  (keys: Record<BracesOn, Keys>, declared: Declared = nothingDeclared) =>
+const overBraces =
+  (keys: Record<BracesOn, Keys>, declared: Declared, step: OnBearer) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
     const takes = takesOn(keys, declared)
     const inside: ClaimedDocument = rewritten(claimed, {
       WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
-        judged(faultedBraces(withKind(takes('anchor'), declared.anchor, bracedKind(anchor))))(
-          anchor,
-        ),
+        step(withKind(takes('anchor'), declared.anchor, bracedKind(anchor)))(anchor),
       Box: (box: BoxToken): BoxToken =>
-        judged(faultedBraces(withKind(takes('box'), declared.box, bracedKind(box))))(box),
+        step(withKind(takes('box'), declared.box, bracedKind(box)))(box),
     })
-    return rewritten(inside, { LoomSection: checkedSection(takes('heading'), declared.section) })
+    return rewritten(inside, {
+      LoomSection: bracedSection(takes('heading'), declared.section, step),
+    })
   }
+
+export const checkedDocument = (
+  keys: Record<BracesOn, Keys>,
+  declared: Declared = nothingDeclared,
+): ((claimed: ClaimedDocument) => ClaimedDocument) =>
+  overBraces(keys, declared, (takes) => judged(faultedBraces(takes)))
 
 ~
 
@@ -533,6 +544,55 @@ const judged =
       }),
     )
 
+## Marking references
+
+The fourth pass marks the parameters that hold references. A key's type says whether its values name sections, as `replaces` does under a key declared as a reference. Loom treats such a value as it treats an anchor's name: it resolves the value through the book, rewrites it when the section is renamed, and faults a value that names nothing. All of that needs the whole book, which no pass over one loom has. So this pass only sets `refers` on each such parameter, and the corpus reads the mark, as the chapter "The multi-file AST" describes.
+
+The mark keeps the corpus free of the registry. Which keys hold references depends on what tropes declare, and the row is the one place that is handed that. Once the tree carries the mark, every later reader finds a loom's references without asking what any trope declares.
+
+`referringBraces` marks the parameters of one pair of braces, and gives nothing for braces that hold no reference. `rebraced` puts rewritten braces back on their bearer and touches nothing else of it, so a bearer that carries a fault keeps it. `referringDocument` hands `overBraces` that step.
+
+=>
+
+const referringBraces =
+  (takes: Takes) =>
+  (braces: Braces): Option.Option<Braces> => {
+    const refers = (parameter: ParameterToken): boolean =>
+      Option.exists(keyType(takes.keys, parameter.key.value), holdsReferences)
+    return Match.value(braces).pipe(
+      Match.when({ type: 'Parameters' }, (held) =>
+        Array.some(held.parameters, refers)
+          ? Option.some<Braces>({
+              ...held,
+              parameters: Array.map(held.parameters, (parameter) =>
+                refers(parameter) ? { ...parameter, refers: true as const } : parameter,
+              ),
+            })
+          : Option.none<Braces>(),
+      ),
+      Match.when({ type: 'Specifier' }, () => Option.none<Braces>()),
+      Match.exhaustive,
+    )
+  }
+
+const rebraced =
+  (rewrite: (braces: Braces) => Option.Option<Braces>) =>
+  <Bearer extends Braced>(bearer: Bearer): Bearer =>
+    pipe(
+      Option.fromNullishOr(bearer.specifier),
+      Option.flatMap(rewrite),
+      Option.match({
+        onNone: () => bearer,
+        onSome: (braces) => ({ ...bearer, specifier: braces }),
+      }),
+    )
+
+export const referringDocument = (
+  keys: Record<BracesOn, Keys>,
+  declared: Declared = nothingDeclared,
+): ((claimed: ClaimedDocument) => ClaimedDocument) =>
+  overBraces(keys, declared, (takes) => rebraced(referringBraces(takes)))
+
 ## What the row draws on
 
 The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, `Array`, `Match`, `Option`, and `pipe` for the passes, and `Result` for a value read through its type.
@@ -558,6 +618,7 @@ import {
   type BoxToken,
   eachType,
   headingKeys,
+  holdsReferences,
   isList,
   type Keys,
   keyType,
@@ -615,6 +676,8 @@ import {
 ::[Checking parameters]
 
 ::[A fault reaches the bearer]
+
+::[Marking references]
 
 ## Testing the row
 
@@ -1138,6 +1201,60 @@ describe('the keys of a declared kind of box', () => {
   })
 })
 
+## A parameter that holds a reference is marked
+
+A parameter is marked when its key holds references, one or a list of them, and no other parameter is. The mark does not depend on who declared the key: the `anchors` key of a trope box is the core's own, and it is marked like a key a trope declares. A heading that carries a fault keeps it when its braces are marked.
+
+=>
+
+describe('a parameter that holds a reference', () => {
+  const translations: Declared = {
+    ...nothingDeclared,
+    headings: { translates: 'reference', related: { list: 'reference' }, locale: 'locale' },
+  }
+
+  const headingOf = (heading: string) =>
+    builtWith(`${heading}\n\nProse.\n`, translations).sections[0]?.heading
+
+  const marked = (heading: string) =>
+    (headingOf(heading)?.specifier?.parameters ?? []).map(
+      (parameter) => [parameter.key.value, parameter.refers === true] as const,
+    )
+
+  it('is marked, and a parameter of another type is not', () => {
+    expect(marked('## Tere {translates=Hello locale=et}')).toEqual([
+      ['translates', true],
+      ['locale', false],
+    ])
+  })
+
+  it('is marked when its key holds a list of references', () => {
+    expect(marked('## Tere {related=[Hello, Goodbye]}')).toEqual([['related', true]])
+  })
+
+  it('leaves braces that hold no reference as they were', () => {
+    expect(marked('## Tere {lang=Bash}')).toEqual([['lang', false]])
+  })
+
+  it("marks the core's own reference, the anchors of a trope box", () => {
+    const box = boxIn('::: Payments {kind=Trope anchors=Billing}')
+    const held = box?.specifier?.type === 'Parameters' ? box.specifier.parameters : []
+    expect(held.map((parameter) => [parameter.key.value, parameter.refers === true])).toEqual([
+      ['kind', false],
+      ['anchors', true],
+    ])
+  })
+
+  it('keeps the fault of a heading whose braces it marks', () => {
+    const heading = headingOf('## Tere {translates=Hello locale=pt_BR}')
+    expect(heading?.health.status).toBe('error')
+    expect(marked('## Tere {translates=Hello locale=pt_BR}')).toEqual([
+      ['translates', true],
+      ['locale', false],
+    ])
+  })
+})
+
 ## An anchor's kind is one of its own
 
 With nothing declared, an anchor's kind is `To be settled` or `Module`, in any case of letters. Any other kind is a fault on the value that names it, written as a label or as a parameter, and it fails the anchor. A kind written by its former name gets a fault of its own, whose fix writes the present name over the former one. A box's kind is left for the book to judge.
@@ -1235,6 +1352,8 @@ describe('the tree the row writes', () => {
 
 ::[The keys of a declared kind of box]
 
+::[A parameter that holds a reference is marked]
+
 ::[An anchor's kind is one of its own]
 
 ::[The row writes the tree it claims]
@@ -1247,7 +1366,7 @@ describe('the tree the row writes', () => {
 
 1. Expanding the label of an anchor and of a box. Those labels stay as the author wrote them, and a later reader takes the kind they name through the `specifierKind` function of the chapter "The leaf tokens".
 2. Data bodies in the pass that checks parameters, as the chapter "Tropes" describes.
-3. The passes that follow: resolving references and setting data apart.
+3. The pass that follows: setting data apart.
 4. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
 
 When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".

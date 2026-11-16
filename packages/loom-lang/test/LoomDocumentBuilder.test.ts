@@ -436,6 +436,54 @@ describe('the keys of a declared kind of box', () => {
   })
 })
 
+describe('a parameter that holds a reference', () => {
+  const translations: Declared = {
+    ...nothingDeclared,
+    headings: { translates: 'reference', related: { list: 'reference' }, locale: 'locale' },
+  }
+
+  const headingOf = (heading: string) =>
+    builtWith(`${heading}\n\nProse.\n`, translations).sections[0]?.heading
+
+  const marked = (heading: string) =>
+    (headingOf(heading)?.specifier?.parameters ?? []).map(
+      (parameter) => [parameter.key.value, parameter.refers === true] as const,
+    )
+
+  it('is marked, and a parameter of another type is not', () => {
+    expect(marked('## Tere {translates=Hello locale=et}')).toEqual([
+      ['translates', true],
+      ['locale', false],
+    ])
+  })
+
+  it('is marked when its key holds a list of references', () => {
+    expect(marked('## Tere {related=[Hello, Goodbye]}')).toEqual([['related', true]])
+  })
+
+  it('leaves braces that hold no reference as they were', () => {
+    expect(marked('## Tere {lang=Bash}')).toEqual([['lang', false]])
+  })
+
+  it("marks the core's own reference, the anchors of a trope box", () => {
+    const box = boxIn('::: Payments {kind=Trope anchors=Billing}')
+    const held = box?.specifier?.type === 'Parameters' ? box.specifier.parameters : []
+    expect(held.map((parameter) => [parameter.key.value, parameter.refers === true])).toEqual([
+      ['kind', false],
+      ['anchors', true],
+    ])
+  })
+
+  it('keeps the fault of a heading whose braces it marks', () => {
+    const heading = headingOf('## Tere {translates=Hello locale=pt_BR}')
+    expect(heading?.health.status).toBe('error')
+    expect(marked('## Tere {translates=Hello locale=pt_BR}')).toEqual([
+      ['translates', true],
+      ['locale', false],
+    ])
+  })
+})
+
 describe("the kind an anchor's braces name", () => {
   it('faults a label that names no kind of anchor, and fails the anchor', () => {
     const anchor = anchorIn(greeting('{x}'))
