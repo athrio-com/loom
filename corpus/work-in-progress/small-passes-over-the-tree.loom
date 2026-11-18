@@ -743,7 +743,7 @@ export const referringDocument = (
 
 The fifth pass keeps each anchor of a declared kind to the place its kind is for. An anchor stands in code, where it composes its section, or in prose, where it is a link a reader follows. A kind may keep to one of the two: an anchor that cites a decision belongs in prose, and composing it into a file would never be meant. An anchor of such a kind written in the other place carries the `MisplacedAnchor` fault, on the word that names its kind, and the anchor fails with it, so it composes nothing.
 
-A line of prose is a line of a preamble, a line after a tilde, or the tilde's own line. Every other line that carries anchors is code. `placedDocument` hands the fold one case for each sort of line, and `placedLine` judges the anchors of one line, returning the line it was given when none is misplaced. A book whose tropes keep no kind to a place skips the walk.
+The line an anchor is written on says where it stands, and `standingOf`, from the chapter "Wefts", reads it: a line of a preamble, a line after a tilde, and the tilde's own line are prose, and every other line that carries anchors is code. `placedDocument` hands the fold one case for each sort of line, and `placedLine` judges the anchors of one line, returning the line it was given when none is misplaced. A book whose tropes keep no kind to a place skips the walk.
 
 `placedAnchor` finds the kind an anchor's braces name among the declared ones, and `kindFaulted` puts a fault on the word that names the kind, a label or the value of a `kind` parameter.
 
@@ -819,16 +819,16 @@ const placedLine =
 export const placedDocument =
   (kinds: ReadonlyArray<AnchorKind>) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
-    const inProse = placedLine(kinds, 'prose')
-    const inCode = placedLine(kinds, 'code')
+    const placed = <Line extends PreambleWeft | SectionBodyWeft>(line: Line): Line =>
+      placedLine(kinds, standingOf(line))(line)
     return Array.some(kinds, (each) => Option.isSome(each.standsIn))
       ? rewritten(claimed, {
-          PreambleWeft: (line: PreambleWeft): PreambleWeft => inProse(line),
-          TildeWeft: (line: TildeWeft): TildeWeft => inProse(line),
-          ProseWeft: (line: ProseWeft): ProseWeft => inProse(line),
-          ArrowWeft: (line: ArrowWeft): ArrowWeft => inCode(line),
-          CodeWeft: (line: CodeWeft): CodeWeft => inCode(line),
-          FenceWeft: (line: FenceWeft): FenceWeft => inCode(line),
+          PreambleWeft: (line: PreambleWeft): PreambleWeft => placed(line),
+          TildeWeft: (line: TildeWeft): TildeWeft => placed(line),
+          ProseWeft: (line: ProseWeft): ProseWeft => placed(line),
+          ArrowWeft: (line: ArrowWeft): ArrowWeft => placed(line),
+          CodeWeft: (line: CodeWeft): CodeWeft => placed(line),
+          FenceWeft: (line: FenceWeft): FenceWeft => placed(line),
         })
       : claimed
   }
@@ -888,13 +888,15 @@ import {
   type Zone,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
-import type {
-  ArrowWeft,
-  CodeWeft,
-  FenceWeft,
-  PreambleWeft,
-  ProseWeft,
-  TildeWeft,
+import {
+  type ArrowWeft,
+  type CodeWeft,
+  type FenceWeft,
+  type PreambleWeft,
+  type ProseWeft,
+  type SectionBodyWeft,
+  standingOf,
+  type TildeWeft,
 } from '@athrio/loom-ast/Weft'
 import {
   type BracesOn,

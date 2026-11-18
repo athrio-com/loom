@@ -27,6 +27,7 @@ import {
   labelSlotAt,
   linksOf,
   moduleDiagnostics,
+  standingAt,
   namesakesOf,
   reachable,
   referencesAt,
@@ -74,7 +75,12 @@ import {
   unusedSections,
   usedSections,
 } from '#ast/ProductBuilder'
-import { anchorKinds, headingLangToken, type Keys } from '@athrio/loom-ast/LoomTokens'
+import {
+  anchorKinds,
+  headingLangToken,
+  type Keys,
+  type Standing,
+} from '@athrio/loom-ast/LoomTokens'
 import { type Code, keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
@@ -167,6 +173,20 @@ const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
 }
 
 const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
+
+const anchorLabels = (
+  kinds: DeclaredKinds,
+  standing: Option.Option<Standing>,
+): ReadonlyArray<string> => [
+  ...anchorKinds,
+  ...Array.map(
+    Array.filter(
+      kinds.anchor,
+      (declared) => !Option.exists(declared.standsIn, (place) => !Option.contains(standing, place)),
+    ),
+    (declared) => declared.kind,
+  ),
+]
 
 const keyedKind = (declared: {
   readonly kind: string
@@ -1541,8 +1561,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         path: Location,
         offset: number,
       ): Effect.Effect<ReadonlyArray<FrameCompletion>> =>
-        buildCorpus(documents, path).pipe(
-          Effect.map((modules) =>
+        corpusOf(documents, path).pipe(
+          Effect.map(({ modules, kinds }) =>
             Option.match(
               Option.all([
                 Option.fromNullishOr(modules.get(path)),
@@ -1551,14 +1571,17 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               {
                 onNone: (): ReadonlyArray<FrameCompletion> => [],
                 onSome: ([module, slot]) =>
-                  Array.map(anchorKinds, (label): FrameCompletion => ({
-                    label,
-                    range: {
-                      start: lineCharAt(module.text, slot.start),
-                      end: lineCharAt(module.text, slot.end),
-                    },
-                    text: slot.closed ? label : `${label}}`,
-                  })),
+                  Array.map(
+                    anchorLabels(kinds, standingAt({ modules }, path, offset)),
+                    (label): FrameCompletion => ({
+                      label,
+                      range: {
+                        start: lineCharAt(module.text, slot.start),
+                        end: lineCharAt(module.text, slot.end),
+                      },
+                      text: slot.closed ? label : `${label}}`,
+                    }),
+                  ),
               },
             ),
           ),

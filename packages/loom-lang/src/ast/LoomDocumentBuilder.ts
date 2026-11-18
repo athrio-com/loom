@@ -47,13 +47,15 @@ import {
   type Zone,
 } from '@athrio/loom-ast/LoomTokens'
 import { rewritten } from '@athrio/loom-ast/TreeFold'
-import type {
-  ArrowWeft,
-  CodeWeft,
-  FenceWeft,
-  PreambleWeft,
-  ProseWeft,
-  TildeWeft,
+import {
+  type ArrowWeft,
+  type CodeWeft,
+  type FenceWeft,
+  type PreambleWeft,
+  type ProseWeft,
+  type SectionBodyWeft,
+  standingOf,
+  type TildeWeft,
 } from '@athrio/loom-ast/Weft'
 import {
   type BracesOn,
@@ -701,16 +703,16 @@ const placedLine =
 export const placedDocument =
   (kinds: ReadonlyArray<AnchorKind>) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
-    const inProse = placedLine(kinds, 'prose')
-    const inCode = placedLine(kinds, 'code')
+    const placed = <Line extends PreambleWeft | SectionBodyWeft>(line: Line): Line =>
+      placedLine(kinds, standingOf(line))(line)
     return Array.some(kinds, (each) => Option.isSome(each.standsIn))
       ? rewritten(claimed, {
-          PreambleWeft: (line: PreambleWeft): PreambleWeft => inProse(line),
-          TildeWeft: (line: TildeWeft): TildeWeft => inProse(line),
-          ProseWeft: (line: ProseWeft): ProseWeft => inProse(line),
-          ArrowWeft: (line: ArrowWeft): ArrowWeft => inCode(line),
-          CodeWeft: (line: CodeWeft): CodeWeft => inCode(line),
-          FenceWeft: (line: FenceWeft): FenceWeft => inCode(line),
+          PreambleWeft: (line: PreambleWeft): PreambleWeft => placed(line),
+          TildeWeft: (line: TildeWeft): TildeWeft => placed(line),
+          ProseWeft: (line: ProseWeft): ProseWeft => placed(line),
+          ArrowWeft: (line: ArrowWeft): ArrowWeft => placed(line),
+          CodeWeft: (line: CodeWeft): CodeWeft => placed(line),
+          FenceWeft: (line: FenceWeft): FenceWeft => placed(line),
         })
       : claimed
   }

@@ -78,7 +78,7 @@ export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
 ## A specifier's parameters
 
-A specifier may hold parameters in place of one label, as the chapter "Parameters in braces" describes. A parameter is a key, an equals sign, and a value, as in `provides=greet`. A value is bare, quoted, or a list in square brackets, so `provides=[greet, farewell]` gives its key two values. A `ParameterKey` holds the key, and a `ParameterValue` holds one value, with a quoted value's quotes and escapes already undone. A `Parameter` pairs a key with its values, and a `Parameters` token holds every parameter of one specifier between its braces. A parameter whose key holds references carries `refers`, so a reader of the tree knows that each of its values names a section. The parser sets no such mark. The row of small passes sets it once it knows the key's type, as the chapter "Small passes over the tree" describes. The specifiers of a heading, an anchor, and a box all hold parameters. `firstValue` gives the token of the value one key holds, the first value when the key holds a list, and `parameterValue` reads that token's text.
+A specifier may hold parameters in place of one label, as the chapter "Parameters in braces" describes. A parameter is a key, an equals sign, and a value, as in `provides=greet`. A value is bare, quoted, or a list in square brackets, so `provides=[greet, farewell]` gives its key two values. A `ParameterKey` holds the key, and a `ParameterValue` holds one value, with a quoted value's quotes and escapes already undone. A `Parameter` pairs a key with its values, and a `Parameters` token holds every parameter of one specifier between its braces. A parameter whose key holds references carries `refers`, so a reader of the tree knows that each of its values names a section. The parser sets no such mark. The row of small passes sets it once it knows the key's type, as the chapter "Small passes over the tree" describes. The specifiers of a heading, an anchor, and a box all hold parameters. `firstValue` gives the token of the value one key holds, the first value when the key holds a list, and `parameterValue` reads that token's text. `valueWords` gives the span of a value's own words, which lies inside the quotes of a quoted value.
 
 A label may not stand beside parameters, but an author may write one there. The `labels` field of a `Parameters` token keeps such words, each run of them as one label, so the pass that expands short forms can fault each where it stands. Sound braces hold none.
 
@@ -108,6 +108,14 @@ export const ParametersTokenSchema = loomNode('Parameters', {
   close: SpecifierCloseTokenSchema,
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type
+
+export const valueWords = (value: ParameterValueToken): Position => {
+  const quoted = value.source.startsWith('"') ? 1 : 0
+  return {
+    start: shifted(value.position.start, quoted),
+    end: shifted(value.position.end, -quoted),
+  }
+}
 
 export const firstValue = (
   specifier: ParametersToken,
@@ -866,7 +874,7 @@ export type LoomToken = typeof LoomTokenSchema.Type
 =>
 
 import { Array, Data, Effect, Match, Option, Result, Schema, pipe } from 'effect'
-import { loomNode } from '#ast/LoomNode'
+import { loomNode, type Position, shifted } from '#ast/LoomNode'
 
 ## The module {Tangle}
 

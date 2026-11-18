@@ -14,11 +14,13 @@ Every node type is an Effect `Schema.Struct`, so one definition both validates a
 
 =>
 
-import { Schema } from 'effect'
+import { Option, Schema } from 'effect'
 
 ## Source positions
 
 A `Position` is the span a node covers — a `start` and `end` `Point`. A `Point` carries a `line`, an optional `column`, and an `offset`. The `offset` is the byte index Volar maps against; line and column only serve diagnostics.
+
+`shifted` moves a point along its line by a count of characters, forward or back, so a reader of a token can name a span inside it, such as one name of an anchor's path.
 
 =>
 
@@ -39,6 +41,12 @@ export const PositionSchema = Schema.Struct({
   end: PointSchema,
 })
 export type Position = typeof PositionSchema.Type
+
+export const shifted = (point: Point, by: number): Point =>
+  Option.match(Option.fromNullishOr(point.column), {
+    onNone: () => ({ ...point, offset: point.offset + by }),
+    onSome: (column) => ({ ...point, offset: point.offset + by, column: column + by }),
+  })
 
 ## Diagnostics
 

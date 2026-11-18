@@ -1,6 +1,6 @@
 // Hello! This is the beginning of the Loom language.
 
-import { Schema } from 'effect'
+import { Option, Schema } from 'effect'
 
 const intAtLeast = (min: number) =>
   Schema.makeFilter<number>((n) =>
@@ -19,6 +19,12 @@ export const PositionSchema = Schema.Struct({
   end: PointSchema,
 })
 export type Position = typeof PositionSchema.Type
+
+export const shifted = (point: Point, by: number): Point =>
+  Option.match(Option.fromNullishOr(point.column), {
+    onNone: () => ({ ...point, offset: point.offset + by }),
+    onSome: (column) => ({ ...point, offset: point.offset + by, column: column + by }),
+  })
 
 export const SeveritySchema = Schema.Literals(['error', 'warning', 'info'])
 export type Severity = typeof SeveritySchema.Type

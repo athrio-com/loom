@@ -1,5 +1,5 @@
 import { Array, Data, Match, Option, Order, pipe, Schema } from 'effect'
-import { type Diagnostic, type Point, type Position } from '#ast/LoomNode'
+import { type Diagnostic, type Point, type Position, shifted } from '#ast/LoomNode'
 import {
   boxKind,
   type BoxNameToken,
@@ -19,7 +19,9 @@ import {
   type ParameterToken,
   type ParameterValueToken,
   type PointingKind,
+  valueWords,
   type SpecifierToken,
+  type Standing,
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
@@ -31,6 +33,7 @@ import {
   type PreambleWeft,
   type ProseWeft,
   type SectionBodyWeft,
+  standingOf,
   type TildeWeft,
 } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
@@ -970,14 +973,24 @@ const valueSpan = (
   value: ParameterValueToken,
   segment: Segment,
 ): Option.Option<CorpusLocation> => {
-  const quoted = value.source.startsWith('"') ? 1 : 0
-  const words = shifted(value.position.start, quoted)
-  return value.source.slice(quoted, value.source.length - quoted) === value.value
+  const words = valueWords(value)
+  return textWithin(value) === value.value
     ? Option.some({
         path,
-        position: { start: shifted(words, segment.start), end: shifted(words, segment.end) },
+        position: {
+          start: shifted(words.start, segment.start),
+          end: shifted(words.start, segment.end),
+        },
       })
     : Option.none()
+}
+
+const textWithin = (value: ParameterValueToken): string => {
+  const words = valueWords(value)
+  return value.source.slice(
+    words.start.offset - value.position.start.offset,
+    value.source.length - (value.position.end.offset - words.end.offset),
+  )
 }
 
 const referencesNaming = (
@@ -1312,12 +1325,6 @@ const chapterLocation = (chapter: Chapter): Option.Option<CorpusLocation> =>
     position: title.position,
   }))
 
-const shifted = (point: Point, by: number): Point =>
-  Option.match(Option.fromNullishOr(point.column), {
-    onNone: () => ({ ...point, offset: point.offset + by }),
-    onSome: (column) => ({ ...point, offset: point.offset + by, column: column + by }),
-  })
-
 const segmentPosition: SpanOf = (anchor, segment) => ({
   start: shifted(anchor.name.position.start, segment.start),
   end: shifted(anchor.name.position.start, segment.end),
@@ -1343,6 +1350,42 @@ const anchorStepAt = (
     ),
   )
 
+const referenceAt = (module: LoomModule, offset: number): Option.Option<HeldReference> =>
+  Array.findFirst(referencesOf(module), (held) => covers(held.value.position, offset))
+
+const referenceStepAt = (
+  catalogue: Catalogue,
+  modules: Modules,
+  path: Location,
+  offset: number,
+): Option.Option<Step> =>
+  pipe(
+    Option.fromNullishOr(modules.get(path)),
+    Option.flatMap((module) => referenceAt(module, offset)),
+    Option.flatMap((held) =>
+      Option.map(soleTrail(referenceTrails(catalogue, path, held)), (trail) =>
+        Option.getOrElse(
+          Array.findFirst(trail, (step) =>
+            Option.exists(valueSpan(path, held.value, step.segment), (at) =>
+              covers(at.position, offset),
+            ),
+          ),
+          () => Array.lastNonEmpty(trail),
+        ),
+      ),
+    ),
+  )
+
+const nameStepAt = (
+  catalogue: Catalogue,
+  modules: Modules,
+  path: Location,
+  offset: number,
+): Option.Option<Step> =>
+  Option.orElse(anchorStepAt(catalogue, modules, path, offset), () =>
+    referenceStepAt(catalogue, modules, path, offset),
+  )
+
 type Mention = { readonly place: Place; readonly numbered: boolean }
 
 const mentionAt = (
@@ -1356,7 +1399,7 @@ const mentionAt = (
       place: Place.Section({ ref }),
       numbered: false,
     })),
-    () => anchorStepAt(catalogue, modules, path, offset),
+    () => nameStepAt(catalogue, modules, path, offset),
   )
 
 const stepsOf = (
@@ -1410,7 +1453,7 @@ const sectionDefinitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   Option.flatMap(
-    anchorStepAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    nameStepAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
     ({ place }) => placeLocation(corpus.modules, place),
   )
 
@@ -1781,6 +1824,12 @@ const chapterNamesAt = (
   })
 }
 
+const numberToken = (module: LoomModule): Option.Option<{ readonly position: Position }> =>
+  Option.orElse(
+    Option.fromNullishOr(module.doc.frontmatter?.chapter ?? module.doc.frontmatter?.discussion),
+    () => claimedKind(module),
+  )
+
 const chapterNumbers = (
   catalogue: Catalogue,
   modules: Modules,
@@ -1789,7 +1838,7 @@ const chapterNumbers = (
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(
     Option.map(
-      Option.fromNullishOr(chapter.module.doc.frontmatter?.chapter),
+      numberToken(chapter.module),
       (number): CorpusLocation => ({ path: chapter.module.path, position: number.position }),
     ),
   ),
@@ -1799,6 +1848,7 @@ const chapterNumbers = (
     (step) => step.numbered && namesChapter(chapter)(step.place),
     spanOf,
   ),
+  ...referencesNaming(catalogue, (step) => step.numbered && namesChapter(chapter)(step.place)),
 ]
 
 const chapterNumbersAt = (
@@ -1981,7 +2031,9 @@ export const definitionAt = (
       Option.flatMap(symbolAt(module.doc, offset), (symbol) =>
         Match.value(symbol.kind).pipe(
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
-          Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
+          Match.whenOr('sectionAnchor', 'referenceValue', () =>
+            sectionDefinitionAt(corpus, path, offset),
+          ),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
           Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterDefinitionAt(corpus, path, offset),
@@ -2015,7 +2067,7 @@ export const referencesAt = (
           Match.whenOr('warpAnchor', 'warpDef', () =>
             warpReferences(module, path, offset, (anchor) => anchor.position),
           ),
-          Match.whenOr('headingTitle', 'sectionAnchor', () =>
+          Match.whenOr('headingTitle', 'sectionAnchor', 'referenceValue', () =>
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
@@ -2051,7 +2103,7 @@ export const renameAt = (
           Match.whenOr('warpAnchor', 'warpDef', () =>
             warpReferences(module, path, offset, (anchor) => anchor.name.position),
           ),
-          Match.whenOr('headingTitle', 'sectionAnchor', () =>
+          Match.whenOr('headingTitle', 'sectionAnchor', 'referenceValue', () =>
             Option.match(conceptRenameAt(corpus, path, offset), {
               onSome: (rename): ReadonlyArray<CorpusLocation> => [
                 rename.heading,
@@ -2297,6 +2349,25 @@ export const labelSlotAt = (
     Option.flatMap((module) =>
       Array.findFirst(allAnchorsOf(module.doc), slotOf(module.text, offset)),
     ),
+  )
+
+export const standingAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<Standing> =>
+  pipe(
+    Option.fromNullishOr(corpus.modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(
+        [
+          ...module.doc.preamble,
+          ...Array.flatMap(module.doc.sections, (section) => [...section.preamble, ...section.code]),
+        ],
+        (line) => covers(line.position, offset),
+      ),
+    ),
+    Option.map(standingOf),
   )
 
 const tidy = (text: string): string =>

@@ -1079,14 +1079,24 @@ const valueSpan = (
   value: ParameterValueToken,
   segment: Segment,
 ): Option.Option<CorpusLocation> => {
-  const quoted = value.source.startsWith('"') ? 1 : 0
-  const words = shifted(value.position.start, quoted)
-  return value.source.slice(quoted, value.source.length - quoted) === value.value
+  const words = valueWords(value)
+  return textWithin(value) === value.value
     ? Option.some({
         path,
-        position: { start: shifted(words, segment.start), end: shifted(words, segment.end) },
+        position: {
+          start: shifted(words.start, segment.start),
+          end: shifted(words.start, segment.end),
+        },
       })
     : Option.none()
+}
+
+const textWithin = (value: ParameterValueToken): string => {
+  const words = valueWords(value)
+  return value.source.slice(
+    words.start.offset - value.position.start.offset,
+    value.source.length - (value.position.end.offset - words.end.offset),
+  )
 }
 
 const referencesNaming = (
@@ -1455,7 +1465,7 @@ const sectionRefAt = (modules: Modules, path: Location, offset: number): Option.
 
 A resolved name then locates its declaration and every anchor that names it. `titleLocation` points at a section's heading title, and `chapterLocation` at the title a chapter declares.
 
-An anchor that holds a path names several places, so the navigation reads the one under the cursor. `segmentPosition` turns a segment's offsets inside the anchor's name into a span of the source, moving the name's own start by `shifted`. `stepAt` picks the step whose segment covers the cursor, or the last step when the cursor sits on a bracket. `anchorStepAt` reads the step under a cursor in an anchor. A `Mention` is a place together with whether it was named by number, and `mentionAt` reads the one under a cursor: the section of a heading, or the step of an anchor.
+An anchor that holds a path names several places, so the navigation reads the one under the cursor. `segmentPosition` turns a segment's offsets inside the anchor's name into a span of the source, moving the name's own start by `shifted`. `stepAt` picks the step whose segment covers the cursor, or the last step when the cursor sits on a bracket. `anchorStepAt` reads the step under a cursor in an anchor. A reference that braces hold names a place the same way, so `referenceAt` finds the reference a cursor rests in, and `referenceStepAt` reads the step under it, by the span `valueSpan` gives each name of the value. `nameStepAt` reads whichever of the two the cursor is in. A `Mention` is a place together with whether it was named by number, and `mentionAt` reads the one under a cursor: the section of a heading, or the step of an anchor or of a reference.
 
 `anchorsNaming` gathers every anchor across the corpus with a step that a predicate accepts, each by the span a caller picks: the whole anchor for a reference, or the one segment for a rename. `stepsOf` gives an anchor's steps, and only an anchor that resolves to one trail has any, since an ambiguous anchor names nothing for certain. `namesSection` accepts one section, and `namesChapter` accepts one chapter. An anchor names a section only through a segment that writes the section's own title. An anchor that reaches a chapter's opening section through the chapter's title names the chapter, not the section.
 
@@ -1474,12 +1484,6 @@ const chapterLocation = (chapter: Chapter): Option.Option<CorpusLocation> =>
     path: chapter.module.path,
     position: title.position,
   }))
-
-const shifted = (point: Point, by: number): Point =>
-  Option.match(Option.fromNullishOr(point.column), {
-    onNone: () => ({ ...point, offset: point.offset + by }),
-    onSome: (column) => ({ ...point, offset: point.offset + by, column: column + by }),
-  })
 
 const segmentPosition: SpanOf = (anchor, segment) => ({
   start: shifted(anchor.name.position.start, segment.start),
@@ -1506,6 +1510,42 @@ const anchorStepAt = (
     ),
   )
 
+const referenceAt = (module: LoomModule, offset: number): Option.Option<HeldReference> =>
+  Array.findFirst(referencesOf(module), (held) => covers(held.value.position, offset))
+
+const referenceStepAt = (
+  catalogue: Catalogue,
+  modules: Modules,
+  path: Location,
+  offset: number,
+): Option.Option<Step> =>
+  pipe(
+    Option.fromNullishOr(modules.get(path)),
+    Option.flatMap((module) => referenceAt(module, offset)),
+    Option.flatMap((held) =>
+      Option.map(soleTrail(referenceTrails(catalogue, path, held)), (trail) =>
+        Option.getOrElse(
+          Array.findFirst(trail, (step) =>
+            Option.exists(valueSpan(path, held.value, step.segment), (at) =>
+              covers(at.position, offset),
+            ),
+          ),
+          () => Array.lastNonEmpty(trail),
+        ),
+      ),
+    ),
+  )
+
+const nameStepAt = (
+  catalogue: Catalogue,
+  modules: Modules,
+  path: Location,
+  offset: number,
+): Option.Option<Step> =>
+  Option.orElse(anchorStepAt(catalogue, modules, path, offset), () =>
+    referenceStepAt(catalogue, modules, path, offset),
+  )
+
 type Mention = { readonly place: Place; readonly numbered: boolean }
 
 const mentionAt = (
@@ -1519,7 +1559,7 @@ const mentionAt = (
       place: Place.Section({ ref }),
       numbered: false,
     })),
-    () => anchorStepAt(catalogue, modules, path, offset),
+    () => nameStepAt(catalogue, modules, path, offset),
   )
 
 const stepsOf = (
@@ -1579,7 +1619,7 @@ const sectionDefinitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   Option.flatMap(
-    anchorStepAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
+    nameStepAt(catalogueOf(corpus.modules), corpus.modules, path, offset),
     ({ place }) => placeLocation(corpus.modules, place),
   )
 
@@ -1788,7 +1828,7 @@ A chapter's identity is the title it declares, not its heading, because a headin
 
 A box's name leads where its kind says. `boxDefinitionAt` follows the name of a chapter box or a discussion box to its loom, and the name of a trope box to the trope's entry point, which `tropeBoxAt` finds under the cursor. `boxNamesAt` gathers a box's names. A trope's names are its box's name and every anchor that reached the entry point through the box, which `tropeNames` gathers, so a rename of the trope rewrites them and leaves the entry point alone. A chapter box's names are its chapter's.
 
-A chapter's number is a name of its own. `chapterNumbers` gathers the `Chapter N` the chapter's frontmatter declares and every anchor that names the chapter by that number, so renumbering a chapter rewrites each numbered reference in the same edit. `chapterNumbersAt` gathers them for the chapter whose frontmatter number the cursor sits on.
+A chapter's number is a name of its own, and so is a discussion's, and that of a loom of a kind a trope declares, such as `Tasks 1`. `numberToken` reads the one a loom's identity line writes. `chapterNumbers` gathers that token with every anchor, and every reference that braces hold, that names the loom by that number, so renumbering a loom rewrites each numbered reference in the same edit. `chapterNumbersAt` gathers them for the loom whose frontmatter number the cursor sits on.
 
 A part resolves the same way, keyed by its book and its number rather than its title. A part is announced once, in its opening chapter's standalone `Part R: name`, whose `partName` is the part's identity. `partOpenerIndex` maps the key of each part, which `partKey` writes from the part's book and its number, to that announcement. The key under a cursor comes from a chapter's `Part R` and the chapter's book, which `frontmatterPartKeyAt` reads for `partKeyAt`. `partDefinitionAt` follows the key to the opener, and `partGroup` gathers the whole part, the announcement and every chapter's `Part R`, which `partGroupAt` reads from the cursor.
 
@@ -1974,6 +2014,12 @@ const chapterNamesAt = (
   })
 }
 
+const numberToken = (module: LoomModule): Option.Option<{ readonly position: Position }> =>
+  Option.orElse(
+    Option.fromNullishOr(module.doc.frontmatter?.chapter ?? module.doc.frontmatter?.discussion),
+    () => claimedKind(module),
+  )
+
 const chapterNumbers = (
   catalogue: Catalogue,
   modules: Modules,
@@ -1982,7 +2028,7 @@ const chapterNumbers = (
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(
     Option.map(
-      Option.fromNullishOr(chapter.module.doc.frontmatter?.chapter),
+      numberToken(chapter.module),
       (number): CorpusLocation => ({ path: chapter.module.path, position: number.position }),
     ),
   ),
@@ -1992,6 +2038,7 @@ const chapterNumbers = (
     (step) => step.numbered && namesChapter(chapter)(step.place),
     spanOf,
   ),
+  ...referencesNaming(catalogue, (step) => step.numbered && namesChapter(chapter)(step.place)),
 ]
 
 const chapterNumbersAt = (
@@ -2165,7 +2212,7 @@ const bookNamesAt = (
 
 ~
 
-`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a warp anchor to its warp, the name of a chapter box or a discussion box, or a chapter's own title to that chapter, the name of a trope box to the trope's entry point, a `Part R` to where the part is announced, and a `Book:` line to the book loom that opens the book. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the boxes and anchors that name it, a trope's name with the anchors that name the trope, a chapter's number with the anchors that name it by number, a part's announcement and every `Part R` that names it, or a book's `Book:` lines and the anchors whose paths pass through it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
+`definitionAt` follows the reference under a cursor to its definition — a section anchor to the heading or chapter title its segment names, a reference that braces hold to the same, a warp anchor to its warp, the name of a chapter box or a discussion box, or a chapter's own title to that chapter, the name of a trope box to the trope's entry point, a `Part R` to where the part is announced, and a `Book:` line to the book loom that opens the book. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, a chapter's title with the boxes and anchors that name it, a trope's name with the anchors that name the trope, a chapter's number with the anchors that name it by number, a part's announcement and every `Part R` that names it, or a book's `Book:` lines and the anchors whose paths pass through it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
 
 =>
 
@@ -2180,7 +2227,9 @@ export const definitionAt = (
       Option.flatMap(symbolAt(module.doc, offset), (symbol) =>
         Match.value(symbol.kind).pipe(
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
-          Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
+          Match.whenOr('sectionAnchor', 'referenceValue', () =>
+            sectionDefinitionAt(corpus, path, offset),
+          ),
           Match.when('boxName', () => boxDefinitionAt(corpus, path, offset)),
           Match.whenOr('frontmatterTitle', 'frontmatterEntry', 'frontmatterRootedIn', () =>
             chapterDefinitionAt(corpus, path, offset),
@@ -2214,7 +2263,7 @@ export const referencesAt = (
           Match.whenOr('warpAnchor', 'warpDef', () =>
             warpReferences(module, path, offset, (anchor) => anchor.position),
           ),
-          Match.whenOr('headingTitle', 'sectionAnchor', () =>
+          Match.whenOr('headingTitle', 'sectionAnchor', 'referenceValue', () =>
             placeNamesAt(corpus, path, offset, wholeAnchor),
           ),
           Match.when('boxName', () => boxNamesAt(corpus, path, offset, wholeAnchor)),
@@ -2256,7 +2305,7 @@ export const renameAt = (
           Match.whenOr('warpAnchor', 'warpDef', () =>
             warpReferences(module, path, offset, (anchor) => anchor.name.position),
           ),
-          Match.whenOr('headingTitle', 'sectionAnchor', () =>
+          Match.whenOr('headingTitle', 'sectionAnchor', 'referenceValue', () =>
             Option.match(conceptRenameAt(corpus, path, offset), {
               onSome: (rename): ReadonlyArray<CorpusLocation> => [
                 rename.heading,
@@ -2534,6 +2583,31 @@ export const labelSlotAt = (
     Option.flatMap((module) =>
       Array.findFirst(allAnchorsOf(module.doc), slotOf(module.text, offset)),
     ),
+  )
+
+~
+
+A kind of anchor may keep to prose or to code, as Part XIII, Tropes, describes, so the labels worth offering depend on where the anchor stands. `standingAt` reads the place of the line a cursor is on, through `standingOf`.
+
+=>
+
+export const standingAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offset: number,
+): Option.Option<Standing> =>
+  pipe(
+    Option.fromNullishOr(corpus.modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(
+        [
+          ...module.doc.preamble,
+          ...Array.flatMap(module.doc.sections, (section) => [...section.preamble, ...section.code]),
+        ],
+        (line) => covers(line.position, offset),
+      ),
+    ),
+    Option.map(standingOf),
   )
 
 ## Keeping a box in step
@@ -3202,7 +3276,7 @@ Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the qu
 =>
 
 import { Array, Data, Match, Option, Order, pipe, Schema } from 'effect'
-import { type Diagnostic, type Point, type Position } from '#ast/LoomNode'
+import { type Diagnostic, type Point, type Position, shifted } from '#ast/LoomNode'
 import {
   boxKind,
   type BoxNameToken,
@@ -3222,7 +3296,9 @@ import {
   type ParameterToken,
   type ParameterValueToken,
   type PointingKind,
+  valueWords,
   type SpecifierToken,
+  type Standing,
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
@@ -3234,6 +3310,7 @@ import {
   type PreambleWeft,
   type ProseWeft,
   type SectionBodyWeft,
+  standingOf,
   type TildeWeft,
 } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'

@@ -1,5 +1,5 @@
 import { Array, Data, Effect, Match, Option, Result, Schema, pipe } from 'effect'
-import { loomNode } from '#ast/LoomNode'
+import { loomNode, type Position, shifted } from '#ast/LoomNode'
 
 export const Probe = 'loom/Probe'
 
@@ -73,6 +73,14 @@ export const ParametersTokenSchema = loomNode('Parameters', {
   close: SpecifierCloseTokenSchema,
 })
 export type ParametersToken = typeof ParametersTokenSchema.Type
+
+export const valueWords = (value: ParameterValueToken): Position => {
+  const quoted = value.source.startsWith('"') ? 1 : 0
+  return {
+    start: shifted(value.position.start, quoted),
+    end: shifted(value.position.end, -quoted),
+  }
+}
 
 export const firstValue = (
   specifier: ParametersToken,

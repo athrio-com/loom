@@ -157,6 +157,23 @@ export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
 
 ~
 
+An anchor stands in prose, where it is a link a reader follows, or in code, where it composes its section, and the line it is written on says which. `standingOf` reads a line's place. A line of a preamble, a tilde's own line, and a line after a tilde are prose. An arrow's line, a line of code, and a fence are code.
+
+=>
+
+export const standingOf = (weft: PreambleWeft | SectionBodyWeft): Standing =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'PreambleWeft' }, (): Standing => 'prose'),
+    Match.when({ type: 'TildeWeft' }, (): Standing => 'prose'),
+    Match.when({ type: 'ProseWeft' }, (): Standing => 'prose'),
+    Match.when({ type: 'ArrowWeft' }, (): Standing => 'code'),
+    Match.when({ type: 'CodeWeft' }, (): Standing => 'code'),
+    Match.when({ type: 'FenceWeft' }, (): Standing => 'code'),
+    Match.exhaustive,
+  )
+
+~
+
 A box spans many lines, so a pass that reads wefts one at a time keeps a flag that says whether a box is open, and `nextBox` moves the flag past one weft. A line that opens a box sets it, a line that closes the box clears it, and a stray leaves it as it was, since a stray opens and closes nothing. So does a weft that carries no box. The classifier keeps the flag to mark the lines that close a box, and the tokeniser keeps it because no quote opens inside a box.
 
 =>
@@ -207,6 +224,7 @@ import {
   ProseTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,
+  type Standing,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,

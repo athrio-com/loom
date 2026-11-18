@@ -26,6 +26,7 @@ import {
   ProseTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,
+  type Standing,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
@@ -128,6 +129,17 @@ export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
     Match.when({ type: 'PreambleWeft' }, (line) => Option.fromNullishOr(line.box)),
     Match.when({ type: 'ProseWeft' }, (line) => Option.fromNullishOr(line.box)),
     Match.orElse(() => Option.none<BoxToken>()),
+  )
+
+export const standingOf = (weft: PreambleWeft | SectionBodyWeft): Standing =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'PreambleWeft' }, (): Standing => 'prose'),
+    Match.when({ type: 'TildeWeft' }, (): Standing => 'prose'),
+    Match.when({ type: 'ProseWeft' }, (): Standing => 'prose'),
+    Match.when({ type: 'ArrowWeft' }, (): Standing => 'code'),
+    Match.when({ type: 'CodeWeft' }, (): Standing => 'code'),
+    Match.when({ type: 'FenceWeft' }, (): Standing => 'code'),
+    Match.exhaustive,
   )
 
 export const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>

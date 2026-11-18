@@ -43,6 +43,29 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
     ),
   ).then((found) => found.map((d) => d.message))
 
+const asked = <A>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const spansOf = (
+  found: ReadonlyArray<{
+    readonly path: string
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly character: number }
+    }
+  }>,
+) =>
+  found
+    .map((place) => [
+      place.path,
+      place.range.start.line,
+      place.range.start.character,
+      place.range.end.character,
+    ])
+    .sort()
+
 const cells = '/corpus/cells.loom'
 
 const chapterWith = (braces: string) =>
@@ -612,11 +635,6 @@ describe('a parameter that names a section', () => {
     [decisions]: rootLoom('Decisions', [declaring]),
   })
 
-  const asked = <A>(
-    files: Record<string, string>,
-    use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>,
-  ) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
-
   const naming = (found: ReadonlyArray<string>) =>
     found.filter((message) => message.includes(' names '))
 
@@ -642,24 +660,6 @@ describe('a parameter that names a section', () => {
     expect(naming(await diagnosed(files, recordAt))).toEqual([unfound('related', 'Nowhere')])
   })
 
-  const spansOf = (
-    found: ReadonlyArray<{
-      readonly path: string
-      readonly range: {
-        readonly start: { readonly line: number; readonly character: number }
-        readonly end: { readonly character: number }
-      }
-    }>,
-  ) =>
-    found
-      .map((place) => [
-        place.path,
-        place.range.start.line,
-        place.range.start.character,
-        place.range.end.character,
-      ])
-      .sort()
-
   it('is rewritten when its section is renamed, at the step that names the section', async () => {
     const braces = '{follows="Rules, Overdrafts"}'
     const heading = `## Refusing a charge ${braces}`
@@ -680,6 +680,76 @@ describe('a parameter that names a section', () => {
       compiler.references(rulesAt, at),
     )
     expect(spansOf(found).map(([path]) => path)).toEqual([recordAt, rulesAt])
+  })
+
+  const pathed = '{follows="Rules, Overdrafts"}'
+  const within = (word: string): number => record(pathed).indexOf(word) + 1
+  const inHeading = (word: string): number => `## Refusing a charge ${pathed}`.indexOf(word)
+
+  it('is followed from each of its names to what the name finds', async () => {
+    const section = await asked(book(pathed), (compiler) =>
+      compiler.definition(recordAt, within('Overdrafts')),
+    )
+    const chapter = await asked(book(pathed), (compiler) =>
+      compiler.definition(recordAt, within('Rules,')),
+    )
+    expect(spansOf(section === undefined ? [] : [section])).toEqual([
+      [rulesAt, 6, 3, 3 + 'Overdrafts'.length],
+    ])
+    expect(spansOf(chapter === undefined ? [] : [chapter])).toEqual([
+      [rulesAt, 1, 'Part I, Chapter 2: '.length, 'Part I, Chapter 2: Rules'.length],
+    ])
+  })
+
+  it('starts a rename of the section it names, over its own words', async () => {
+    const edits = await asked(book(pathed), (compiler) =>
+      compiler.rename(recordAt, within('Overdrafts')),
+    )
+    const box = await asked(book(pathed), (compiler) =>
+      compiler.renameRange(recordAt, within('Overdrafts')),
+    )
+    expect(spansOf(edits)).toEqual(
+      [
+        [recordAt, 6, inHeading('Overdrafts'), inHeading('Overdrafts') + 'Overdrafts'.length],
+        [rulesAt, 6, 3, 3 + 'Overdrafts'.length],
+      ].sort(),
+    )
+    expect(spansOf(box === undefined ? [] : [box])).toEqual([
+      [recordAt, 6, inHeading('Rules'), inHeading('Rules') + 'Rules, Overdrafts'.length],
+    ])
+  })
+
+  it('lists its section and every reference to it from the value', async () => {
+    const found = await asked(book(pathed), (compiler) =>
+      compiler.references(recordAt, within('Overdrafts')),
+    )
+    expect(spansOf(found).map(([path]) => path)).toEqual([recordAt, rulesAt])
+  })
+
+  it('colours its key as a keyword and its value as a name', async () => {
+    const tokens = await asked(book(pathed), (compiler) => compiler.semanticTokens(recordAt))
+    const onHeading = tokens
+      .filter((token) => token.range.start.line === 6)
+      .map((token) => [token.type, token.range.start.character, token.range.end.character])
+    expect(onHeading).toEqual([
+      ['namespace', 3, 3 + 'Refusing a charge'.length],
+      ['keyword', inHeading('follows'), inHeading('follows') + 'follows'.length],
+      ['namespace', inHeading('Rules'), inHeading('Rules') + 'Rules, Overdrafts'.length],
+    ])
+  })
+
+  it('is rewritten when the chapter it names by number is renumbered', async () => {
+    const numbered = '{follows="Part I, Chapter 2"}'
+    const start = `## Refusing a charge ${numbered}`.indexOf('Chapter 2')
+    const found = await asked(book(numbered), (compiler) =>
+      compiler.rename(rulesAt, rules.indexOf('Chapter 2') + 1),
+    )
+    expect(spansOf(found)).toEqual(
+      [
+        [recordAt, 6, start, start + 'Chapter 2'.length],
+        [rulesAt, 1, 'Part I, '.length, 'Part I, Chapter 2'.length],
+      ].sort(),
+    )
   })
 })
 
@@ -731,6 +801,23 @@ describe('the rules a kind follows', () => {
     expect(ruled(await diagnosed(files, chapter))).toEqual([
       '`Postgres` is a section of the `Option` kind, which holds no code. Name the section whose code you mean.',
     ])
+  })
+
+  it('offers a declared kind as an anchor\'s label only where the kind stands', async () => {
+    const offered = async (...body: ReadonlyArray<string>) => {
+      const files = book('## Postgres', '', 'We chose it.', '', '## The store', '', ...body)
+      const text = files[chapter] ?? ''
+      const found = await asked(files, (compiler) =>
+        compiler.completions(chapter, text.indexOf('{}') + 1),
+      )
+      return found.map((completion) => completion.label)
+    }
+    expect(await offered(`The store follows ${anchor('Postgres')}{}.`)).toEqual([
+      'To be settled',
+      'Module',
+      'Decision',
+    ])
+    expect(await offered('=>', `${anchor('Postgres')}{}`)).toEqual(['To be settled', 'Module'])
   })
 
   it('faults an anchor of a prose kind written in code, and none written in prose', async () => {
@@ -873,6 +960,34 @@ describe('a kind of loom a trope declares', () => {
     ])
     expect(await diagnosed(releasing('Part XI, Tasks 2'), plans)).toEqual([
       'No section or chapter is called `Part XI, Tasks 2`. Write one, or label this anchor `{To be settled}`.',
+    ])
+  })
+
+  it('renumbers a loom from its identity line, with every path that names it by number', async () => {
+    const files = releasing('Part XI, Tasks 1')
+    const found = await asked(files, (compiler) =>
+      compiler.rename(release, (files[release] ?? '').indexOf('Tasks 1') + 1),
+    )
+    const inAnchor = anchor('Part XI, Tasks 1').indexOf('Tasks 1')
+    expect(spansOf(found)).toEqual(
+      [
+        [plans, 7, inAnchor, inAnchor + 'Tasks 1'.length],
+        [release, 1, 'Part XI, '.length, 'Part XI, Tasks 1'.length],
+      ].sort(),
+    )
+  })
+
+  it('colours the kind and its number as it colours a chapter number', async () => {
+    const tokens = await asked(releasing('Part XI, Tasks 1'), (compiler) =>
+      compiler.semanticTokens(release),
+    )
+    const onIdentity = tokens
+      .filter((token) => token.range.start.line === 1)
+      .map((token) => [token.type, token.range.start.character, token.range.end.character])
+    expect(onIdentity).toEqual([
+      ['namespace', 0, 'Part XI'.length],
+      ['namespace', 'Part XI, '.length, 'Part XI, Tasks 1'.length],
+      ['namespace', 'Part XI, Tasks 1: '.length, 'Part XI, Tasks 1: The next release'.length],
     ])
   })
 

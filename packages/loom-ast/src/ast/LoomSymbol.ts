@@ -1,4 +1,4 @@
-import { Array, Match, Option, Schema } from 'effect'
+import { Array, Match, Option, pipe, Schema } from 'effect'
 import { type Position } from '#ast/LoomNode'
 import {
   type LoomDocument,
@@ -9,6 +9,9 @@ import {
 import { boxOf, type LoomWeft, type SectionBodyWeft } from '#ast/Weft'
 import {
   type ParametersToken,
+  type ParameterToken,
+  type SpecifierToken,
+  valueWords,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
@@ -32,6 +35,7 @@ export const SymbolKindSchema = Schema.Literals([
   'frontmatterPart',
   'frontmatterPartName',
   'boxName',
+  'referenceValue',
   'divider',
 ])
 export type SymbolKind = typeof SymbolKindSchema.Type
@@ -105,7 +109,7 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
       profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
     Match.when('divider', () => profile(Option.some('operator'), {})),
-    Match.when('boxName', () =>
+    Match.whenOr('boxName', 'referenceValue', () =>
       profile(Option.some('namespace'), {
         navigation: true,
         structure: true,
@@ -139,6 +143,7 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterPartName', fm.partName),
   ...optSymbol('frontmatterMembership', fm.chapter),
   ...optSymbol('frontmatterMembership', fm.discussion),
+  ...optSymbol('frontmatterMembership', fm.kind?.zone === undefined ? undefined : fm.kind),
   ...optSymbol('frontmatterTitle', fm.title),
   ...optSymbol('frontmatterValue', fm.package),
   ...optSymbol('frontmatterValue', fm.language),
@@ -150,8 +155,35 @@ const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterBook', fm.book),
 ]
 
+const referenceSymbols = (parameter: ParameterToken): ReadonlyArray<Symbol> =>
+  Array.map(parameter.values, (value) => at('referenceValue', valueWords(value)))
+
 const specifierSymbols = (held: ParametersToken): ReadonlyArray<Symbol> =>
-  Array.map(held.parameters, (parameter) => at('specifier', parameter.position))
+  Array.flatMap(held.parameters, (parameter) =>
+    parameter.refers === true
+      ? [at('specifier', parameter.key.position), ...referenceSymbols(parameter)]
+      : [at('specifier', parameter.position)],
+  )
+
+const heldSymbols = (
+  braces: SpecifierToken | ParametersToken | undefined,
+): ReadonlyArray<Symbol> =>
+  pipe(
+    Option.fromNullishOr(braces),
+    Option.flatMap((held) =>
+      held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
+    ),
+    Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
+    Array.filter((parameter) => parameter.refers === true),
+    Array.flatMap(referenceSymbols),
+  )
+
+const anchorSymbols =
+  (scope: ReadonlySet<string>) =>
+  (anchor: WarpAnchorToken): ReadonlyArray<Symbol> => [
+    at(anchorKind(scope, anchor), anchor.name.position),
+    ...heldSymbols(anchor.specifier),
+  ]
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...(heading.marker.type === 'Divider' ? [at('divider', heading.marker.position)] : []),
@@ -166,11 +198,13 @@ const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
 ]
 
 const boxSymbols = (weft: LoomWeft): ReadonlyArray<Symbol> =>
-  Option.toArray(
-    Option.flatMap(boxOf(weft), (box) =>
-      Option.map(Option.fromNullishOr(box.name), (name) => at('boxName', name.position)),
-    ),
-  )
+  Option.match(boxOf(weft), {
+    onNone: (): ReadonlyArray<Symbol> => [],
+    onSome: (box) => [
+      ...optSymbol('boxName', box.name),
+      ...heldSymbols(box.specifier),
+    ],
+  })
 
 const delimiterOf = (weft: SectionBodyWeft): ReadonlyArray<Symbol> =>
   Match.value(weft).pipe(
@@ -192,7 +226,7 @@ const sectionSymbols = (
   return [
     ...headingSymbols(section.heading),
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
-    ...Array.map(anchors, (anchor) => at(anchorKind(scope, anchor), anchor.name.position)),
+    ...Array.flatMap(anchors, anchorSymbols(scope)),
     ...Array.flatMap(section.code, delimiterOf),
     ...Array.flatMap([...section.preamble, ...section.code], boxSymbols),
   ]
@@ -204,9 +238,9 @@ export const symbolsOf = (doc: LoomDocument): ReadonlyArray<Symbol> => {
   return [
     ...Array.flatMap(Option.toArray(Option.fromNullishOr(doc.frontmatter)), frontmatterSymbols),
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
-    ...Array.map(
+    ...Array.flatMap(
       Array.flatMap(doc.preamble, (weft) => weft.anchors),
-      (anchor) => at(anchorKind(scope, anchor), anchor.name.position),
+      anchorSymbols(scope),
     ),
     ...Array.flatMap(doc.preamble, boxSymbols),
     ...Array.flatMap(doc.sections, (section) => sectionSymbols(section, namesOf(warps))),

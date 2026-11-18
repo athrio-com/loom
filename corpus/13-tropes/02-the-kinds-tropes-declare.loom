@@ -600,7 +600,7 @@ import {
 
 The cases compile a small book that holds a chapter with a box and, in some cases, the roots and members of tropes. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
 
-`layerOf` gives the compiler a book held in memory, and `diagnosed` gives the messages of the diagnostics one loom raises. `chapterWith` writes a chapter that holds one box with the given braces. `rootLoom` writes a trope chapter, whose title names the trope, with the given lines as its manifest's code. `memberLoom` writes a member of a trope the same way, with the trope its `Rooted in:` line names. `declaring` writes a manifest for the given kinds. `faultsOf` keeps the faults that speak of kinds, tropes and manifests, and `refusedFor` writes the message of a refusal.
+`layerOf` gives the compiler a book held in memory, and `diagnosed` gives the messages of the diagnostics one loom raises. `asked` runs any one question to the compiler over a book, and `spansOf` gives each place an answer names as its loom, its line, and the characters it covers. `chapterWith` writes a chapter that holds one box with the given braces. `rootLoom` writes a trope chapter, whose title names the trope, with the given lines as its manifest's code. `memberLoom` writes a member of a trope the same way, with the trope its `Rooted in:` line names. `declaring` writes a manifest for the given kinds. `faultsOf` keeps the faults that speak of kinds, tropes and manifests, and `refusedFor` writes the message of a refusal.
 
 =>
 
@@ -648,6 +648,29 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
       Effect.provide(layerOf(files)),
     ),
   ).then((found) => found.map((d) => d.message))
+
+const asked = <A>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>,
+) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const spansOf = (
+  found: ReadonlyArray<{
+    readonly path: string
+    readonly range: {
+      readonly start: { readonly line: number; readonly character: number }
+      readonly end: { readonly character: number }
+    }
+  }>,
+) =>
+  found
+    .map((place) => [
+      place.path,
+      place.range.start.line,
+      place.range.start.character,
+      place.range.end.character,
+    ])
+    .sort()
 
 const cells = '/corpus/cells.loom'
 
@@ -1224,9 +1247,9 @@ describe('what a trope declares for anchors, boxes, and headings', () => {
 
 ## A parameter that names a section
 
-A key declared as a reference holds the name of a section, and Loom treats the name as it treats an anchor's. It finds the section through the book, warns of a name that finds nothing, and rewrites the name when the section is renamed. The cases compile a book whose trope lets any heading carry `follows` and `related`, and gives its `Option` kind a `replaces`. The `record` chapter carries them, and the `rules` chapter holds the section they name.
+A key declared as a reference holds the name of a section, and Loom treats the name as it treats an anchor's. It finds the section through the book, warns of a name that finds nothing, and rewrites the name when the section is renamed. The editor follows the name too: from each name of the value to what that name finds, and a rename or a search for references may start on the value as on an anchor. A chapter named by its number is renumbered with its chapter. The cases compile a book whose trope lets any heading carry `follows` and `related`, and gives its `Option` kind a `replaces`. The `record` chapter carries them, and the `rules` chapter holds the section they name.
 
-`asked` runs one question to the compiler over a book. `naming` keeps the faults that speak of a name, and `spansOf` gives each place an answer names as its loom, its line, and the characters it covers.
+`naming` keeps the faults that speak of a name.
 
 =>
 
@@ -1274,11 +1297,6 @@ describe('a parameter that names a section', () => {
     [decisions]: rootLoom('Decisions', [declaring]),
   })
 
-  const asked = <A>(
-    files: Record<string, string>,
-    use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>,
-  ) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
-
   const naming = (found: ReadonlyArray<string>) =>
     found.filter((message) => message.includes(' names '))
 
@@ -1304,24 +1322,6 @@ describe('a parameter that names a section', () => {
     expect(naming(await diagnosed(files, recordAt))).toEqual([unfound('related', 'Nowhere')])
   })
 
-  const spansOf = (
-    found: ReadonlyArray<{
-      readonly path: string
-      readonly range: {
-        readonly start: { readonly line: number; readonly character: number }
-        readonly end: { readonly character: number }
-      }
-    }>,
-  ) =>
-    found
-      .map((place) => [
-        place.path,
-        place.range.start.line,
-        place.range.start.character,
-        place.range.end.character,
-      ])
-      .sort()
-
   it('is rewritten when its section is renamed, at the step that names the section', async () => {
     const braces = '{follows="Rules, Overdrafts"}'
     const heading = `## Refusing a charge ${braces}`
@@ -1343,11 +1343,81 @@ describe('a parameter that names a section', () => {
     )
     expect(spansOf(found).map(([path]) => path)).toEqual([recordAt, rulesAt])
   })
+
+  const pathed = '{follows="Rules, Overdrafts"}'
+  const within = (word: string): number => record(pathed).indexOf(word) + 1
+  const inHeading = (word: string): number => `## Refusing a charge ${pathed}`.indexOf(word)
+
+  it('is followed from each of its names to what the name finds', async () => {
+    const section = await asked(book(pathed), (compiler) =>
+      compiler.definition(recordAt, within('Overdrafts')),
+    )
+    const chapter = await asked(book(pathed), (compiler) =>
+      compiler.definition(recordAt, within('Rules,')),
+    )
+    expect(spansOf(section === undefined ? [] : [section])).toEqual([
+      [rulesAt, 6, 3, 3 + 'Overdrafts'.length],
+    ])
+    expect(spansOf(chapter === undefined ? [] : [chapter])).toEqual([
+      [rulesAt, 1, 'Part I, Chapter 2: '.length, 'Part I, Chapter 2: Rules'.length],
+    ])
+  })
+
+  it('starts a rename of the section it names, over its own words', async () => {
+    const edits = await asked(book(pathed), (compiler) =>
+      compiler.rename(recordAt, within('Overdrafts')),
+    )
+    const box = await asked(book(pathed), (compiler) =>
+      compiler.renameRange(recordAt, within('Overdrafts')),
+    )
+    expect(spansOf(edits)).toEqual(
+      [
+        [recordAt, 6, inHeading('Overdrafts'), inHeading('Overdrafts') + 'Overdrafts'.length],
+        [rulesAt, 6, 3, 3 + 'Overdrafts'.length],
+      ].sort(),
+    )
+    expect(spansOf(box === undefined ? [] : [box])).toEqual([
+      [recordAt, 6, inHeading('Rules'), inHeading('Rules') + 'Rules, Overdrafts'.length],
+    ])
+  })
+
+  it('lists its section and every reference to it from the value', async () => {
+    const found = await asked(book(pathed), (compiler) =>
+      compiler.references(recordAt, within('Overdrafts')),
+    )
+    expect(spansOf(found).map(([path]) => path)).toEqual([recordAt, rulesAt])
+  })
+
+  it('colours its key as a keyword and its value as a name', async () => {
+    const tokens = await asked(book(pathed), (compiler) => compiler.semanticTokens(recordAt))
+    const onHeading = tokens
+      .filter((token) => token.range.start.line === 6)
+      .map((token) => [token.type, token.range.start.character, token.range.end.character])
+    expect(onHeading).toEqual([
+      ['namespace', 3, 3 + 'Refusing a charge'.length],
+      ['keyword', inHeading('follows'), inHeading('follows') + 'follows'.length],
+      ['namespace', inHeading('Rules'), inHeading('Rules') + 'Rules, Overdrafts'.length],
+    ])
+  })
+
+  it('is rewritten when the chapter it names by number is renumbered', async () => {
+    const numbered = '{follows="Part I, Chapter 2"}'
+    const start = `## Refusing a charge ${numbered}`.indexOf('Chapter 2')
+    const found = await asked(book(numbered), (compiler) =>
+      compiler.rename(rulesAt, rules.indexOf('Chapter 2') + 1),
+    )
+    expect(spansOf(found)).toEqual(
+      [
+        [recordAt, 6, start, start + 'Chapter 2'.length],
+        [rulesAt, 1, 'Part I, '.length, 'Part I, Chapter 2'.length],
+      ].sort(),
+    )
+  })
 })
 
 ## The rules a kind follows
 
-A kind of section may hold no code, and a kind of anchor may keep to prose or to code. The cases compile a book whose trope declares an `Option` kind of section with no code, and a `Decision` kind of anchor that stands in prose. A chapter then writes an option that holds code, composes an option into a file, and cites a decision from code and from prose.
+A kind of section may hold no code, and a kind of anchor may keep to prose or to code. The editor offers a declared kind of anchor as a label only where the kind stands. The cases compile a book whose trope declares an `Option` kind of section with no code, and a `Decision` kind of anchor that stands in prose. A chapter then writes an option that holds code, composes an option into a file, and cites a decision from code and from prose.
 
 =>
 
@@ -1401,6 +1471,23 @@ describe('the rules a kind follows', () => {
     ])
   })
 
+  it('offers a declared kind as an anchor\'s label only where the kind stands', async () => {
+    const offered = async (...body: ReadonlyArray<string>) => {
+      const files = book('## Postgres', '', 'We chose it.', '', '## The store', '', ...body)
+      const text = files[chapter] ?? ''
+      const found = await asked(files, (compiler) =>
+        compiler.completions(chapter, text.indexOf('{}') + 1),
+      )
+      return found.map((completion) => completion.label)
+    }
+    expect(await offered(`The store follows ${anchor('Postgres')}{}.`)).toEqual([
+      'To be settled',
+      'Module',
+      'Decision',
+    ])
+    expect(await offered('=>', `${anchor('Postgres')}{}`)).toEqual(['To be settled', 'Module'])
+  })
+
   it('faults an anchor of a prose kind written in code, and none written in prose', async () => {
     const misplaced =
       'An anchor of the `Decision` kind belongs in prose, and this one stands in code. Move it into prose.'
@@ -1436,7 +1523,7 @@ A root is refused when its kind of loom could be mistaken for a line the frontma
 
 A book that installs the trope may write a loom of the kind. `inBook` compiles one loom beside the trope's root, `tasksLoom` writes a loom of the `Tasks` kind, and `plans` is an ordinary chapter. A `Task` section is at home in a `Tasks` loom and a fault in the chapter. The `Tasks` kind holds no code, so an arrow in such a loom is a fault, a sink on one of its headings is a fault, and an anchor that composes one of its sections from a chapter is a fault. A loom of a kind nobody declares is a fault too.
 
-A kind of loom also places its looms. `releasing` is a book with one part, which holds two chapters, a discussion, a loom of the `Tasks` kind, which sits at the back, and a loom of the `Checklist` kind, which sits in the body. Each kind counts its looms apart, so `Tasks 1`, `Chapter 1`, and `Checklist 1` name three looms of one part. `woven` weaves the book, and its menu lists the checklist after its part's chapters and the task list in the back matter, after the discussion.
+A kind of loom also places its looms. `releasing` is a book with one part, which holds two chapters, a discussion, a loom of the `Tasks` kind, which sits at the back, and a loom of the `Checklist` kind, which sits in the body. Each kind counts its looms apart, so `Tasks 1`, `Chapter 1`, and `Checklist 1` name three looms of one part. Renumbering a loom from its identity line rewrites every path that names it by that number. `woven` weaves the book, and its menu lists the checklist after its part's chapters and the task list in the back matter, after the discussion.
 
 =>
 
@@ -1553,6 +1640,34 @@ describe('a kind of loom a trope declares', () => {
     ])
     expect(await diagnosed(releasing('Part XI, Tasks 2'), plans)).toEqual([
       'No section or chapter is called `Part XI, Tasks 2`. Write one, or label this anchor `{To be settled}`.',
+    ])
+  })
+
+  it('renumbers a loom from its identity line, with every path that names it by number', async () => {
+    const files = releasing('Part XI, Tasks 1')
+    const found = await asked(files, (compiler) =>
+      compiler.rename(release, (files[release] ?? '').indexOf('Tasks 1') + 1),
+    )
+    const inAnchor = anchor('Part XI, Tasks 1').indexOf('Tasks 1')
+    expect(spansOf(found)).toEqual(
+      [
+        [plans, 7, inAnchor, inAnchor + 'Tasks 1'.length],
+        [release, 1, 'Part XI, '.length, 'Part XI, Tasks 1'.length],
+      ].sort(),
+    )
+  })
+
+  it('colours the kind and its number as it colours a chapter number', async () => {
+    const tokens = await asked(releasing('Part XI, Tasks 1'), (compiler) =>
+      compiler.semanticTokens(release),
+    )
+    const onIdentity = tokens
+      .filter((token) => token.range.start.line === 1)
+      .map((token) => [token.type, token.range.start.character, token.range.end.character])
+    expect(onIdentity).toEqual([
+      ['namespace', 0, 'Part XI'.length],
+      ['namespace', 'Part XI, '.length, 'Part XI, Tasks 1'.length],
+      ['namespace', 'Part XI, Tasks 1: '.length, 'Part XI, Tasks 1: The next release'.length],
     ])
   })
 
