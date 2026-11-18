@@ -654,6 +654,17 @@ export const boxKind = (box: BoxToken): string =>
     Option.getOrElse(() => noteKind),
   )
 
+~
+
+A trope may declare a kind of box whose body is data, as Part XIII, Tropes, describes. Data is nested fields and lists, written as YAML or as JSON. `dataFormats` holds the two formats, and a `DataFormat` names one of them.
+
+=>
+
+export const dataFormats = ['yaml', 'json'] as const
+
+export const DataFormatSchema = Schema.Literals(dataFormats)
+export type DataFormat = typeof DataFormatSchema.Type
+
 ## Dividers
 
 A divider marks a larger turn in a chapter than a heading does. It is a line of three or more dashes, alone on its line, and `Divider` is that run of dashes. Its `Probe` matches the whole line. The line of prose directly above a divider labels it, and a divider after a blank line stands bare, as the chapter "The document builder" describes. Three dashes on a loom's first line open its frontmatter instead, and a line of dashes inside a box, a quote, or fenced code is no divider.

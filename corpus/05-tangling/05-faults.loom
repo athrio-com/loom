@@ -18,6 +18,8 @@ Five faults judge a module anchor, as the chapter "Referring to modules" describ
 
 Eight faults judge the boundary of a trope, as the chapter "The boundaries of a trope" describes. An `UnrootedTrope` is a note: it carries the name a `Rooted in:` line gives, when no trope chapter carries it. A `CircularRoots` carries the `loop` of tropes rooted in each other, from the trope whose root raises it back to that trope. An `EntriesOffRoot` carries nothing: it marks an `Entries:` line on a chapter that is no trope chapter. An `UnknownEntry` carries an entry's name that leads to no chapter. A `ForeignEntry` carries an entry's name that leads to a chapter of another trope, with that `trope`. A `PrivateEntry` carries an entry's name that leads to a chapter private to an inner `trope`. An `UnsettledMember` is a note too: it carries the trope whose chapter reaches a chapter that names no trope. A `ReachingInside` carries the `chapter` an anchor or a box reaches from outside its `trope`, and the `entries` that trope offers instead.
 
+Four faults judge the body of a box whose kind gives a schema, as the chapter "The kinds tropes declare" describes. An `UnreadBody` carries the `kind` of the box and the `format` its body is written in, when the body does not read as that format. It carries the `reason` too, when the reader of the format gives one. A `MissingField` carries the kind and a `field` that the schema requires and the body leaves out. An `UnknownField` carries a field that the schema does not allow. A `WrongField` carries a field whose value the schema does not accept, with the `reason` in the schema's own words. The body as a whole may be what the schema does not accept, and the `field` is then empty.
+
 An `UnusedSection` carries the title of a section whose code no file includes, as the chapter "The product pass" describes. A `DriftedReference` carries the name of a section that has changed since a reference to it was approved, as the chapter "Fingerprints on relations" describes.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
@@ -85,6 +87,10 @@ export type LoomFault = Data.TaggedEnum<{
   WrongValue: { readonly key: string; readonly value: string; readonly unread: Unread }
   MissingSymbol: { readonly name: string; readonly section: string; readonly trope?: string }
   KeyOutsideTrope: { readonly key: string }
+  UnreadBody: { readonly kind: string; readonly format: DataFormat; readonly reason?: string }
+  MissingField: { readonly kind: string; readonly field: string }
+  UnknownField: { readonly kind: string; readonly field: string }
+  WrongField: { readonly kind: string; readonly field: string; readonly reason: string }
   StrayTarget: { readonly target: string; readonly at: Position }
   NoSuchFile: {
     readonly name: string
@@ -198,6 +204,10 @@ export const {
   UnwrittenLoom,
   UnsettledTrope,
   KeyOutsideTrope,
+  UnreadBody,
+  MissingField,
+  UnknownField,
+  WrongField,
   StaleSummary,
   HeadingAgainstCode,
   DividerAgainstCode,
@@ -247,6 +257,8 @@ An anchor stands in prose or in code, and `otherPlace` gives the place an anchor
 
 A kind that holds no code is a section's own or its loom's, and the two messages about it read differently for each. `codeHome` says where the code may go instead, and `heldIn` says how the section an anchor names comes under the kind.
 
+A box's data is written in YAML or in JSON, and `formatName` gives each format the name a reader knows it by.
+
 =>
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -260,6 +272,8 @@ const information = (message: string): Note => ({ severity: 'info', message })
 const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
 const otherPlace: Record<Standing, Standing> = { prose: 'code', code: 'prose' }
+
+const formatName: Record<DataFormat, string> = { yaml: 'YAML', json: 'JSON' }
 
 const withArticle = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`)
 
@@ -632,6 +646,22 @@ export const describe = (fault: LoomFault): Note =>
           : `No single section or chapter is called \`${target}\`, so the \`${name}\` trope points nowhere yet.`,
       ),
     KeyOutsideTrope: ({ key }) => error(`Only a trope box takes the \`${key}\` key.`),
+    UnreadBody: ({ kind, format, reason }) =>
+      error(
+        reason === undefined
+          ? `A \`${kind}\` box holds ${formatName[format]}, and this body is not ${formatName[format]}.`
+          : `A \`${kind}\` box holds ${formatName[format]}, and this body is not ${formatName[format]}: ${reason}.`,
+      ),
+    MissingField: ({ kind, field }) =>
+      error(`A \`${kind}\` box needs a \`${field}\` field. Add it.`),
+    UnknownField: ({ kind, field }) =>
+      error(`A \`${kind}\` box takes no \`${field}\` field. Remove it.`),
+    WrongField: ({ kind, field, reason }) =>
+      error(
+        field === ''
+          ? `This body does not fit a \`${kind}\` box. ${reason}.`
+          : `\`${field}\` does not fit a \`${kind}\` box. ${reason}.`,
+      ),
     StaleSummary: ({ of, name }) => {
       const copy = copyWords[of]
       return warning(
@@ -725,7 +755,7 @@ export const faulty = (fault: LoomFault, position: Position): Health => ({
 
 ## What this module draws on
 
-`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds that an anchor or a box takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration and the point where it can be settled. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds — and gives `settleKind`, the kind the settling fix writes, the `LoomKind` and `PointingKind` a box that points somewhere names, `Opening`, the new loom an unwritten loom's fix writes, `CopiedFrom`, what a box copies from, `Unread`, what a key's type wanted in place of a value, `Standing`, the place an anchor stands, and `Codeless`, the kind that keeps code out of a section.
+`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, `Array` turns an ambiguous anchor's paths into its message and its fixes, and the keys and kinds that an anchor or a box takes into the messages of an unknown key and an unknown kind, and `Option` reads an unresolved anchor's declaration and the point where it can be settled. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds — and gives `settleKind`, the kind the settling fix writes, the `LoomKind` and `PointingKind` a box that points somewhere names, `Opening`, the new loom an unwritten loom's fix writes, `CopiedFrom`, what a box copies from, `Unread`, what a key's type wanted in place of a value, `Standing`, the place an anchor stands, `Codeless`, the kind that keeps code out of a section, and `DataFormat`, the format a box's data is written in.
 
 =>
 
@@ -734,6 +764,7 @@ import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-a
 import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type Codeless,
+  type DataFormat,
   type LoomKind,
   type PointingKind,
   settleKind,

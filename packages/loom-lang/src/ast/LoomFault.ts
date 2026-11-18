@@ -3,6 +3,7 @@ import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-a
 import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type Codeless,
+  type DataFormat,
   type LoomKind,
   type PointingKind,
   settleKind,
@@ -71,6 +72,10 @@ export type LoomFault = Data.TaggedEnum<{
   WrongValue: { readonly key: string; readonly value: string; readonly unread: Unread }
   MissingSymbol: { readonly name: string; readonly section: string; readonly trope?: string }
   KeyOutsideTrope: { readonly key: string }
+  UnreadBody: { readonly kind: string; readonly format: DataFormat; readonly reason?: string }
+  MissingField: { readonly kind: string; readonly field: string }
+  UnknownField: { readonly kind: string; readonly field: string }
+  WrongField: { readonly kind: string; readonly field: string; readonly reason: string }
   StrayTarget: { readonly target: string; readonly at: Position }
   NoSuchFile: {
     readonly name: string
@@ -178,6 +183,10 @@ export const {
   UnwrittenLoom,
   UnsettledTrope,
   KeyOutsideTrope,
+  UnreadBody,
+  MissingField,
+  UnknownField,
+  WrongField,
   StaleSummary,
   HeadingAgainstCode,
   DividerAgainstCode,
@@ -218,6 +227,8 @@ const information = (message: string): Note => ({ severity: 'info', message })
 const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
 const otherPlace: Record<Standing, Standing> = { prose: 'code', code: 'prose' }
+
+const formatName: Record<DataFormat, string> = { yaml: 'YAML', json: 'JSON' }
 
 const withArticle = (word: string): string => (/^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`)
 
@@ -590,6 +601,22 @@ export const describe = (fault: LoomFault): Note =>
           : `No single section or chapter is called \`${target}\`, so the \`${name}\` trope points nowhere yet.`,
       ),
     KeyOutsideTrope: ({ key }) => error(`Only a trope box takes the \`${key}\` key.`),
+    UnreadBody: ({ kind, format, reason }) =>
+      error(
+        reason === undefined
+          ? `A \`${kind}\` box holds ${formatName[format]}, and this body is not ${formatName[format]}.`
+          : `A \`${kind}\` box holds ${formatName[format]}, and this body is not ${formatName[format]}: ${reason}.`,
+      ),
+    MissingField: ({ kind, field }) =>
+      error(`A \`${kind}\` box needs a \`${field}\` field. Add it.`),
+    UnknownField: ({ kind, field }) =>
+      error(`A \`${kind}\` box takes no \`${field}\` field. Remove it.`),
+    WrongField: ({ kind, field, reason }) =>
+      error(
+        field === ''
+          ? `This body does not fit a \`${kind}\` box. ${reason}.`
+          : `\`${field}\` does not fit a \`${kind}\` box. ${reason}.`,
+      ),
     StaleSummary: ({ of, name }) => {
       const copy = copyWords[of]
       return warning(

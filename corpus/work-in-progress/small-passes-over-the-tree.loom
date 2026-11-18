@@ -48,9 +48,11 @@ The first passes apply the specifier grammar of the chapter "Parameters in brace
 
 1. **Expanding short forms.** A lone label becomes its full parameter, so `{Bash}` becomes `{lang=Bash}` and a box's `{Mermaid}` becomes `{kind=Mermaid}`. No later pass ever handles a label.
 2. **Claiming kinds.** Each kind named in an identity line or a specifier is looked up in the registry, among the core's own kinds and the declared ones. A section of kind `Term` becomes a node of that kind, and a kind that nothing declares is a fault.
-3. **Checking parameters and bodies.** Each parameter is decoded against the type its kind declares. A key that the kind does not declare, a repeated key, and a value of the wrong type are each a fault on that parameter. A box whose kind declares a data body is decoded against the body's schema, and each fault sits on the field that is wrong.
+3. **Checking parameters.** Each parameter is decoded against the type its kind declares. A key that the kind does not declare, a repeated key, and a value of the wrong type are each a fault on that parameter.
 4. **Marking references.** Each parameter whose key holds references is marked. The corpus then resolves each of its values through the book, as it resolves an anchor's name, and a reference to nothing is a fault. The book's relations then hold the parameter, named by its key.
 5. **Keeping an anchor to its place.** A kind of anchor may keep to prose or to code. An anchor of such a kind written in the other place is a fault, and it composes nothing.
+
+The row judges no box by its body. A box is not a node of the tree. It is a pair of marks on two lines, and its body is the lines between them. The registry judges a box's kind over those lines, and it judges a body of data against its schema there too, as Part XIII's chapter "The kinds tropes declare" describes.
 
 `ProductBuilder` and `WeaveBuilder` then read the last pass's tree. The row removes nothing from the tree the parser built. It claims kinds, sets marks, and puts a fault on each node that earns one, and every section stays where its author wrote it. So neither pass loses anything it reads.
 
@@ -1800,7 +1802,6 @@ describe('the tree the row writes', () => {
 ## What this chapter grows into
 
 1. Expanding the label of an anchor and of a box. Those labels stay as the author wrote them, and a later reader takes the kind they name through the `specifierKind` function of the chapter "The leaf tokens".
-2. Data bodies in the pass that checks parameters, as the chapter "Tropes" describes.
-3. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
+2. A schema for the output of each pass that changes a node's shape, and a test that decodes the output against it.
 
 When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".

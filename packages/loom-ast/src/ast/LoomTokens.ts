@@ -467,6 +467,11 @@ export const boxKind = (box: BoxToken): string =>
     Option.getOrElse(() => noteKind),
   )
 
+export const dataFormats = ['yaml', 'json'] as const
+
+export const DataFormatSchema = Schema.Literals(dataFormats)
+export type DataFormat = typeof DataFormatSchema.Type
+
 export const DividerTokenSchema = loomNode('Divider', {}).annotate({
   [Probe]: /^-{3,}\s*$/,
 })

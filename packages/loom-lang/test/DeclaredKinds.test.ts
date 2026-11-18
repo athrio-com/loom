@@ -1036,3 +1036,148 @@ describe('a kind of loom a trope declares', () => {
     ])
   })
 })
+
+describe('a dataset judged by its schema', () => {
+  const notebooks = '/corpus/notebooks.loom'
+  const notes = '/corpus/notes.loom'
+
+  const schema = {
+    type: 'object',
+    required: ['source', 'columns'],
+    additionalProperties: false,
+    properties: {
+      source: { type: 'string' },
+      rows: { type: 'integer', minimum: 0 },
+      columns: { type: 'array', items: { type: 'string' } },
+    },
+  }
+
+  const datasets = (body: string, held: object = { schema }) =>
+    rootLoom('Notebooks', [
+      JSON.stringify({
+        contract: '1',
+        contributes: { kinds: { box: [{ kind: 'Dataset', body, ...held }] } },
+      }),
+    ])
+
+  const notesWith = (rows: ReadonlyArray<string>) =>
+    lines(
+      '---',
+      'Part I, Chapter 1: Notes',
+      '---',
+      '',
+      '# Notes',
+      '',
+      '::: Survey {Dataset}',
+      ...rows,
+      ':::',
+    )
+
+  const judged = async (root: string, rows: ReadonlyArray<string>) => {
+    const text = notesWith(rows)
+    const found = await asked({ [notebooks]: root, [notes]: text }, (compiler) =>
+      compiler.diagnose(notes),
+    )
+    return found.map((fault) => [
+      fault.message,
+      text.slice(fault.position.start.offset, fault.position.end.offset),
+    ])
+  }
+
+  it('raises nothing for a body that fits', async () => {
+    expect(
+      await judged(datasets('yaml'), ['source: data/survey.csv', 'rows: 1200', 'columns: [age]']),
+    ).toEqual([])
+  })
+
+  it('faults a missing field, an unknown field, and a wrong value, each where it stands', async () => {
+    expect(
+      await judged(datasets('yaml'), ['source: data/survey.csv', 'rows: many', 'colums: [age]']),
+    ).toEqual([
+      ['A `Dataset` box takes no `colums` field. Remove it.', '[age]'],
+      ['`rows` does not fit a `Dataset` box. Expected number.', 'many'],
+      [
+        'A `Dataset` box needs a `columns` field. Add it.',
+        'source: data/survey.csv\nrows: many\ncolums: [age]\n',
+      ],
+    ])
+  })
+
+  it('names an item of a list by its index', async () => {
+    expect(await judged(datasets('yaml'), ['source: a.csv', 'columns:', '  - age', '  - 3'])).toEqual([
+      ['`columns[1]` does not fit a `Dataset` box. Expected string.', '3'],
+    ])
+  })
+
+  it('judges a box with no body, on the line that opens it', async () => {
+    expect(await judged(datasets('yaml'), [])).toEqual([
+      ['This body does not fit a `Dataset` box. Expected object.', '::: Survey {Dataset}\n'],
+    ])
+  })
+
+  it('faults a body that is not YAML, where the reader stopped', async () => {
+    expect(await judged(datasets('yaml'), ['source: a.csv', 'source: b.csv'])).toEqual([
+      ['A `Dataset` box holds YAML, and this body is not YAML: Map keys must be unique.', 's'],
+    ])
+  })
+
+  it('reads a body of JSON, and puts a fault on its field', async () => {
+    expect(
+      await judged(datasets('json'), ['{ "source": "a.csv", "columns": ["age"] }']),
+    ).toEqual([])
+    expect(await judged(datasets('json'), ['{ "source": "a.csv", "columns": "age" }'])).toEqual([
+      ['`columns` does not fit a `Dataset` box. Expected array.', '"age"'],
+    ])
+  })
+
+  it('faults YAML where a kind holds JSON', async () => {
+    expect(await judged(datasets('json'), ['source: a.csv', 'columns: [age]'])).toEqual([
+      [
+        'A `Dataset` box holds JSON, and this body is not JSON.',
+        'source: a.csv\ncolumns: [age]\n',
+      ],
+    ])
+  })
+
+  it('reads the lines a fence holds', async () => {
+    expect(
+      await judged(datasets('yaml'), [
+        '```yaml',
+        'source: a.csv',
+        '## the columns follow',
+        'columns: [age, 3]',
+        '```',
+      ]),
+    ).toEqual([['`columns[1]` does not fit a `Dataset` box. Expected string.', '3']])
+  })
+
+  it('reads a schema that its manifest draws in from a section of the trope', async () => {
+    const cut = lines(
+      '---',
+      'Trope Chapter: Notebooks',
+      '---',
+      '',
+      '# Notebooks',
+      '',
+      '## What a dataset holds {json}',
+      '',
+      '=>',
+      JSON.stringify(schema),
+      '',
+      '## What it declares {Manifest}',
+      '',
+      '=>',
+      '{ "contract": "1", "contributes": { "kinds": { "box": [',
+      '{ "kind": "Dataset", "body": "yaml", "schema":',
+      anchor('What a dataset holds'),
+      '}] } } }',
+    )
+    expect(await judged(cut, ['source: a.csv', 'columns: age'])).toEqual([
+      ['`columns` does not fit a `Dataset` box. Expected array.', 'age'],
+    ])
+  })
+
+  it('leaves the body of a kind without a schema unread', async () => {
+    expect(await judged(datasets('yaml', {}), ['source: [a.csv', 'rows: many'])).toEqual([])
+  })
+})

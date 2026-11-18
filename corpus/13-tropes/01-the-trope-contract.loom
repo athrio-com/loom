@@ -55,6 +55,22 @@ A `BoxKindDeclaration` names one kind of box, as `{Mermaid}` names it on a box. 
 { "kind": "Dataset", "body": "yaml", "parameters": { "source": "text" } }
 ```
 
+A body may be data, which is nested fields and lists written as YAML or as JSON. The chapter "The leaf tokens" names the two formats, `yaml` and `json`, and `isDataFormat` tells whether a body is written in one. A kind whose body is data may give a `schema` field, which says what fields a body holds and what each may be. The schema is a JSON Schema, a description of data that is itself written in JSON, and the manifest holds the schema itself. The trope for research notebooks asks every dataset for its columns:
+
+```
+{ "kind": "Dataset", "body": "yaml",
+  "schema": { "type": "object", "required": ["columns"],
+              "properties": { "columns": { "type": "array", "items": { "type": "string" } } } } }
+```
+
+A manifest is a section's code. So a long schema may stand in a section of its own, under the prose that explains it, and the manifest draws the section in with an anchor.
+
+Loom reads a schema with Effect. `dataCodecOf` turns a `DataSchema`, the schema as its manifest writes it, into a `DataCodec`, the Effect schema that decodes a body. Effect reads the 2020-12 draft of JSON Schema, though not every keyword of it. It refuses the `pattern` keyword, which holds a regular expression, because the editor checks a body on every keystroke and a careless regular expression can hang it. It refuses the keywords it has no equal for, such as the `if` keyword. `dataCodecOf` gives Effect's reason for a schema it refuses.
+
+`DataSchemaSchema` holds a manifest to the schemas `dataCodecOf` reads, so no trope declares a schema that Loom cannot check. A `schema` field beside a body that is not data fits no manifest either, since Loom could read nothing against it.
+
+`dataOf` gives the `DataBody` of a kind of box, its format with its codec. It gives nothing for a kind whose body is not data, and nothing for a kind that gives no schema, since Loom reads a body only against one.
+
 A `SectionKindDeclaration` names one kind of section, as `{Option}` names it on a heading. A trope for decision records, the short documents in which a team records a choice and the options it weighed, declares a section for each option, with a parameter that says how the option fared. An option is words about a choice, so the kind holds no code, which its `code` says:
 
 ```
@@ -99,12 +115,53 @@ A `TropeManifest` holds nothing else. The schema decides what no trope can do, s
 
 export const contractVersion = '1'
 
+const isDataFormat = Schema.is(DataFormatSchema)
+
+export type DataCodec = Schema.Codec<unknown>
+
+export const dataCodecOf = (schema: JsonSchema.JsonSchema): Result.Result<DataCodec, string> =>
+  Result.try({
+    try: () =>
+      Schema.make<DataCodec>(
+        SchemaRepresentation.fromJsonSchemaDocument(JsonSchema.fromSchemaDraft2020_12(schema)).ast,
+      ),
+    catch: (cause) => (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, ' '),
+  })
+
+export const DataSchemaSchema = Schema.Record(Schema.String, Schema.Unknown).check(
+  Schema.makeFilter((schema) =>
+    Result.match(dataCodecOf(schema), {
+      onSuccess: () => undefined,
+      onFailure: (reason) => `Loom cannot read this schema: ${reason}`,
+    }),
+  ),
+)
+export type DataSchema = typeof DataSchemaSchema.Type
+
 export const BoxKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
   body: Schema.NonEmptyString,
+  schema: Schema.optional(DataSchemaSchema),
   parameters: Schema.optional(KeysSchema),
-})
+}).check(
+  Schema.makeFilter(({ kind, body, schema }) =>
+    schema === undefined || isDataFormat(body)
+      ? undefined
+      : `a schema reads a body of \`yaml\` or \`json\`, and the body of the \`${kind}\` kind is \`${body}\``,
+  ),
+)
 export type BoxKindDeclaration = typeof BoxKindDeclarationSchema.Type
+
+export type DataBody = { readonly format: DataFormat; readonly codec: DataCodec }
+
+export const dataOf = (declaration: BoxKindDeclaration): Option.Option<DataBody> =>
+  Option.all({
+    format: Option.liftPredicate(declaration.body, isDataFormat),
+    codec: pipe(
+      Option.fromNullishOr(declaration.schema),
+      Option.flatMap((schema) => Result.getSuccess(dataCodecOf(schema))),
+    ),
+  })
 
 export const SectionKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
@@ -192,7 +249,7 @@ First the text must be JSON, which `parsedJson` reads. Then its `contract` must 
 
 =>
 
-const parsedJson = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
+export const parsedJson = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
 
 const fitted = Schema.decodeUnknownResult(TropeManifestSchema)
 
@@ -231,12 +288,19 @@ export const readManifest = (text: string): Result.Result<TropeManifest, string>
 
 ## What the contract draws on
 
-The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, `Keys`, the table it reads, `StandingSchema`, the two places an anchor stands, and `ZoneSchema`, the two zones of a book a kind of loom may sit in.
+The contract needs Effect's `Schema` to describe and decode a manifest, `Result` for a reading that may fail, `Option` for a field that may be absent, and `pipe` for the steps. Effect's `JsonSchema` reads a JSON Schema of the 2020-12 draft, and its `SchemaRepresentation` turns one into an Effect schema. The chapter "The leaf tokens" lends `KeysSchema`, the schema of a table of keys with their types, `Keys`, the table it reads, `StandingSchema`, the two places an anchor stands, `ZoneSchema`, the two zones of a book a kind of loom may sit in, and `DataFormatSchema`, the two formats a box's data is written in, with the `DataFormat` it reads.
 
 =>
 
-import { Option, pipe, Result, Schema } from 'effect'
-import { type Keys, KeysSchema, StandingSchema, ZoneSchema } from '@athrio/loom-ast/LoomTokens'
+import { JsonSchema, Option, pipe, Result, Schema, SchemaRepresentation } from 'effect'
+import {
+  type DataFormat,
+  DataFormatSchema,
+  type Keys,
+  KeysSchema,
+  StandingSchema,
+  ZoneSchema,
+} from '@athrio/loom-ast/LoomTokens'
 
 ## The module [src/ast/TropeManifest.ts]
 
@@ -257,7 +321,7 @@ The cases read the line that names a chapter's trope, read manifests on their ow
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Effect, Layer, Option, Result } from 'effect'
+import { Effect, Layer, Option, Result, Schema } from 'effect'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -267,6 +331,7 @@ import { FileSystemSource } from '../src/WorkspaceSource'
 import {
   anchorKindsOf,
   boxKindsOf,
+  dataOf,
   headingKeysOf,
   heldBy,
   loomKindsOf,
@@ -633,6 +698,73 @@ describe('reading a manifest', () => {
   })
 })
 
+## A schema a manifest holds
+
+A manifest reads with the schema a kind of box gives, and `dataOf` then gives the kind's format with a codec that decodes a body. A kind that gives no schema reads too, and `dataOf` gives nothing for it. Loom refuses a manifest whose schema Effect cannot read, with Effect's reason, whether the schema holds a `pattern` or a keyword Effect has no equal for. It refuses a schema that is not a JSON Schema at all, such as the path of a file, and a schema beside a body that is not data.
+
+=>
+
+describe('a schema a manifest holds', () => {
+  const reason = (text: string) =>
+    Result.match(readManifest(text), { onSuccess: () => '', onFailure: (why) => why })
+
+  const boxes = (...box: ReadonlyArray<unknown>) =>
+    JSON.stringify({ contract: '1', contributes: { kinds: { box } } })
+
+  const columns = {
+    type: 'object',
+    required: ['columns'],
+    properties: { columns: { type: 'array', items: { type: 'string' } } },
+  }
+
+  it('reads the schema of a kind of box, and gives a codec for its body', () => {
+    const read = Result.getOrUndefined(
+      readManifest(boxes({ kind: 'Dataset', body: 'yaml', schema: columns })),
+    )
+    const data = read && Option.getOrUndefined(dataOf(boxKindsOf(read)[0]!))
+    expect(data?.format).toBe('yaml')
+    const decoded = data && Schema.decodeUnknownResult(data.codec)
+    expect(decoded && Result.isSuccess(decoded({ columns: ['age'] }))).toBe(true)
+    expect(decoded && Result.isSuccess(decoded({ columns: 'age' }))).toBe(false)
+  })
+
+  it('gives no data for a kind without a schema, or with a body that is not data', () => {
+    const read = Result.getOrUndefined(
+      readManifest(boxes({ kind: 'Dataset', body: 'yaml' }, { kind: 'Mermaid', body: 'mermaid' })),
+    )
+    expect(read && boxKindsOf(read).map((declared) => Option.isSome(dataOf(declared)))).toEqual([
+      false,
+      false,
+    ])
+  })
+
+  it('refuses a schema that holds a regular expression', () => {
+    const named = { type: 'object', properties: { name: { type: 'string', pattern: '^[a-z]+$' } } }
+    expect(reason(boxes({ kind: 'Dataset', body: 'yaml', schema: named }))).toContain(
+      'Loom cannot read this schema: Patterns may block validation and are disabled.',
+    )
+  })
+
+  it('refuses a schema with a keyword Effect has no equal for', () => {
+    const conditional = { type: 'object', if: { required: ['rows'] }, then: { required: ['columns'] } }
+    expect(reason(boxes({ kind: 'Dataset', body: 'json', schema: conditional }))).toContain(
+      'Loom cannot read this schema: Cannot import JSON Schema keyword "if"',
+    )
+  })
+
+  it('refuses the path of a file where a schema belongs', () => {
+    expect(
+      reason(boxes({ kind: 'Dataset', body: 'yaml', schema: 'schemas/dataset.json' })),
+    ).toContain('its manifest does not fit contract 1:')
+  })
+
+  it('refuses a schema beside a body that is not data', () => {
+    expect(reason(boxes({ kind: 'Chart', body: 'mermaid', schema: columns }))).toContain(
+      'a schema reads a body of `yaml` or `json`, and the body of the `Chart` kind is `mermaid`',
+    )
+  })
+})
+
 ## The test file [test/TropeContract.test.ts]
 
 =>
@@ -646,3 +778,5 @@ describe('reading a manifest', () => {
 ::[A loom names its kind]
 
 ::[Reading a manifest whole or not at all]
+
+::[A schema a manifest holds]

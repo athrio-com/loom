@@ -1,12 +1,21 @@
-import { Array, Match, Option, Order, pipe, Result } from 'effect'
-import type { Diagnostic, Position } from '@athrio/loom-ast/LoomNode'
+import { Array, Match, Option, Order, pipe, Result, Schema, SchemaIssue } from 'effect'
+import { type Document, isNode, parseDocument } from 'yaml'
+import {
+  type Diagnostic,
+  type Point,
+  type Position,
+  shifted,
+} from '@athrio/loom-ast/LoomNode'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type { LoomWeft } from '@athrio/loom-ast/Weft'
 import {
   anchorKeys,
   anchorKinds,
   boxKeys,
   boxKind,
   boxKinds,
+  closesFence,
+  type DataFormat,
   frontmatterKeys,
   type FrontmatterTropeToken,
   headingKeys,
@@ -14,6 +23,7 @@ import {
   type Keys,
   keyType,
   loomKinds,
+  openingFence,
   type ParameterToken,
   type ParametersToken,
   sectionKinds,
@@ -28,19 +38,33 @@ import {
   catalogueOf,
   type Location,
   type LoomModule,
+  type OpenedBox,
   openedBoxesOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { isManifest, sectionNameOf } from './ProductBuilder'
 import type { Code } from '@athrio/loom-ast/ProductAst'
 import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
-import { faulty, KeyOutsideTrope, TropeRefused, UnknownKind } from './LoomFault'
+import {
+  faulty,
+  KeyOutsideTrope,
+  type LoomFault,
+  MissingField,
+  TropeRefused,
+  UnknownField,
+  UnknownKind,
+  UnreadBody,
+  WrongField,
+} from './LoomFault'
 import {
   anchorKindsOf,
   boxKindsOf,
+  type DataBody,
+  dataOf,
   headingKeysOf,
   heldBy,
   loomKindsOf,
   parametersOf,
+  parsedJson,
   readManifest,
   sectionKindsOf,
   type TropeManifest,
@@ -55,6 +79,7 @@ export type Trope = {
 export type DeclaredBox = {
   readonly kind: string
   readonly body: string
+  readonly data: Option.Option<DataBody>
   readonly parameters: Keys
   readonly trope: string
   readonly module: Location
@@ -318,6 +343,7 @@ const boxesOf = (
   Array.map(boxKindsOf(manifest), (declaration): DeclaredBox => ({
     kind: declaration.kind,
     body: declaration.body,
+    data: dataOf(declaration),
     parameters: parametersOf(declaration),
     trope,
     module: root.path,
@@ -480,7 +506,7 @@ export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyAr
       ({ kind, at }) => faulty(UnknownKind({ kind, kinds: known, on: 'box' }), at).diagnostics,
     ),
   )
-  return [...refused, ...unknown, ...keysOutsideTrope(module)]
+  return [...refused, ...unknown, ...keysOutsideTrope(module), ...bodyFaults(kinds, module)]
 }
 
 const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
@@ -497,5 +523,162 @@ const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
     Array.flatMap(
       (parameter) =>
         faulty(KeyOutsideTrope({ key: parameter.key.value }), parameter.key.position).diagnostics,
+    ),
+  )
+
+const dataLines = (body: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+  pipe(
+    Option.all({ first: Array.head(body), last: Array.last(body) }),
+    Option.filter(
+      ({ first, last }) =>
+        body.length > 1 &&
+        Option.exists(openingFence(first.source), (fence) => closesFence(fence)(last.source)),
+    ),
+    Option.match({
+      onNone: () => body,
+      onSome: () => pipe(body, Array.drop(1), Array.dropRight(1)),
+    }),
+  )
+
+type Span = readonly [start: number, end: number]
+
+const wholeOf = (opened: OpenedBox, lines: ReadonlyArray<LoomWeft>): Position =>
+  Option.match(Option.all({ first: Array.head(lines), last: Array.last(lines) }), {
+    onNone: () => opened.opener.position,
+    onSome: ({ first, last }) => ({ start: first.position.start, end: last.position.end }),
+  })
+
+const pointIn =
+  (lines: ReadonlyArray<LoomWeft>, whole: Position) =>
+  (offset: number): Point =>
+    Option.match(
+      Array.findLast(lines, (line) => line.position.start.offset <= whole.start.offset + offset),
+      {
+        onNone: () => whole.start,
+        onSome: (line) =>
+          shifted(line.position.start, whole.start.offset + offset - line.position.start.offset),
+      },
+    )
+
+type Path = ReadonlyArray<PropertyKey>
+
+const spanAt = (document: Document, path: Path): Option.Option<Span> =>
+  pipe(
+    Option.liftPredicate(document.getIn(path, true), isNode),
+    Option.flatMap((node) => Option.fromNullishOr(node.range)),
+    Option.map(([start, end]): Span => [start, end]),
+    Option.orElse(() =>
+      Array.match(path, {
+        onEmpty: () => Option.none(),
+        onNonEmpty: (steps) => spanAt(document, Array.initNonEmpty(steps)),
+      }),
+    ),
+  )
+
+const valueOf: Record<
+  DataFormat,
+  (text: string, document: Document) => Result.Result<unknown, Option.Option<string>>
+> = {
+  yaml: (_text, document) =>
+    Option.match(Array.head(document.errors), {
+      onNone: () => Result.succeed(document.toJS()),
+      onSome: (error) => Result.fail(Option.some(error.message)),
+    }),
+  json: (text) => Result.mapError(parsedJson(text), () => Option.none()),
+}
+
+type Misfit = { readonly path: Path; readonly fault: LoomFault }
+
+const stepOf = (step: PropertyKey): string =>
+  typeof step === 'number' ? `[${step}]` : `.${String(step)}`
+
+const fieldOf = (path: Path): string =>
+  Array.join(Array.map(path, stepOf), '').replace(/^\./, '')
+
+const worded = SchemaIssue.makeFormatterStandardSchemaV1()
+
+const wordsOf = (issue: SchemaIssue.Issue): string =>
+  Array.join(
+    Array.map(worded(issue).issues, (each) => each.message),
+    ', ',
+  )
+
+const misfitsIn = (kind: string, issue: SchemaIssue.Issue, path: Path): ReadonlyArray<Misfit> =>
+  Match.value(issue).pipe(
+    Match.tag('Pointer', (pointer) => misfitsIn(kind, pointer.issue, [...path, ...pointer.path])),
+    Match.tag('Composite', (composite) =>
+      Array.flatMap(composite.issues, (each) => misfitsIn(kind, each, path)),
+    ),
+    Match.tag('Encoding', (encoding) => misfitsIn(kind, encoding.issue, path)),
+    Match.tag('AnyOf', (anyOf) =>
+      Array.match(anyOf.issues, {
+        onEmpty: (): ReadonlyArray<Misfit> => [
+          { path, fault: WrongField({ kind, field: fieldOf(path), reason: wordsOf(anyOf) }) },
+        ],
+        onNonEmpty: (issues) => Array.flatMap(issues, (each) => misfitsIn(kind, each, path)),
+      }),
+    ),
+    Match.tag('MissingKey', (): ReadonlyArray<Misfit> => [
+      { path, fault: MissingField({ kind, field: fieldOf(path) }) },
+    ]),
+    Match.tag('UnexpectedKey', (): ReadonlyArray<Misfit> => [
+      { path, fault: UnknownField({ kind, field: fieldOf(path) }) },
+    ]),
+    Match.tag(
+      'Filter',
+      'InvalidType',
+      'InvalidValue',
+      'Forbidden',
+      'OneOf',
+      (unfit): ReadonlyArray<Misfit> => [
+        { path, fault: WrongField({ kind, field: fieldOf(path), reason: wordsOf(unfit) }) },
+      ],
+    ),
+    Match.exhaustive,
+  )
+
+const bodyFaultsOf = (kind: string, data: DataBody, opened: OpenedBox): ReadonlyArray<Diagnostic> => {
+  const lines = dataLines(opened.body)
+  const whole = wholeOf(opened, lines)
+  const pointAt = pointIn(lines, whole)
+  const text = Array.join(
+    Array.map(lines, (line) => line.source),
+    '',
+  )
+  const document = parseDocument(text, { prettyErrors: false })
+  const positionOf = (span: Option.Option<Span>): Position =>
+    Option.match(span, {
+      onNone: () => whole,
+      onSome: ([start, end]) => ({ start: pointAt(start), end: pointAt(end) }),
+    })
+  return Result.match(valueOf[data.format](text, document), {
+    onFailure: (reason) =>
+      faulty(
+        UnreadBody({ kind, format: data.format, reason: Option.getOrUndefined(reason) }),
+        positionOf(Option.map(Array.head(document.errors), (error): Span => error.pos)),
+      ).diagnostics,
+    onSuccess: (value) =>
+      Result.match(
+        Schema.decodeUnknownResult(data.codec)(value, { errors: 'all', onExcessProperty: 'error' }),
+        {
+          onSuccess: (): ReadonlyArray<Diagnostic> => [],
+          onFailure: (error) =>
+            Array.flatMap(
+              misfitsIn(kind, error.issue, []),
+              ({ path, fault }) => faulty(fault, positionOf(spanAt(document, path))).diagnostics,
+            ),
+        },
+      ),
+  })
+}
+
+const bodyFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyArray<Diagnostic> =>
+  Array.flatMap(openedBoxesOf(module.doc), (opened) =>
+    pipe(
+      Array.findFirst(kinds.box, (declared) => sameKind(declared.kind, boxKind(opened.box))),
+      Option.flatMap((declared) =>
+        Option.map(declared.data, (data) => bodyFaultsOf(declared.kind, data, opened)),
+      ),
+      Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
     ),
   )

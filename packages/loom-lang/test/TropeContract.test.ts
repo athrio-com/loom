@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { Effect, Layer, Option, Result } from 'effect'
+import { Effect, Layer, Option, Result, Schema } from 'effect'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -9,6 +9,7 @@ import { FileSystemSource } from '../src/WorkspaceSource'
 import {
   anchorKindsOf,
   boxKindsOf,
+  dataOf,
   headingKeysOf,
   heldBy,
   loomKindsOf,
@@ -346,5 +347,66 @@ describe('reading a manifest', () => {
 
   it('refuses a kind with no name', () => {
     expect(reason(manifestOf(''))).toContain('its manifest does not fit contract 1:')
+  })
+})
+
+describe('a schema a manifest holds', () => {
+  const reason = (text: string) =>
+    Result.match(readManifest(text), { onSuccess: () => '', onFailure: (why) => why })
+
+  const boxes = (...box: ReadonlyArray<unknown>) =>
+    JSON.stringify({ contract: '1', contributes: { kinds: { box } } })
+
+  const columns = {
+    type: 'object',
+    required: ['columns'],
+    properties: { columns: { type: 'array', items: { type: 'string' } } },
+  }
+
+  it('reads the schema of a kind of box, and gives a codec for its body', () => {
+    const read = Result.getOrUndefined(
+      readManifest(boxes({ kind: 'Dataset', body: 'yaml', schema: columns })),
+    )
+    const data = read && Option.getOrUndefined(dataOf(boxKindsOf(read)[0]!))
+    expect(data?.format).toBe('yaml')
+    const decoded = data && Schema.decodeUnknownResult(data.codec)
+    expect(decoded && Result.isSuccess(decoded({ columns: ['age'] }))).toBe(true)
+    expect(decoded && Result.isSuccess(decoded({ columns: 'age' }))).toBe(false)
+  })
+
+  it('gives no data for a kind without a schema, or with a body that is not data', () => {
+    const read = Result.getOrUndefined(
+      readManifest(boxes({ kind: 'Dataset', body: 'yaml' }, { kind: 'Mermaid', body: 'mermaid' })),
+    )
+    expect(read && boxKindsOf(read).map((declared) => Option.isSome(dataOf(declared)))).toEqual([
+      false,
+      false,
+    ])
+  })
+
+  it('refuses a schema that holds a regular expression', () => {
+    const named = { type: 'object', properties: { name: { type: 'string', pattern: '^[a-z]+$' } } }
+    expect(reason(boxes({ kind: 'Dataset', body: 'yaml', schema: named }))).toContain(
+      'Loom cannot read this schema: Patterns may block validation and are disabled.',
+    )
+  })
+
+  it('refuses a schema with a keyword Effect has no equal for', () => {
+    const conditional = { type: 'object', if: { required: ['rows'] }, then: { required: ['columns'] } }
+    expect(reason(boxes({ kind: 'Dataset', body: 'json', schema: conditional }))).toContain(
+      'Loom cannot read this schema: Cannot import JSON Schema keyword "if"',
+    )
+  })
+
+  it('refuses the path of a file where a schema belongs', () => {
+    expect(
+      reason(boxes({ kind: 'Dataset', body: 'yaml', schema: 'schemas/dataset.json' })),
+    ).toContain('its manifest does not fit contract 1:')
+  })
+
+  it('refuses a schema beside a body that is not data', () => {
+    expect(reason(boxes({ kind: 'Chart', body: 'mermaid', schema: columns }))).toContain(
+      'a schema reads a body of `yaml` or `json`, and the body of the `Chart` kind is `mermaid`',
+    )
   })
 })

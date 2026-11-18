@@ -1,14 +1,62 @@
-import { Option, pipe, Result, Schema } from 'effect'
-import { type Keys, KeysSchema, StandingSchema, ZoneSchema } from '@athrio/loom-ast/LoomTokens'
+import { JsonSchema, Option, pipe, Result, Schema, SchemaRepresentation } from 'effect'
+import {
+  type DataFormat,
+  DataFormatSchema,
+  type Keys,
+  KeysSchema,
+  StandingSchema,
+  ZoneSchema,
+} from '@athrio/loom-ast/LoomTokens'
 
 export const contractVersion = '1'
+
+const isDataFormat = Schema.is(DataFormatSchema)
+
+export type DataCodec = Schema.Codec<unknown>
+
+export const dataCodecOf = (schema: JsonSchema.JsonSchema): Result.Result<DataCodec, string> =>
+  Result.try({
+    try: () =>
+      Schema.make<DataCodec>(
+        SchemaRepresentation.fromJsonSchemaDocument(JsonSchema.fromSchemaDraft2020_12(schema)).ast,
+      ),
+    catch: (cause) => (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, ' '),
+  })
+
+export const DataSchemaSchema = Schema.Record(Schema.String, Schema.Unknown).check(
+  Schema.makeFilter((schema) =>
+    Result.match(dataCodecOf(schema), {
+      onSuccess: () => undefined,
+      onFailure: (reason) => `Loom cannot read this schema: ${reason}`,
+    }),
+  ),
+)
+export type DataSchema = typeof DataSchemaSchema.Type
 
 export const BoxKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
   body: Schema.NonEmptyString,
+  schema: Schema.optional(DataSchemaSchema),
   parameters: Schema.optional(KeysSchema),
-})
+}).check(
+  Schema.makeFilter(({ kind, body, schema }) =>
+    schema === undefined || isDataFormat(body)
+      ? undefined
+      : `a schema reads a body of \`yaml\` or \`json\`, and the body of the \`${kind}\` kind is \`${body}\``,
+  ),
+)
 export type BoxKindDeclaration = typeof BoxKindDeclarationSchema.Type
+
+export type DataBody = { readonly format: DataFormat; readonly codec: DataCodec }
+
+export const dataOf = (declaration: BoxKindDeclaration): Option.Option<DataBody> =>
+  Option.all({
+    format: Option.liftPredicate(declaration.body, isDataFormat),
+    codec: pipe(
+      Option.fromNullishOr(declaration.schema),
+      Option.flatMap((schema) => Result.getSuccess(dataCodecOf(schema))),
+    ),
+  })
 
 export const SectionKindDeclarationSchema = Schema.Struct({
   kind: Schema.NonEmptyString,
@@ -88,7 +136,7 @@ export const headingKeysOf = (manifest: TropeManifest): Keys =>
     (): Keys => ({}),
   )
 
-const parsedJson = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
+export const parsedJson = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
 
 const fitted = Schema.decodeUnknownResult(TropeManifestSchema)
 

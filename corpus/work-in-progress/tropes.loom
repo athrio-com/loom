@@ -104,13 +104,14 @@ Charts of a survey, each drawn from a box that names its data.
   "contract": "1",
   "process": "dist/trope.js",
   "contributes": {
-    "kinds": { "box": [{ "kind": "Chart", "body": "yaml", "schema": "schemas/chart.json" }] },
+    "kinds": { "box": [{ "kind": "Chart", "body": "yaml",
+                         "schema": { "type": "object", "required": ["data"] } }] },
     "views": [{ "name": "Chart", "type": "web", "page": "dist/chart.html", "targets": ["editor", "page"] }]
   }
 }
 ```
 
-The rest of the loom explains the trope and holds its code. Sections with sinks tangle the trope's process, its schemas, and its pages into the trope's folder, as any chapter tangles its files.
+The rest of the loom explains the trope and holds its code. Sections with sinks tangle the trope's process and its pages into the trope's folder, as any chapter tangles its files.
 
 A `Trope` loom reaches a workspace in one of two ways. A book may hold it in its own corpus, written there or copied there from another book. Or a package in the workspace's store may carry it, together with the files it tangles, already built. The registry reads both the same way. A `Trope` loom in the corpus is text that Loom already holds, so an edit to its manifest reaches the registry on the keystroke. A package's loom is read once, as the workspace opens.
 
@@ -219,10 +220,11 @@ A kind also follows rules from a fixed list:
 - **Place.** A kind of loom says whether it takes a number, and which zone of the book it sits in, as the chapter "Books" describes.
 - **Scope.** A kind of loom names the kinds of section it holds, and those kinds exist in its looms alone.
 
-A kind of box also declares its body. A body holds prose, or text in a format the kind names: a diagram's source, a command, or data such as YAML or JSON. A data body comes with a schema, a JSON Schema file that the trope ships and the manifest names. A trope for research notebooks declares such a box for the datasets a notebook reads:
+A kind of box also declares its body. A body holds prose, or text in a format the kind names: a diagram's source, a command, or data written as YAML or as JSON. A kind whose body is data may give a schema for it. The schema is a JSON Schema, a description of data that is itself written in JSON, and the manifest holds the schema itself. A manifest is a section's code, so a long schema may stand in a section of its own, and the manifest draws that section in with an anchor. A trope for research notebooks declares such a box for the datasets a notebook reads:
 
 ```
-"kinds": { "box": [{ "kind": "Dataset", "body": "yaml", "schema": "schemas/dataset.json" }] }
+"kinds": { "box": [{ "kind": "Dataset", "body": "yaml",
+                     "schema": { "type": "object", "required": ["source", "columns"] } }] }
 ```
 
 ```
@@ -240,7 +242,7 @@ The kinds a trope declares form an edit of Loom's language: core Loom, plus thes
 
 ## The registry of declared kinds
 
-Loom applies what tropes declare without running any trope. When a workspace opens, before the language server answers the editor's `initialize` request, Loom finds every `Trope` loom, in the corpus and in the packages of the workspace's store. It composes each one's manifest and decodes it. It gathers the declared kinds into the registry: a table of kinds for each of looms, sections, boxes, and anchors, beside a table of the parameters any heading may carry. Reading the packages' looms, and the schemas the manifests name, waits on files, so Loom reads them once, ahead of every request, as `DocumentSource` keeps each loom's text ahead of the editor's requests.
+Loom applies what tropes declare without running any trope. When a workspace opens, before the language server answers the editor's `initialize` request, Loom finds every `Trope` loom, in the corpus and in the packages of the workspace's store. It composes each one's manifest and decodes it. It gathers the declared kinds into the registry: a table of kinds for each of looms, sections, boxes, and anchors, beside a table of the parameters any heading may carry. Reading the packages' looms waits on files, so Loom reads them once, ahead of every request, as `DocumentSource` keeps each loom's text ahead of the editor's requests.
 
 Two tropes that declare one kind cannot both decide what it means. Loom refuses the second trope and reports it, as it reports a manifest that fails to decode. A trope that declares one of the core's own kinds, such as `Tangle` or `Manifest`, is refused the same way.
 
@@ -423,7 +425,7 @@ A trope that keeps failing, or that the editor stops, costs only itself. Its con
 ## What this chapter grows into
 
 1. The contract's manifest schema, in Effect Schema and versioned by the `contract` field: the language service as the first kind of contribution, TypeScript declared as a bundled trope, and the loader reading a language's `id`, `displayName`, and `extensions` from the manifest instead of from the package's export.
-2. What is left of declared kinds: data bodies checked against their schemas, the registry read from packages as a workspace opens, and relations shown as edges in the book's graph.
+2. What is left of declared kinds: the registry read from packages as a workspace opens, and relations shown as edges in the book's graph.
 3. Third-party packages in the store: named in full, built against a contract version, installed with their install scripts off, and pinned by version and integrity.
 4. The sandbox around every trope process, with the default rights, an explicit environment, and Loom's own protected paths.
 5. Grants: `loom add` shows what a trope asks for and records the grant, and an update that asks for more asks again.
