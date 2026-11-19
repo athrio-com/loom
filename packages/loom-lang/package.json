@@ -36,7 +36,7 @@
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/language-service": "^2.4.28",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "ignore": "^7.0.5",
     "volar-service-css": "^0.0.71",
     "volar-service-html": "^0.0.71",
@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@athrio/loom-service-typescript": "workspace:*",
-    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-bun": "4.1.4",
     "vscode-uri": "^3.1.0"
   }
 }

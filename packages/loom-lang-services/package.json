@@ -19,13 +19,13 @@
   "peerDependencies": {
     "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
     "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "typescript": "^6.0.3",
     "vscode-uri": "^3.1.0"
   }

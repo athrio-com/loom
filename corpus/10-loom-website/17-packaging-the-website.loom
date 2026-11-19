@@ -217,7 +217,7 @@ The rest follow from that. The `build` command writes the bundle to `dist`, then
   "dependencies": {
     "@effect/platform-browser": "::[effect]",
     "effect": "::[effect]",
-    "foldkit": "0.168.0",
+    "foldkit": "0.171.0",
     "marked": "^18.0.5",
     "shiki": "^4.3.1"
   },

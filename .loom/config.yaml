@@ -5,7 +5,7 @@ primary: typescript
 ignore: []
 variables:
   version: 0.0.20
-  effect: 4.0.5
+  effect: 4.1.4
   grammar: 0.0.12
   zed: 0.0.19
   grammarRevision: 006f787f7c60de045921fbdff0e4b977c1f22c9c

@@ -8,10 +8,10 @@
     "./LoomConfig": "./src/LoomConfig.ts"
   },
   "peerDependencies": {
-    "effect": "4.0.5"
+    "effect": "4.1.4"
   },
   "devDependencies": {
-    "effect": "4.0.5"
+    "effect": "4.1.4"
   },
   "dependencies": {
     "yaml": "^2.9.0"

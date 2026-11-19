@@ -18,7 +18,7 @@
     "@athrio/effect-test": "workspace:*",
     "@athrio/loom-ast": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "tree-sitter-cli": "0.26.8"
   }
 }

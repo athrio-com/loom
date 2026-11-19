@@ -17,9 +17,9 @@
     "preview": "bun run build && bun run serve"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.5",
-    "effect": "4.0.5",
-    "foldkit": "0.168.0",
+    "@effect/platform-browser": "4.1.4",
+    "effect": "4.1.4",
+    "foldkit": "0.171.0",
     "marked": "^18.0.5",
     "shiki": "^4.3.1"
   },
