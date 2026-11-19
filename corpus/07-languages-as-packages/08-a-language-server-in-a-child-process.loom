@@ -79,6 +79,8 @@ The bridge mirrors a running process, so it holds state that the process changes
 
 A process can fail to start, because its command is missing, or cannot be executed, or its folder does not exist. Node reports that failure as an `error` event on the child, after the call that started it has returned. Writing to such a child would fail as well, and an unhandled failure ends the whole language server, which hosts every other language too. So the bridge waits for the child's `spawn` event, which says the process truly started, before it builds a connection or writes a byte. `spawned` is the promise of that event, and it fails with `LanguageServerFailed` on an `error` event instead, its reason built by `couldNotStart`. Node reports a working folder that does not exist under the executable's name, so `couldNotStart` checks the folder itself first. Otherwise it keeps the system's words and marks the cause `lasting` when its code is one of `lastingCodes`. A child that started can still close its input later, so the bridge listens for errors on that stream too and takes them as the process stopping. `stopped` runs once, whenever the bridge gives up on the server: when the process exits or fails, when its input breaks, or when the connection reports an error, such as a message it cannot read. It records the moment, disposes the connection, which fails every request still waiting for an answer, and stops the process. A process can outlive a broken connection, and stopping it there keeps a server the bridge can no longer talk to from running on unseen.
 
+The bridge tells the time by `now`, a clock its caller may hand it. It reads the clock as it starts the process, and again in `stopped`, for the moment `stopped` records. `uptime` is the time between those two readings, or the time since the first reading while the server still runs. Unless the caller hands in another, `now` is the system's clock, `Date.now`. A test hands in a clock that moves only when the test moves it. So a case about a server that ran for five minutes waits for none of them, and a slow machine cannot change how long the server ran.
+
 A crashing server explains itself only on its standard error, and it states the reason first, then the detail. A Go program such as TypeScript 7 writes a header, `panic:`, `fatal error:` or the name of a signal such as `SIGSEGV:`, then the stack of every goroutine, often more than ten kilobytes of it. A server running on Node or Bun writes the error, such as `TypeError: …`, then its stack, then the runtime's own banner, such as `Node.js v26.0.0`. So the bridge reads the standard error line by line as it arrives, and keeps `header`, the latest line that opens with one of those headers, however long the dump that follows. It also keeps the last few kilobytes, in case no header ever comes. `lastWords` gives the newest header: the line still being written, when it opens with one, or else the latest complete one. Without a header it gives the last line written that is not a runtime's banner. A server can log a harmless `Error:` line long before it dies without a word, killed for the memory it took, so a failure also says how the process ended, which `exit` reports and `ended` keeps, and the person can weigh the words against the death. The process's streams close a moment after it exits, so `closed` is the promise of that, and a failure waits for it, half a second at most, before it reads the words.
 
 =>
@@ -91,11 +93,12 @@ export const spawnLanguageServer = (
   workspace: string,
   languageId: string,
   capabilities: object,
+  now: () => number = Date.now,
 ): LanguageServerProcess => {
   const state = {
     running: true,
     disposed: false,
-    startedAt: Date.now(),
+    startedAt: now(),
     stoppedAt: 0,
     stderr: '',
     partial: '',
@@ -116,7 +119,7 @@ export const spawnLanguageServer = (
   const stopped = (): void => {
     if (!state.running) return
     state.running = false
-    state.stoppedAt = Date.now()
+    state.stoppedAt = now()
     void connected.then((connection) => connection.dispose()).catch(() => undefined)
     child.kill()
   }
@@ -348,7 +351,7 @@ A failure needs one more look before it gets its reason, because `vscode-jsonrpc
             }),
           ),
     alive: () => state.running,
-    uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
+    uptime: () => (state.running ? now() : state.stoppedAt) - state.startedAt,
     dispose: () => {
       if (state.disposed) return
       state.disposed = true
@@ -504,6 +507,27 @@ export const running = (pid: number): boolean => {
   }
 }
 
+~
+
+Some cases are about how long a server ran. On the system's clock such a case would wait out the time it is about, and a slow machine could change its outcome. `testClock` gives a clock that moves only when a case moves it. Its `now` reads the time the clock shows, which starts at zero, and its `advance` moves that time on by a number of milliseconds. A case hands `now` to the bridge in place of the system's clock.
+
+=>
+
+export interface TestClock {
+  readonly now: () => number
+  readonly advance: (ms: number) => void
+}
+
+export const testClock = (): TestClock => {
+  const state = { at: 0 }
+  return {
+    now: () => state.at,
+    advance: (ms) => {
+      state.at += ms
+    },
+  }
+}
+
 ## The stand-in module [test/StandInServer.ts]
 
 =>
@@ -520,6 +544,8 @@ The next cases check that a server which cannot start never takes the host down.
 
 The next cases check what a failed request says. A server that answers a hover with an error keeps running, and the failure repeats the server's words. A server that refuses `initialize` is reported as having refused to start, with its words. A server that crashes while a hover waits is reported as not running, never as having answered, although `vscode-jsonrpc` fails the waiting request with an error of its own. The failure says how the process ended and repeats the `panic:` line the server wrote before its long stack. For a server that dies the way Node does, it repeats the error line rather than Node's banner, and of two header lines it repeats the newer, even when that one has no line end. A folder that does not exist is reported as the missing folder it is. A request sent before a document is opened reaches the server first. `dispose` stops the process, and a second call does nothing.
 
+One case checks `uptime` on a clock the case moves. A server that has run for a second by that clock has an uptime of a second. Once the server crashes, its uptime stays what it was when the bridge saw it stop, however far the clock moves afterwards.
+
 The last two cases run the bridge under Node, the runtime the VS Code extension and the npm command use. The first starts Node on a small script that imports the bridge's own source, which Node runs by stripping its types, and has the bridge ask the stand-in for a hover. The case passes only if the hover comes back, so a module name Node cannot resolve fails it. A second case under Node floods the server with open documents, the first of them named `crash` so the server dies while it reads the rest, and then sends a request behind them. It passes only if Node reports the request failed and keeps running, which is what the guarded writer is for. A machine without Node skips both.
 
 =>
@@ -529,7 +555,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { LanguageServerFailed, spawnLanguageServer } from '../src/LanguageServerProcess'
-import { running, settled, standInServer, startedIn } from './StandInServer'
+import { running, settled, standInServer, startedIn, testClock } from './StandInServer'
 
 describe('LanguageServerProcess keeps files open and sends requests in order', () => {
   it('opens, changes and closes files, and sends a request after them', async () => {
@@ -697,6 +723,28 @@ describe('LanguageServerProcess shuts a server down once', () => {
     await settled()
     expect(server.alive()).toBe(false)
     expect(stand.lines().filter((line) => line === 'shutdown')).toEqual(['shutdown'])
+  })
+})
+
+describe('LanguageServerProcess measures how long a server ran', () => {
+  it('reads the clock it is given, until the server stopped', async () => {
+    const stand = standInServer()
+    const clock = testClock()
+    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {}, clock.now)
+    const hover = (file: string): Promise<unknown> =>
+      server
+        .request('textDocument/hover', {
+          textDocument: { uri: `file://${join(stand.folder, file)}` },
+        })
+        .catch((error: unknown) => error)
+    await hover('a.ts')
+    clock.advance(1000)
+    expect(server.uptime()).toBe(1000)
+    await hover('boom.ts')
+    clock.advance(1000)
+    expect(server.alive()).toBe(false)
+    expect(server.uptime()).toBe(1000)
+    server.dispose()
   })
 })
 

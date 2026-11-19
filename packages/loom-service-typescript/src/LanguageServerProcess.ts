@@ -60,11 +60,12 @@ export const spawnLanguageServer = (
   workspace: string,
   languageId: string,
   capabilities: object,
+  now: () => number = Date.now,
 ): LanguageServerProcess => {
   const state = {
     running: true,
     disposed: false,
-    startedAt: Date.now(),
+    startedAt: now(),
     stoppedAt: 0,
     stderr: '',
     partial: '',
@@ -85,7 +86,7 @@ export const spawnLanguageServer = (
   const stopped = (): void => {
     if (!state.running) return
     state.running = false
-    state.stoppedAt = Date.now()
+    state.stoppedAt = now()
     void connected.then((connection) => connection.dispose()).catch(() => undefined)
     child.kill()
   }
@@ -277,7 +278,7 @@ export const spawnLanguageServer = (
             }),
           ),
     alive: () => state.running,
-    uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
+    uptime: () => (state.running ? now() : state.stoppedAt) - state.startedAt,
     dispose: () => {
       if (state.disposed) return
       state.disposed = true

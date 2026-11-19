@@ -304,22 +304,23 @@ A restarted server holds the roots the program had open, but has loaded none of 
 
 A `Fetched` program has one more thing to wait for. Its executable may not be on the machine yet, and nothing can start it until the fetch has put it there. `NativeProgramOptions` carries `ready`, which every question waits on before it reaches the server. A program on a TypeScript 7 already on disk is ready at once. The plugin gives a `Fetched` program the capability's `fetch`, which the host runs once per machine. So the first question waits for the download and every later one finds it done. A fetch that fails fails the question with its reason, and diagnostics show that reason where the person looks.
 
-`NativeProgramOptions` also lets a test shorten `stableFor`, so a case can watch the count reset without waiting five minutes, and hand in a `ready` of its own. A caller names only the options it changes, and `defaultOptions` fills in the rest.
+`NativeProgramOptions` also carries `now`, the clock the program hands the bridge to tell the time by, which is the system's clock unless a caller hands in another. A test hands in both options: a `ready` it settles when it chooses, and a clock it moves by hand. A case then lets a server run for six minutes, or leaves ten minutes between two questions, and waits for neither. A caller names only the options it changes, and `defaultOptions` fills in the rest.
 
 `dispose` marks the program disposed before it stops the server. A disposed program starts nothing, so a warm-up still under way cannot bring the server back after the program was shut down. A question asked of it fails with `NativeProgramDisposed`, which says the program was shut down rather than that its server crashed. `everyFound` reads what a server answered as a list: nothing, the list it gave, or the one place it gave alone. `asCompletionList` reads a server's completions the same way, as a list that says whether it is complete.
 
 =>
 
 const maxRestarts = 3
+const stableFor = 5 * 60_000
 
 export interface NativeProgramOptions {
-  readonly stableFor: number
   readonly ready: () => Promise<void>
+  readonly now: () => number
 }
 
 const defaultOptions: NativeProgramOptions = {
-  stableFor: 5 * 60_000,
   ready: () => Promise.resolve(),
+  now: Date.now,
 }
 
 const incurable = (failure: unknown): boolean =>
@@ -459,33 +460,40 @@ export const createNativeProgram = (
     })
 
   const start = (): LanguageServerProcess => {
-    const server = spawnLanguageServer(compiler, ['--lsp', '--stdio'], workspace, 'typescript', {
-      textDocument: {
-        hover: { contentFormat: ['markdown', 'plaintext'] },
-        definition: { linkSupport: true },
-        diagnostic: {},
-        completion: { completionItem: { documentationFormat: ['markdown', 'plaintext'] } },
-        codeAction: {
-          codeActionLiteralSupport: {
-            codeActionKind: { valueSet: ['quickfix', 'refactor', 'source'] },
+    const server = spawnLanguageServer(
+      compiler,
+      ['--lsp', '--stdio'],
+      workspace,
+      'typescript',
+      {
+        textDocument: {
+          hover: { contentFormat: ['markdown', 'plaintext'] },
+          definition: { linkSupport: true },
+          diagnostic: {},
+          completion: { completionItem: { documentationFormat: ['markdown', 'plaintext'] } },
+          codeAction: {
+            codeActionLiteralSupport: {
+              codeActionKind: { valueSet: ['quickfix', 'refactor', 'source'] },
+            },
+            resolveSupport: { properties: ['edit'] },
+            dataSupport: true,
           },
-          resolveSupport: { properties: ['edit'] },
-          dataSupport: true,
+          rename: {},
+          references: {},
+          documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+          foldingRange: {},
+          selectionRange: {},
         },
-        rename: {},
-        references: {},
-        documentSymbol: { hierarchicalDocumentSymbolSupport: true },
-        foldingRange: {},
-        selectionRange: {},
       },
-    })
+      options.now,
+    )
     state.server = Option.some(server)
     pushOpen()
     return server
   }
 
   const restart = (previous: LanguageServerProcess): Option.Option<LanguageServerProcess> => {
-    if (previous.uptime() >= options.stableFor) state.restarts = 0
+    if (previous.uptime() >= stableFor) state.restarts = 0
     if (state.incurable || state.restarts >= maxRestarts) return Option.none()
     state.restarts += 1
     previous.dispose()
@@ -787,7 +795,7 @@ import type { ProductProject } from './TypescriptService'
 
 ## What the tests draw on
 
-The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server from the previous chapter. The cases that check which roots a native program serves also draw on the service's `nativeProjectsOf` and `configNear`.
+The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server and the test clock from the previous chapter. The cases that check which roots a native program serves also draw on the service's `nativeProjectsOf` and `configNear`.
 
 `fetched` stands for the TypeScript 7 the host would fetch. Its executable lies nowhere, and its fetch fails, so a case that reached for it by mistake would say so.
 
@@ -814,7 +822,7 @@ import {
   inferredProject,
 } from '../src/NativeProgram'
 import { configNear, nativeProjectsOf } from '../src/TypescriptService'
-import { settled, standInServer, startedIn } from './StandInServer'
+import { settled, standInServer, startedIn, testClock } from './StandInServer'
 
 const fetched = {
   version: '7.0.0-test',
@@ -1012,6 +1020,8 @@ describe('nativeProjectsOf names the project TypeScript 7 places a root in', () 
 These cases drive `createNativeProgram` against the stand-in server, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself. A failure shows up where the person would see it, as an error diagnostic, so `diagnosticsOf` reads the message a program reports for a root.
 
 The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root with no native project, such as one left to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root is closed as soon as the person edits another, in the same loom or another. A root a waiting question is about stays open until its answer arrives, and a root that closes after an older question was answered keeps the text of the newer question still waiting. A root that shares a native project with the root asked about opens before the first answer, a loose root's project as well, and a root of another project opens only with the warm-up. A code action listed on a loose root that has closed since is resolved with that root open again. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. A server that refuses to start is reported with its words, and once the program gives up on it, the program still repeats them. A server whose executable is missing is reported as one that could not start, and the program gives up on it at once, without a restart. A root asked about while the program waits for `ready` stays open until its answer. A TypeScript loose root reaches the server ending in `;export {}`, while a JavaScript loose root and a root with a sink reach it as written. A program waits for its compiler to be ready before it starts the server, and reports a compiler it could not fetch. It forwards the questions about a root's outline, folding and selection to the server. An unavailable project reports its compiler and its reason.
+
+The two cases about time hand the program a clock they move themselves, the `testClock` of the stand-in module. The case with long gaps between questions leaves the clock still while each server lives, and moves it ten minutes between one question and the next. By that clock no server ran at all, and only the gaps took time. The case of a server that ran for a while moves the clock six minutes while each server is up, past the five minutes of `stableFor`. Neither case waits for real time, so neither depends on how fast the machine starts a process.
 
 =>
 
@@ -1292,8 +1302,9 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
 
   it('keeps giving up on a server that crashes as it starts, however long the wait', async () => {
     const stand = standInServer()
+    const clock = testClock()
     const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
-      stableFor: 100,
+      now: clock.now,
     })
     const crash = join(stand.folder, 'crash.ts')
     program.sync([{ path: crash, text: 'boom' }])
@@ -1301,7 +1312,7 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
       (previous) =>
         previous.then(async (found) => {
           const message = await diagnosticsOf(program, crash)
-          await settled(300)
+          clock.advance(10 * 60_000)
           return [...found, message]
         }),
       Promise.resolve([]),
@@ -1313,8 +1324,9 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
 
   it('counts restarts afresh after a server that ran for a while', async () => {
     const stand = standInServer()
+    const clock = testClock()
     const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
-      stableFor: 100,
+      now: clock.now,
     })
     const a = join(stand.folder, 'a.ts')
     const boom = join(stand.folder, 'boom.ts')
@@ -1323,14 +1335,13 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
       (previous) =>
         previous.then(async () => {
           await program.hover(a, position)
-          await settled(200)
+          clock.advance(6 * 60_000)
           await program.hover(boom, position)
-          await settled(100)
         }),
       Promise.resolve(),
     )
     expect(startedIn(stand.lines())).toHaveLength(5)
-    expect(await diagnosticsOf(program, a)).not.toContain('stopped')
+    expect(await diagnosticsOf(program, a)).toBe('')
     program.dispose()
   })
 })

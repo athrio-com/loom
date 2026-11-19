@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { LanguageServerFailed, spawnLanguageServer } from '../src/LanguageServerProcess'
-import { running, settled, standInServer, startedIn } from './StandInServer'
+import { running, settled, standInServer, startedIn, testClock } from './StandInServer'
 
 describe('LanguageServerProcess keeps files open and sends requests in order', () => {
   it('opens, changes and closes files, and sends a request after them', async () => {
@@ -171,6 +171,28 @@ describe('LanguageServerProcess shuts a server down once', () => {
     await settled()
     expect(server.alive()).toBe(false)
     expect(stand.lines().filter((line) => line === 'shutdown')).toEqual(['shutdown'])
+  })
+})
+
+describe('LanguageServerProcess measures how long a server ran', () => {
+  it('reads the clock it is given, until the server stopped', async () => {
+    const stand = standInServer()
+    const clock = testClock()
+    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {}, clock.now)
+    const hover = (file: string): Promise<unknown> =>
+      server
+        .request('textDocument/hover', {
+          textDocument: { uri: `file://${join(stand.folder, file)}` },
+        })
+        .catch((error: unknown) => error)
+    await hover('a.ts')
+    clock.advance(1000)
+    expect(server.uptime()).toBe(1000)
+    await hover('boom.ts')
+    clock.advance(1000)
+    expect(server.alive()).toBe(false)
+    expect(server.uptime()).toBe(1000)
+    server.dispose()
   })
 })
 

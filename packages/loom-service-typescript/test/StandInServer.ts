@@ -101,3 +101,18 @@ export const running = (pid: number): boolean => {
     return false
   }
 }
+
+export interface TestClock {
+  readonly now: () => number
+  readonly advance: (ms: number) => void
+}
+
+export const testClock = (): TestClock => {
+  const state = { at: 0 }
+  return {
+    now: () => state.at,
+    advance: (ms) => {
+      state.at += ms
+    },
+  }
+}

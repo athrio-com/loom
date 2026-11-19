@@ -242,15 +242,16 @@ const openSet = (
 }
 
 const maxRestarts = 3
+const stableFor = 5 * 60_000
 
 export interface NativeProgramOptions {
-  readonly stableFor: number
   readonly ready: () => Promise<void>
+  readonly now: () => number
 }
 
 const defaultOptions: NativeProgramOptions = {
-  stableFor: 5 * 60_000,
   ready: () => Promise.resolve(),
+  now: Date.now,
 }
 
 const incurable = (failure: unknown): boolean =>
@@ -390,33 +391,40 @@ export const createNativeProgram = (
     })
 
   const start = (): LanguageServerProcess => {
-    const server = spawnLanguageServer(compiler, ['--lsp', '--stdio'], workspace, 'typescript', {
-      textDocument: {
-        hover: { contentFormat: ['markdown', 'plaintext'] },
-        definition: { linkSupport: true },
-        diagnostic: {},
-        completion: { completionItem: { documentationFormat: ['markdown', 'plaintext'] } },
-        codeAction: {
-          codeActionLiteralSupport: {
-            codeActionKind: { valueSet: ['quickfix', 'refactor', 'source'] },
+    const server = spawnLanguageServer(
+      compiler,
+      ['--lsp', '--stdio'],
+      workspace,
+      'typescript',
+      {
+        textDocument: {
+          hover: { contentFormat: ['markdown', 'plaintext'] },
+          definition: { linkSupport: true },
+          diagnostic: {},
+          completion: { completionItem: { documentationFormat: ['markdown', 'plaintext'] } },
+          codeAction: {
+            codeActionLiteralSupport: {
+              codeActionKind: { valueSet: ['quickfix', 'refactor', 'source'] },
+            },
+            resolveSupport: { properties: ['edit'] },
+            dataSupport: true,
           },
-          resolveSupport: { properties: ['edit'] },
-          dataSupport: true,
+          rename: {},
+          references: {},
+          documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+          foldingRange: {},
+          selectionRange: {},
         },
-        rename: {},
-        references: {},
-        documentSymbol: { hierarchicalDocumentSymbolSupport: true },
-        foldingRange: {},
-        selectionRange: {},
       },
-    })
+      options.now,
+    )
     state.server = Option.some(server)
     pushOpen()
     return server
   }
 
   const restart = (previous: LanguageServerProcess): Option.Option<LanguageServerProcess> => {
-    if (previous.uptime() >= options.stableFor) state.restarts = 0
+    if (previous.uptime() >= stableFor) state.restarts = 0
     if (state.incurable || state.restarts >= maxRestarts) return Option.none()
     state.restarts += 1
     previous.dispose()

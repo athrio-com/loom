@@ -19,7 +19,7 @@ import {
   inferredProject,
 } from '../src/NativeProgram'
 import { configNear, nativeProjectsOf } from '../src/TypescriptService'
-import { settled, standInServer, startedIn } from './StandInServer'
+import { settled, standInServer, startedIn, testClock } from './StandInServer'
 
 const fetched = {
   version: '7.0.0-test',
@@ -479,8 +479,9 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
 
   it('keeps giving up on a server that crashes as it starts, however long the wait', async () => {
     const stand = standInServer()
+    const clock = testClock()
     const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
-      stableFor: 100,
+      now: clock.now,
     })
     const crash = join(stand.folder, 'crash.ts')
     program.sync([{ path: crash, text: 'boom' }])
@@ -488,7 +489,7 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
       (previous) =>
         previous.then(async (found) => {
           const message = await diagnosticsOf(program, crash)
-          await settled(300)
+          clock.advance(10 * 60_000)
           return [...found, message]
         }),
       Promise.resolve([]),
@@ -500,8 +501,9 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
 
   it('counts restarts afresh after a server that ran for a while', async () => {
     const stand = standInServer()
+    const clock = testClock()
     const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
-      stableFor: 100,
+      now: clock.now,
     })
     const a = join(stand.folder, 'a.ts')
     const boom = join(stand.folder, 'boom.ts')
@@ -510,14 +512,13 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
       (previous) =>
         previous.then(async () => {
           await program.hover(a, position)
-          await settled(200)
+          clock.advance(6 * 60_000)
           await program.hover(boom, position)
-          await settled(100)
         }),
       Promise.resolve(),
     )
     expect(startedIn(stand.lines())).toHaveLength(5)
-    expect(await diagnosticsOf(program, a)).not.toContain('stopped')
+    expect(await diagnosticsOf(program, a)).toBe('')
     program.dispose()
   })
 })
