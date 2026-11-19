@@ -729,9 +729,27 @@ const reprojectWorkspace = (
 
 ~
 
-`reproject` brings up to date the project of every workspace the counted changes belong to. It forgets the script of every deleted loom, and of any other loom the caller names. Then it asks Volar to refresh, so the editor asks again for every open loom's diagnostics. A batch with no change that counts leaves every projection as it is.
+`reproject` brings up to date the project of every workspace the counted changes belong to. It forgets the script of every deleted loom, and of any other loom the caller names. Then it runs the `refresh` its caller hands it, which tells the editor what to ask for again. A batch with no change that counts leaves every projection as it is, and refreshes nothing.
+
+A change on disk reaches the server with no change in the editor, so nothing has asked for any open loom's diagnostics. `refreshEverything` asks Volar to refresh, and Volar checks every open loom again and has the editor ask again for all it shows.
+
+An edit in the editor is different, because Volar has already begun. Loom's own diagnostics declare that they read other files, so Volar checks every open loom again after each change in the editor, a quarter of a second after the last keystroke. A refresh asked on top of that cancels the check under way and starts another a quarter of a second later. The author would then wait a quarter of a second longer for the diagnostics of every keystroke in code. So after an edit the server leaves the check alone. What the edit still owes the other open looms is their colours and their hints, since an editor asks for those again only when the loom itself changes or the server says so. `refreshDecorations` says so, through the protocol's refresh requests for semantic tokens and for inlay hints, each sent only to an editor that declares it supports the request. An editor that refuses one keeps the colours it has, so `refusalIgnored` drops a refusal. It takes whatever either request gives, because the protocol library types one of the two as giving nothing, though both give a promise.
 
 =>
+
+const refreshEverything = (server: LanguageServer): void =>
+  void server.languageFeatures.requestRefresh(false)
+
+const refusalIgnored = (asked: void | Promise<void>): void =>
+  void Promise.resolve(asked).catch(() => undefined)
+
+export const refreshDecorations = (server: LanguageServer): void => {
+  const supported = server.initializeParams.capabilities.workspace
+  if (supported?.semanticTokens?.refreshSupport === true)
+    refusalIgnored(server.connection.languages.semanticTokens.refresh())
+  if (supported?.inlayHint?.refreshSupport === true)
+    refusalIgnored(server.connection.languages.inlayHint.refresh())
+}
 
 const reproject = (
   server: LanguageServer,
@@ -739,6 +757,7 @@ const reproject = (
   projects: Cache.Cache<string, LanguageServerProject>,
   changes: ReadonlyArray<FileEvent>,
   alsoForgotten: ReadonlyArray<URI>,
+  refresh: (server: LanguageServer) => void,
 ): Effect.Effect<void> => {
   const forgotten = [
     ...changes
@@ -752,9 +771,7 @@ const reproject = (
         Array.dedupe(changes.map((change) => workspaceFor(home, URI.parse(change.uri)))),
         (workspace) => reprojectWorkspace(server, home, projects, workspace, forgotten),
         { discard: true },
-      ).pipe(
-        Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
-      )
+      ).pipe(Effect.andThen(Effect.sync(() => refresh(server))))
 }
 
 ~
@@ -804,7 +821,7 @@ const rereadOnDisk = (
         Effect.flatMap((changes) =>
           rereadLooms(changes).pipe(
             Effect.flatMap((counted) =>
-              reproject(server, home, projects, counted, forgottenBy(changes)),
+              reproject(server, home, projects, counted, forgottenBy(changes), refreshEverything),
             ),
           ),
         ),
@@ -945,7 +962,7 @@ const rebuildEdited = (
 
 ~
 
-An edit whose face changed reaches the open chapters of its workspace the way a change on disk does. `reproject` marks them stale and asks Volar to refresh. An edit only to prose leaves the face as it was, and reaches nothing. The other open chapters keep their projections, and Volar keeps the diagnostics it cached for them.
+An edit whose face changed reaches the open chapters of its workspace. `reproject` marks them stale, so each is projected again when Volar next asks about it, and ends with `refreshDecorations`, which has the editor ask again for their colours and hints. It does not ask Volar to refresh, since Volar is already checking every open loom after the edit. An edit only to prose leaves the face as it was, and reaches nothing. The other open chapters keep their projections, and Volar keeps the diagnostics it cached for them.
 
 `settleEdits` runs both before the project the server hands to Volar answers a request, while it holds the `reprojecting` semaphore. The rebuilding runs with Effect's `PreventSchedulerYield` set, so its fiber never yields between steps. Every step of a build is synchronous, so the rebuilding finishes within one turn of the event loop. A fiber that paused in the middle of a build would hold the build cache's lock, and a synchronous build in one of Volar's hooks would fail on it. Only the marking waits on a promise, and the marking never touches the build cache.
 
@@ -959,7 +976,7 @@ const settleEdits = (
 ): Effect.Effect<void, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
   rebuildEdited(server, edited).pipe(
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
-    Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
+    Effect.flatMap((changes) => reproject(server, home, projects, changes, [], refreshDecorations)),
   )
 
 ## A box kept in step as the author types
@@ -1167,7 +1184,7 @@ export const startLanguageServer = (): void => {
 
 ## The server module [src/LoomServer.ts]
 
-The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the watch on approvals, the boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the watch on approvals, the boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `refreshDecorations`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
@@ -2446,6 +2463,28 @@ const closedEditor = {
   fileWatcher: { onDidChangeWatchedFiles: () => ({ dispose: () => {} }) },
 } as unknown as LanguageServer
 
+const editorThat = (declares: boolean) => {
+  const asked: Array<string> = []
+  const asking = (name: string) => ({
+    refresh: () => {
+      asked.push(name)
+      return Promise.resolve()
+    },
+  })
+  const server = {
+    initializeParams: {
+      capabilities: {
+        workspace: declares
+          ? { semanticTokens: { refreshSupport: true }, inlayHint: { refreshSupport: true } }
+          : {},
+      },
+    },
+    connection: { languages: { semanticTokens: asking('colours'), inlayHint: asking('hints') } },
+    languageFeatures: { requestRefresh: () => asking('everything').refresh() },
+  } as unknown as LanguageServer
+  return { server, asked }
+}
+
 const home = '/nowhere'
 
 const mainUri = URI.file('/nowhere/corpus/main.loom')
@@ -2463,6 +2502,8 @@ The third case changes a workspace's configuration while the editor has looms op
 The fourth case holds the `reprojecting` semaphore, as a reprojection does, and asks the server's project for a loom's language service. The answer must wait until the semaphore is released.
 
 The fifth case builds a workspace's project over an editor that has nothing open. It asks the project's language for a loom that sits on disk, as Volar does when a definition lands in a chapter the editor has closed. The project must project the loom from its saved text, so the answer can map back to its place there. Asked again, it must hand back the same snapshot, since a new snapshot would project the loom anew.
+
+The sixth case refreshes an editor's decorations after an edit. `editorThat` is a stand-in server that lists what it asks its editor for. An editor that declares the refresh requests for semantic tokens and for inlay hints is asked for both, and Volar is never asked to refresh, since that would start the check of every open loom over. An editor that declares neither is asked for nothing.
 
 =>
 
@@ -2567,6 +2608,15 @@ describe('LoomServer — the pass piece by piece', () => {
     expect(first?.snapshot.getText(0, first.snapshot.getLength())).toBe(text)
     expect(first?.generated?.root.snapshot.getText(0, text.length)).toBe(text)
     expect(again?.snapshot).toBe(first?.snapshot)
+  })
+
+  it('asks an editor for colours and hints again after an edit, and never for everything', () => {
+    const able = editorThat(true)
+    refreshDecorations(able.server)
+    expect(able.asked).toEqual(['colours', 'hints'])
+    const unable = editorThat(false)
+    refreshDecorations(unable.server)
+    expect(unable.asked).toEqual([])
   })
 })
 
@@ -2819,6 +2869,7 @@ import {
   closeOf,
   projectOver,
   rebuildUnder,
+  refreshDecorations,
   refreshProject,
   workspaceProject,
 } from '../src/LoomServer'

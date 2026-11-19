@@ -103,7 +103,7 @@ So `revived` walks the product and turns each of those fields back into an `Opti
 
 `recall` reads a loom's kept file. It returns the module only when the file parses, its key matches, and the module it holds names the same path and text. Anything else, from a missing file to one half written by a crashed process, returns nothing, and the loom is built as if no cache existed.
 
-The file's opening settles most misses before anything is parsed. Parsing the kept module of a long chapter takes tens of milliseconds, and the editor asks for a loom on every keystroke, with a text no kept file was built from. So `recall` compares how the file opens with `openingOf` the key it wants, and parses the file only when the two agree.
+The file's opening settles most misses before anything is parsed. Parsing the kept module of a long chapter takes tens of milliseconds, and the editor asks for a loom on every keystroke, with a text no kept file was built from. So `recall` compares how the file opens with `openingOf` the key it wants, and parses the file only when the two agree. It reads no more of the file than that opening to compare. The kept module of a long chapter runs to two megabytes, and reading it whole on every keystroke would cost several milliseconds for a file whose opening already says it is of no use. `opensWith` reads just as many bytes as the opening holds.
 
 =>
 
@@ -143,11 +143,28 @@ const revived = (module: LoomModule): LoomModule => ({
   },
 })
 
+const opensWith = (file: string, opening: string): boolean =>
+  Option.getOrElse(
+    Option.liftThrowable(() => {
+      const wanted = Buffer.from(opening)
+      const held = Buffer.alloc(wanted.length)
+      const descriptor = openSync(file, 'r')
+      try {
+        return readSync(descriptor, held, 0, wanted.length, 0) === wanted.length && held.equals(wanted)
+      } finally {
+        closeSync(descriptor)
+      }
+    })(),
+    () => false,
+  )
+
 const recall = (file: string, key: string, path: Location, text: string): Option.Option<Built> =>
   pipe(
-    Option.liftThrowable(() => readFileSync(file, 'utf8'))(),
-    Option.filter((kept) => kept.startsWith(openingOf(key))),
-    Option.flatMap((kept) => Option.liftThrowable(() => JSON.parse(kept) as KeptModule)()),
+    Option.some(file),
+    Option.filter((kept) => opensWith(kept, openingOf(key))),
+    Option.flatMap((kept) =>
+      Option.liftThrowable(() => JSON.parse(readFileSync(kept, 'utf8')) as KeptModule)(),
+    ),
     Option.filter(
       (kept) => kept.key === key && kept.module.path === path && kept.module.text === text,
     ),
@@ -279,10 +296,13 @@ Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the
 import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import { createHash } from 'node:crypto'
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   writeFileSync,

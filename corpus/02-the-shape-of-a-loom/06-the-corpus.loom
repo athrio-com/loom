@@ -771,12 +771,16 @@ export const conceptPathOf = (
 
 ~
 
-`anchorsOf` gathers every anchor a section carries — across its preamble and its body, code and prose alike — since the reachability walk and the navigation read the same set.
+`anchorsOf` gathers every anchor a section carries — across its preamble and its body, code and prose alike — since the reachability walk and the navigation read the same set. `anchorsIn` gathers the anchors of a whole loom. The edges between looms ask for the anchors of every loom whenever one loom changes, so `anchorsIn` keeps its list by the loom's module, through `memoize`.
 
 =>
 
 const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
   [...section.preamble, ...section.code].flatMap((weft) => weft.anchors)
+
+const anchorsIn: (module: LoomModule) => ReadonlyArray<WarpAnchorToken> = memoize(
+  (module: LoomModule) => module.doc.sections.flatMap(anchorsOf),
+)
 
 ## Boxes that point to looms
 
@@ -1041,7 +1045,7 @@ const boxesNaming = (catalogue: Catalogue, chapter: Chapter): ReadonlyArray<Corp
 
 A parameter may hold a reference, the name of a section, as `replaces=Postgres` does under a key a trope declares as a reference. The row of small passes marks every such parameter with `refers`, as the chapter "Small passes over the tree" describes, so the corpus finds a loom's references without knowing what any trope declares. The core has one such key of its own, the `anchors` of a trope box, and it is marked like any other.
 
-A `HeldReference` is one value of a marked parameter: the `value` itself, the `key` it stands under, the bearer whose braces hold it, as `on`, and the `section` it stands in, when it stands in one. `referringIn` reads the references of one pair of braces, and `referencesAmong` those of the anchors and boxes on a run of lines. `referencesOf` reads every reference of a loom: in its preamble, on each heading, and within each section.
+A `HeldReference` is one value of a marked parameter: the `value` itself, the `key` it stands under, the bearer whose braces hold it, as `on`, and the `section` it stands in, when it stands in one. `referringIn` reads the references of one pair of braces, and `referencesAmong` those of the anchors and boxes on a run of lines. `referencesOf` reads every reference of a loom: in its preamble, on each heading, and within each section. It reads every line of the loom to find them, and the edges between looms ask for the references of every loom whenever one loom changes. So it keeps what it read for a loom by the loom's module, through `memoize`, and an edit costs the reading of the edited loom alone.
 
 A reference names a place the way an anchor's name does, through `trailsOf` from its own loom. `referenceTrails` gives every place a reference could name, so a judgement can tell a name that finds nothing from a name that finds several. A trope box's `anchors` value is looked up with the book's boxes set aside, so a trope never points to itself or through another trope, and `isTropeEntry` tells such a value. `resolveReference` gives the section a reference names, when it names exactly one place, as `resolveAnchor` does for an anchor.
 
@@ -1090,13 +1094,15 @@ const referencesAmong = (
     }),
   ])
 
-export const referencesOf = (module: LoomModule): ReadonlyArray<HeldReference> => [
-  ...referencesAmong(Option.none(), module.doc.preamble),
-  ...module.doc.sections.flatMap((section) => [
-    ...referringIn('heading', Option.some(section))(section.heading.specifier),
-    ...referencesAmong(Option.some(section), [...section.preamble, ...section.code]),
-  ]),
-]
+export const referencesOf: (module: LoomModule) => ReadonlyArray<HeldReference> = memoize(
+  (module: LoomModule) => [
+    ...referencesAmong(Option.none(), module.doc.preamble),
+    ...module.doc.sections.flatMap((section) => [
+      ...referringIn('heading', Option.some(section))(section.heading.specifier),
+      ...referencesAmong(Option.some(section), [...section.preamble, ...section.code]),
+    ]),
+  ],
+)
 
 export const isTropeEntry = (held: HeldReference): boolean =>
   held.on === 'box' && held.key === 'anchors'
@@ -1370,15 +1376,13 @@ const boxReachAt = (ref: BoxRef): Position =>
   )
 
 export const reachesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Reach> => [
-  ...module.doc.sections
-    .flatMap(anchorsOf)
-    .flatMap((anchor) =>
-      Array.getSomes(
-        anchorTrails(catalogue, module.path, anchor).map((trail) =>
-          Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
-        ),
+  ...anchorsIn(module).flatMap((anchor) =>
+    Array.getSomes(
+      anchorTrails(catalogue, module.path, anchor).map((trail) =>
+        Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
       ),
     ),
+  ),
   ...Array.getSomes(
     boxesIn(catalogue, module.path).map((ref) =>
       Option.map(placeModuleOf(boxPlace(catalogue, ref)), (target): Reach => ({
@@ -1460,7 +1464,7 @@ const anchorAt = (modules: Modules, path: Location, offset: number): Option.Opti
     Option.fromNullishOr(modules.get(path)),
     Option.flatMap((m) =>
       Array.findFirst(
-        m.doc.sections.flatMap(anchorsOf),
+        anchorsIn(m),
         (anchor) => anchor.position.start.offset <= offset && offset <= anchor.position.end.offset,
       ),
     ),
@@ -1609,7 +1613,7 @@ const anchorsNaming = (
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
   Array.fromIterable(modules.values()).flatMap((m) =>
-    m.doc.sections.flatMap(anchorsOf).flatMap((anchor) =>
+    anchorsIn(m).flatMap((anchor) =>
       stepsOf(catalogue, m.path, anchor)
         .filter(names)
         .map((step): CorpusLocation => ({
@@ -2587,7 +2591,7 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
   return Option.match(Option.fromNullishOr(corpus.modules.get(path)), {
     onNone: (): ReadonlyArray<CorpusHint> => [],
     onSome: (module) =>
-      module.doc.sections.flatMap(anchorsOf).flatMap((anchor) =>
+      anchorsIn(module).flatMap((anchor) =>
         Array.getSomes(
           stepsOf(catalogue, path, anchor)
             .filter((step) => step.numbered)

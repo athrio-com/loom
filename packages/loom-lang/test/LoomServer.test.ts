@@ -28,6 +28,7 @@ import {
   closeOf,
   projectOver,
   rebuildUnder,
+  refreshDecorations,
   refreshProject,
   workspaceProject,
 } from '../src/LoomServer'
@@ -1332,6 +1333,28 @@ const closedEditor = {
   fileWatcher: { onDidChangeWatchedFiles: () => ({ dispose: () => {} }) },
 } as unknown as LanguageServer
 
+const editorThat = (declares: boolean) => {
+  const asked: Array<string> = []
+  const asking = (name: string) => ({
+    refresh: () => {
+      asked.push(name)
+      return Promise.resolve()
+    },
+  })
+  const server = {
+    initializeParams: {
+      capabilities: {
+        workspace: declares
+          ? { semanticTokens: { refreshSupport: true }, inlayHint: { refreshSupport: true } }
+          : {},
+      },
+    },
+    connection: { languages: { semanticTokens: asking('colours'), inlayHint: asking('hints') } },
+    languageFeatures: { requestRefresh: () => asking('everything').refresh() },
+  } as unknown as LanguageServer
+  return { server, asked }
+}
+
 const home = '/nowhere'
 
 const mainUri = URI.file('/nowhere/corpus/main.loom')
@@ -1439,5 +1462,14 @@ describe('LoomServer — the pass piece by piece', () => {
     expect(first?.snapshot.getText(0, first.snapshot.getLength())).toBe(text)
     expect(first?.generated?.root.snapshot.getText(0, text.length)).toBe(text)
     expect(again?.snapshot).toBe(first?.snapshot)
+  })
+
+  it('asks an editor for colours and hints again after an edit, and never for everything', () => {
+    const able = editorThat(true)
+    refreshDecorations(able.server)
+    expect(able.asked).toEqual(['colours', 'hints'])
+    const unable = editorThat(false)
+    refreshDecorations(unable.server)
+    expect(unable.asked).toEqual([])
   })
 })

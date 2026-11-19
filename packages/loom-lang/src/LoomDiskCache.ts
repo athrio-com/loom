@@ -1,10 +1,13 @@
 import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import { createHash } from 'node:crypto'
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -126,11 +129,28 @@ const revived = (module: LoomModule): LoomModule => ({
   },
 })
 
+const opensWith = (file: string, opening: string): boolean =>
+  Option.getOrElse(
+    Option.liftThrowable(() => {
+      const wanted = Buffer.from(opening)
+      const held = Buffer.alloc(wanted.length)
+      const descriptor = openSync(file, 'r')
+      try {
+        return readSync(descriptor, held, 0, wanted.length, 0) === wanted.length && held.equals(wanted)
+      } finally {
+        closeSync(descriptor)
+      }
+    })(),
+    () => false,
+  )
+
 const recall = (file: string, key: string, path: Location, text: string): Option.Option<Built> =>
   pipe(
-    Option.liftThrowable(() => readFileSync(file, 'utf8'))(),
-    Option.filter((kept) => kept.startsWith(openingOf(key))),
-    Option.flatMap((kept) => Option.liftThrowable(() => JSON.parse(kept) as KeptModule)()),
+    Option.some(file),
+    Option.filter((kept) => opensWith(kept, openingOf(key))),
+    Option.flatMap((kept) =>
+      Option.liftThrowable(() => JSON.parse(readFileSync(kept, 'utf8')) as KeptModule)(),
+    ),
     Option.filter(
       (kept) => kept.key === key && kept.module.path === path && kept.module.text === text,
     ),

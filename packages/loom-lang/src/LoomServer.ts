@@ -575,12 +575,27 @@ const reprojectWorkspace = (
     ),
   )
 
+const refreshEverything = (server: LanguageServer): void =>
+  void server.languageFeatures.requestRefresh(false)
+
+const refusalIgnored = (asked: void | Promise<void>): void =>
+  void Promise.resolve(asked).catch(() => undefined)
+
+export const refreshDecorations = (server: LanguageServer): void => {
+  const supported = server.initializeParams.capabilities.workspace
+  if (supported?.semanticTokens?.refreshSupport === true)
+    refusalIgnored(server.connection.languages.semanticTokens.refresh())
+  if (supported?.inlayHint?.refreshSupport === true)
+    refusalIgnored(server.connection.languages.inlayHint.refresh())
+}
+
 const reproject = (
   server: LanguageServer,
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   changes: ReadonlyArray<FileEvent>,
   alsoForgotten: ReadonlyArray<URI>,
+  refresh: (server: LanguageServer) => void,
 ): Effect.Effect<void> => {
   const forgotten = [
     ...changes
@@ -594,9 +609,7 @@ const reproject = (
         Array.dedupe(changes.map((change) => workspaceFor(home, URI.parse(change.uri)))),
         (workspace) => reprojectWorkspace(server, home, projects, workspace, forgotten),
         { discard: true },
-      ).pipe(
-        Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
-      )
+      ).pipe(Effect.andThen(Effect.sync(() => refresh(server))))
 }
 
 export const closeOf = (
@@ -630,7 +643,7 @@ const rereadOnDisk = (
         Effect.flatMap((changes) =>
           rereadLooms(changes).pipe(
             Effect.flatMap((counted) =>
-              reproject(server, home, projects, counted, forgottenBy(changes)),
+              reproject(server, home, projects, counted, forgottenBy(changes), refreshEverything),
             ),
           ),
         ),
@@ -757,7 +770,7 @@ const settleEdits = (
 ): Effect.Effect<void, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
   rebuildEdited(server, edited).pipe(
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
-    Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
+    Effect.flatMap((changes) => reproject(server, home, projects, changes, [], refreshDecorations)),
   )
 
 const applySummaryEdits = (

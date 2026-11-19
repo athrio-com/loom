@@ -714,6 +714,10 @@ export const conceptPathOf = (
 const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
   [...section.preamble, ...section.code].flatMap((weft) => weft.anchors)
 
+const anchorsIn: (module: LoomModule) => ReadonlyArray<WarpAnchorToken> = memoize(
+  (module: LoomModule) => module.doc.sections.flatMap(anchorsOf),
+)
+
 export type OpenedBox = {
   readonly box: BoxToken
   readonly opener: LoomWeft
@@ -980,13 +984,15 @@ const referencesAmong = (
     }),
   ])
 
-export const referencesOf = (module: LoomModule): ReadonlyArray<HeldReference> => [
-  ...referencesAmong(Option.none(), module.doc.preamble),
-  ...module.doc.sections.flatMap((section) => [
-    ...referringIn('heading', Option.some(section))(section.heading.specifier),
-    ...referencesAmong(Option.some(section), [...section.preamble, ...section.code]),
-  ]),
-]
+export const referencesOf: (module: LoomModule) => ReadonlyArray<HeldReference> = memoize(
+  (module: LoomModule) => [
+    ...referencesAmong(Option.none(), module.doc.preamble),
+    ...module.doc.sections.flatMap((section) => [
+      ...referringIn('heading', Option.some(section))(section.heading.specifier),
+      ...referencesAmong(Option.some(section), [...section.preamble, ...section.code]),
+    ]),
+  ],
+)
 
 export const isTropeEntry = (held: HeldReference): boolean =>
   held.on === 'box' && held.key === 'anchors'
@@ -1228,15 +1234,13 @@ const boxReachAt = (ref: BoxRef): Position =>
   )
 
 export const reachesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Reach> => [
-  ...module.doc.sections
-    .flatMap(anchorsOf)
-    .flatMap((anchor) =>
-      Array.getSomes(
-        anchorTrails(catalogue, module.path, anchor).map((trail) =>
-          Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
-        ),
+  ...anchorsIn(module).flatMap((anchor) =>
+    Array.getSomes(
+      anchorTrails(catalogue, module.path, anchor).map((trail) =>
+        Option.map(moduleOf(trail), (target): Reach => ({ target, at: anchor.name.position })),
       ),
     ),
+  ),
   ...Array.getSomes(
     boxesIn(catalogue, module.path).map((ref) =>
       Option.map(placeModuleOf(boxPlace(catalogue, ref)), (target): Reach => ({
@@ -1306,7 +1310,7 @@ const anchorAt = (modules: Modules, path: Location, offset: number): Option.Opti
     Option.fromNullishOr(modules.get(path)),
     Option.flatMap((m) =>
       Array.findFirst(
-        m.doc.sections.flatMap(anchorsOf),
+        anchorsIn(m),
         (anchor) => anchor.position.start.offset <= offset && offset <= anchor.position.end.offset,
       ),
     ),
@@ -1445,7 +1449,7 @@ const anchorsNaming = (
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
   Array.fromIterable(modules.values()).flatMap((m) =>
-    m.doc.sections.flatMap(anchorsOf).flatMap((anchor) =>
+    anchorsIn(m).flatMap((anchor) =>
       stepsOf(catalogue, m.path, anchor)
         .filter(names)
         .map((step): CorpusLocation => ({
@@ -2357,7 +2361,7 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
   return Option.match(Option.fromNullishOr(corpus.modules.get(path)), {
     onNone: (): ReadonlyArray<CorpusHint> => [],
     onSome: (module) =>
-      module.doc.sections.flatMap(anchorsOf).flatMap((anchor) =>
+      anchorsIn(module).flatMap((anchor) =>
         Array.getSomes(
           stepsOf(catalogue, path, anchor)
             .filter((step) => step.numbered)
