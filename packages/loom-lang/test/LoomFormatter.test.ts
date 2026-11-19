@@ -47,18 +47,16 @@ const formatterOf = (format: (code: string) => Option.Option<string>): LanguageS
 const count = (text: string, mark: string): number => text.split(mark).length - 1
 
 const tidy = formatterOf((code) => {
-  const rows = Array.map(code.split('\n'), (row) => row.trim().replace(/(\S) {2,}(?=\S)/g, '$1 '))
+  const rows = code.split('\n').map((row) => row.trim().replace(/(\S) {2,}(?=\S)/g, '$1 '))
   const [depth, laid] = Array.mapAccum(rows, 0, (open, row) => {
     const own = row.startsWith('}') ? open - 1 : open
     return [open + count(row, '{') - count(row, '}'), { row, own, open }]
   })
   const holds =
     depth === 0 &&
-    Array.every(laid, ({ row, own, open }) => own >= 0 && !(open === 0 && row.endsWith(',')))
+    laid.every(({ row, own, open }) => own >= 0 && !(open === 0 && row.endsWith(',')))
   return holds
-    ? Option.some(
-        Array.map(laid, ({ row, own }) => (row === '' ? '' : '  '.repeat(own) + row)).join('\n'),
-      )
+    ? Option.some(laid.map(({ row, own }) => (row === '' ? '' : '  '.repeat(own) + row)).join('\n'))
     : Option.none()
 })
 

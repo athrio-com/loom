@@ -271,10 +271,13 @@ describe('the language a heading names', () => {
 
 describe('reading a value through a type', () => {
   const read = (type: ScalarType, written: string) =>
-    Result.getOrUndefined(readAs(type)(written))
+    Result.getOrUndefined(readAs(written, type))
 
   const wanted = (type: ScalarType, written: string) =>
-    Result.match(readAs(type)(written), { onSuccess: () => undefined, onFailure: (unread) => unread })
+    Result.match(readAs(written, type), {
+      onSuccess: () => undefined,
+      onFailure: (unread) => unread,
+    })
 
   it('keeps text as it is written, whatever it looks like', () => {
     expect(read('text', 'NO')).toBe('NO')

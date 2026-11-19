@@ -1,7 +1,7 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
-import { Effect, Stream } from 'effect'
+import { Effect } from 'effect'
 import type { ParsedDocument } from '@athrio/loom-ast/LoomAst'
 import { LoomAstBuilder } from '#ast/LoomAstBuilder'
 import {
@@ -36,12 +36,11 @@ import {
 } from '@athrio/loom-ast/Weft'
 
 // =============================================================================
-// LoomAstBuilder — unit tests against synthetic weft streams.
+// LoomAstBuilder — unit tests against synthetic lists of wefts.
 //
-// The builder is the AST-pipeline stage that turns a `Stream<LoomWeft>` into
+// The builder is the AST-pipeline stage that turns a loom's wefts into
 // a `ParsedDocument`. These tests bypass the Classifier/Tokeniser and feed
-// builder-shaped wefts directly via `Stream.fromIterable`, asserting the
-// resulting tree shape.
+// builder-shaped wefts directly, asserting the resulting tree shape.
 //
 // The FLAT model: every HeadingWeft opens a LoomSection appended to
 // `document.sections`. There is no chapter tier. ParsedDocument has exactly
@@ -55,7 +54,7 @@ import {
 // =============================================================================
 
 // =============================================================================
-// Harness — run the Service against a synthetic stream and return the
+// Harness — run the Service against a synthetic list and return the
 // document. Builder never fails, so `runSync` is fine.
 // =============================================================================
 
@@ -63,7 +62,7 @@ const buildAst = (wefts: ReadonlyArray<LoomWeft>): ParsedDocument =>
   Effect.runSync(
     Effect.gen(function* () {
       const builder = yield* LoomAstBuilder
-      return yield* builder.build(Stream.fromIterable(wefts))
+      return builder.build(wefts)
     }).pipe(Effect.provide(LoomAstBuilder.layer)),
   )
 

@@ -102,7 +102,7 @@ export const declarationsOf = (kinds: DeclaredKinds): Declarations => ({
 
 ## A trope's root and its manifest
 
-A trope is a cluster of chapters, and each of them names the trope in its frontmatter. The chapter that roots the trope is a trope chapter, and its title is the trope's name; `rootsTrope` tells such a chapter. Every other chapter of the trope is a member, and names the trope with a `Rooted in:` line. `tropeOf` reads the trope a chapter roots or belongs to, and `tropeLineOf` finds where it says so: the word `Trope` of a trope chapter, or the value of a `Rooted in:` line. `tropesOf` gathers each trope's chapters in the order of their paths, so that when two chapters clash, the same one stands on every machine. A trope whose chapters are all members has no root yet.
+A trope is a cluster of chapters, and each of them names the trope in its frontmatter. The chapter that roots the trope is a trope chapter, and its title is the trope's name; `rootsTrope` tells such a chapter. Every other chapter of the trope is a member, and names the trope with a `Rooted in:` line. `tropeOf` reads the trope a chapter roots or belongs to, and `tropeLineOf` finds where it says so: the word `Trope` of a trope chapter, or the value of a `Rooted in:` line. A chapter says all of this in its frontmatter, which the parser has read before any kind is declared. So `tropeIn` reads the trope from a parsed tree alone, for the compiler, which must know the chapters of tropes before it can finish building any loom. `tropesOf` gathers each trope's chapters in the order of their paths, so that when two chapters clash, the same one stands on every machine. A trope whose chapters are all members has no root yet.
 
 The root is also where the trope's manifest belongs, a section of the `Manifest` kind, which `manifestSectionsOf` finds. A manifest anywhere else is the product pass's to fault, as the chapter "The product pass" describes. A root with two manifests leaves Loom unsure which to read, so Loom refuses it. `manifestOf` composes the one manifest into its text with the product pass's own composition, `fromCode`, so an anchor in the manifest draws in the code it names. The composed text then goes to `readManifest`, as the chapter "The trope contract" describes. Each refusal of a manifest stands at the manifest's heading.
 
@@ -110,17 +110,19 @@ A manifest is composed against the chapters of its own trope alone, so an anchor
 
 =>
 
-const tropeLine = (module: LoomModule): Option.Option<FrontmatterTropeToken> =>
-  Option.orElse(Option.fromNullishOr(module.doc.frontmatter?.trope), () =>
-    Option.fromNullishOr(module.doc.frontmatter?.rootedIn),
+const tropeLine = (doc: ParsedDocument): Option.Option<FrontmatterTropeToken> =>
+  Option.orElse(Option.fromNullishOr(doc.frontmatter?.trope), () =>
+    Option.fromNullishOr(doc.frontmatter?.rootedIn),
   )
 
-export const tropeOf = (module: LoomModule): Option.Option<string> =>
-  Option.map(tropeLine(module), (line) => line.value)
+export const tropeIn = (doc: ParsedDocument): Option.Option<string> =>
+  Option.map(tropeLine(doc), (line) => line.value)
+
+export const tropeOf = (module: LoomModule): Option.Option<string> => tropeIn(module.doc)
 
 export const tropeLineOf = (module: LoomModule): Position =>
   Option.getOrElse(
-    Option.map(tropeLine(module), (line) => line.position),
+    Option.map(tropeLine(module.doc), (line) => line.position),
     () => module.doc.position,
   )
 
@@ -128,19 +130,18 @@ export const rootsTrope = (module: LoomModule): boolean =>
   module.doc.frontmatter?.trope !== undefined
 
 export const tropesOf = (modules: ReadonlyMap<Location, LoomModule>): ReadonlyArray<Trope> => {
-  const named = pipe(
-    Array.fromIterable(modules.values()),
-    Array.filter((module) => Option.isSome(tropeOf(module))),
-    Array.sort(Order.mapInput(Order.String, (module: LoomModule) => module.path)),
+  const named = Array.sort(
+    Array.fromIterable(modules.values()).filter((module) => Option.isSome(tropeOf(module))),
+    Order.mapInput(Order.String, (module: LoomModule) => module.path),
   )
-  return Array.map(Array.dedupe(Array.getSomes(Array.map(named, tropeOf))), (name): Trope => {
-    const chapters = Array.filter(named, (module) => Option.contains(tropeOf(module), name))
+  return Array.dedupe(Array.getSomes(named.map(tropeOf))).map((name): Trope => {
+    const chapters = named.filter((module) => Option.contains(tropeOf(module), name))
     return { name, chapters, root: Array.findFirst(chapters, rootsTrope) }
   })
 }
 
 const manifestSectionsOf = (module: LoomModule): ReadonlyArray<LoomSection> =>
-  Array.filter(module.doc.sections, isManifest)
+  module.doc.sections.filter(isManifest)
 
 type Read = { readonly manifest: TropeManifest; readonly at: Position }
 
@@ -196,7 +197,7 @@ A kind of loom is named in an identity line, so its words must not read as a lin
 
 A kind of loom holds kinds of section, and a trope declares what it ships. `unheldIn` refuses a root whose kind of loom holds a kind of section that the same manifest does not declare.
 
-`refusalIn` gives the first reason a manifest is refused: a clash among its kinds of box, of section, of anchor, or of loom, then a kind of loom the frontmatter cannot name, then a kind of section a loom holds and nobody declares, then a key of the core's, then a clash over a key for headings.
+`refusalIn` gives the first reason a manifest is refused: a clash among its kinds of box, of section, of anchor, or of loom, then a kind of loom the frontmatter cannot name, then a kind of section a loom holds and nobody declares, then a key of the core's, then a clash over a key for headings. `clashReason` words the clash of one kind, by what was found of it.
 
 =>
 
@@ -204,48 +205,67 @@ const sameKind = (one: string, other: string): boolean => one.toLowerCase() === 
 
 type Taken = { readonly kind: string; readonly trope: string }
 
+const clashReason = Match.fn(
+  (
+    _within: {
+      readonly kind: string
+    },
+    found: {
+      readonly core: boolean
+      readonly earlier: Option.Option<Taken>
+      readonly twice: boolean
+    },
+  ) => found,
+).pipe(
+  Match.withReturnType<Option.Option<string>>(),
+  Match.when({ core: true }, (_found, { kind }) =>
+    Option.some(`\`${kind}\` is one of Loom's own kinds`),
+  ),
+  Match.when({ earlier: Option.isSome }, ({ earlier }, { kind }) =>
+    Option.map(earlier, (other) => `the \`${other.trope}\` trope declares \`${kind}\` already`),
+  ),
+  Match.when({ twice: true }, (_found, { kind }) => Option.some(`it declares \`${kind}\` twice`)),
+  Match.orElse(() => Option.none<string>()),
+)
+
 const clashOf = (
   declared: ReadonlyArray<string>,
   core: ReadonlyArray<string>,
   taken: ReadonlyArray<Taken>,
 ): Option.Option<string> =>
   Array.findFirst(declared, (kind, at) =>
-    Match.value({
-      core: Array.some(core, (own) => sameKind(own, kind)),
-      earlier: Array.findFirst(taken, (other) => sameKind(other.kind, kind)),
-      twice: Array.some(Array.take(declared, at), (before) => sameKind(before, kind)),
-    }).pipe(
-      Match.when({ core: true }, () => Option.some(`\`${kind}\` is one of Loom's own kinds`)),
-      Match.when({ earlier: Option.isSome }, ({ earlier }) =>
-        Option.map(earlier, (other) => `the \`${other.trope}\` trope declares \`${kind}\` already`),
-      ),
-      Match.when({ twice: true }, () => Option.some(`it declares \`${kind}\` twice`)),
-      Match.orElse(() => Option.none<string>()),
+    clashReason(
+      { kind },
+      {
+        core: core.some((own) => sameKind(own, kind)),
+        earlier: Array.findFirst(taken, (other) => sameKind(other.kind, kind)),
+        twice: Array.take(declared, at).some((before) => sameKind(before, kind)),
+      },
     ),
   )
 
 const ownKeyOf = (declared: ReadonlyArray<Keys>, own: Keys): Option.Option<string> =>
   pipe(
-    Array.flatMap(declared, (parameters) => Object.keys(parameters)),
+    declared.flatMap((parameters) => Object.keys(parameters)),
     Array.findFirst((key) => Option.isSome(keyType(own, key))),
     Option.map((key) => `\`${key}\` is one of Loom's own keys`),
   )
 
 const kindsIn = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
-  Array.map(declared, (declaration) => declaration.kind)
+  declared.map((declaration) => declaration.kind)
 
 type KindWithKeys = { readonly kind: string; readonly parameters: Keys }
 
 const headingClash = (manifest: TropeManifest, taken: Declarations): Option.Option<string> => {
   const forHeadings = Object.keys(headingKeysOf(manifest))
-  const ownSections = Array.map(
-    sectionKindsOf(manifest),
-    (declaration): KindWithKeys => ({ kind: declaration.kind, parameters: parametersOf(declaration) }),
-  )
+  const ownSections = sectionKindsOf(manifest).map((declaration): KindWithKeys => ({
+    kind: declaration.kind,
+    parameters: parametersOf(declaration),
+  }))
   const sections: ReadonlyArray<KindWithKeys> = [...taken.section, ...ownSections]
   const onHeadings = [
     ...forHeadings,
-    ...Array.flatMap(ownSections, (section) => Object.keys(section.parameters)),
+    ...ownSections.flatMap((section) => Object.keys(section.parameters)),
   ]
   return pipe(
     Array.findFirst(onHeadings, (key) =>
@@ -268,12 +288,10 @@ const headingClash = (manifest: TropeManifest, taken: Declarations): Option.Opti
 const lineClash = (manifest: TropeManifest): Option.Option<string> =>
   Array.findFirst(kindsIn(loomKindsOf(manifest)), (kind) =>
     pipe(
-      Array.findFirst(kind.split(' '), (word) =>
-        Array.some(identityWords, (own) => sameKind(own, word)),
-      ),
+      Array.findFirst(kind.split(' '), (word) => identityWords.some((own) => sameKind(own, word))),
       Option.map((word) => `\`${kind}\` holds \`${word}\`, a word of Loom's own identity lines`),
       Option.orElse(() =>
-        Array.some(frontmatterKeys, (key) => sameKind(key, kind))
+        frontmatterKeys.some((key) => sameKind(key, kind))
           ? Option.some(`\`${kind}\` is a line of the frontmatter already`)
           : Option.none(),
       ),
@@ -285,7 +303,7 @@ const unheldIn = (manifest: TropeManifest): Option.Option<string> =>
     Option.map(
       Array.findFirst(
         heldBy(loom),
-        (held) => !Array.some(sectionKindsOf(manifest), (section) => sameKind(section.kind, held)),
+        (held) => !sectionKindsOf(manifest).some((section) => sameKind(section.kind, held)),
       ),
       (held) =>
         `its \`${loom.kind}\` kind of loom holds \`${held}\`, and its manifest declares no kind of section called that`,
@@ -300,14 +318,14 @@ const refusalIn = (manifest: TropeManifest, taken: Declarations): Option.Option<
     Option.orElse(() => clashOf(kindsIn(loomKindsOf(manifest)), loomKinds, taken.loom)),
     Option.orElse(() => lineClash(manifest)),
     Option.orElse(() => unheldIn(manifest)),
-    Option.orElse(() => ownKeyOf(Array.map(boxKindsOf(manifest), parametersOf), boxKeys)),
+    Option.orElse(() => ownKeyOf(boxKindsOf(manifest).map(parametersOf), boxKeys)),
     Option.orElse(() =>
       ownKeyOf(
-        [...Array.map(sectionKindsOf(manifest), parametersOf), headingKeysOf(manifest)],
+        [...sectionKindsOf(manifest).map(parametersOf), headingKeysOf(manifest)],
         headingKeys,
       ),
     ),
-    Option.orElse(() => ownKeyOf(Array.map(anchorKindsOf(manifest), parametersOf), anchorKeys)),
+    Option.orElse(() => ownKeyOf(anchorKindsOf(manifest).map(parametersOf), anchorKeys)),
     Option.orElse(() => headingClash(manifest, taken)),
   )
 
@@ -332,7 +350,7 @@ const boxesOf = (
   root: LoomModule,
   manifest: TropeManifest,
 ): ReadonlyArray<DeclaredBox> =>
-  Array.map(boxKindsOf(manifest), (declaration): DeclaredBox => ({
+  boxKindsOf(manifest).map((declaration): DeclaredBox => ({
     kind: declaration.kind,
     body: declaration.body,
     data: dataOf(declaration),
@@ -346,7 +364,7 @@ const sectionsOf = (
   root: LoomModule,
   manifest: TropeManifest,
 ): ReadonlyArray<DeclaredSection> =>
-  Array.map(sectionKindsOf(manifest), (declaration): DeclaredSection => ({
+  sectionKindsOf(manifest).map((declaration): DeclaredSection => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
     codeless: declaration.code === 'none',
@@ -359,7 +377,7 @@ const anchorsOf = (
   root: LoomModule,
   manifest: TropeManifest,
 ): ReadonlyArray<DeclaredAnchor> =>
-  Array.map(anchorKindsOf(manifest), (declaration): DeclaredAnchor => ({
+  anchorKindsOf(manifest).map((declaration): DeclaredAnchor => ({
     kind: declaration.kind,
     parameters: parametersOf(declaration),
     standsIn: Option.fromNullishOr(declaration.standsIn),
@@ -372,7 +390,7 @@ const loomsOf = (
   root: LoomModule,
   manifest: TropeManifest,
 ): ReadonlyArray<DeclaredLoom> =>
-  Array.map(loomKindsOf(manifest), (declaration): DeclaredLoom => ({
+  loomKindsOf(manifest).map((declaration): DeclaredLoom => ({
     kind: declaration.kind,
     numbered: declaration.numbered === true,
     zone: Option.getOrElse(Option.fromNullishOr(declaration.zone), (): Zone => 'body'),
@@ -387,7 +405,7 @@ const headingsOf = (
   root: LoomModule,
   manifest: TropeManifest,
 ): ReadonlyArray<DeclaredKey> =>
-  Array.map(Object.entries(headingKeysOf(manifest)), ([key, type]): DeclaredKey => ({
+  Object.entries(headingKeysOf(manifest)).map(([key, type]): DeclaredKey => ({
     key,
     type,
     trope,
@@ -427,17 +445,16 @@ const withRoot = (
   })
 
 const chaptersOf = (trope: Trope): ReadonlyMap<Location, LoomModule> =>
-  new Map(Array.map(trope.chapters, (chapter) => [chapter.path, chapter] as const))
+  new Map(trope.chapters.map((chapter) => [chapter.path, chapter] as const))
 
 const withTrope = (kinds: DeclaredKinds, trope: Trope): DeclaredKinds => {
-  const others = Array.filter(
-    trope.chapters,
+  const others = trope.chapters.filter(
     (chapter) => !Option.exists(trope.root, (root) => root.path === chapter.path),
   )
   const duplicates = Option.match(trope.root, {
     onNone: (): ReadonlyArray<Refusal> => [],
     onSome: (root) =>
-      Array.map(Array.filter(others, rootsTrope), (chapter): Refusal => ({
+      others.filter(rootsTrope).map((chapter): Refusal => ({
         module: chapter.path,
         reason: `another trope chapter is called \`${titleOf(root)}\``,
         at: tropeLineOf(chapter),
@@ -458,7 +475,7 @@ export const declaredKindsOf = (
   installed: Declarations = noDeclarations,
 ): DeclaredKinds => {
   const fromInstalled: DeclaredKinds = { ...installed, refusals: [] }
-  return Array.reduce(tropesOf(modules), fromInstalled, withTrope)
+  return tropesOf(modules).reduce(withTrope, fromInstalled)
 }
 
 ## Judging a loom against the registry
@@ -473,62 +490,51 @@ A box of a kind that gives a schema is judged by its body too, and `bodyFaults` 
 
 =>
 
-const writtenKind = (
+const writtenKind: (
   specifier: SpecifierToken | ParametersToken,
-): Option.Option<{ readonly kind: string; readonly at: Position }> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) =>
+) => Option.Option<{ readonly kind: string; readonly at: Position }> =
+  byType<SpecifierToken | ParametersToken>()({
+    Specifier: (labelled) =>
       labelled.label.health.status === 'ok'
         ? Option.some({ kind: labelled.label.value, at: labelled.label.position })
         : Option.none(),
-    ),
-    Match.when({ type: 'Parameters' }, (held) =>
+    Parameters: (held) =>
       pipe(
         Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
         Option.flatMap((parameter) => Array.head(parameter.values)),
         Option.map((value) => ({ kind: value.value, at: value.position })),
       ),
-    ),
-    Match.exhaustive,
-  )
+  })
 
 export const kindFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyArray<Diagnostic> => {
-  const known = [...boxKinds, ...Array.map(kinds.box, (declared) => declared.kind)]
-  const refused = pipe(
-    kinds.refusals,
-    Array.filter((refusal) => refusal.module === module.path),
-    Array.flatMap(
-      (refusal) => faulty(TropeRefused({ reason: refusal.reason }), refusal.at).diagnostics,
-    ),
-  )
-  const unknown = pipe(
-    openedBoxesOf(module.doc),
-    Array.flatMap((opened) => Option.toArray(Option.fromNullishOr(opened.box.specifier))),
-    Array.flatMap((specifier) => Option.toArray(writtenKind(specifier))),
-    Array.filter(({ kind }) => !Array.some(known, (each) => sameKind(each, kind))),
-    Array.flatMap(
+  const known = [...boxKinds, ...kinds.box.map((declared) => declared.kind)]
+  const refused = kinds.refusals
+    .filter((refusal) => refusal.module === module.path)
+    .flatMap((refusal) => faulty(TropeRefused({ reason: refusal.reason }), refusal.at).diagnostics)
+  const unknown = openedBoxesOf(module.doc)
+    .flatMap((opened) => Option.toArray(Option.fromNullishOr(opened.box.specifier)))
+    .flatMap((specifier) => Option.toArray(writtenKind(specifier)))
+    .filter(({ kind }) => !known.some((each) => sameKind(each, kind)))
+    .flatMap(
       ({ kind, at }) => faulty(UnknownKind({ kind, kinds: known, on: 'box' }), at).diagnostics,
-    ),
-  )
+    )
   return [...refused, ...unknown, ...keysOutsideTrope(module), ...bodyFaults(kinds, module)]
 }
 
 const keysOutsideTrope = (module: LoomModule): ReadonlyArray<Diagnostic> =>
-  pipe(
-    openedBoxesOf(module.doc),
-    Array.filter((opened) => boxKind(opened.box) !== tropeKind),
-    Array.flatMap((opened) =>
+  openedBoxesOf(module.doc)
+    .filter((opened) => boxKind(opened.box) !== tropeKind)
+    .flatMap((opened) =>
       Option.match(Option.fromNullishOr(opened.box.specifier), {
         onNone: (): ReadonlyArray<ParameterToken> => [],
         onSome: (specifier) => (specifier.type === 'Parameters' ? specifier.parameters : []),
       }),
-    ),
-    Array.filter((parameter) => ['provides', 'anchors'].includes(parameter.key.value)),
-    Array.flatMap(
+    )
+    .filter((parameter) => ['provides', 'anchors'].includes(parameter.key.value))
+    .flatMap(
       (parameter) =>
         faulty(KeyOutsideTrope({ key: parameter.key.value }), parameter.key.position).diagnostics,
-    ),
-  )
+    )
 
 ## A body that fits its schema
 
@@ -628,50 +634,55 @@ type Misfit = { readonly path: Path; readonly fault: LoomFault }
 const stepOf = (step: PropertyKey): string =>
   typeof step === 'number' ? `[${step}]` : `.${String(step)}`
 
-const fieldOf = (path: Path): string =>
-  Array.join(Array.map(path, stepOf), '').replace(/^\./, '')
+const fieldOf = (path: Path): string => path.map(stepOf).join('').replace(/^\./, '')
 
 const worded = SchemaIssue.makeFormatterStandardSchemaV1()
 
 const wordsOf = (issue: SchemaIssue.Issue): string =>
-  Array.join(
-    Array.map(worded(issue).issues, (each) => each.message),
-    ', ',
-  )
+  worded(issue)
+    .issues.map((each) => each.message)
+    .join(', ')
 
-const misfitsIn = (kind: string, issue: SchemaIssue.Issue, path: Path): ReadonlyArray<Misfit> =>
-  Match.value(issue).pipe(
-    Match.tag('Pointer', (pointer) => misfitsIn(kind, pointer.issue, [...path, ...pointer.path])),
-    Match.tag('Composite', (composite) =>
-      Array.flatMap(composite.issues, (each) => misfitsIn(kind, each, path)),
-    ),
-    Match.tag('Encoding', (encoding) => misfitsIn(kind, encoding.issue, path)),
-    Match.tag('AnyOf', (anyOf) =>
-      Array.match(anyOf.issues, {
-        onEmpty: (): ReadonlyArray<Misfit> => [
-          { path, fault: WrongField({ kind, field: fieldOf(path), reason: wordsOf(anyOf) }) },
-        ],
-        onNonEmpty: (issues) => Array.flatMap(issues, (each) => misfitsIn(kind, each, path)),
-      }),
-    ),
-    Match.tag('MissingKey', (): ReadonlyArray<Misfit> => [
-      { path, fault: MissingField({ kind, field: fieldOf(path) }) },
-    ]),
-    Match.tag('UnexpectedKey', (): ReadonlyArray<Misfit> => [
-      { path, fault: UnknownField({ kind, field: fieldOf(path) }) },
-    ]),
-    Match.tag(
-      'Filter',
-      'InvalidType',
-      'InvalidValue',
-      'Forbidden',
-      'OneOf',
-      (unfit): ReadonlyArray<Misfit> => [
-        { path, fault: WrongField({ kind, field: fieldOf(path), reason: wordsOf(unfit) }) },
+const misfitsIn: (
+  kind: string,
+  issue: SchemaIssue.Issue,
+  path: Path,
+) => ReadonlyArray<Misfit> = Match.fn(
+  (_kind: string, issue: SchemaIssue.Issue, _path: Path) => issue,
+).pipe(
+  Match.tag('Pointer', (pointer, kind, _issue, path) =>
+    misfitsIn(kind, pointer.issue, [...path, ...pointer.path]),
+  ),
+  Match.tag('Composite', (composite, kind, _issue, path) =>
+    composite.issues.flatMap((each) => misfitsIn(kind, each, path)),
+  ),
+  Match.tag('Encoding', (encoding, kind, _issue, path) => misfitsIn(kind, encoding.issue, path)),
+  Match.tag('AnyOf', (anyOf, kind, _issue, path) =>
+    Array.match(anyOf.issues, {
+      onEmpty: (): ReadonlyArray<Misfit> => [
+        { path, fault: WrongField({ kind, field: fieldOf(path), reason: wordsOf(anyOf) }) },
       ],
-    ),
-    Match.exhaustive,
-  )
+      onNonEmpty: (issues) => issues.flatMap((each) => misfitsIn(kind, each, path)),
+    }),
+  ),
+  Match.tag('MissingKey', (_matched, kind, _issue, path): ReadonlyArray<Misfit> => [
+    { path, fault: MissingField({ kind, field: fieldOf(path) }) },
+  ]),
+  Match.tag('UnexpectedKey', (_matched, kind, _issue, path): ReadonlyArray<Misfit> => [
+    { path, fault: UnknownField({ kind, field: fieldOf(path) }) },
+  ]),
+  Match.tag(
+    'Filter',
+    'InvalidType',
+    'InvalidValue',
+    'Forbidden',
+    'OneOf',
+    (unfit, kind, _issue, path): ReadonlyArray<Misfit> => [
+      { path, fault: WrongField({ kind, field: fieldOf(path), reason: wordsOf(unfit) }) },
+    ],
+  ),
+  Match.exhaustive,
+)
 
 ~
 
@@ -685,10 +696,7 @@ const bodyFaultsOf = (kind: string, data: DataBody, opened: OpenedBox): Readonly
   const lines = dataLines(opened.body)
   const whole = wholeOf(opened, lines)
   const pointAt = pointIn(lines, whole)
-  const text = Array.join(
-    Array.map(lines, (line) => line.source),
-    '',
-  )
+  const text = lines.map((line) => line.source).join('')
   const document = parseDocument(text, { prettyErrors: false })
   const positionOf = (span: Option.Option<Span>): Position =>
     Option.match(span, {
@@ -707,8 +715,7 @@ const bodyFaultsOf = (kind: string, data: DataBody, opened: OpenedBox): Readonly
         {
           onSuccess: (): ReadonlyArray<Diagnostic> => [],
           onFailure: (error) =>
-            Array.flatMap(
-              misfitsIn(kind, error.issue, []),
+            misfitsIn(kind, error.issue, []).flatMap(
               ({ path, fault }) => faulty(fault, positionOf(spanAt(document, path))).diagnostics,
             ),
         },
@@ -717,7 +724,7 @@ const bodyFaultsOf = (kind: string, data: DataBody, opened: OpenedBox): Readonly
 }
 
 const bodyFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  Array.flatMap(openedBoxesOf(module.doc), (opened) =>
+  openedBoxesOf(module.doc).flatMap((opened) =>
     pipe(
       Array.findFirst(kinds.box, (declared) => sameKind(declared.kind, boxKind(opened.box))),
       Option.flatMap((declared) =>
@@ -729,7 +736,7 @@ const bodyFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyArray<Dia
 
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and the kinds a box's braces name, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `boxKinds`, `sectionKinds`, `anchorKinds`, and `loomKinds` the core keeps, the `identityWords` and `frontmatterKeys` a frontmatter already reads, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are, the `ValueType` of one key, and the `Standing` of a kind of anchor, the `Zone` of a kind of loom, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, `heldBy`, which reads what a kind of loom holds, and `parametersOf`, which reads a kind's parameters.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and for the misfits of a box's data, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `ParsedDocument` a chapter's frontmatter is read from, the `boxKinds`, `sectionKinds`, `anchorKinds`, and `loomKinds` the core keeps, the `identityWords` and `frontmatterKeys` a frontmatter already reads, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are, the `ValueType` of one key, and the `Standing` of a kind of anchor, the `Zone` of a kind of loom, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, `heldBy`, which reads what a kind of loom holds, and `parametersOf`, which reads a kind's parameters.
 
 Judging a body draws on more. Effect's `Schema` decodes a body, and its `SchemaIssue` is the tree of what does not fit. The `yaml` package reads a body: `parseDocument` gives a `Document`, and `isNode` tells a field the document holds. The Loom AST gives the `Point` a span starts at, with `shifted`, which moves a point along its line, the `LoomWeft` a line of a body is, `openingFence` and `closesFence`, which tell a fence that wraps a body, the `DataFormat` a body is written in, and the `OpenedBox` a loom's box is. The fault catalog lends the `UnreadBody`, `MissingField`, `UnknownField`, and `WrongField` faults, with the `LoomFault` each is. The contract lends the `DataBody` of a kind, `dataOf`, which reads it, and `parsedJson`, which reads JSON.
 
@@ -742,8 +749,9 @@ import {
   type Point,
   type Position,
   shifted,
+  byType,
 } from '@athrio/loom-ast/LoomNode'
-import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type { LoomSection, ParsedDocument } from '@athrio/loom-ast/LoomAst'
 import type { LoomWeft } from '@athrio/loom-ast/Weft'
 import {
   anchorKeys,

@@ -224,19 +224,18 @@ const openSet = (
 ): ReadonlyMap<string, ProductFile> => {
   const served = (file: ProductFile): boolean => Option.isSome(nativeProjectOf(file))
   const sunk = (files: Iterable<ProductFile>): ReadonlyArray<ProductFile> =>
-    Array.filter(Array.fromIterable(files), (file) => file.loose !== true)
-  const asked = new Set(Array.getSomes(Array.map(listed, nativeProjectOf)))
-  const fromProjects = Array.filter(sunk(composition.values()), (file) =>
+    Array.fromIterable(files).filter((file) => file.loose !== true)
+  const asked = new Set(Array.getSomes(listed.map(nativeProjectOf)))
+  const fromProjects = sunk(composition.values()).filter((file) =>
     Option.exists(nativeProjectOf(file), (project) => asked.has(project)),
   )
   const fromBefore = Array.getSomes(
-    Array.map(sunk(before.values()), (file) => Option.fromNullishOr(composition.get(file.path))),
+    sunk(before.values()).map((file) => Option.fromNullishOr(composition.get(file.path))),
   )
-  const fromWarmUp = warmed ? Array.filter(sunk(composition.values()), served) : []
-  const fromListed = Array.filter(listed, (file) => file.loose === true || served(file))
+  const fromWarmUp = warmed ? sunk(composition.values()).filter(served) : []
+  const fromListed = listed.filter((file) => file.loose === true || served(file))
   return new Map(
-    Array.map(
-      [...fromBefore, ...fromProjects, ...fromWarmUp, ...fromListed],
+    [...fromBefore, ...fromProjects, ...fromWarmUp, ...fromListed].map(
       (file) => [file.path, file] as const,
     ),
   )
@@ -287,6 +286,27 @@ export class NativeProgramDisposed extends Data.TaggedError('NativeProgramDispos
     return `the TypeScript 7 program for ${this.workspace} was shut down`
   }
 }
+
+const everyFound = Match.type<ReadonlyArray<Location | LocationLink> | Location | null>().pipe(
+  Match.withReturnType<ReadonlyArray<Location | LocationLink>>(),
+  Match.when(Match.null, () => []),
+  Match.when(
+    (value: unknown): value is ReadonlyArray<Location | LocationLink> =>
+      globalThis.Array.isArray(value),
+    (all) => all,
+  ),
+  Match.orElse((one) => [one as Location]),
+)
+
+const asCompletionList = Match.type<CompletionList | CompletionItem[] | null>().pipe(
+  Match.withReturnType<CompletionList>(),
+  Match.when(Match.null, (): CompletionList => ({ isIncomplete: false, items: [] })),
+  Match.when(
+    (value: unknown): value is CompletionItem[] => globalThis.Array.isArray(value),
+    (items): CompletionList => ({ isIncomplete: false, items }),
+  ),
+  Match.orElse((list) => list as CompletionList),
+)
 
 export const createNativeProgram = (
   compiler: string,
@@ -341,10 +361,14 @@ export const createNativeProgram = (
   const makeFolders = (files: ReadonlyArray<ProductFile>): void =>
     new Map(
       Array.getSomes(
-        Array.map(
-          Array.filter(files, (file) => !file.loose && served(file)),
-          (file) => Option.map(Option.fromNullishOr(file.loom), (loom) => [dirname(file.path), loom] as const),
-        ),
+        files
+          .filter((file) => !file.loose && served(file))
+          .map((file) =>
+            Option.map(
+              Option.fromNullishOr(file.loom),
+              (loom) => [dirname(file.path), loom] as const,
+            ),
+          ),
       ),
     ).forEach((loom, folder) => makeFolder(folder, loom))
 
@@ -354,12 +378,14 @@ export const createNativeProgram = (
       onSome: (server) => {
         const files = Array.fromIterable(
           new Map([
-            ...Array.map(Array.fromIterable(state.waiting.values()), ({ file }) => [file.path, file] as const),
+            ...Array.fromIterable(state.waiting.values()).map(
+              ({ file }) => [file.path, file] as const,
+            ),
             ...state.open,
           ]).values(),
         )
         makeFolders(files)
-        server.keepOpen(Array.map(files, asOpened))
+        server.keepOpen(files.map(asOpened))
       },
     })
 
@@ -426,14 +452,12 @@ export const createNativeProgram = (
     state.warmed = true
     state.open = openSet(state.open, state.composition, state.listed, true, nativeProjectOf)
     pushOpen()
-    void Array.reduce(
-      Array.filter(
-        Array.fromIterable(state.composition.values()),
-        (file) => !file.loose && served(file),
-      ),
-      Promise.resolve(true),
-      (previous, file) => previous.then((going) => (going ? warmOne(file.path) : false)),
-    )
+    void Array.fromIterable(state.composition.values())
+      .filter((file) => !file.loose && served(file))
+      .reduce(
+        (previous, file) => previous.then((going) => (going ? warmOne(file.path) : false)),
+        Promise.resolve(true),
+      )
   }
 
   const openForQuestion = (fileName: string): void =>
@@ -464,11 +488,10 @@ export const createNativeProgram = (
           const count = waitingCount(fileName) - 1
           state.waiting = new Map(
             count > 0
-              ? Array.map(
-                  Array.fromIterable(state.waiting),
+              ? Array.fromIterable(state.waiting).map(
                   ([path, entry]) => [path, path === fileName ? { ...entry, count } : entry] as const,
                 )
-              : Array.filter(Array.fromIterable(state.waiting), ([path]) => path !== fileName),
+              : Array.fromIterable(state.waiting).filter(([path]) => path !== fileName),
           )
           if (count === 0 && !state.open.has(fileName)) pushOpen()
         }
@@ -528,35 +551,13 @@ export const createNativeProgram = (
       ? each
       : { targetUri: each.uri, targetRange: each.range, targetSelectionRange: each.range }
 
-  const asLinks = (found: ReadonlyArray<Location | LocationLink> | Location | null): LocationLink[] =>
-    Array.map(
-      Match.value(found).pipe(
-        Match.when(Match.null, () => []),
-        Match.when(
-          (value: unknown): value is ReadonlyArray<Location | LocationLink> =>
-            globalThis.Array.isArray(value),
-          (all) => all,
-        ),
-        Match.orElse((one) => [one as Location]),
-      ),
-      asLink,
-    )
-
-  const asCompletionList = (found: CompletionList | CompletionItem[] | null): CompletionList =>
-    Match.value(found).pipe(
-      Match.when(Match.null, (): CompletionList => ({ isIncomplete: false, items: [] })),
-      Match.when(
-        (value: unknown): value is CompletionItem[] => globalThis.Array.isArray(value),
-        (items): CompletionList => ({ isIncomplete: false, items }),
-      ),
-      Match.orElse((list) => list as CompletionList),
-    )
+  const asLinks = (
+    found: ReadonlyArray<Location | LocationLink> | Location | null,
+  ): LocationLink[] => everyFound(found).map(asLink)
 
   return {
     sync: (listed, others = []) => {
-      state.composition = new Map(
-        Array.map([...listed, ...others], (file) => [file.path, file] as const),
-      )
+      state.composition = new Map([...listed, ...others].map((file) => [file.path, file] as const))
       state.listed = listed
       state.open = openSet(state.open, state.composition, listed, state.warmed, nativeProjectOf)
       pushOpen()
@@ -604,7 +605,7 @@ export const createNativeProgram = (
         context,
       })
         .then((found) =>
-          Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
+          (found ?? []).filter((each): each is CodeAction => typeof each.command !== 'string'),
         )
         .catch(orNothing<CodeAction[]>([])),
     resolveCodeAction: (action, fileName) =>

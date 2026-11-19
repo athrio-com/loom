@@ -1,10 +1,13 @@
-import { Array, Context, Effect, Layer, Match, Option, Result, Schema, Stream, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, Result, Schema, pipe } from 'effect'
 import {
+  nodeOf,
+  type NodeSchema,
   okHealth,
   type Health,
   type Position,
   type UnexpectedToken,
   UnexpectedTokenSchema,
+  byType,
 } from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
@@ -119,15 +122,11 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
   make: Effect.succeed({
     tokeniseWefts:
       (text: string, delims: AnchorDelims = defaultAnchorDelims) =>
-      (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
-        Stream.mapAccum(
-          source,
-          () => noQuote,
-          (state, weft) => {
-            const [next, skipAnchors] = quoteStep(state, weft)
-            return [next, [tokeniseWeft(text, weft, delims, skipAnchors)]]
-          },
-        ),
+      (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
+        Array.mapAccum(wefts, noQuote, (state, weft) => {
+          const [next, skipAnchors] = quoteStep(state, weft)
+          return [next, tokeniseWeft(weft, text, delims, skipAnchors)]
+        })[1],
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
@@ -159,25 +158,23 @@ const quoteStep = (state: QuoteState, weft: LoomWeft): readonly [QuoteState, boo
     : [{ quote: Option.none(), inBox }, false]
 }
 
-const tokeniseWeft = (
-  text: string,
-  weft: LoomWeft,
-  delims: AnchorDelims,
-  skipAnchors: boolean,
-): LoomWeft =>
-  pipe(
-    Match.value(weft),
-    Match.when({ type: 'HeadingWeft' }, (w) => tokeniseHeading(text, w)),
-    Match.when({ type: 'ArrowWeft' }, (w) => tokeniseArrow(text, w, delims)),
-    Match.when({ type: 'TildeWeft' }, (w) => tokeniseTilde(text, w, delims, skipAnchors)),
-    Match.when({ type: 'PreambleWeft' }, (w) => tokenisePreamble(text, w, delims, skipAnchors)),
-    Match.when({ type: 'ProseWeft' }, (w) => tokeniseProse(text, w, delims, skipAnchors)),
-    Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
-    Match.when({ type: 'FenceWeft' }, (w) => tokeniseFence(w)),
-    Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
-    Match.when({ type: 'DividerWeft' }, (w) => w),
-    Match.exhaustive,
-  )
+const tokeniseWeft = byType<
+  LoomWeft,
+  [text: string, delims: AnchorDelims, skipAnchors: boolean]
+>()<LoomWeft>({
+  HeadingWeft: (w, text) => tokeniseHeading(text, w),
+  ArrowWeft: (w, text, delims) => tokeniseArrow(text, w, delims),
+  TildeWeft: (w, text, delims, skipAnchors) =>
+    tokeniseTilde(text, w, delims, skipAnchors),
+  PreambleWeft: (w, text, delims, skipAnchors) =>
+    tokenisePreamble(text, w, delims, skipAnchors),
+  ProseWeft: (w, text, delims, skipAnchors) =>
+    tokeniseProse(text, w, delims, skipAnchors),
+  CodeWeft: (w, text, delims) => tokeniseCode(text, w, delims),
+  FenceWeft: (w) => tokeniseFence(w),
+  FrontmatterWeft: (w) => tokeniseFrontmatter(w),
+  DividerWeft: (w) => w,
+})
 
 const tokeniseFrontmatter = (weft: FrontmatterWeft): LoomWeft => {
   if (weft.fence !== undefined) return weft
@@ -202,7 +199,7 @@ const buildFrontmatterField = (
   const belonging = belongingField(weft, line, key, value)
   if (Option.isSome(belonging)) return belonging.value
   if (key.value.startsWith('Part '))
-    return FrontmatterWeftSchema.make({
+    return nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
@@ -210,37 +207,35 @@ const buildFrontmatterField = (
       partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
     })
   if (key.value === 'Part')
-    return FrontmatterWeftSchema.make({
+    return nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
       partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
     })
   if (key.value === 'Rooted in')
-    return FrontmatterWeftSchema.make({
+    return nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
       rootedIn: fieldToken(FrontmatterTropeTokenSchema, line, value),
     })
   if (key.value === 'Entries')
-    return FrontmatterWeftSchema.make({
+    return nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
-      entries: Array.map(listSpans(value), (name) =>
-        fieldToken(FrontmatterEntryTokenSchema, line, name),
-      ),
+      entries: listSpans(value).map((name) => fieldToken(FrontmatterEntryTokenSchema, line, name)),
     })
   if (key.value === 'Book')
-    return FrontmatterWeftSchema.make({
+    return nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
       book: fieldToken(FrontmatterBookTokenSchema, line, value),
     })
   if (frontmatterFields.includes(key.value))
-    return FrontmatterWeftSchema.make({
+    return nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
@@ -250,7 +245,7 @@ const buildFrontmatterField = (
   return Option.match(identityOf(line, key, value), {
     onNone: () => bareFrontmatter(weft),
     onSome: (identity) =>
-      FrontmatterWeftSchema.make({
+      nodeOf(FrontmatterWeftSchema, {
         position: weft.position,
         source: weft.source,
         health: okHealth,
@@ -268,7 +263,7 @@ const kindOf = (line: number, own: TrimmedSpan): Option.Option<FrontmatterKindTo
     Option.fromNullishOr(kindLine.exec(own.value)),
     Option.filter(([, words]) => words !== 'Part' && !frontmatterKeys.includes(words ?? '')),
     Option.map(([, words, number]) =>
-      FrontmatterKindTokenSchema.make({
+      nodeOf(FrontmatterKindTokenSchema, {
         position: span(line, own.start, own.end),
         source: own.value,
         health: okHealth,
@@ -304,7 +299,7 @@ const tropeChapterField = (
   const own = comma < 0 ? key : trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
   const mark = trimSpan(own.value.slice(0, 'Trope'.length), own.start)
   const chapterSpan = trimSpan(own.value.slice('Trope'.length), own.start + 'Trope'.length)
-  return FrontmatterWeftSchema.make({
+  return nodeOf(FrontmatterWeftSchema, {
     position: weft.position,
     source: weft.source,
     health: okHealth,
@@ -322,7 +317,7 @@ const tropeChapterField = (
       ? {}
       : { chapter: ordinalToken(FrontmatterChapterTokenSchema, line, chapterSpan, 'Chapter ') }),
     title: fieldToken(FrontmatterTitleTokenSchema, line, value),
-    trope: FrontmatterTropeTokenSchema.make({
+    trope: nodeOf(FrontmatterTropeTokenSchema, {
       position: span(line, mark.start, mark.end),
       source: mark.value,
       health: okHealth,
@@ -342,7 +337,7 @@ const belongingField = (
   const partSpan = trimSpan(key.value.slice(0, comma), key.start)
   const own = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
   return Option.map(identityOf(line, own, value), (identity) =>
-    FrontmatterWeftSchema.make({
+    nodeOf(FrontmatterWeftSchema, {
       position: weft.position,
       source: weft.source,
       health: okHealth,
@@ -358,21 +353,36 @@ type TrimmedSpan = {
   readonly end: number
 }
 
-const ordinalToken = <T>(
-  schema: Scannable<T>,
+type Token<Tag extends string> = {
+  readonly type: Tag
+  readonly position: Position
+  readonly source: string
+  readonly health: Health
+}
+
+type ValueToken<Tag extends string, Value extends string = string> = Token<Tag> & {
+  readonly value: Value
+}
+
+const ordinalToken = <Tag extends string>(
+  schema: NodeSchema<ValueToken<Tag>>,
   line: number,
   key: TrimmedSpan,
   keyword: string,
-): T =>
-  (schema as any).make({
+): ValueToken<Tag> =>
+  nodeOf(schema, {
     position: span(line, key.start, key.end),
     source: key.value,
     health: okHealth,
     value: key.value.slice(keyword.length).trim(),
   })
 
-const fieldToken = <T>(schema: Scannable<T>, line: number, seg: TrimmedSpan): T =>
-  (schema as any).make({
+const fieldToken = <Tag extends string>(
+  schema: NodeSchema<ValueToken<Tag>>,
+  line: number,
+  seg: TrimmedSpan,
+): ValueToken<Tag> =>
+  nodeOf(schema, {
     position: span(line, seg.start, seg.end),
     source: seg.value,
     health: okHealth,
@@ -380,16 +390,13 @@ const fieldToken = <T>(schema: Scannable<T>, line: number, seg: TrimmedSpan): T 
   })
 
 const listSpans = (value: TrimmedSpan): ReadonlyArray<TrimmedSpan> =>
-  Array.filter(
-    Array.mapAccum(value.value.split(','), value.start, (at, part) => [
-      at + part.length + 1,
-      trimSpan(part, at),
-    ])[1],
-    (name) => name.value !== '',
-  )
+  Array.mapAccum(value.value.split(','), value.start, (at, part) => [
+    at + part.length + 1,
+    trimSpan(part, at),
+  ])[1].filter((name) => name.value !== '')
 
 const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
-  FrontmatterWeftSchema.make({
+  nodeOf(FrontmatterWeftSchema, {
     position: weft.position,
     source: weft.source,
     health: okHealth,
@@ -398,19 +405,19 @@ const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
 const codeProbe = Option.getOrThrow(getProbe(CodeTokenSchema))
 const proseProbe = Option.getOrThrow(getProbe(ProseTokenSchema))
 
-const inlineAfter = <T>(
-  schema: Schema.Schema<T>,
+const inlineAfter = <Tag extends string>(
+  schema: NodeSchema<Token<Tag>>,
   probe: RegExp,
   text: string,
   linePosition: Position,
-): Option.Option<T> => {
+): Option.Option<Token<Tag>> => {
   const lineStart = linePosition.start.offset
   const lineText = text.slice(lineStart, linePosition.end.offset).replace(/\r?\n$/, '')
   return pipe(
     Option.fromNullishOr(probe.exec(lineText)),
     Option.filter((m): m is RegExpExecArray & { index: number } => m.index !== undefined),
     Option.map((m) =>
-      (schema as any).make({
+      nodeOf(schema, {
         position: span(
           linePosition.start.line,
           lineStart + m.index,
@@ -445,7 +452,7 @@ const tokeniseArrow = (text: string, weft: ArrowWeft, delims: AnchorDelims): Loo
     ...anchors.map((a) => a.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
-  return ArrowWeftSchema.make({
+  return nodeOf(ArrowWeftSchema, {
     position: weft.position,
     source: lineSlice(text, weft.position),
     health: strayHealth(text, status, unexpected),
@@ -476,7 +483,7 @@ const tokeniseTilde = (
     ...anchors.map((a) => a.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
-  return TildeWeftSchema.make({
+  return nodeOf(TildeWeftSchema, {
     position: weft.position,
     source: lineText,
     health: strayHealth(text, status, unexpected),
@@ -519,7 +526,7 @@ const tokenisePreambleLine = (
     ...anchors.map((a) => a.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
-  return PreambleWeftSchema.make({
+  return nodeOf(PreambleWeftSchema, {
     position: weft.position,
     source: lineText,
     health: strayHealth(text, status, unexpected),
@@ -557,7 +564,7 @@ const tokeniseProseLine = (
     ...anchors.map((a) => a.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
-  return ProseWeftSchema.make({
+  return nodeOf(ProseWeftSchema, {
     position: weft.position,
     source: lineText,
     health: strayHealth(text, status, unexpected),
@@ -576,7 +583,7 @@ const tokeniseCode = (text: string, weft: CodeWeft, delims: AnchorDelims): LoomW
     ...anchors.map((a) => a.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
-  return CodeWeftSchema.make({
+  return nodeOf(CodeWeftSchema, {
     position: weft.position,
     source: lineSlice(text, weft.position),
     health: strayHealth(text, status, unexpected),
@@ -593,13 +600,13 @@ const tokeniseFence = (weft: FenceWeft): LoomWeft => {
   const start = after + rest.length - rest.trimStart().length
   const label =
     weft.side === 'open' && name !== ''
-      ? FenceLabelTokenSchema.make({
+      ? nodeOf(FenceLabelTokenSchema, {
           position: span(weft.position.start.line, start, start + name.length),
           source: name,
           health: okHealth,
         })
       : undefined
-  return FenceWeftSchema.make({ ...weft, health: okHealth, label })
+  return nodeOf(FenceWeftSchema, { ...weft, health: okHealth, label })
 }
 
 const statusRank: Record<Health['status'], number> = {
@@ -637,20 +644,22 @@ const strayFragments = (
   text: string,
   unexpected: ReadonlyArray<UnexpectedToken>,
 ): ReadonlyArray<Fragment> =>
-  Array.reduce(unexpected, [] as ReadonlyArray<Fragment>, (fragments, stray) =>
-    Option.match(
-      Option.filter(Array.last(fragments), (last) => closes(last, stray)),
-      {
-        onNone: () => [...fragments, { value: stray.value, position: stray.position }],
-        onSome: (opener) => [
-          ...Array.dropRight(fragments, 1),
-          {
-            value: text.slice(opener.position.start.offset, stray.position.end.offset),
-            position: { start: opener.position.start, end: stray.position.end },
-          },
-        ],
-      },
-    ),
+  unexpected.reduce(
+    (fragments, stray) =>
+      Option.match(
+        Option.filter(Array.last(fragments), (last) => closes(last, stray)),
+        {
+          onNone: () => [...fragments, { value: stray.value, position: stray.position }],
+          onSome: (opener) => [
+            ...Array.dropRight(fragments, 1),
+            {
+              value: text.slice(opener.position.start.offset, stray.position.end.offset),
+              position: { start: opener.position.start, end: stray.position.end },
+            },
+          ],
+        },
+      ),
+    [] as ReadonlyArray<Fragment>,
   )
 
 const strayHealth = (
@@ -659,8 +668,7 @@ const strayHealth = (
   unexpected: ReadonlyArray<UnexpectedToken>,
 ): Health => ({
   status,
-  diagnostics: Array.flatMap(
-    strayFragments(text, unexpected),
+  diagnostics: strayFragments(text, unexpected).flatMap(
     (fragment) => faulty(StrayFragment({ value: fragment.value }), fragment.position).diagnostics,
   ),
 })
@@ -681,13 +689,12 @@ const buildSpecifierLabel = (value: string, position: Position): SpecifierLabelT
       value,
     }),
     Result.getOrElse(() =>
-      SpecifierLabelTokenSchema.make({
-        type: 'SpecifierLabel',
+      nodeOf(SpecifierLabelTokenSchema, {
         position,
         source: value,
         health: brokenLabel('specifier', value, position),
         value: '',
-        unexpected: [UnexpectedTokenSchema.make({ position, value })],
+        unexpected: [nodeOf(UnexpectedTokenSchema, { position, value })],
       }),
     ),
   )
@@ -702,22 +709,24 @@ const buildSinkFileLabel = (value: string, position: Position): SinkFileLabelTok
       value,
     }),
     Result.getOrElse(() =>
-      SinkFileLabelTokenSchema.make({
-        type: 'SinkFileLabel',
+      nodeOf(SinkFileLabelTokenSchema, {
         position,
         source: value,
         health: brokenLabel('path', value, position),
         value: '',
-        unexpected: [UnexpectedTokenSchema.make({ position, value })],
+        unexpected: [nodeOf(UnexpectedTokenSchema, { position, value })],
       }),
     ),
   )
 
-type Scannable<T> = Schema.Schema<T>
+type Scannable<Tag extends string, Value extends string> = NodeSchema<ValueToken<Tag, Value>> &
+  Schema.Schema<ValueToken<Tag, Value>>
 
 type Scanner<T> = (lineText: string, linePosition: Position) => ReadonlyArray<T>
 
-const makeScanner = <T>(schema: Scannable<T>): Scanner<T> => {
+const makeScanner = <Tag extends string, Value extends string>(
+  schema: Scannable<Tag, Value>,
+): Scanner<ValueToken<Tag, Value>> => {
   const probe = Option.getOrThrowWith(
     getProbe(schema),
     () => new Error('makeScanner: schema has no Probe annotation'),
@@ -729,11 +738,11 @@ const makeScanner = <T>(schema: Scannable<T>): Scanner<T> => {
       .filter((match) => match.index !== undefined)
       .map((match) => {
         const i = match.index!
-        return (schema as any).make({
+        return nodeOf(schema, {
           position: span(line, lineStart + i, lineStart + i + match[0].length),
           source: match[0],
           health: okHealth,
-          value: match[0],
+          value: match[0] as Value,
         })
       })
   }
@@ -752,7 +761,7 @@ type Construction<T> = {
 type Positioned = { readonly position: Position; readonly value: string }
 
 const toUnexpected = (t: Positioned): UnexpectedToken =>
-  UnexpectedTokenSchema.make({ position: t.position, value: t.value })
+  nodeOf(UnexpectedTokenSchema, { position: t.position, value: t.value })
 
 const partitionFirstClose = <C extends { position: Position }>(
   open: { position: Position },
@@ -774,7 +783,7 @@ const buildLabelSpecifier = (
 ): SpecifierToken => {
   const label = buildSpecifierLabel(labelText, labelPos)
   const status = aggregateStatus([open.health.status, label.health.status, close.health.status])
-  return SpecifierTokenSchema.make({
+  return nodeOf(SpecifierTokenSchema, {
     position: specifierPos,
     source: specifierSource,
     health: { status, diagnostics: [] },
@@ -806,7 +815,7 @@ const constructSpecifier = (
 
   const close: SpecifierCloseToken =
     match ??
-    SpecifierCloseTokenSchema.make({
+    nodeOf(SpecifierCloseTokenSchema, {
       position: span(line, lineEnd, lineEnd),
       source: '',
       health: missingClosing(line, open.position.start.offset, lineEnd, '}'),
@@ -853,7 +862,7 @@ const constructSink = (
 
   const close: SinkCloseToken =
     match ??
-    SinkCloseTokenSchema.make({
+    nodeOf(SinkCloseTokenSchema, {
       position: span(line, lineEnd, lineEnd),
       source: '',
       health: missingClosing(line, open.position.start.offset, lineEnd, ']'),
@@ -876,7 +885,7 @@ const constructSink = (
 
   return {
     token: Option.some(
-      SinkTokenSchema.make({
+      nodeOf(SinkTokenSchema, {
         position: sinkPos,
         source: sinkSource,
         health: { status, diagnostics: [] },
@@ -911,7 +920,7 @@ const pairWarpDelims = (
   const line = linePosition.start.line
   const lineEnd = contentEnd(lineText, linePosition.start.offset)
   const synthClose = (open: WarpOpenToken): WarpCloseToken =>
-    WarpCloseTokenSchema.make({
+    nodeOf(WarpCloseTokenSchema, {
       position: span(line, lineEnd, lineEnd),
       source: '',
       health: missingClosing(line, open.position.start.offset, lineEnd, '}}'),
@@ -982,41 +991,30 @@ const buildWarpName = (value: string, position: Position): WarpNameToken =>
       value,
     }),
     Result.getOrElse(() =>
-      WarpNameTokenSchema.make({
-        type: 'WarpName',
+      nodeOf(WarpNameTokenSchema, {
         position,
         source: value,
         health: brokenLabel('warpName', value, position),
         value: '',
-        unexpected: [UnexpectedTokenSchema.make({ position, value })],
+        unexpected: [nodeOf(UnexpectedTokenSchema, { position, value })],
       }),
     ),
   )
 
-type OpaqueMake<T> = (args: {
-  type: string
-  position: Position
-  source: string
-  health: Health
-  value: string
-}) => T
-
-const buildOpaqueSegment = <T>(
-  make: OpaqueMake<T>,
-  typeName: string,
+const buildOpaqueSegment = <Tag extends string>(
+  schema: NodeSchema<ValueToken<Tag>>,
   construct: EmptyConstruct,
   raw: string,
   rawStart: number,
   line: number,
-): { token: T; extras: ReadonlyArray<UnexpectedToken> } => {
+): { token: ValueToken<Tag>; extras: ReadonlyArray<UnexpectedToken> } => {
   const { kept, extraStart } = sliceTop(raw)
   const { value, start, end } = trimSpan(kept, rawStart)
 
   const tokenPos = span(line, start, end)
   const health: Health = value === '' ? faulty(EmptyLabel({ construct }), tokenPos) : okHealth
 
-  const token = make({
-    type: typeName,
+  const token = nodeOf(schema, {
     position: tokenPos,
     source: value,
     health,
@@ -1026,7 +1024,7 @@ const buildOpaqueSegment = <T>(
   const extras: UnexpectedToken[] =
     extraStart < raw.length
       ? [
-          UnexpectedTokenSchema.make({
+          nodeOf(UnexpectedTokenSchema, {
             position: span(line, rawStart + extraStart, rawStart + raw.length),
             value: raw.slice(extraStart),
           }),
@@ -1037,24 +1035,10 @@ const buildOpaqueSegment = <T>(
 }
 
 const buildWarpAnnotation = (raw: string, rawStart: number, line: number) =>
-  buildOpaqueSegment<WarpAnnotationToken>(
-    (args) => WarpAnnotationTokenSchema.make(args as any),
-    'WarpAnnotation',
-    'warpAnnotation',
-    raw,
-    rawStart,
-    line,
-  )
+  buildOpaqueSegment(WarpAnnotationTokenSchema, 'warpAnnotation', raw, rawStart, line)
 
 const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
-  buildOpaqueSegment<WarpDefaultToken>(
-    (args) => WarpDefaultTokenSchema.make(args as any),
-    'WarpDefault',
-    'warpDefault',
-    raw,
-    rawStart,
-    line,
-  )
+  buildOpaqueSegment(WarpDefaultTokenSchema, 'warpDefault', raw, rawStart, line)
 
 const findAssign = (s: string): Option.Option<number> => {
   const isCompound = (i: number): boolean => {
@@ -1174,8 +1158,7 @@ const assembleWarp = (
     ...extras.map(() => 'error' as const),
     own.status,
   ])
-  return WarpTokenSchema.make({
-    type: 'Warp',
+  return nodeOf(WarpTokenSchema, {
     position: span(line, open.position.start.offset, close.position.end.offset),
     source,
     health: { status, diagnostics: own.diagnostics },
@@ -1189,7 +1172,7 @@ const assembleWarp = (
 }
 
 const unexpectedIfNonEmpty = (position: Position, value: string): ReadonlyArray<UnexpectedToken> =>
-  value.length > 0 ? [UnexpectedTokenSchema.make({ position, value })] : []
+  value.length > 0 ? [nodeOf(UnexpectedTokenSchema, { position, value })] : []
 
 const decodeWarpAnchorName = Schema.decodeUnknownResult(WarpAnchorNameTokenSchema)
 
@@ -1218,7 +1201,7 @@ const anchorTargetAt = (
   const closeAt = lineStart + closeRel
   const inner = lineText.slice(openAt + 1 - lineStart, closeAt - lineStart)
   return Option.some({
-    target: WarpAnchorTargetTokenSchema.make({
+    target: nodeOf(WarpAnchorTargetTokenSchema, {
       position: span(line, openAt, closeAt + 1),
       source: lineText.slice(openAt - lineStart, closeAt + 1 - lineStart),
       health: okHealth,
@@ -1265,8 +1248,7 @@ const buildWarpAnchor = (
         anchor: assembleAnchor(
           open,
           close,
-          WarpAnchorNameTokenSchema.make({
-            type: 'WarpAnchorName',
+          nodeOf(WarpAnchorNameTokenSchema, {
             position: namePos,
             source: value,
             health: brokenLabel('anchorName', value, namePos),
@@ -1314,8 +1296,7 @@ const assembleAnchor = (
     ...(target ? [target.health.status] : []),
     ...(specifier ? [specifier.health.status] : []),
   ])
-  return WarpAnchorTokenSchema.make({
-    type: 'WarpAnchor',
+  return nodeOf(WarpAnchorTokenSchema, {
     position: span(line, open.position.start.offset, end),
     source,
     health: { status, diagnostics: [] },
@@ -1366,13 +1347,13 @@ const braceTokens = (
   closeAt: number,
   line: number,
 ): { open: SpecifierOpenToken; close: SpecifierCloseToken } => ({
-  open: SpecifierOpenTokenSchema.make({
+  open: nodeOf(SpecifierOpenTokenSchema, {
     position: span(line, openAt, openAt + 1),
     source: '{',
     health: okHealth,
     value: '{',
   }),
-  close: SpecifierCloseTokenSchema.make({
+  close: nodeOf(SpecifierCloseTokenSchema, {
     position: span(line, closeAt, closeAt + 1),
     source: '}',
     health: okHealth,
@@ -1407,12 +1388,10 @@ const spanOf = (text: string, start: number, end: number): Span => ({
   value: text.slice(start, end),
 })
 
-const endOf = (item: BraceItem): number =>
-  Match.value(item).pipe(
-    Match.when({ type: 'word' }, ({ word }) => word.end),
-    Match.when({ type: 'parameter' }, ({ whole }) => whole.end),
-    Match.exhaustive,
-  )
+const endOf: (item: BraceItem) => number = byType<BraceItem>()({
+  word: ({ word }) => word.end,
+  parameter: ({ whole }) => whole.end,
+})
 
 const itemsFrom = (
   text: string,
@@ -1454,6 +1433,27 @@ const listAt = (
 ): Option.Option<{ values: ReadonlyArray<Span>; end: number }> =>
   text[at] === '[' ? listFrom(text, skipSpaces(text, at + 1), []) : Option.none()
 
+const listContinued = Match.fn(
+  (
+    _within: {
+      readonly text: string
+      readonly next: number
+      readonly found: ReadonlyArray<Span>
+      readonly value: Span
+    },
+    mark: string | undefined,
+  ) => mark,
+).pipe(
+  Match.withReturnType<Option.Option<{ values: ReadonlyArray<Span>; end: number }>>(),
+  Match.when(',', (_mark, { text, next, found, value }) =>
+    listFrom(text, skipSpaces(text, next + 1), [...found, value]),
+  ),
+  Match.when(']', (_mark, { next, found, value }) =>
+    Option.some({ values: [...found, value], end: next + 1 }),
+  ),
+  Match.orElse(() => Option.none()),
+)
+
 const listFrom = (
   text: string,
   at: number,
@@ -1461,11 +1461,7 @@ const listFrom = (
 ): Option.Option<{ values: ReadonlyArray<Span>; end: number }> =>
   Option.flatMap(valueAt(text, at), (value) => {
     const next = skipSpaces(text, value.end)
-    return Match.value(text[next]).pipe(
-      Match.when(',', () => listFrom(text, skipSpaces(text, next + 1), [...found, value])),
-      Match.when(']', () => Option.some({ values: [...found, value], end: next + 1 })),
-      Match.orElse(() => Option.none()),
-    )
+    return listContinued({ text, next, found, value }, text[next])
   })
 
 const parameterAt = (text: string, at: number): Option.Option<BraceItem> =>
@@ -1492,7 +1488,7 @@ const specifierOf = (
   linePosition: Position,
 ): Option.Option<Braces> => {
   const { open, close } = braceTokens(openAt, closeAt, linePosition.start.line)
-  return Array.every(items, isWord)
+  return items.every(isWord)
     ? constructSpecifier([open], [close], lineText, linePosition).token
     : Option.some(parametersOf(open, close, items, lineText, linePosition))
 }
@@ -1512,12 +1508,12 @@ const parametersOf = (
     open.position.start.offset,
     close.position.end.offset,
   )
-  return ParametersTokenSchema.make({
+  return nodeOf(ParametersTokenSchema, {
     position,
     source: lineText.slice(position.start.offset - lineStart, position.end.offset - lineStart),
     health: okHealth,
     open,
-    parameters: Array.map(Array.getSomes(Array.map(items, parameterOf)), (parameter) =>
+    parameters: Array.getSomes(items.map(parameterOf)).map((parameter) =>
       parameterToken(parameter, lineText, at),
     ),
     labels: strayLabels(items, at),
@@ -1535,18 +1531,18 @@ const parameterToken = (
   lineText: string,
   at: (piece: Span) => Position,
 ): ParameterToken =>
-  ParameterTokenSchema.make({
+  nodeOf(ParameterTokenSchema, {
     position: at(parameter.whole),
     source: parameter.whole.value,
     health: okHealth,
-    key: ParameterKeyTokenSchema.make({
+    key: nodeOf(ParameterKeyTokenSchema, {
       position: at(parameter.key),
       source: parameter.key.value,
       health: okHealth,
       value: parameter.key.value,
     }),
-    values: Array.map(parameter.values, (value) =>
-      ParameterValueTokenSchema.make({
+    values: parameter.values.map((value) =>
+      nodeOf(ParameterValueTokenSchema, {
         position: at(value),
         source: lineText.slice(value.start, value.end),
         health: okHealth,
@@ -1562,27 +1558,19 @@ const strayLabels = (
   Array.match(items, {
     onEmpty: (): ReadonlyArray<SpecifierLabelToken> => [],
     onNonEmpty: (all) =>
-      pipe(
-        Array.groupWith(all, (one, other) => one.type === other.type),
-        Array.map((run) => Array.getSomes(Array.map(run, wordOf))),
-        Array.flatMap((run) =>
+      Array.groupWith(all, (one, other) => one.type === other.type)
+        .map((run) => Array.getSomes(run.map(wordOf)))
+        .flatMap((run) =>
           Array.match(run, {
             onEmpty: (): ReadonlyArray<SpecifierLabelToken> => [],
             onNonEmpty: (words) => [
-              buildSpecifierLabel(
-                Array.join(
-                  words.map((word) => word.value),
-                  ' ',
-                ),
-                {
-                  start: at(Array.headNonEmpty(words)).start,
-                  end: at(Array.lastNonEmpty(words)).end,
-                },
-              ),
+              buildSpecifierLabel(words.map((word) => word.value).join(' '), {
+                start: at(Array.headNonEmpty(words)).start,
+                end: at(Array.lastNonEmpty(words)).end,
+              }),
             ],
           }),
         ),
-      ),
   })
 
 const tokeniseBoxLine = <Line extends PreambleWeft | ProseWeft>(
@@ -1599,13 +1587,17 @@ const tokeniseBoxLine = <Line extends PreambleWeft | ProseWeft>(
   }
 }
 
-const settledBox = (text: string, linePosition: Position, box: BoxToken): BoxToken =>
-  Match.value(box.side).pipe(
-    Match.when('open', () => openedBox(text, linePosition, box)),
-    Match.when('close', () => BoxTokenSchema.make({ ...box, health: okHealth })),
-    Match.when('stray', () => strayBox(box)),
-    Match.exhaustive,
-  )
+const settledBox = Match.fn(
+  (_text: string, _linePosition: Position, box: BoxToken) => box.side,
+).pipe(
+  Match.withReturnType<BoxToken>(),
+  Match.when('open', (_side, text, linePosition, box) => openedBox(text, linePosition, box)),
+  Match.when('close', (_side, _text, _linePosition, box) =>
+    nodeOf(BoxTokenSchema, { ...box, health: okHealth }),
+  ),
+  Match.when('stray', (_side, _text, _linePosition, box) => strayBox(box)),
+  Match.exhaustive,
+)
 
 const trailingBraces = /\{[^{}]*\}[ \t]*$/
 
@@ -1620,7 +1612,7 @@ const boxNameAt = (raw: string, rawStart: number, line: number): Option.Option<B
   return value === ''
     ? Option.none()
     : Option.some(
-        BoxNameTokenSchema.make({
+        nodeOf(BoxNameTokenSchema, {
           position: span(line, start, end),
           source: value,
           health: okHealth,
@@ -1643,7 +1635,7 @@ const openedBox = (text: string, linePosition: Position, box: BoxToken): BoxToke
     onSome: (held) => held.position.start.offset - lineStart,
   })
   const name = boxNameAt(content.slice(from, nameEnd), lineStart + from, linePosition.start.line)
-  return BoxTokenSchema.make({
+  return nodeOf(BoxTokenSchema, {
     ...box,
     health: {
       status: aggregateStatus([
@@ -1662,10 +1654,10 @@ const strayBox = (box: BoxToken): BoxToken => {
     box.fence.source.length > 3 ? ColonRun({ colons: box.fence.source }) : NestedBox(),
     box.fence.position,
   )
-  return BoxTokenSchema.make({
+  return nodeOf(BoxTokenSchema, {
     ...box,
     health: { status: health.status, diagnostics: [] },
-    fence: BoxFenceTokenSchema.make({ ...box.fence, health }),
+    fence: nodeOf(BoxFenceTokenSchema, { ...box.fence, health }),
   })
 }
 
@@ -1700,7 +1692,7 @@ const scanAnchorOpens = (
   const line = linePosition.start.line
   const lineStart = linePosition.start.offset
   return indicesOf(lineText, open).map((i) =>
-    AnchorOpenTokenSchema.make({
+    nodeOf(AnchorOpenTokenSchema, {
       position: span(line, lineStart + i, lineStart + i + open.length),
       source: open,
       health: okHealth,
@@ -1720,13 +1712,13 @@ const anchorClose = (
   const lineEnd = contentEnd(lineText, lineStart)
   const rel = lineText.indexOf(close, open.position.end.offset - lineStart)
   return rel < 0
-    ? AnchorCloseTokenSchema.make({
+    ? nodeOf(AnchorCloseTokenSchema, {
         position: span(line, lineEnd, lineEnd),
         source: '',
         health: missingClosing(line, open.position.start.offset, lineEnd, close),
         value: close,
       })
-    : AnchorCloseTokenSchema.make({
+    : nodeOf(AnchorCloseTokenSchema, {
         position: span(line, lineStart + rel, lineStart + rel + close.length),
         source: close,
         health: okHealth,
@@ -1780,7 +1772,7 @@ const headingTitle = (
   if (start >= end) return Option.none()
 
   return Option.some(
-    HeadingTitleTokenSchema.make({
+    nodeOf(HeadingTitleTokenSchema, {
       position: span(line, start, end),
       source: text.slice(start, end),
       health: okHealth,
@@ -1800,13 +1792,9 @@ const strayBraces = (
   from: number,
   to: number,
 ): ReadonlyArray<UnexpectedToken> =>
-  pipe(
-    braces,
-    Array.filter(
-      (brace) => brace.position.start.offset < from || brace.position.start.offset >= to,
-    ),
-    Array.map(toUnexpected),
-  )
+  braces
+    .filter((brace) => brace.position.start.offset < from || brace.position.start.offset >= to)
+    .map(toUnexpected)
 
 const headingSpecifier = (lineText: string, position: Position): Construction<Braces> => {
   const opens = scanSpecifierOpen(lineText, position)
@@ -1878,7 +1866,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
     ...unexpected.map(() => 'error' as const),
   ])
 
-  return HeadingWeftSchema.make({
+  return nodeOf(HeadingWeftSchema, {
     position: weft.position,
     source: lineSlice(text, weft.position),
     health: strayHealth(text, status, unexpected),

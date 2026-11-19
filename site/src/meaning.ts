@@ -55,7 +55,7 @@ export class Embeddings extends Context.Service<Embeddings>()('Embeddings', {
 }
 
 const nearness = (one: Vector, other: Vector): number =>
-  Array.reduce(one, 0, (sum, value, at) => sum + value * (other[at] ?? 0))
+  one.reduce((sum, value, at) => sum + value * (other[at] ?? 0), 0)
 
 export const passageOf = (entry: Entry): string => `${entry.place} — ${entry.heading}\n${entry.text}`
 
@@ -97,8 +97,10 @@ const THRESHOLD = 0.29
 
 const wordsIn = (entry: Entry, query: string): string =>
   pipe(
-    query.toLowerCase().split(/[^\p{L}\p{N}-]+/u),
-    Array.filter((word) => word.length >= 3 && entry.text.toLowerCase().includes(word)),
+    query
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}-]+/u)
+      .filter((word) => word.length >= 3 && entry.text.toLowerCase().includes(word)),
     Array.sort(Order.mapInput(Order.flip(Order.Number), (word: string) => word.length)),
     Array.head,
     Option.getOrElse(() => ''),
@@ -122,7 +124,11 @@ export class Meaning extends Context.Service<Meaning>()('Meaning', {
         {
           onNone: () => new Map(),
           onSome: (store) =>
-            new Map(Array.map(Object.entries(store.vectors), ([key, text]) => [key, decodeVector(text)] as const)),
+            new Map(
+              Object.entries(store.vectors).map(
+                ([key, text]) => [key, decodeVector(text)] as const,
+              ),
+            ),
         },
       )
 
@@ -136,11 +142,23 @@ export class Meaning extends Context.Service<Meaning>()('Meaning', {
     )
 
     const fill = (missing: ReadonlyArray<Keyed>) =>
-      Effect.flatMap(embedAll(embeddings, Array.map(missing, ({ entry }) => passageOf(entry))), (vectors) =>
-        Ref.update(
-          known,
-          (have) => new Map([...have, ...Array.zip(Array.map(missing, ({ key }) => key), vectors)]),
+      Effect.flatMap(
+        embedAll(
+          embeddings,
+          missing.map(({ entry }) => passageOf(entry)),
         ),
+        (vectors) =>
+          Ref.update(
+            known,
+            (have) =>
+              new Map([
+                ...have,
+                ...Array.zip(
+                  missing.map(({ key }) => key),
+                  vectors,
+                ),
+              ]),
+          ),
       ).pipe(Effect.retry(RETRY), Effect.ensuring(Ref.set(filling, false)))
 
     const startFilling = (missing: ReadonlyArray<Keyed>) =>
@@ -156,10 +174,17 @@ export class Meaning extends Context.Service<Meaning>()('Meaning', {
           Option.fromNullishOr(answer[0]),
           Option.map((asked) =>
             pipe(
-              Array.map(ready, ({ entry, vector }) => ({ entry, near: nearness(asked, vector) })),
-              Array.filter((each) => each.near >= THRESHOLD),
-              Array.sort(Order.mapInput(Order.flip(Order.Number), (each: { near: number }) => each.near)),
-              Array.map((each): Result => ({ entry: each.entry, words: wordsIn(each.entry, query), meaning: true })),
+              ready
+                .map(({ entry, vector }) => ({ entry, near: nearness(asked, vector) }))
+                .filter((each) => each.near >= THRESHOLD),
+              Array.sort(
+                Order.mapInput(Order.flip(Order.Number), (each: { near: number }) => each.near),
+              ),
+              Array.map((each): Result => ({
+                entry: each.entry,
+                words: wordsIn(each.entry, query),
+                meaning: true,
+              })),
             ),
           ),
           Option.filter((results) => results.length > 0),
@@ -172,7 +197,7 @@ export class Meaning extends Context.Service<Meaning>()('Meaning', {
           yield* check
           const have = yield* Ref.get(known)
           const [ready, missing] = Array.partition(
-            Array.map(index, (entry): Keyed => ({ entry, key: keyOf(entry) })),
+            index.map((entry): Keyed => ({ entry, key: keyOf(entry) })),
             (each): Result_.Result<Ready, Keyed> =>
               Option.match(Option.fromNullishOr(have.get(each.key)), {
                 onNone: () => Result_.fail(each),

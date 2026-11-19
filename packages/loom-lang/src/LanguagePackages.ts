@@ -22,7 +22,7 @@ export interface LanguagePackagesApi {
 
 const servedBy = (service: LanguageService): ReadonlyArray<string> => [
   service.id,
-  ...Array.map(service.extensions, extensionLanguage),
+  ...service.extensions.map(extensionLanguage),
 ]
 
 type Question<A> = Effect.Effect<Option.Option<A>, ServiceError>
@@ -96,7 +96,7 @@ const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never,
       ask: (service: LanguageService) => Option.Option<Question<A>>,
     ): Effect.Effect<Option.Option<A>, ServiceError> =>
       packagesOf(loom).pipe(
-        Effect.flatMap((services) => Effect.all(Array.getSomes(Array.map(services, ask)))),
+        Effect.flatMap((services) => Effect.all(Array.getSomes(services.map(ask)))),
         Effect.map((answers) => Array.head(Array.getSomes(answers))),
       )
 
@@ -109,7 +109,7 @@ const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never,
       languagesFor: (loom) =>
         Effect.map(
           knownPackagesOf(loom),
-          Option.map((services) => Array.dedupe(Array.flatMap(services, servedBy))),
+          Option.map((services) => Array.dedupe(services.flatMap(servedBy))),
         ),
     }
   })

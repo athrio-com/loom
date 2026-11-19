@@ -167,13 +167,7 @@ export const productTarget = (
     loose: file === edited && Option.isNone(sink),
     loom: file.loomPath,
   })
-  program.sync(
-    Array.map(Array.filter(roots, listed), asFile),
-    Array.map(
-      Array.filter(roots, (file) => !listed(file)),
-      asFile,
-    ),
-  )
+  program.sync(roots.filter(listed).map(asFile), roots.filter((file) => !listed(file)).map(asFile))
   return { program, fileName: edited.path, roots }
 }
 
@@ -204,11 +198,11 @@ export const known =
   (roots: ReadonlyArray<ComposedFile>, created: ReadonlySet<string> = new Set()) =>
   (uri: string): boolean => {
     const path = URI.parse(uri).fsPath
-    return created.has(path) || Array.some(roots, (file) => file.path === path) || existsSync(path)
+    return created.has(path) || roots.some((file) => file.path === path) || existsSync(path)
   }
 
-const createdBy = (change: DocumentChange): ReadonlyArray<string> =>
-  Match.value(change).pipe(
+const createdBy: (change: DocumentChange) => ReadonlyArray<string> =
+  Match.type<DocumentChange>().pipe(
     Match.when(
       (each): each is CreateFile => 'kind' in each && each.kind === 'create',
       (each) => [URI.parse(each.uri).fsPath],
@@ -221,17 +215,18 @@ const createdBy = (change: DocumentChange): ReadonlyArray<string> =>
   )
 
 export const knownEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => {
-  const isKnown = known(roots, new Set(Array.flatMap(edit.documentChanges ?? [], createdBy)))
+  const isKnown = known(roots, new Set((edit.documentChanges ?? []).flatMap(createdBy)))
   return {
     ...edit,
     changes: Option.match(Option.fromNullishOr(edit.changes), {
       onNone: () => undefined,
-      onSome: (changes) => Object.fromEntries(Array.filter(Object.entries(changes), ([uri]) => isKnown(uri))),
+      onSome: (changes) =>
+        Object.fromEntries(Object.entries(changes).filter(([uri]) => isKnown(uri))),
     }),
     documentChanges: Option.match(Option.fromNullishOr(edit.documentChanges), {
       onNone: () => undefined,
       onSome: (changes) =>
-        Array.filter(changes, (change) => !('textDocument' in change) || isKnown(change.textDocument.uri)),
+        changes.filter((change) => !('textDocument' in change) || isKnown(change.textDocument.uri)),
     }),
   }
 }
@@ -342,13 +337,15 @@ export const productPlugin = (
           onNone: () => undefined,
           onSome: (changes) =>
             Object.fromEntries(
-              Array.map(Object.entries(changes), ([uri, edits]) => [embeddedUriOf(roots, uri), edits] as const),
+              Object.entries(changes).map(
+                ([uri, edits]) => [embeddedUriOf(roots, uri), edits] as const,
+              ),
             ),
         }),
         documentChanges: Option.match(Option.fromNullishOr(kept.documentChanges), {
           onNone: () => undefined,
           onSome: (changes) =>
-            Array.map(changes, (change) =>
+            changes.map((change) =>
               'textDocument' in change
                 ? {
                     ...change,
@@ -554,7 +551,7 @@ export const lowerPromised = (
   promised: ReadonlyArray<PromisedName>,
 ): Diagnostic[] => {
   const lines = text.split('\n')
-  return Array.map(diagnostics, (diagnostic) =>
+  return diagnostics.map((diagnostic) =>
     pipe(
       Option.liftPredicate(
         diagnostic,

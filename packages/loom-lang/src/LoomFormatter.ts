@@ -1,4 +1,5 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
+import { byType } from '@athrio/loom-ast/LoomNode'
 import { fromProduct, rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -10,7 +11,7 @@ import { statSync } from 'node:fs'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
 import type { ArrowWeft, CodeWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { Location, LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import type { Code } from '@athrio/loom-ast/ProductAst'
+import type { Code, Part } from '@athrio/loom-ast/ProductAst'
 import type { LoomVirtualCode } from '@athrio/loom-ast/LoomVirtualCode'
 import type { AnchorDelims, WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
@@ -60,20 +61,19 @@ interface ProseLine {
 const isProseWeft = (weft: SectionBodyWeft): boolean => weft.type === 'ProseWeft'
 
 const proseLinesOf = (doc: LoomDocument, text: string): ReadonlyArray<ProseLine> =>
-  pipe(
+  Array.sort(
     [
       ...doc.preamble,
-      ...Array.flatMap(doc.sections, (section) => [
+      ...doc.sections.flatMap((section) => [
         ...section.preamble,
-        ...Array.filter(section.code, isProseWeft),
+        ...section.code.filter(isProseWeft),
       ]),
-    ],
-    Array.map((weft) => ({
+    ].map((weft) => ({
       line: weft.position.start.line,
       start: weft.position.start.offset,
       text: text.slice(weft.position.start.offset, weft.position.end.offset).replace(/\r?\n$/, ''),
     })),
-    Array.sort(Order.mapInput(Order.Number, (line: ProseLine) => line.start)),
+    Order.mapInput(Order.Number, (line: ProseLine) => line.start),
   )
 
 type LineKind = 'blank' | 'fixed' | 'item' | 'text'
@@ -97,26 +97,21 @@ const onlyAnchor = (line: string, delims: AnchorDelims): boolean => {
   )
 }
 
-const kindOf = (line: string, delims: AnchorDelims): LineKind =>
-  Match.value(line).pipe(
-    Match.when(
-      (text) => text.trim() === '',
-      () => 'blank' as const,
-    ),
-    Match.when(
-      (text) =>
-        boxLine.test(text) ||
-        blockLine.test(text) ||
-        thematicBreak.test(text) ||
-        onlyAnchor(text, delims),
-      () => 'fixed' as const,
-    ),
-    Match.when(
-      (text) => itemLine.test(text),
-      () => 'item' as const,
-    ),
-    Match.orElse(() => 'text' as const),
-  )
+const kindOf = Match.fn((line: string, delims: AnchorDelims) => ({
+  blank: line.trim() === '',
+  fixed:
+    boxLine.test(line) ||
+    blockLine.test(line) ||
+    thematicBreak.test(line) ||
+    onlyAnchor(line, delims),
+  item: itemLine.test(line),
+})).pipe(
+  Match.withReturnType<LineKind>(),
+  Match.when({ blank: true }, () => 'blank' as const),
+  Match.when({ fixed: true }, () => 'fixed' as const),
+  Match.when({ item: true }, () => 'item' as const),
+  Match.orElse(() => 'text' as const),
+)
 
 const kindsOf = (
   lines: ReadonlyArray<ProseLine>,
@@ -138,15 +133,13 @@ const joins = (upper: KindedLine, lower: KindedLine): boolean =>
 
 const proseEdits = (doc: LoomDocument, text: string, delims: AnchorDelims): ReadonlyArray<Edit> => {
   const lines = kindsOf(proseLinesOf(doc, text), delims)
-  return pipe(
-    Array.zip(lines, Array.drop(lines, 1)),
-    Array.filter(([upper, lower]) => joins(upper, lower)),
-    Array.map(([upper, lower]) => ({
+  return Array.zip(lines, Array.drop(lines, 1))
+    .filter(([upper, lower]) => joins(upper, lower))
+    .map(([upper, lower]) => ({
       start: upper.start + upper.text.trimEnd().length,
       end: lower.start + lower.text.length - lower.text.trimStart().length,
       text: ' ',
-    })),
-  )
+    }))
 }
 
 interface Hunk<A> {
@@ -168,8 +161,7 @@ const slide = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>, x: number, y: number
         )
 }
 
-const diagonals = (d: number): ReadonlyArray<number> =>
-  Array.map(Array.range(0, d), (i) => 2 * i - d)
+const diagonals = (d: number): ReadonlyArray<number> => Array.range(0, d).map((i) => 2 * i - d)
 
 const movesDown = (k: number, d: number, previous: Frontier): boolean =>
   k === -d || (k !== d && (previous.get(k - 1) ?? -1) < (previous.get(k + 1) ?? -1))
@@ -178,15 +170,14 @@ const frontiersOf = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray
   const search = (d: number, trace: ReadonlyArray<Frontier>): ReadonlyArray<Frontier> => {
     const previous = trace[trace.length - 1] ?? new Map([[1, 0]])
     const frontier: Frontier = new Map(
-      Array.map(diagonals(d), (k) => {
+      diagonals(d).map((k) => {
         const start = movesDown(k, d, previous)
           ? (previous.get(k + 1) ?? 0)
           : (previous.get(k - 1) ?? 0) + 1
         return [k, slide(a, b, start, start - k)] as const
       }),
     )
-    const reached = Array.some(
-      diagonals(d),
+    const reached = diagonals(d).some(
       (k) => (frontier.get(k) ?? 0) >= a.length && (frontier.get(k) ?? 0) - k >= b.length,
     )
     return reached ? [...trace, frontier] : search(d + 1, [...trace, frontier])
@@ -224,16 +215,19 @@ const stepsOf = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray<Ste
       )
 }
 
-const hunksOf = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray<Hunk<A>> =>
-  Array.reduce(stepsOf(a, b), [] as ReadonlyArray<Hunk<A>>, (hunks, step) => {
-    const open = Option.filter(Array.last(hunks), (hunk) => hunk.to === step.at)
-    const grown = (hunk: Hunk<A>): Hunk<A> =>
-      step.drop ? { ...hunk, to: hunk.to + 1 } : { ...hunk, items: [...hunk.items, step.item] }
-    return Option.match(open, {
-      onNone: () => [...hunks, grown({ from: step.at, to: step.at, items: [] })],
-      onSome: (hunk) => [...Array.dropRight(hunks, 1), grown(hunk)],
-    })
-  })
+const hunksOf = <A,>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray<Hunk<A>> =>
+  stepsOf(a, b).reduce(
+    (hunks, step) => {
+      const open = Option.filter(Array.last(hunks), (hunk) => hunk.to === step.at)
+      const grown = (hunk: Hunk<A>): Hunk<A> =>
+        step.drop ? { ...hunk, to: hunk.to + 1 } : { ...hunk, items: [...hunk.items, step.item] }
+      return Option.match(open, {
+        onNone: () => [...hunks, grown({ from: step.at, to: step.at, items: [] })],
+        onSome: (hunk) => [...Array.dropRight(hunks, 1), grown(hunk)],
+      })
+    },
+    [] as ReadonlyArray<Hunk<A>>,
+  )
 
 const refineLimit = 4000
 
@@ -243,14 +237,14 @@ const diffOf = (before: string, after: string): ReadonlyArray<Edit> => {
   const lines = linesOf(before)
   const offsets = Array.mapAccum(lines, 0, (at, line) => [at + line.length, at])[1]
   const offsetOf = (index: number): number => offsets[index] ?? before.length
-  return Array.flatMap(hunksOf(lines, linesOf(after)), (hunk) => {
+  return hunksOf(lines, linesOf(after)).flatMap((hunk) => {
     const start = offsetOf(hunk.from)
     const end = offsetOf(hunk.to)
     const old = before.slice(start, end)
     const replacement = hunk.items.join('')
     return old.length + replacement.length > refineLimit
       ? [{ start, end, text: replacement }]
-      : Array.map(hunksOf(old.split(''), replacement.split('')), (piece) => ({
+      : hunksOf(old.split(''), replacement.split('')).map((piece) => ({
           start: start + piece.from,
           end: start + piece.to,
           text: piece.items.join(''),
@@ -290,37 +284,31 @@ const endOf = (spans: ReadonlyArray<Span>, at: number, change: Edit): Option.Opt
     (span) => insertedAt(span.sourceStart + span.genLength, change),
   )
 
-const atEdge = (spans: ReadonlyArray<Span>, change: Edit, code: string): Option.Option<Edit> =>
-  Match.value(change).pipe(
-    Match.when(
-      (edit) => edit.start !== edit.end,
-      () => Option.none(),
-    ),
-    Match.when(
-      (edit) => closing.test(edit.text) || edit.start === code.length,
-      (edit) => endOf(spans, edit.start, edit),
-    ),
-    Match.when(
-      (edit) => (spaces.test(edit.text) && inIndentation(code, edit.start)) || edit.start === 0,
-      (edit) => startOf(spans, edit.start, edit),
-    ),
-    Match.orElse(() => Option.none()),
-  )
+const atEdge = Match.fn((_spans: ReadonlyArray<Span>, change: Edit, code: string) => ({
+  replaces: change.start !== change.end,
+  atEnd: closing.test(change.text) || change.start === code.length,
+  atStart: (spaces.test(change.text) && inIndentation(code, change.start)) || change.start === 0,
+})).pipe(
+  Match.withReturnType<Option.Option<Edit>>(),
+  Match.when({ replaces: true }, () => Option.none()),
+  Match.when({ atEnd: true }, (_facts, spans, change) => endOf(spans, change.start, change)),
+  Match.when({ atStart: true }, (_facts, spans, change) => startOf(spans, change.start, change)),
+  Match.orElse(() => Option.none()),
+)
 
 const placed =
   (spans: ReadonlyArray<Span>, code: string) =>
   (change: Edit): Option.Option<Edit> => {
-    const holders = Array.filter(
-      spans,
+    const holders = spans.filter(
       (span) => span.genStart <= change.start && change.end <= spanEnd(span),
     )
     const points = Array.dedupe(
-      Array.map(holders, (span) => span.sourceStart + change.start - span.genStart),
+      holders.map((span) => span.sourceStart + change.start - span.genStart),
     )
     const settled =
       change.start < change.end ||
       holders.length > 1 ||
-      Array.some(holders, (span) => span.genStart < change.start && change.start < spanEnd(span))
+      holders.some((span) => span.genStart < change.start && change.start < spanEnd(span))
     return points.length === 1 && settled
       ? Option.some({
           start: points[0],
@@ -339,16 +327,13 @@ const editsOf = (
   spans: ReadonlyArray<Span>,
 ): Option.Option<ReadonlyArray<Edit>> => {
   const place = placed(spans, before)
-  const placements = Array.map(diffOf(before, after), (change) => ({
+  const placements = diffOf(before, after).map((change) => ({
     change,
     edit: place(change),
   }))
-  return Array.some(
-    placements,
-    ({ change, edit }) => Option.isNone(edit) && !blankChange(before, change),
-  )
+  return placements.some(({ change, edit }) => Option.isNone(edit) && !blankChange(before, change))
     ? Option.none()
-    : Option.some(Array.getSomes(Array.map(placements, ({ edit }) => edit)))
+    : Option.some(Array.getSomes(placements.map(({ edit }) => edit)))
 }
 
 interface Block {
@@ -366,26 +351,27 @@ const written =
     text.slice(weft.position.start.offset, lineEnd(weft, text)).trim() !== ''
 
 const runsOf = (section: LoomSection): ReadonlyArray<ReadonlyArray<CodeWeft>> =>
-  Array.reduce(section.code, [[]] as ReadonlyArray<ReadonlyArray<CodeWeft>>, (runs, weft) =>
-    weft.type === 'CodeWeft'
-      ? [
-          ...Array.dropRight(runs, 1),
-          [...Option.getOrElse(Array.last(runs), (): ReadonlyArray<CodeWeft> => []), weft],
-        ]
-      : [...runs, []],
+  section.code.reduce(
+    (runs, weft) =>
+      weft.type === 'CodeWeft'
+        ? [
+            ...Array.dropRight(runs, 1),
+            [...Option.getOrElse(Array.last(runs), (): ReadonlyArray<CodeWeft> => []), weft],
+          ]
+        : [...runs, []],
+    [[]] as ReadonlyArray<ReadonlyArray<CodeWeft>>,
   )
 
 const blocksOf = (section: LoomSection, text: string): ReadonlyArray<Block> =>
-  pipe(
-    runsOf(section),
-    Array.map(Array.filter(written(text))),
-    Array.map((run) =>
-      Option.map(Option.all([Array.head(run), Array.last(run)]), ([first, last]) => ({
-        start: first.position.start.offset,
-        end: lineEnd(last, text),
-      })),
-    ),
-    Array.getSomes,
+  Array.getSomes(
+    runsOf(section)
+      .map(Array.filter(written(text)))
+      .map((run) =>
+        Option.map(Option.all([Array.head(run), Array.last(run)]), ([first, last]) => ({
+          start: first.position.start.offset,
+          end: lineEnd(last, text),
+        })),
+      ),
   )
 
 interface HeldAnchor {
@@ -413,7 +399,7 @@ interface Held {
 }
 
 const anchorsIn = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
-  Array.flatMap(section.code, (weft) => (weft.type === 'CodeWeft' ? weft.anchors : []))
+  section.code.flatMap((weft) => (weft.type === 'CodeWeft' ? weft.anchors : []))
 
 const heldOf = (section: LoomSection, text: string): Held => {
   const blocks = blocksOf(section, text)
@@ -421,20 +407,20 @@ const heldOf = (section: LoomSection, text: string): Held => {
     at + block.end - block.start + 1,
     { genStart: at, genLength: block.end - block.start, sourceStart: block.start },
   ])[1]
-  const written = Array.map(blocks, (block) => text.slice(block.start, block.end)).join('\n')
+  const written = blocks.map((block) => text.slice(block.start, block.end)).join('\n')
   const anchors = pipe(
-    anchorsIn(section),
-    Array.map((token) => ({ start: token.position.start.offset, end: token.position.end.offset })),
-    Array.map((anchor) =>
-      Option.map(
-        Array.findFirst(
-          spans,
-          (span) =>
-            span.sourceStart <= anchor.start && anchor.end <= span.sourceStart + span.genLength,
+    anchorsIn(section)
+      .map((token) => ({ start: token.position.start.offset, end: token.position.end.offset }))
+      .map((anchor) =>
+        Option.map(
+          Array.findFirst(
+            spans,
+            (span) =>
+              span.sourceStart <= anchor.start && anchor.end <= span.sourceStart + span.genLength,
+          ),
+          (span) => ({ ...anchor, at: span.genStart + anchor.start - span.sourceStart }),
         ),
-        (span) => ({ ...anchor, at: span.genStart + anchor.start - span.sourceStart }),
       ),
-    ),
     Array.getSomes,
     Array.map((anchor, index): HeldAnchor => ({
       at: anchor.at,
@@ -473,8 +459,9 @@ const restoredOne = (code: string, anchor: HeldAnchor): Option.Option<string> =>
 }
 
 const restored = (code: string, anchors: ReadonlyArray<HeldAnchor>): Option.Option<string> =>
-  Array.reduce(anchors, Option.some(code), (done, anchor) =>
-    Option.flatMap(done, (text) => restoredOne(text, anchor)),
+  anchors.reduce(
+    (done, anchor) => Option.flatMap(done, (text) => restoredOne(text, anchor)),
+    Option.some(code),
   )
 
 type Formatter = NonNullable<LanguageService['format']>
@@ -518,25 +505,24 @@ const formattableOf = (
   module: LoomModule,
   languages: ReadonlyArray<LanguageService>,
 ): ReadonlyArray<Formattable> =>
-  pipe(
-    module.doc.sections,
-    Array.filter(
-      (section) =>
-        !Array.some(section.code, (weft) => weft.type === 'ArrowWeft' && weft.code !== undefined),
-    ),
-    Array.map((section) =>
-      pipe(
-        codeNamed(module, sectionNameOf(section)),
-        Option.flatMap((code) =>
-          Option.map(formatterFor(languages, code.languageId), (format) => ({
-            section,
-            name: code.origin.name,
-            format,
-          })),
+  Array.getSomes(
+    module.doc.sections
+      .filter(
+        (section) =>
+          !section.code.some((weft) => weft.type === 'ArrowWeft' && weft.code !== undefined),
+      )
+      .map((section) =>
+        pipe(
+          codeNamed(module, sectionNameOf(section)),
+          Option.flatMap((code) =>
+            Option.map(formatterFor(languages, code.languageId), (format) => ({
+              section,
+              name: code.origin.name,
+              format,
+            })),
+          ),
         ),
       ),
-    ),
-    Array.getSomes,
   )
 
 const refsOf = (module: LoomModule, name: string): ReadonlyArray<string> =>
@@ -544,7 +530,7 @@ const refsOf = (module: LoomModule, name: string): ReadonlyArray<string> =>
     codeNamed(module, name),
     Option.map((code) =>
       Array.getSomes(
-        Array.map(code.fragments, (part) =>
+        code.fragments.map((part) =>
           part.type === 'NameRef'
             ? Option.map(
                 Option.filter(part.target, (target) => target.path === module.path),
@@ -564,10 +550,9 @@ const membersOf = (
 ): ReadonlySet<string> =>
   seen.has(name)
     ? seen
-    : Array.reduce(
-        refsOf(module, name),
-        new Set([...seen, name]) as ReadonlySet<string>,
+    : refsOf(module, name).reduce(
         (members, ref) => membersOf(module, ref, members),
+        new Set([...seen, name]) as ReadonlySet<string>,
       )
 
 const fileOf = (module: LoomModule, packageRoot: Option.Option<string>, name: string): string =>
@@ -580,17 +565,18 @@ const fileOf = (module: LoomModule, packageRoot: Option.Option<string>, name: st
   )
 
 const usesOf = (module: LoomModule, name: string): number =>
-  Array.reduce(module.product?.code ?? [], 0, (uses, code) =>
-    Array.reduce(refsOf(module, code.origin.name), uses, (count, ref) =>
-      ref === name ? count + 1 : count,
-    ),
+  (module.product?.code ?? []).reduce(
+    (uses, code) =>
+      refsOf(module, code.origin.name).reduce(
+        (count, ref) => (ref === name ? count + 1 : count),
+        uses,
+      ),
+    0,
   )
 
 const rootsOf = (module: LoomModule): ReadonlyArray<Code> => {
   const roots = rootNamesAt(new Map([[module.path, module]]), module.path)
-  return Array.filter(module.product?.code ?? [], (code) =>
-    roots.has(code.origin.name.toLowerCase()),
-  )
+  return (module.product?.code ?? []).filter((code) => roots.has(code.origin.name.toLowerCase()))
 }
 
 const keepEdges = (before: string, after: string): string =>
@@ -599,20 +585,18 @@ const keepEdges = (before: string, after: string): string =>
     : `${/^\s*/.exec(before)?.[0] ?? ''}${after.trim()}${before.slice(before.trimEnd().length)}`
 
 const verbatimSpans = (text: string, composed: LoomVirtualCode): ReadonlyArray<Span> =>
-  pipe(
-    composed.mappings,
-    Array.filter(
+  composed.mappings
+    .filter(
       (mapping) =>
         mapping.kind === 'product' &&
         text.slice(mapping.source.start.offset, mapping.source.start.offset + mapping.genLength) ===
           composed.code.slice(mapping.genStart, mapping.genStart + mapping.genLength),
-    ),
-    Array.map((mapping) => ({
+    )
+    .map((mapping) => ({
       genStart: mapping.genStart,
       genLength: mapping.genLength,
       sourceStart: mapping.source.start.offset,
-    })),
-  )
+    }))
 
 const placedIn = (
   module: LoomModule,
@@ -627,10 +611,8 @@ const placedIn = (
     Option.getOrElse((): ReadonlyArray<Block> => []),
   )
   const within = (start: number, end: number): boolean =>
-    Array.some(blocks, (block) => block.start <= start && end <= block.end)
-  const root = Array.filter(rootsOf(module), (code) =>
-    membersOf(module, code.origin.name).has(name),
-  )
+    blocks.some((block) => block.start <= start && end <= block.end)
+  const root = rootsOf(module).filter((code) => membersOf(module, code.origin.name).has(name))
   return pipe(
     Array.head(root),
     Option.filter(() => root.length === 1),
@@ -642,11 +624,11 @@ const placedIn = (
       onSome: ({ code, format }) => {
         const composed = fromProduct(new Map([[module.path, module]]), code.origin)
         const spans = verbatimSpans(module.text, composed)
-        const own = Array.filter(spans, (span) =>
+        const own = spans.filter((span) =>
           within(span.sourceStart, span.sourceStart + span.genLength),
         )
-        const from = Math.min(...Array.map(own, (span) => span.genStart))
-        const to = Math.max(...Array.map(own, spanEnd))
+        const from = Math.min(...own.map((span) => span.genStart))
+        const to = Math.max(...own.map(spanEnd))
         const place = placed(spans, composed.code)
         return format({
           code: composed.code,
@@ -654,17 +636,14 @@ const placedIn = (
           width: settings.width,
         }).pipe(
           Effect.map((formatted) => {
-            const placements = pipe(
-              diffOf(composed.code, keepEdges(composed.code, formatted)),
-              Array.filter((change) => from <= change.start && change.end <= to),
-              Array.map((change) => ({ change, edit: place(change) })),
-            )
-            return Array.some(
-              placements,
+            const placements = diffOf(composed.code, keepEdges(composed.code, formatted))
+              .filter((change) => from <= change.start && change.end <= to)
+              .map((change) => ({ change, edit: place(change) }))
+            return placements.some(
               ({ change, edit }) => Option.isNone(edit) && !blankChange(composed.code, change),
             )
               ? []
-              : Array.filter(Array.getSomes(Array.map(placements, ({ edit }) => edit)), (edit) =>
+              : Array.getSomes(placements.map(({ edit }) => edit)).filter((edit) =>
                   within(edit.start, edit.end),
                 )
           }),
@@ -675,19 +654,24 @@ const placedIn = (
   )
 }
 
+const partIsWhole = byType<
+  Part,
+  [
+    within: {
+      readonly module: LoomModule
+    },
+  ]
+>()<boolean>({
+  Fragment: (fragment) => fragment.health.status === 'ok',
+  NameRef: (ref, { module }) =>
+    Option.exists(ref.target, (target) => target.path === module.path),
+  ModuleRef: () => false,
+})
+
 const composesWhole = (module: LoomModule, root: string): boolean =>
-  Array.every(Array.fromIterable(membersOf(module, root)), (name) =>
+  Array.fromIterable(membersOf(module, root)).every((name) =>
     Option.exists(codeNamed(module, name), (code) =>
-      Array.every(code.fragments, (part) =>
-        Match.value(part).pipe(
-          Match.when({ type: 'Fragment' }, (fragment) => fragment.health.status === 'ok'),
-          Match.when({ type: 'NameRef' }, (ref) =>
-            Option.exists(ref.target, (target) => target.path === module.path),
-          ),
-          Match.when({ type: 'ModuleRef' }, () => false),
-          Match.exhaustive,
-        ),
-      ),
+      code.fragments.every((part) => partIsWhole(part, { module })),
     ),
   )
 
@@ -745,23 +729,19 @@ const cutArrowOf = (section: LoomSection): Option.Option<ArrowWeft> =>
   )
 
 const dividedArrows = (doc: LoomDocument): ReadonlyArray<ArrowWeft> =>
-  pipe(
-    doc.sections,
-    Array.flatMap((section, at) =>
+  Array.dedupeWith(
+    doc.sections.flatMap((section, at) =>
       section.heading.marker.type === 'Divider'
         ? Option.toArray(Option.flatMap(Array.get(doc.sections, at - 1), cutArrowOf))
         : [],
     ),
-    Array.dedupeWith((one, other) => one.position.start.offset === other.position.start.offset),
+    (one, other) => one.position.start.offset === other.position.start.offset,
   )
 
 const endsCode = (line: Line): boolean => /^#{1,6} |^~(\s|$)/.test(line.text)
 
 const fenceLength = (lines: ReadonlyArray<Line>): number =>
-  Math.max(
-    3,
-    1 + Math.max(0, ...Array.map(lines, (line) => /^\s*(`*)/.exec(line.text)![1]!.length)),
-  )
+  Math.max(3, 1 + Math.max(0, ...lines.map((line) => /^\s*(`*)/.exec(line.text)![1]!.length)))
 
 const fenceOf = (text: string, arrow: ArrowWeft): ReadonlyArray<Edit> => {
   const from = arrow.position.end.offset
@@ -787,7 +767,7 @@ const fenceOf = (text: string, arrow: ArrowWeft): ReadonlyArray<Edit> => {
 }
 
 const fencesOf = (doc: LoomDocument, text: string): ReadonlyArray<Edit> =>
-  Array.flatMap(dividedArrows(doc), (arrow) => fenceOf(text, arrow))
+  dividedArrows(doc).flatMap((arrow) => fenceOf(text, arrow))
 
 const textSource = (path: Location, text: string): Source => ({
   read: (at) =>
@@ -842,34 +822,31 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
             ),
           )
           const formattedAlone = Array.getSomes(
-            Array.map(alone, ({ name, edits }) =>
-              Option.map(edits, (found) => ({ name, edits: found })),
-            ),
+            alone.map(({ name, edits }) => Option.map(edits, (found) => ({ name, edits: found }))),
           )
           const textWith = (kept: ReadonlyArray<SectionEdits>): string =>
-            applyEdits(text, settle([...prose, ...Array.flatMap(kept, ({ edits }) => edits)]))
+            applyEdits(text, settle([...prose, ...kept.flatMap(({ edits }) => edits)]))
           const holding = (kept: ReadonlyArray<SectionEdits>) =>
             Effect.gen(function* () {
               const next = yield* build(textWith(kept))
               const broken = yield* brokenRoots(next, settings, packageRoot, languages)
               const lost = new Set(
-                Array.flatMap(broken, (root) => Array.fromIterable(membersOf(next, root))),
+                broken.flatMap((root) => Array.fromIterable(membersOf(next, root))),
               )
-              return Array.filter(kept, ({ name }) => !lost.has(name))
+              return kept.filter(({ name }) => !lost.has(name))
             })
           const once = yield* holding(formattedAlone)
           const second = once.length === formattedAlone.length ? once : yield* holding(once)
           const kept = second.length === once.length ? once : []
           const settledText = textWith(kept)
           const settledModule = yield* build(settledText)
-          const fallback = Array.filter(
-            alone,
+          const fallback = alone.filter(
             ({ name, edits }) => Option.isNone(edits) && usesOf(settledModule, name) === 1,
           )
           const placedEdits = yield* Effect.forEach(fallback, ({ name }) =>
             placedIn(settledModule, settings, packageRoot, languages, name),
           )
-          const withFallback = applyEdits(settledText, settle(Array.flatten(placedEdits)))
+          const withFallback = applyEdits(settledText, settle(placedEdits.flat()))
           const broken = yield* Effect.flatMap(build(withFallback), (next) =>
             brokenRoots(next, settings, packageRoot, languages),
           )

@@ -14,7 +14,7 @@ Code is one of two channels. Prose is its peer, a `WovenProse` woven from the sa
 
 ## The product node
 
-`productNode` builds each product node: it stamps a `type` discriminator and a defaulted `health` onto the fields it wraps. There is no render-order annotation, since the product is flattened by a graph walk rather than by emitting fields in order.
+`productNode` builds each product node: it stamps a `type` discriminator and a `health` onto the fields it wraps. There is no render-order annotation, since the product is flattened by a graph walk rather than by emitting fields in order.
 
 =>
 
@@ -24,7 +24,7 @@ const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
 ) =>
   Schema.Struct({
     type: Schema.tag(tag),
-    health: HealthSchema.pipe(Schema.withConstructorDefault(Effect.succeed(okHealth))),
+    health: HealthSchema,
     ...fields,
   })
 
@@ -162,12 +162,12 @@ export type Product = typeof ProductSchema.Type
 
 ## What this module draws on
 
-Effect's `Schema` defines the nodes, and `Effect` fills the health default. `Option` and `Array` read what an edge promises. `Health`, `okHealth`, and `Position` come from the foundation, giving each node its health and its source spans.
+Effect's `Schema` defines the nodes. `Option` and `Array` read what an edge promises. `HealthSchema` and `PositionSchema` come from the foundation, giving each node its health and its source spans.
 
 =>
 
-import { Array, Effect, Option, Schema } from 'effect'
-import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+import { Array, Option, Schema } from 'effect'
+import { HealthSchema, PositionSchema } from '#ast/LoomNode'
 
 ## The module {Tangle}
 

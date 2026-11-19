@@ -31,7 +31,6 @@ describe('productLanguage — a file read from disk', () => {
   })
 })
 
-import { Array } from 'effect'
 import { createProductProgram } from '../src/ProductProgram'
 
 describe('createProductProgram — a root it holds but does not list', () => {
@@ -54,7 +53,7 @@ describe('createProductProgram — a root it holds but does not list', () => {
       ],
       [{ path: '/held/library.ts', text: 'export const answer = 42\n' }],
     )
-    const messages = Array.map(await program.diagnostics('/held/caller.ts'), (d) => d.message)
+    const messages = (await program.diagnostics('/held/caller.ts')).map((d) => d.message)
     program.dispose()
     expect(messages.some((message) => /not assignable to type 'string'/.test(message))).toBe(true)
     expect(messages.some((message) => /Cannot find module/.test(message))).toBe(false)

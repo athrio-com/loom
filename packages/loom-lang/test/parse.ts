@@ -29,8 +29,8 @@ export const parsedDocument = (text: string): Effect.Effect<ParsedDocument, neve
     const classify = yield* WeftClassifier
     const tokenise = yield* WeftTokeniser
     const astBuilder = yield* LoomAstBuilder
-    return yield* sourceRanges.stream(text).pipe(
-      Effect.flatMap((ranges) =>
+    return yield* sourceRanges.rangesOf(text).pipe(
+      Effect.map((ranges) =>
         pipe(
           ranges,
           classify.classifyWefts(text),

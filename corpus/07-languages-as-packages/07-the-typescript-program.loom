@@ -178,13 +178,13 @@ export const createProductProgram = (
     others: ReadonlyArray<ProductFile> = [],
   ): void => {
     const files = [...listed, ...others]
-    const present = new Set(Array.map(files, (file) => file.path))
-    const stale = Array.filter(Array.fromIterable(roots.keys()), (path) => !present.has(path))
-    const fresh = Array.filter(files, (file) => !unchanged(file.path, file.text))
-    const listing = new Set(Array.map(listed, (file) => file.path))
+    const present = new Set(files.map((file) => file.path))
+    const stale = Array.fromIterable(roots.keys()).filter((path) => !present.has(path))
+    const fresh = files.filter((file) => !unchanged(file.path, file.text))
+    const listing = new Set(listed.map((file) => file.path))
     const relisted =
       listing.size !== fileNames.size ||
-      Array.some(Array.fromIterable(listing), (path) => !fileNames.has(path))
+      Array.fromIterable(listing).some((path) => !fileNames.has(path))
     if (stale.length === 0 && fresh.length === 0 && !relisted) return
     stale.forEach((path) => {
       roots.delete(path)
@@ -317,7 +317,6 @@ A program reads a root it does not list only when a listed root imports it. The 
 
 =>
 
-import { Array } from 'effect'
 import { createProductProgram } from '../src/ProductProgram'
 
 describe('createProductProgram — a root it holds but does not list', () => {
@@ -340,7 +339,7 @@ describe('createProductProgram — a root it holds but does not list', () => {
       ],
       [{ path: '/held/library.ts', text: 'export const answer = 42\n' }],
     )
-    const messages = Array.map(await program.diagnostics('/held/caller.ts'), (d) => d.message)
+    const messages = (await program.diagnostics('/held/caller.ts')).map((d) => d.message)
     program.dispose()
     expect(messages.some((message) => /not assignable to type 'string'/.test(message))).toBe(true)
     expect(messages.some((message) => /Cannot find module/.test(message))).toBe(false)

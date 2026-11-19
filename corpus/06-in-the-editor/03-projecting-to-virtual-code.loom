@@ -44,7 +44,7 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
   code: a.code + b.code,
   mappings: [
     ...a.mappings,
-    ...Array.map(b.mappings, (m) => ({
+    ...b.mappings.map((m) => ({
       ...m,
       genStart: m.genStart + a.code.length,
     })),
@@ -60,13 +60,13 @@ The de re walk inlines a section's fragments. `inlineComposed` folds them left t
 
 A module anchor, which the product pass binds as a `ModuleRef`, composes no code. It writes the path to the module it names, the specifier the language package wrote, and `Specifiers` hands the walk those specifiers. The compiler works them out before it projects, because finding the file a module anchor names, placing it, and asking the package all take effects, and the walk is pure. A module anchor with no specifier writes nothing. The specifier maps onto the anchor's name, although the two differ in length, so an error the language reports on the specifier lands on the anchor that wrote it. `noSpecifiers` gives no module anchor a specifier, for a projection that writes none.
 
-A leaf maps to its origin only when its section lives in the file being projected, the `home` file the walk carries down from its root. A mapping is a span in that one file's source, while a `Fragment`'s origin is a span in the file its own section came from. So a block that a cross-file anchor pulls in still lands in the code, and the product type-checks whole, but the block maps nowhere in the home file. Its own file projects it again, with mappings of its own, and an edit to that block belongs there.
+A leaf maps to its origin only when its section lives in the file being projected, the `home` file the walk carries down from its root. A mapping is a span in that one file's source, while a `Fragment`'s origin is a span in the file its own section came from. So a block that a cross-file anchor pulls in still lands in the code, and the product type-checks whole, but the block maps nowhere in the home file. Its own file projects it again, with mappings of its own, and an edit to that block belongs there. `withPart` adds one part to the code composed so far, an `Inlined`: the code, and whether the next fragment loses its leading blank line.
 
 =>
 
 const clipMappings = (mappings: ReadonlyArray<Mapping>, genLen: number): ReadonlyArray<Mapping> =>
   Array.getSomes(
-    Array.map(mappings, (m) =>
+    mappings.map((m) =>
       m.genStart >= genLen
         ? Option.none()
         : Option.some(
@@ -94,48 +94,77 @@ const mappedIn = (text: string, source: Position, owner: Location, home: Locatio
     owner === home ? [{ genStart: 0, genLength: text.length, source, kind: 'product' }] : [],
   )
 
-const inlinePart =
-  (
-    modules: ReadonlyMap<Location, LoomModule>,
-    catalogue: Catalogue,
-    seen: ReadonlySet<string>,
-    home: Location,
-    owner: Location,
-    specifiers: Specifiers,
-  ) =>
-  (part: Part): LoomVirtualCode =>
-    Match.value(part).pipe(
-      Match.when({ type: 'Fragment' }, (fragment) =>
-        mappedIn(fragment.text, fragment.origin, owner, home),
+const inlinePart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly home: Location
+      readonly owner: Location
+      readonly specifiers: Specifiers
+    },
+  ]
+>()<LoomVirtualCode>({
+  Fragment: (fragment, { home, owner }) =>
+    mappedIn(fragment.text, fragment.origin, owner, home),
+  ModuleRef: (ref, { home, owner, specifiers }) =>
+    Option.match(specifiers(owner, ref), {
+      onNone: () => emptyLeaf,
+      onSome: (specifier) => mappedIn(specifier, ref.anchor, owner, home),
+    }),
+  NameRef: (ref, { modules, catalogue, seen, home, owner, specifiers }) =>
+    pipe(
+      targetOf(catalogue, owner, ref),
+      Option.filter((t) => !seen.has(keyOf(t))),
+      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
+      Option.match({
+        onNone: () => emptyLeaf,
+        onSome: ([t, node]) =>
+          absorbTrailingNewline(
+            inlineComposed(
+              modules,
+              catalogue,
+              new Set([...seen, keyOf(t)]),
+              home,
+              specifiers,
+            )(node),
+          ),
+      }),
+    ),
+})
+
+type Inlined = { readonly vc: LoomVirtualCode; readonly trim: boolean }
+
+const withPart = byType<
+  Part,
+  [
+    within: {
+      readonly acc: Inlined
+      readonly build: (part: Part) => LoomVirtualCode
+      readonly node: Code
+      readonly i: number
+    },
+  ]
+>()<Inlined>({
+  Fragment: (fragment, { acc, build }) => ({
+    vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(fragment) : fragment)),
+    trim: false,
+  }),
+  ModuleRef: (ref, { acc, build }) =>
+    ({ vc: concat(acc.vc, build(ref)), trim: false }),
+  NameRef: (ref, { acc, build, node, i }) => {
+    const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
+    return {
+      vc: concat(
+        acc.vc,
+        owns ? indentBlock(build(ref), lineIndentOf(acc.vc.code)) : build(ref),
       ),
-      Match.when({ type: 'ModuleRef' }, (ref) =>
-        Option.match(specifiers(owner, ref), {
-          onNone: () => emptyLeaf,
-          onSome: (specifier) => mappedIn(specifier, ref.anchor, owner, home),
-        }),
-      ),
-      Match.when({ type: 'NameRef' }, (ref) =>
-        pipe(
-          targetOf(catalogue, owner, ref),
-          Option.filter((t) => !seen.has(keyOf(t))),
-          Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
-          Option.match({
-            onNone: () => emptyLeaf,
-            onSome: ([t, node]) =>
-              absorbTrailingNewline(
-                inlineComposed(
-                  modules,
-                  catalogue,
-                  new Set([...seen, keyOf(t)]),
-                  home,
-                  specifiers,
-                )(node),
-              ),
-          }),
-        ),
-      ),
-      Match.exhaustive,
-    )
+      trim: owns,
+    }
+  },
+})
 
 const inlineComposed =
   (
@@ -146,33 +175,11 @@ const inlineComposed =
     specifiers: Specifiers,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, catalogue, seen, home, node.origin.path, specifiers)
-    const seed: { vc: LoomVirtualCode; trim: boolean } = {
-      vc: emptyLeaf,
-      trim: false,
-    }
+    const build = (part: Part): LoomVirtualCode =>
+      inlinePart(part, { modules, catalogue, seen, home, owner: node.origin.path, specifiers })
+    const seed: Inlined = { vc: emptyLeaf, trim: false }
     return pipe(
-      node.fragments,
-      Array.reduce(seed, (acc, part, i) =>
-        Match.value(part).pipe(
-          Match.when({ type: 'Fragment' }, (fragment) => ({
-            vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(fragment) : fragment)),
-            trim: false,
-          })),
-          Match.when({ type: 'ModuleRef' }, (ref) => ({ vc: concat(acc.vc, build(ref)), trim: false })),
-          Match.when({ type: 'NameRef' }, (ref) => {
-            const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
-            return {
-              vc: concat(
-                acc.vc,
-                owns ? indentBlock(build(ref), lineIndentOf(acc.vc.code)) : build(ref),
-              ),
-              trim: owns,
-            }
-          }),
-          Match.exhaustive,
-        ),
-      ),
+      node.fragments.reduce((acc, part, i) => withPart(part, { acc, build, node, i }), seed),
       (acc) => acc.vc,
     )
   }
@@ -183,7 +190,7 @@ A tangle writes no file whose composition reaches a section that holds no code y
 
 An edge stops short in two ways. It reaches a section whose `Code` holds no fragments, a section declared but not yet written. Or it binds to nothing while its anchor promises the section, with the `{To be settled}` label or by stating what the section provides, so the section is not declared at all. `isMeant` asks whether an edge promises its section. An edge that binds to nothing without a promise is a fault the diagnostics already raise, so the walk passes it by. A section the walk has already entered is not entered again, which ends a cycle.
 
-A module anchor stops short when the module it names is to be settled: a chapter that emits no file yet, or a name nobody has declared that its anchor promises. `unsettledModuleRef` asks the product pass's `moduleFileOf`. It reports the module anchor with `moduleAnchor` set, and with `declared` saying whether its name finds a chapter or a section. A sinkless section's landing decides only which file it names, never whether a module is to be settled, so the walk hands in an empty landing. The walk never follows a module anchor, since the code it names lands in another file.
+A module anchor stops short when the module it names is to be settled: a chapter that emits no file yet, or a name nobody has declared that its anchor promises. `unsettledModuleRef` asks the product pass's `moduleFileOf`. It reports the module anchor with `moduleAnchor` set, and with `declared` saying whether its name finds a chapter or a section. A sinkless section's landing decides only which file it names, never whether a module is to be settled, so the walk hands in an empty landing. The walk never follows a module anchor, since the code it names lands in another file. `unsettledInPart` gives what one part of a root leaves unsettled.
 
 =>
 
@@ -253,34 +260,41 @@ export const unsettledRef = (
       ),
   })
 
+const unsettledInPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly node: Code
+    },
+  ]
+>()<ReadonlyArray<Unsettled>>({
+  Fragment: (): ReadonlyArray<Unsettled> => [],
+  ModuleRef: (ref, { modules, catalogue, node }) =>
+    Option.toArray(unsettledModuleRef(modules, catalogue, node, ref)),
+  NameRef: (ref, { modules, catalogue, seen, node }) =>
+    Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
+      onSome: (unsettled): ReadonlyArray<Unsettled> => [unsettled],
+      onNone: () =>
+        pipe(
+          targetOf(catalogue, node.origin.path, ref),
+          Option.filter((reached) => !seen.has(keyOf(reached))),
+          Option.flatMap((reached) =>
+            Option.map(lookup(modules, reached), (code) =>
+              unsettledFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
+            ),
+          ),
+          Option.getOrElse((): ReadonlyArray<Unsettled> => []),
+        ),
+    }),
+})
+
 const unsettledFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Unsettled> =>
-    Array.flatMap(node.fragments, (part) =>
-      Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<Unsettled> => []),
-        Match.when({ type: 'ModuleRef' }, (ref) =>
-          Option.toArray(unsettledModuleRef(modules, catalogue, node, ref)),
-        ),
-        Match.when({ type: 'NameRef' }, (ref) =>
-          Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
-            onSome: (unsettled): ReadonlyArray<Unsettled> => [unsettled],
-            onNone: () =>
-              pipe(
-                targetOf(catalogue, node.origin.path, ref),
-                Option.filter((reached) => !seen.has(keyOf(reached))),
-                Option.flatMap((reached) =>
-                  Option.map(lookup(modules, reached), (code) =>
-                    unsettledFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
-                  ),
-                ),
-                Option.getOrElse((): ReadonlyArray<Unsettled> => []),
-              ),
-          }),
-        ),
-        Match.exhaustive,
-      ),
-    )
+    node.fragments.flatMap((part) => unsettledInPart(part, { modules, catalogue, seen, node }))
 
 export const unsettledIn = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -291,7 +305,7 @@ export const unsettledIn = (
 
 ## The module anchors a composition holds
 
-A root's composition may hold module anchors in its own code and in the code of every section it composes, and each needs a specifier before the root is projected. `moduleRefsIn` walks the composition as `unsettledIn` does and gathers a `HeldModuleRef` for each one: the module anchor as its `ref`, the section that holds the module anchor as its `host`, and the loom that holds the host as its `owner`. The compiler works out a specifier for each one, written from the file the root lands in.
+A root's composition may hold module anchors in its own code and in the code of every section it composes, and each needs a specifier before the root is projected. `moduleRefsIn` walks the composition as `unsettledIn` does and gathers a `HeldModuleRef` for each one: the module anchor as its `ref`, the section that holds the module anchor as its `host`, and the loom that holds the host as its `owner`. The compiler works out a specifier for each one, written from the file the root lands in. `moduleRefsInPart` gives the module anchors that one part holds or reaches.
 
 =>
 
@@ -301,30 +315,38 @@ export interface HeldModuleRef {
   readonly ref: ModuleRef
 }
 
+const moduleRefsInPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly node: Code
+    },
+  ]
+>()<ReadonlyArray<HeldModuleRef>>({
+  Fragment: (): ReadonlyArray<HeldModuleRef> => [],
+  ModuleRef: (ref, { node }): ReadonlyArray<HeldModuleRef> => [
+    { owner: node.origin.path, host: node, ref },
+  ],
+  NameRef: (ref, { modules, catalogue, seen, node }) =>
+    pipe(
+      targetOf(catalogue, node.origin.path, ref),
+      Option.filter((reached) => !seen.has(keyOf(reached))),
+      Option.flatMap((reached) =>
+        Option.map(lookup(modules, reached), (code) =>
+          moduleRefsFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
+        ),
+      ),
+      Option.getOrElse((): ReadonlyArray<HeldModuleRef> => []),
+    ),
+})
+
 const moduleRefsFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<HeldModuleRef> =>
-    Array.flatMap(node.fragments, (part) =>
-      Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<HeldModuleRef> => []),
-        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<HeldModuleRef> => [
-          { owner: node.origin.path, host: node, ref },
-        ]),
-        Match.when({ type: 'NameRef' }, (ref) =>
-          pipe(
-            targetOf(catalogue, node.origin.path, ref),
-            Option.filter((reached) => !seen.has(keyOf(reached))),
-            Option.flatMap((reached) =>
-              Option.map(lookup(modules, reached), (code) =>
-                moduleRefsFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
-              ),
-            ),
-            Option.getOrElse((): ReadonlyArray<HeldModuleRef> => []),
-          ),
-        ),
-        Match.exhaustive,
-      ),
-    )
+    node.fragments.flatMap((part) => moduleRefsInPart(part, { modules, catalogue, seen, node }))
 
 export const moduleRefsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -335,33 +357,41 @@ export const moduleRefsIn = (
 
 ## The names a composition cannot find
 
-A composition leaves an anchor's place empty when the catalogue it is composed against holds no section of the anchor's name. The composed text shows no trace of the gap, so a reader that needs the whole text asks for the missing names first. `unfoundIn` walks a root's composition as `unsettledIn` does. It gives each name that `targetOf` finds no section for, in the root's own code and in the code of every section the root composes. The registry of declared kinds asks it before it reads a trope's manifest, as the chapter "The kinds tropes declare" describes.
+A composition leaves an anchor's place empty when the catalogue it is composed against holds no section of the anchor's name. The composed text shows no trace of the gap, so a reader that needs the whole text asks for the missing names first. `unfoundIn` walks a root's composition as `unsettledIn` does. It gives each name that `targetOf` finds no section for, in the root's own code and in the code of every section the root composes. The registry of declared kinds asks it before it reads a trope's manifest, as the chapter "The kinds tropes declare" describes. `unfoundInPart` gives the names that one part cannot find.
 
 =>
+
+const unfoundInPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly node: Code
+    },
+  ]
+>()<ReadonlyArray<string>>({
+  Fragment: (): ReadonlyArray<string> => [],
+  ModuleRef: (): ReadonlyArray<string> => [],
+  NameRef: (ref, { modules, catalogue, seen, node }) =>
+    Option.match(targetOf(catalogue, node.origin.path, ref), {
+      onNone: (): ReadonlyArray<string> => [ref.name],
+      onSome: (reached) =>
+        pipe(
+          Option.some(reached),
+          Option.filter((found) => !seen.has(keyOf(found))),
+          Option.flatMap((found) => lookup(modules, found)),
+          Option.map(unfoundFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))),
+          Option.getOrElse((): ReadonlyArray<string> => []),
+        ),
+    }),
+})
 
 const unfoundFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<string> =>
-    Array.flatMap(node.fragments, (part) =>
-      Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<string> => []),
-        Match.when({ type: 'ModuleRef' }, (): ReadonlyArray<string> => []),
-        Match.when({ type: 'NameRef' }, (ref) =>
-          Option.match(targetOf(catalogue, node.origin.path, ref), {
-            onNone: (): ReadonlyArray<string> => [ref.name],
-            onSome: (reached) =>
-              pipe(
-                Option.some(reached),
-                Option.filter((found) => !seen.has(keyOf(found))),
-                Option.flatMap((found) => lookup(modules, found)),
-                Option.map(unfoundFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))),
-                Option.getOrElse((): ReadonlyArray<string> => []),
-              ),
-          }),
-        ),
-        Match.exhaustive,
-      ),
-    )
+    node.fragments.flatMap((part) => unfoundInPart(part, { modules, catalogue, seen, node }))
 
 export const unfoundIn = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -375,7 +405,7 @@ An anchor may state the names its section provides, as `::[Greeting function]{pr
 
 `contractsIn` gathers the contracts of one loom. It walks every composing edge the loom's product holds, and `contractOf` builds the contract of one from the `provides` names the reference records. It adds the contract of each trope box the loom holds, which `tropeContractOf` builds from the corpus's `tropeContractsIn`: the code of the trope's entry point against the names the box promises. `writtenSpan` runs from the section's first fragment of code to its last. Only a section that holds code of its own has names to compare, so a section to be settled, one that is missing, or one that only composes others holds no contract. The span covers the section's own code alone, so a name that a section it composes declares is not among the names the section provides.
 
-A module anchor states the names its module provides the same way, as `import { greet } from ::[Greetings]{provides=greet}` does, and its contract covers the file it names. `moduleContractOf` builds it once the product pass's `moduleFileOf` finds the file. A module is the file's root and every section the root composes, so `composedSpan` runs from the first fragment of code among them to the last, over the sections that live in the root's own loom, which `composedOf` gathers. A section of the file that another loom holds lies outside that span, so a name only such a section declares reads as missing. A module anchor whose module is to be settled, or one a fault stops, holds no contract. `contractsIn` reads the corpus's `Landing` once for every module anchor in the loom.
+A module anchor states the names its module provides the same way, as `import { greet } from ::[Greetings]{provides=greet}` does, and its contract covers the file it names. `moduleContractOf` builds it once the product pass's `moduleFileOf` finds the file. A module is the file's root and every section the root composes, so `composedSpan` runs from the first fragment of code among them to the last, over the sections that live in the root's own loom, which `composedOf` gathers. A section of the file that another loom holds lies outside that span, so a name only such a section declares reads as missing. A module anchor whose module is to be settled, or one a fault stops, holds no contract. `contractsIn` reads the corpus's `Landing` once for every module anchor in the loom. `contractOfPart` reads the contract of one part of a root.
 
 =>
 
@@ -390,8 +420,9 @@ export type Contract = {
 
 const writtenSpan = (code: Code): Option.Option<Position> =>
   pipe(
-    code.fragments,
-    Array.map((part) => (part.type === 'Fragment' ? Option.some(part.origin) : Option.none())),
+    code.fragments.map((part) =>
+      part.type === 'Fragment' ? Option.some(part.origin) : Option.none(),
+    ),
     Array.getSomes,
     Array.match({
       onEmpty: () => Option.none(),
@@ -428,7 +459,7 @@ const composedOf =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Code> => [
     node,
-    ...Array.flatMap(node.fragments, (part) =>
+    ...node.fragments.flatMap((part) =>
       part.type === 'NameRef'
         ? pipe(
             targetOf(catalogue, node.origin.path, part),
@@ -450,18 +481,25 @@ const composedSpan = (
   root: Code,
 ): Option.Option<Position> =>
   pipe(
-    composedOf(modules, catalogue, new Set([keyOf(root.origin)]))(root),
-    Array.filter((code) => code.origin.path === root.origin.path),
-    Array.map(writtenSpan),
+    composedOf(
+      modules,
+      catalogue,
+      new Set([keyOf(root.origin)]),
+    )(root)
+      .filter((code) => code.origin.path === root.origin.path)
+      .map(writtenSpan),
     Array.getSomes,
     Array.match({
       onEmpty: () => Option.none(),
       onNonEmpty: (spans) =>
         Option.some(
-          Array.reduce(Array.tailNonEmpty(spans), Array.headNonEmpty(spans), (whole, span) => ({
-            start: span.start.offset < whole.start.offset ? span.start : whole.start,
-            end: span.end.offset > whole.end.offset ? span.end : whole.end,
-          })),
+          Array.tailNonEmpty(spans).reduce(
+            (whole, span) => ({
+              start: span.start.offset < whole.start.offset ? span.start : whole.start,
+              end: span.end.offset > whole.end.offset ? span.end : whole.end,
+            }),
+            Array.headNonEmpty(spans),
+          ),
         ),
     }),
   )
@@ -515,6 +553,26 @@ const tropeContractOf = (
     }
   })
 
+const contractOfPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly path: Location
+      readonly landing: Landing
+      readonly module: LoomModule
+      readonly host: Code
+    },
+  ]
+>()<Option.Option<Contract>>({
+  NameRef: (ref, { modules, catalogue, path }) =>
+    contractOf(modules, catalogue, path, ref),
+  ModuleRef: (ref, { modules, catalogue, landing, module, host }) =>
+    moduleContractOf(modules, catalogue, landing, module, host, ref),
+  Fragment: () => Option.none<Contract>(),
+})
+
 export const contractsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   path: Location,
@@ -523,28 +581,17 @@ export const contractsIn = (
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: (): ReadonlyArray<Contract> => [],
     onSome: (module) => {
-      const landing = landingOf(catalogue, modules)
+      const landing = landingOf(modules)
       return [
-        ...pipe(
-          module.product.code,
-          Array.flatMap((host) =>
-            Array.map(host.fragments, (part) =>
-              Match.value(part).pipe(
-                Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, catalogue, path, ref)),
-                Match.when({ type: 'ModuleRef' }, (ref) =>
-                  moduleContractOf(modules, catalogue, landing, module, host, ref),
-                ),
-                Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
-                Match.exhaustive,
-              ),
+        ...Array.getSomes(
+          module.product.code.flatMap((host) =>
+            host.fragments.map((part) =>
+              contractOfPart(part, { modules, catalogue, path, landing, module, host }),
             ),
           ),
-          Array.getSomes,
         ),
         ...Array.getSomes(
-          Array.map(tropeContractsIn(catalogue, path), (contract) =>
-            tropeContractOf(modules, contract),
-          ),
+          tropeContractsIn(catalogue, path).map((contract) => tropeContractOf(modules, contract)),
         ),
       ]
     },
@@ -629,8 +676,8 @@ const reindentMapping = (
   newStarts: ReadonlyArray<number>,
 ): ReadonlyArray<Mapping> => {
   const end = m.genStart + m.genLength
-  const cuts = [m.genStart, ...Array.filter(oldStarts, (s) => s > m.genStart && s < end), end]
-  return Array.map(Array.zip(cuts, Array.drop(cuts, 1)), ([a, b]) => {
+  const cuts = [m.genStart, ...oldStarts.filter((s) => s > m.genStart && s < end), end]
+  return Array.zip(cuts, Array.drop(cuts, 1)).map(([a, b]) => {
     const line = lineIndexOf(oldStarts, a)
     return {
       genStart: newStarts[line] + (a - oldStarts[line]),
@@ -652,12 +699,8 @@ const indentBlock = (vc: LoomVirtualCode, indent: string): LoomVirtualCode => {
   const newStarts = newStartsOf(lines, oldStarts, indent.length)
   return {
     ...vc,
-    code: pipe(
-      lines,
-      Array.map((line, i) => (i === 0 || line === '' ? line : indent + line)),
-      Array.join('\n'),
-    ),
-    mappings: Array.flatMap(vc.mappings, (m) => reindentMapping(m, vc.code, oldStarts, newStarts)),
+    code: lines.map((line, i) => (i === 0 || line === '' ? line : indent + line)).join('\n'),
+    mappings: vc.mappings.flatMap((m) => reindentMapping(m, vc.code, oldStarts, newStarts)),
   }
 }
 
@@ -677,7 +720,7 @@ const spanOf = (position: Position, kind: MappingKind): Mapping => ({
 })
 
 export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
-  Array.map(symbolsOf(doc), (symbol) => spanOf(symbol.position, symbol.kind))
+  symbolsOf(doc).map((symbol) => spanOf(symbol.position, symbol.kind))
 
 ## The passes and the tree
 
@@ -685,7 +728,7 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 
 `fromProduct` finds a section by its identity, then hands it to `fromCode`, the same pass started from a `Code` in hand. A tangle sink already holds its own `Code`, so the compiler composes a sink through `fromCode` and never looks the section up again by name. Both take the `Specifiers` the root's module anchors write, and a caller with none to write leaves them out.
 
-`fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
+`fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseOf` writes that document in one pass over the text. For each line of code it takes the prose that stands since the line of code before, then the line itself as spaces, which `blank` gives. The prose after the last line of code closes the document. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
 `rootNamesAt` names a file's composition roots — the sections no composing edge in the file folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A module anchor folds nothing in, so it demotes nothing. A composing edge to a section in the same file demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. A reference into another file demotes nothing here, because its target belongs to that other file, which names its own roots. The sections left over, named by no same-file reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
@@ -726,40 +769,42 @@ const isCodeWeft = (weft: { readonly type: string }): boolean =>
   weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
 
 const proseMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
-  pipe(
-    [
-      ...doc.preamble,
-      ...Array.flatMap(doc.sections, (section) => [
-        section.heading,
-        ...section.preamble,
-        ...Array.filter(section.code, (weft) => !isCodeWeft(weft)),
-      ]),
-    ],
-    Array.map((token) => spanOf(token.position, 'prose')),
-  )
+  [
+    ...doc.preamble,
+    ...doc.sections.flatMap((section) => [
+      section.heading,
+      ...section.preamble,
+      ...section.code.filter((weft) => !isCodeWeft(weft)),
+    ]),
+  ].map((token) => spanOf(token.position, 'prose'))
+
+const blank = (text: string): string => text.replace(/[^\n]/g, ' ')
+
+const proseOf = (module: LoomModule): string => {
+  const spans = module.doc.sections
+    .flatMap((section) => section.code)
+    .filter(isCodeWeft)
+    .map((weft) => [weft.position.start.offset, weft.position.end.offset] as const)
+  const ends: Array.NonEmptyReadonlyArray<number> = [0, ...spans.map(([, end]) => end)]
+  return [
+    ...spans.map(
+      ([start, end], at) =>
+        module.text.slice(ends[at], start) + blank(module.text.slice(start, end)),
+    ),
+    module.text.slice(Array.lastNonEmpty(ends)),
+  ].join('')
+}
 
 export const fromProse = (modules: ReadonlyMap<Location, LoomModule>, path: Location): LoomVirtualCode =>
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: () => leaf('prose', 'prose', '', []),
-    onSome: (module) => {
-      const code = pipe(
-        module.doc.sections,
-        Array.flatMap((section) => section.code),
-        Array.filter(isCodeWeft),
-        Array.reduce(module.text, (acc, weft) => {
-          const start = weft.position.start.offset
-          const end = weft.position.end.offset
-          return acc.slice(0, start) + acc.slice(start, end).replace(/[^\n]/g, ' ') + acc.slice(end)
-        }),
-      )
-      return {
-        id: 'prose',
-        languageId: 'prose',
-        code,
-        mappings: proseMappings(module.doc),
-        embeddedCodes: [],
-      }
-    },
+    onSome: (module) => ({
+      id: 'prose',
+      languageId: 'prose',
+      code: proseOf(module),
+      mappings: proseMappings(module.doc),
+      embeddedCodes: [],
+    }),
   })
 
 export const rootVirtualCode = (
@@ -791,27 +836,20 @@ export const rootNamesAt = (
 ): ReadonlySet<string> => {
   const here = modules.get(path)?.product?.code ?? []
   const named = new Set(
-    pipe(
-      here,
-      Array.flatMap((code) => code.fragments),
-      Array.map((part) =>
-        part.type === 'NameRef'
-          ? part.target.pipe(
-              Option.filter((t) => t.path === path),
-              Option.map((t) => t.name.toLowerCase()),
-            )
-          : Option.none(),
-      ),
-      Array.getSomes,
+    Array.getSomes(
+      here
+        .flatMap((code) => code.fragments)
+        .map((part) =>
+          part.type === 'NameRef'
+            ? part.target.pipe(
+                Option.filter((t) => t.path === path),
+                Option.map((t) => t.name.toLowerCase()),
+              )
+            : Option.none(),
+        ),
     ),
   )
-  return new Set(
-    pipe(
-      here,
-      Array.map((code) => code.origin.name.toLowerCase()),
-      Array.filter((id) => !named.has(id)),
-    ),
-  )
+  return new Set(here.map((code) => code.origin.name.toLowerCase()).filter((id) => !named.has(id)))
 }
 
 ## The service
@@ -836,11 +874,11 @@ export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuild
 
 ## What this module draws on
 
-Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, `Match` to tell a fragment from a composing edge and a module anchor, and `Effect` itself for the service. The de re node types, the `Part` that unites them, `keyOf`, and `isMeant` come from `ProductAst`, with the `Provided` names an edge records, `Position` from the foundation, and the `LoomModule` and `Location` the resolution walks from the corpus model, with the `Catalogue` an open edge resolves through and `catalogueOf`, which builds it. The product pass's `targetOf` binds an open edge, for the walk and for a contract alike, and its `moduleFileOf`, with the `ModuleFile` it answers, tells whether a module anchor's module is to be settled and which file a module anchor's contract covers, over the `Landing` that `landingOf` builds. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
+Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, and `Effect` itself for the service. `byType`, from the node foundation, tells a fragment from a composing edge and a module anchor. The de re node types, the `Part` that unites them, `keyOf`, and `isMeant` come from `ProductAst`, with the `Provided` names an edge records, `Position` from the foundation, and the `LoomModule` and `Location` the resolution walks from the corpus model, with the `Catalogue` an open edge resolves through and `catalogueOf`, which builds it. The product pass's `targetOf` binds an open edge, for the walk and for a contract alike, and its `moduleFileOf`, with the `ModuleFile` it answers, tells whether a module anchor's module is to be settled and which file a module anchor's contract covers, over the `Landing` that `landingOf` builds. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
 
 =>
 
-import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import {
   isMeant,
   keyOf,
@@ -852,7 +890,7 @@ import {
   type Ref,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
-import { type Position } from '@athrio/loom-ast/LoomNode'
+import { byType, type Position } from '@athrio/loom-ast/LoomNode'
 import {
   catalogueOf,
   type Catalogue,

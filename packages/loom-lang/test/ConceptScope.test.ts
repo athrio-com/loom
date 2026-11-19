@@ -1,6 +1,7 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Effect, Layer, Match, Option as Opt } from 'effect'
+import { Effect, Layer, Option as Opt } from 'effect'
+import { byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { WovenBlock } from '../src/weave/WovenCorpus'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -277,12 +278,13 @@ describe('a word two concepts claim', () => {
   )
 })
 
-const wordsOf = (block: WovenBlock): string =>
-  Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => `# ${heading.title}`),
-    Match.when({ type: 'prose' }, (prose) => prose.markdown),
-    Match.orElse((other) => other.type),
-  )
+const wordsOf: (block: WovenBlock) => string = byTypeOr<WovenBlock>()(
+  {
+    heading: (heading) => `# ${heading.title}`,
+    prose: (prose) => prose.markdown,
+  },
+  (other) => other.type,
+)
 
 describe('uses in the editor and the index', () => {
   it.effect('finds every word that recognises a concept', () =>

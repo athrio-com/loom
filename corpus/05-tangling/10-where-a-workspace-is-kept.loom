@@ -116,19 +116,138 @@ const corpusFolderOf = (workspace: Location, manifest: Option.Option<WorkspaceMa
 
 The `corpusOf` method finds the looms the compiler builds together with a loom. The configuration the `LoomConfig` service resolves for the loom gives its project and its corpus folder, the nearest folder above it with the corpus folder's name. A loom its project holds shares that corpus folder, or its own folder when no corpus folder lies above it, walked under the project's rules. A loom its project leaves out, such as a test fixture, or a loom outside every workspace, is loose. It shares its own folder with every loom under it, walked under no project's rules, so a fixture that imports from a sibling fixture still finds it.
 
+The compiler asks for a loom's corpus once for every loom it tangles, and the editor asks on every keystroke. Every loom of a corpus gets the same list, and a walk for it takes several milliseconds. A tangle of a book of a hundred looms would walk the corpus a hundred times for one list. So the source keeps each answer it reads, and gives the kept answer again while the disk shows no change.
+
+An answer comes as a `Reading`, with the paths it was read from, as the chapter "The looms in a project" describes. `timeOf` asks the disk when a path was last modified, and gives nothing for a path where nothing stands or that the disk will not answer for. A folder's time changes when an entry is added to it, removed from it, or renamed in it. A file's time changes when the file is written. A `KeptReading` holds an answer with the time of every path it was read from, and `stands` tells whether each path still shows that time. To learn that a reading stands, the source asks the disk for one time per path. A walk reads every folder and matches every entry against every pattern.
+
 =>
 
-const corpusWalk = (resolved: ResolvedConfig, loom: Location): ReadonlyArray<Location> =>
-  Option.match(
-    Option.filter(projectIn(resolved), (project) => holds(project, loom)),
-    {
-      onNone: () => loomsIn(dirname(loom), Option.none()),
-      onSome: (project) =>
-        loomsIn(
-          Option.getOrElse(Option.fromNullishOr(resolved.corpusDir), () => dirname(loom)),
-          Option.some(project),
+interface KeptReading<Answer> {
+  readonly answer: Answer
+  readonly times: ReadonlyArray<readonly [Path, Option.Option<number>]>
+}
+
+type KeptReadings<Answer> = Ref.Ref<ReadonlyMap<string, KeptReading<Answer>>>
+
+const timeOf = (path: Path): Option.Option<number> =>
+  pipe(
+    Option.liftThrowable(() => statSync(path, { throwIfNoEntry: false }))(),
+    Option.flatMap(Option.fromNullishOr),
+    Option.map((stats) => stats.mtimeMs),
+  )
+
+const stands = <Answer,>(kept: KeptReading<Answer>): boolean =>
+  kept.times.every(([path, time]) => Equal.equals(timeOf(path), time))
+
+~
+
+A time alone can mislead. A file system stamps a change with the last tick of its clock, so two changes within one tick leave one time. A reading taken between the two would still stand after the second, though the folder had changed. `settled` guards against that. A time is settled when it lies further back than one tick, counted from the moment the reading was taken, because no later change can then be stamped with it. `keptOf` keeps a reading only when every one of its times is settled. A folder that changed a moment ago is therefore walked afresh on each request, until the moment has passed.
+
+`tickOf` gives the tick to allow for a time. Most file systems tick every few milliseconds, and `tickOf` allows them fifty milliseconds. A file system that counts in whole seconds gives every time as a whole number of seconds, and `tickOf` allows such a time two seconds.
+
+=>
+
+const tickOf = (time: number): number => (time % 1000 === 0 ? 2000 : 50)
+
+const settled = (time: Option.Option<number>, taken: number): boolean =>
+  Option.match(time, { onNone: () => true, onSome: (at) => at + tickOf(at) <= taken })
+
+const keptOf = <Answer>(
+  reading: Reading<Answer>,
+  taken: number,
+): Option.Option<KeptReading<Answer>> => {
+  const times = reading.from.map((path) => [path, timeOf(path)] as const)
+  return times.every(([, time]) => settled(time, taken))
+    ? Option.some({ answer: reading.answer, times })
+    : Option.none()
+}
+
+~
+
+`answered` gives the answer kept under a key while its reading stands, and reads afresh otherwise. `answeredAfresh` notes the moment, reads, and keeps the reading under the key when `keptOf` allows it. The moment comes from the system's clock, the clock the file system stamps with, and it is noted before the disk is read, so a change made during the read counts as unsettled.
+
+=>
+
+const answeredAfresh = <Answer>(
+  kept: KeptReadings<Answer>,
+  key: string,
+  read: () => Reading<Answer>,
+): Effect.Effect<Answer> =>
+  Effect.sync(() => {
+    const taken = Date.now()
+    const reading = read()
+    return { answer: reading.answer, fresh: keptOf(reading, taken) }
+  }).pipe(
+    Effect.tap(({ fresh }) =>
+      Option.match(fresh, {
+        onNone: () => Effect.void,
+        onSome: (reading) => Ref.update(kept, (held) => new Map(held).set(key, reading)),
+      }),
+    ),
+    Effect.map(({ answer }) => answer),
+  )
+
+const answered = <Answer>(
+  kept: KeptReadings<Answer>,
+  key: string,
+  read: () => Reading<Answer>,
+): Effect.Effect<Answer> =>
+  Ref.get(kept).pipe(
+    Effect.flatMap((held) =>
+      Effect.sync(() => Option.filter(Option.fromNullishOr(held.get(key)), stands)),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onSome: (reading) => Effect.succeed(reading.answer),
+        onNone: () => answeredAfresh(kept, key, read),
+      }),
+    ),
+  )
+
+~
+
+The source keeps two kinds of answer, and `KeptAnswers` holds both. One is a walk: the looms under a folder, in a project's scope or in none. The other is a project's `holds`, the function that says whether the project holds a loom, which `corpusOf` asks before it chooses the folder to walk. `keyOf` names an answer by the folder asked about and the project asked of, with the project's patterns, so a change to the patterns under `ignore:` asks a new question.
+
+`holderOf` gives the project that holds a loom, if one does. `corpusWalk` walks the folder that the answer chooses: the corpus folder under the holder's rules, or the loom's own folder under no rules.
+
+=>
+
+interface KeptAnswers {
+  readonly walks: KeptReadings<ReadonlyArray<Location>>
+  readonly holds: KeptReadings<(loom: Path) => boolean>
+}
+
+const keyOf = (path: Path, project: Option.Option<LoomProject>): string =>
+  JSON.stringify([path, Option.getOrNull(project)])
+
+const holderOf = (
+  kept: KeptAnswers,
+  resolved: ResolvedConfig,
+  loom: Location,
+): Effect.Effect<Option.Option<LoomProject>> =>
+  Option.match(projectIn(resolved), {
+    onNone: () => Effect.succeed(Option.none()),
+    onSome: (project) =>
+      answered(kept.holds, keyOf(project.root, Option.some(project)), () => holdsOf(project)).pipe(
+        Effect.flatMap((holds) =>
+          Effect.sync(() => (holds(loom) ? Option.some(project) : Option.none())),
         ),
-    },
+      ),
+  })
+
+const corpusWalk = (
+  kept: KeptAnswers,
+  resolved: ResolvedConfig,
+  loom: Location,
+): Effect.Effect<ReadonlyArray<Location>> =>
+  holderOf(kept, resolved, loom).pipe(
+    Effect.flatMap((holder) => {
+      const folder = Option.match(holder, {
+        onNone: () => dirname(loom),
+        onSome: () => Option.getOrElse(Option.fromNullishOr(resolved.corpusDir), () => dirname(loom)),
+      })
+      return answered(kept.walks, keyOf(folder, holder), () => walkIn(folder, holder))
+    }),
   )
 
 ~
@@ -160,7 +279,7 @@ const uriOfLocation = (loom: Location): URI => (isAbsolute(loom) ? URI.file(loom
 
 ~
 
-The layer gathers the seven answers. The `workspaceOf` method climbs from a loom's folder, or from a folder it is handed, through the `findWorkspace` function, the climb the configuration makes. It names that folder itself when no folder above holds a configuration. `folderOf` tells a folder from a loom on the disk. The layer provides the `LoomConfig` service it reads, as every Loom layer provides its own.
+The layer gathers the seven answers, and holds the answers it keeps in two `Ref` cells of its own. The `workspaceOf` method climbs from a loom's folder, or from a folder it is handed, through the `findWorkspace` function, the climb the configuration makes. It names that folder itself when no folder above holds a configuration. `folderOf` tells a folder from a loom on the disk. The layer provides the `LoomConfig` service it reads, as every Loom layer provides its own.
 
 =>
 
@@ -168,6 +287,10 @@ export const FileSystemSource = Layer.effect(
   WorkspaceSource,
   Effect.gen(function* () {
     const config = yield* LoomConfig
+    const kept: KeptAnswers = {
+      walks: yield* Ref.make<ReadonlyMap<string, KeptReading<ReadonlyArray<Location>>>>(new Map()),
+      holds: yield* Ref.make<ReadonlyMap<string, KeptReading<(loom: Path) => boolean>>>(new Map()),
+    }
     const open = (workspace: Location): Effect.Effect<Workspace, ReadError> =>
       Effect.gen(function* () {
         const manifest = Option.fromNullishOr(yield* config.manifest(workspace))
@@ -193,9 +316,7 @@ export const FileSystemSource = Layer.effect(
       open,
       read: fromDisk,
       corpusOf: (loom) =>
-        config
-          .resolve(loom)
-          .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
+        config.resolve(loom).pipe(Effect.flatMap((resolved) => corpusWalk(kept, resolved, loom))),
       workspaceOf,
       placeOf: (loom, sink) =>
         config
@@ -237,7 +358,7 @@ const relationsIn = (workspace: Location): Effect.Effect<ReadonlyArray<KeptRelat
     ),
     Effect.flatMap(Schema.decodeUnknownEffect(RelationsFile)),
     Effect.map((file) =>
-      Array.map(file.relations, (relation) => ({
+      file.relations.map((relation) => ({
         ...relation,
         loom: join(workspace, relation.loom),
       })),
@@ -246,12 +367,11 @@ const relationsIn = (workspace: Location): Effect.Effect<ReadonlyArray<KeptRelat
   )
 
 const relationsText = (workspace: Location, relations: ReadonlyArray<KeptRelation>): string => {
-  const rows = Array.map(
-    relations,
+  const rows = relations.map(
     (relation) =>
       `    ${JSON.stringify({ ...relation, loom: relative(workspace, relation.loom) })}`,
   )
-  return `{\n  "version": 1,\n  "relations": [\n${Array.join(rows, ',\n')}\n  ]\n}\n`
+  return `{\n  "version": 1,\n  "relations": [\n${rows.join(',\n')}\n  ]\n}\n`
 }
 
 const keptFile = (workspace: Location, relations: ReadonlyArray<KeptRelation>): KeptFile => ({
@@ -456,7 +576,7 @@ The compiler, the corpus model, and every service that keys or compares looms na
 
 Four rules about folders decide which looms belong, where a workspace begins, where a sink lands, and what a build may keep. Each lives in the file-system source or behind a layer that an environment provides, so the compiler depends on no folder.
 
-**Which looms belong.** The file-system source's `corpusOf` method walks the corpus folder with the `holds` and `loomsIn` functions, under the rules in `.gitignore` files that the chapter "The looms in a project" describes. The `list` method of the `Source` interface takes only a loom's location, and the `DocumentSource` service answers it by asking `corpusOf`. A remote source lists every loom of its workspace, since one URL names one corpus.
+**Which looms belong.** The file-system source's `corpusOf` method walks the corpus folder with the `holdsOf` and `walkIn` functions, under the rules in `.gitignore` files that the chapter "The looms in a project" describes. The `list` method of the `Source` interface takes only a loom's location, and the `DocumentSource` service answers it by asking `corpusOf`. A remote source lists every loom of its workspace, since one URL names one corpus.
 
 **Where a workspace begins.** The `LoomConfig` service climbs folders to find the `.loom/config.yaml` file, then works out the workspace root, the corpus folder, and the package root from folder names. The compiler's `BuildSettings` keep only what a manifest says: the anchor delimiters, the primary language, the variables, and the width. The parts of Loom that keep their folders read the folder facts from `LoomConfig` themselves: the file-system source, the build cache on disk, the tangler, and the formatter. A remote source has no folders to climb, so its settings come from the manifest its `open` method fetched.
 
@@ -542,7 +662,14 @@ Opening the workspace hands over its manifest and both looms with their text. A 
 
 import { describe, expect, it } from 'bun:test'
 import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
@@ -634,6 +761,85 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
   })
 })
 
+## Testing a kept walk
+
+A workspace made a moment ago is no ground for these cases, because its folders' times are not yet settled and the source keeps no walk of them. `aged` sets a path's time to `longAgo`, one moment a minute before the tests began, as if the folder had stood untouched since. `listed` asks for a loom's corpus and sorts it.
+
+The first case shows that a second request makes no second walk. It adds a loom to the corpus folder and then sets the folder's time back to the time the walk saw. The disk now shows no change, and the source gives the list it kept, without the new loom. No author does this to a folder. The case does it because a kept list and a fresh one are otherwise the same list.
+
+The next three cases change the disk as an author would, and each time the source walks again. A loom joins a folder the walk listed. A loom joins a folder that held none, which the walk listed all the same. A folder below gains a configuration and becomes a workspace of its own, so its looms leave the corpus. That last change touches no folder the walk listed, and the source sees it because the reading names the place where the configuration would stand.
+
+The last case shows the guard against a clock that has not ticked. A folder stamped a minute ahead of the clock can never be settled, so it stands for a folder that changed within the last tick. The case hides a new loom behind that time, as the first case does, and the source lists the loom anyway, because it kept no walk of that folder.
+
+=>
+
+describe('FileSystemSource — a walk kept while its folders stand', () => {
+  const listed = async (loom: string) =>
+    [...(await runtime.runPromise(WorkspaceSource.pipe(Effect.flatMap((s) => s.corpusOf(loom)))))].sort()
+
+  const stamped = (time: Date, paths: ReadonlyArray<string>) =>
+    paths.forEach((path) => utimesSync(path, time, time))
+
+  const longAgo = new Date(Date.now() - 60_000)
+
+  const aged = (...paths: ReadonlyArray<string>) => stamped(longAgo, paths)
+
+  const settledWorkspace = () => {
+    const made = workspace()
+    const corpus = join(made.root, 'corpus')
+    const part = join(corpus, 'part')
+    aged(corpus, part)
+    return { ...made, corpus, part }
+  }
+
+  it('gives the kept list while every folder shows the time it showed', async () => {
+    const { book, chapter, corpus } = settledWorkspace()
+    expect(await listed(chapter)).toEqual([book, chapter].sort())
+    writeFileSync(join(corpus, 'unseen.loom'), '# Unseen\n')
+    aged(corpus)
+    expect(await listed(chapter)).toEqual([book, chapter].sort())
+  })
+
+  it('walks again when a loom joins a folder it listed', async () => {
+    const { book, chapter, part } = settledWorkspace()
+    await listed(chapter)
+    const added = join(part, 'added.loom')
+    writeFileSync(added, '# Added\n')
+    expect(await listed(chapter)).toEqual([added, book, chapter].sort())
+  })
+
+  it('walks again when a loom joins a folder that held none', async () => {
+    const { book, chapter, corpus } = settledWorkspace()
+    const empty = join(corpus, 'empty')
+    mkdirSync(empty)
+    aged(corpus, empty)
+    await listed(chapter)
+    const first = join(empty, 'first.loom')
+    writeFileSync(first, '# First\n')
+    expect(await listed(chapter)).toEqual([book, chapter, first].sort())
+  })
+
+  it('walks again when a folder below becomes a workspace of its own', async () => {
+    const { book, chapter, part } = settledWorkspace()
+    mkdirSync(join(part, '.loom'))
+    aged(part)
+    expect(await listed(book)).toEqual([book, chapter].sort())
+    writeFileSync(join(part, '.loom', 'config.yaml'), 'corpus: corpus\n')
+    expect(await listed(book)).toEqual([book])
+  })
+
+  it('keeps no walk of a folder whose time is not settled', async () => {
+    const { book, chapter, corpus } = settledWorkspace()
+    const ahead = new Date(Date.now() + 60_000)
+    stamped(ahead, [corpus])
+    expect(await listed(chapter)).toEqual([book, chapter].sort())
+    const added = join(corpus, 'added.loom')
+    writeFileSync(added, '# Added\n')
+    stamped(ahead, [corpus])
+    expect(await listed(chapter)).toEqual([added, book, chapter].sort())
+  })
+})
+
 ## Testing the relations a folder keeps
 
 A workspace that has kept no relations gives none. Relations that were kept come back as they were, each naming its loom by its full path, and the file names that loom by its path within the workspace.
@@ -666,11 +872,24 @@ describe('FileSystemSource — the relations a folder keeps', () => {
 
 ## What the source draws on
 
-Effect supplies the service, the layer, `Array`, `Option`, `Ref`, and the effect type, with `Schema` for the contract, `Config` for the environment's variables, and `Redacted` for the key. Its `http` module gives the client that remote storage is fetched through. Node's `fs` reads a file and tells a folder from a loom, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type with its schema, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. From the chapter "Build settings for a file" come the `WorkspaceSettings` service, its `FileSystemSettings` layer, and `settingsOfManifest`, which the remote settings read a manifest through. `LoomDiskCache`, from the chapter "The build cache on disk", joins the sources in each environment. `projectIn` finds a loom's project, `holds` asks whether the project holds it, and `loomsIn` walks its corpus.
+Effect supplies the service, the layer, `Array`, `Option`, `Ref`, and the effect type, with `Schema` for the contract, `Config` for the environment's variables, and `Redacted` for the key. Its `http` module gives the client that remote storage is fetched through. Node's `fs` reads a file and tells a folder from a loom, and its `path` takes a location apart, joins a corpus folder to its workspace, and resolves a sink. The `vscode-uri` package parses and builds the URIs the editor speaks. From `@athrio/loom-config` come the `LoomConfig` service, the `ResolvedConfig` it resolves for a loom, the `WorkspaceManifest` type with its schema, and the `findWorkspace` and `defaultCorpus` rules this source shares with the configuration. `Location` names a loom, `Path` a file on the disk, and `ReadError` a read that failed. From the chapter "Build settings for a file" come the `WorkspaceSettings` service, its `FileSystemSettings` layer, and `settingsOfManifest`, which the remote settings read a manifest through. `LoomDiskCache`, from the chapter "The build cache on disk", joins the sources in each environment. `projectIn` finds a loom's `LoomProject`, `holdsOf` gives the function that asks whether the project holds a loom, and `walkIn` walks its corpus. Each of the two gives a `Reading`, and `loomsIn` gives a walk's looms alone. Effect's `Equal` compares two times, and `pipe` threads the read of one.
 
 =>
 
-import { Array, Config, Context, Data, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
+import {
+  Array,
+  Config,
+  Context,
+  Data,
+  Effect,
+  Equal,
+  Layer,
+  Option,
+  pipe,
+  Redacted,
+  Ref,
+  Schema,
+} from 'effect'
 import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
@@ -686,7 +905,15 @@ import {
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { type KeptRelation, KeptRelationSchema } from '#ast/Relations'
-import { holds, loomsIn, projectIn, type Path } from './LoomProject'
+import {
+  holdsOf,
+  loomsIn,
+  projectIn,
+  walkIn,
+  type LoomProject,
+  type Path,
+  type Reading,
+} from './LoomProject'
 import { LoomDiskCache } from './LoomDiskCache'
 import {
   FileSystemSettings,
@@ -719,13 +946,15 @@ import {
 
 ::[Testing the file-system source]
 
+::[Testing a kept walk]
+
 ::[Testing the relations a folder keeps]
 
 ## The storage stub
 
 The tests need remote storage that really waits, so a stub stands in for it on a local port. `storageStub` serves the contract from a map of looms keyed by name, behind one key. It is also where a consumer of the contract starts: a service that answers these two requests the same way serves Loom.
 
-The stub's workspace lives at `/workspace`, and each loom's location is the workspace's URL followed by the loom's name. A request without the key gets `401`. A request for the workspace gets the JSON the contract describes, with a manifest that names TypeScript as the primary language. A request for a loom gets its text, or `404` for a name the map does not hold. `write` changes a loom's text the way an author's save would, and `stop` closes the port.
+The stub's workspace lives at `/workspace`, and each loom's location is the workspace's URL followed by the loom's name. A request without the key gets `401`. A request for the workspace gets the JSON the contract describes, with a manifest that names TypeScript as the primary language. A request for a loom gets its text, or `404` for a name the map does not hold. `write` changes a loom's text the way an author's save would, and `stop` closes the port. `answerTo` holds those three answers.
 
 =>
 
@@ -738,6 +967,26 @@ export interface StorageStub {
 
 const workspacePath = '/workspace'
 
+const answerTo = Match.fn(
+  (
+    _within: {
+      readonly workspaceJson: () => unknown
+      readonly texts: ReadonlyMap<string, string>
+    },
+    asked: { readonly authorised: boolean; readonly name: string },
+  ) => asked,
+).pipe(
+  Match.withReturnType<Response>(),
+  Match.when({ authorised: false }, () => new Response('unauthorised', { status: 401 })),
+  Match.when({ name: '' }, (_asked, { workspaceJson }) => Response.json(workspaceJson())),
+  Match.orElse(({ name }, { texts }) =>
+    Option.match(Option.fromNullishOr(texts.get(name)), {
+      onNone: () => new Response('no such loom', { status: 404 }),
+      onSome: (text) => new Response(text),
+    }),
+  ),
+)
+
 export const storageStub = (
   key: string,
   looms: ReadonlyArray<readonly [string, string]>,
@@ -749,22 +998,13 @@ export const storageStub = (
   const workspaceJson = () => ({
     contract: 1,
     manifest: { primary: 'typescript' },
-    looms: Object.fromEntries(Array.map([...texts], ([name, text]) => [locationOf(name), text])),
+    looms: Object.fromEntries([...texts].map(([name, text]) => [locationOf(name), text])),
   })
   const answer = (request: Request): Response =>
-    Match.value({
+    answerTo({ workspaceJson, texts }, {
       authorised: request.headers.get('authorization') === `Bearer ${key}`,
       name: new URL(request.url).pathname.slice(workspacePath.length + 1),
-    }).pipe(
-      Match.when({ authorised: false }, () => new Response('unauthorised', { status: 401 })),
-      Match.when({ name: '' }, () => Response.json(workspaceJson())),
-      Match.orElse(({ name }) =>
-        Option.match(Option.fromNullishOr(texts.get(name)), {
-          onNone: () => new Response('no such loom', { status: 404 }),
-          onSome: (text) => new Response(text),
-        }),
-      ),
-    )
+    })
   return {
     url,
     locationOf,
@@ -775,11 +1015,11 @@ export const storageStub = (
 
 ## What the stub draws on
 
-Effect supplies `Array`, `Match`, and `Option`. Bun serves the port.
+Effect supplies `Match` and `Option`. Bun serves the port.
 
 =>
 
-import { Array, Match, Option } from 'effect'
+import { Match, Option } from 'effect'
 
 ## The stub file [test/storageStub.ts]
 
@@ -931,22 +1171,19 @@ describe('LoomServer — a workspace kept in remote storage', () => {
         textDocument: { uri: hello, languageId: 'loom', version: 1, text: program },
       })
       const diagnostics = async (): Promise<ReadonlyArray<string>> =>
-        Array.map(
-          (
-            await editor.connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
-              'textDocument/diagnostic',
-              { textDocument: { uri: hello } },
-            )
-          ).items,
-          (diagnostic) => diagnostic.message,
-        )
+        (
+          await editor.connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
+            'textDocument/diagnostic',
+            { textDocument: { uri: hello } },
+          )
+        ).items.map((diagnostic) => diagnostic.message)
       expect(await diagnostics()).toEqual([])
       const position = { line: 4, character: 5 }
       const links = await editor.connection.sendRequest<ReadonlyArray<Location | LocationLink>>(
         'textDocument/definition',
         { textDocument: { uri: hello }, position },
       )
-      expect(Array.map(links, targetOf)).toEqual([greetingUri])
+      expect(links.map(targetOf)).toEqual([greetingUri])
       const edit = await editor.connection.sendRequest<WorkspaceEdit>('textDocument/rename', {
         textDocument: { uri: hello },
         position,
@@ -989,7 +1226,7 @@ With a wrong key, the server cannot read the manifest, and the `initialize` requ
 
 ## What the remote cases draw on
 
-The cases draw on Bun's test runner, and on Node to spawn the server and to turn the entry module's address into a path. Volar's language-server package carries the client half of the protocol, `createMessageConnection` with the stream reader and writer it speaks through, the `FileChangeType` a reported change carries, and the types of a diagnostic, a location, a location link, and a workspace edit. Effect supplies `Array`, `Effect`, the `ManagedRuntime` the direct cases run on, and the `Redacted` value that holds the key. The cases take `RemoteEnvironment` and `WorkspaceSource` from this chapter's module, `WorkspaceSettings` from the chapter "Build settings for a file", and the stub from its own file.
+The cases draw on Bun's test runner, and on Node to spawn the server and to turn the entry module's address into a path. Volar's language-server package carries the client half of the protocol, `createMessageConnection` with the stream reader and writer it speaks through, the `FileChangeType` a reported change carries, and the types of a diagnostic, a location, a location link, and a workspace edit. Effect supplies `Effect`, the `ManagedRuntime` the direct cases run on, and the `Redacted` value that holds the key. The cases take `RemoteEnvironment` and `WorkspaceSource` from this chapter's module, `WorkspaceSettings` from the chapter "Build settings for a file", and the stub from its own file.
 
 =>
 
@@ -1004,7 +1241,7 @@ import {
   StreamMessageWriter,
   type WorkspaceEdit,
 } from '@volar/language-server/node'
-import { Array, Effect, ManagedRuntime, Redacted } from 'effect'
+import { Effect, ManagedRuntime, Redacted } from 'effect'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { RemoteEnvironment, WorkspaceSource } from '../src/WorkspaceSource'

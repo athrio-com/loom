@@ -117,12 +117,13 @@ A git submodule or a separate branch would also give discussions a history of th
 
 The cases parse a discussion and read back its identity and its lines, or compile a small book and read what the book makes of a discussion: how a name finds it, the faults it raises, the contents that list it, and the page the weave gives it. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
 
-`parse` reads a loom alone, through the layer the compiler parses with. `layerOf` gives the compiler a book held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `compiled` runs one use of the compiler over such a book, and `diagnosed` is the commonest use: the messages of the diagnostics one loom raises.
+`parse` reads a loom alone, through the layer the compiler parses with. `layerOf` gives the compiler a book held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `compiled` runs one use of the compiler over such a book, and `diagnosed` is the commonest use: the messages of the diagnostics one loom raises. `bylineOrWords` reads a woven block as a case compares it: a message by its author, and prose by its words.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Array, Effect, Layer, Match, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
+import { byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -130,6 +131,7 @@ import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { parseDocument, ParseLayer } from './parse'
+import type { WovenBlock } from '../src/weave/WovenCorpus'
 
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
@@ -167,6 +169,14 @@ const compiled = <A, E>(
   files: Record<string, string>,
   use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
 ) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const bylineOrWords = byTypeOr<WovenBlock>()(
+  {
+    message: (message) => [['message', message.author]],
+    prose: (prose) => [['prose', prose.markdown]],
+  },
+  () => [],
+)
 
 const diagnosed = (files: Record<string, string>, entry: string) =>
   compiled(files, (compiler) => compiler.diagnose(entry)).then((found) =>
@@ -458,13 +468,7 @@ describe("the book's back matter", () => {
   it('weaves each message as a byline, then its words', async () => {
     const site = await compiled(files, (compiler) => compiler.weave(root))
     const page = site.pages.find((one) => one.title === 'Waking')
-    const blocks = Array.flatMap(page?.blocks ?? [], (block) =>
-      Match.value(block).pipe(
-        Match.when({ type: 'message' }, (message) => [['message', message.author]]),
-        Match.when({ type: 'prose' }, (prose) => [['prose', prose.markdown]]),
-        Match.orElse(() => []),
-      ),
-    )
+    const blocks = (page?.blocks ?? []).flatMap((block) => bylineOrWords(block))
     expect(blocks).toEqual([
       ['prose', 'What wakes a monster?'],
       ['message', 'Yegor'],

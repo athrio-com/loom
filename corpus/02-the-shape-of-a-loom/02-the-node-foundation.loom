@@ -1,12 +1,12 @@
 ---
 Part II, Chapter 2: The node foundation
-Package: packages/loom-ast/src/ast/LoomNode.ts
+Package: packages/loom-ast/
 Language: TypeScript
 ---
 
 # The node foundation
 
-Every node in the Loom AST — a container like a section or a leaf like a token — shares one shape and is built by one combinator. `LoomNode` is that foundation: it defines source positions, the health and diagnostic vocabulary every node carries, and `loomNode`, which stamps the shared `type`, `position`, `source`, and `health` fields onto each node schema.
+Every node in the Loom AST — a container like a section or a leaf like a token — shares one shape and is built by one combinator. `LoomNode` is that foundation: it defines source positions, the health and diagnostic vocabulary every node carries, `loomNode`, which stamps the shared `type`, `position`, `source`, and `health` fields onto each node schema, and `nodeOf`, which constructs a node of a schema.
 
 ## Built on Effect Schema
 
@@ -129,7 +129,69 @@ export const loomNode = <Tag extends string, Fields extends Schema.Struct.Fields
     ...fields,
   })
 
-## The module {Tangle}
+## Constructing a node
+
+Loom constructs a node for every token and every line it reads. A chapter of a few thousand lines makes tens of thousands of nodes, and the editor makes them again on every keystroke.
+
+A schema can construct its own value, through its `make` method. That method walks the whole schema on every call, to fill in defaults and to run checks, and the walk costs about ten times what the node itself costs to construct. For a node the walk adds one thing only, the `type` tag. The compiler has already checked every field the caller wrote.
+
+`nodeOf` constructs a node without the walk. It takes the node's schema and the node's fields without the tag. It reads the tag the schema declares, and gives back the fields with that tag. The schema still names the node at the place where the node is constructed, and the compiler still checks every field against the schema's type. A `NodeSchema` is any schema `nodeOf` can read a tag from: a schema `loomNode` built, or any other struct whose `type` field is a `Schema.tag`.
+
+`nodeOf` checks nothing while the program runs, so it suits a value the program itself makes. A value that arrives from outside the program, such as a manifest or a configuration file, is decoded by its schema instead. So is a value whose fit is the very question: the tokeniser decodes a label to learn whether it is well formed.
+
+=>
+
+type Tagged = { readonly type: string }
+
+export type NodeSchema<Node extends Tagged> = {
+  readonly Type: Node
+  readonly fields: { readonly type: { readonly schema: { readonly literal: Node['type'] } } }
+}
+
+export const nodeOf = <Node extends Tagged>(
+  schema: NodeSchema<Node>,
+  fields: Omit<Node, 'type'>,
+): Node => ({ ...fields, type: schema.fields.type.schema.literal }) as Node
+
+## Telling nodes apart
+
+Most of what Loom does to a node begins with one question: which kind of node is this? The reader asks it of every line, the tokeniser of every weft, and the projection of every part of a section's code.
+
+A matcher answers the question by trying its cases in turn until one fits. A matcher of nine cases takes about 130 nanoseconds to answer, and Loom asks tens of thousands of times for one chapter, and again on every keystroke. A table answers by reading one property. Its cases are a record keyed by the tag, and a call takes the case that stands under the node's own tag, in about 20 nanoseconds.
+
+`byType` builds such a table for a union of nodes. It takes one case for every tag of the union, as the `Cases` type says. The compiler refuses a table that lacks a tag, that names a tag the union does not hold, or whose case takes a node other than the node of its tag. `byType` gives back a function of a node, which calls the node's case. A table is built once, when its module loads, and called wherever a node arrives. A `Data.TaggedEnum` carries the same table under the name `$match`, keyed by `_tag`, and `byType` is that table for Loom's nodes, which are tagged by `type`.
+
+Some cases need more than the node. The second type argument names the further arguments, and a call passes them after the node. A table built with `byType<Part, [home: Location]>()` is called as `table(part, home)`, and each case receives the part and then the home. A case names only the arguments it reads.
+
+`byTypeOr` builds a table for some of the tags, with a default that answers for every other. It finds a case by the table's own keys alone, so a tag that happens to match a name every object inherits, such as `constructor`, falls to the default.
+
+=>
+
+export type Cases<Node extends Tagged, Args extends ReadonlyArray<unknown>, Result> = {
+  readonly [Tag in Node['type']]: (
+    node: Extract<Node, { readonly type: Tag }>,
+    ...args: Args
+  ) => Result
+}
+
+export const byType =
+  <Node extends Tagged, Args extends ReadonlyArray<unknown> = []>() =>
+  <Result>(cases: Cases<Node, Args, Result>) =>
+  (node: Node, ...args: Args): Result =>
+    (cases[node.type as Node['type']] as (node: Node, ...args: Args) => Result)(node, ...args)
+
+export const byTypeOr =
+  <Node extends Tagged, Args extends ReadonlyArray<unknown> = []>() =>
+  <Result>(
+    cases: Partial<Cases<Node, Args, Result>>,
+    otherwise: (node: Node, ...args: Args) => Result,
+  ) =>
+  (node: Node, ...args: Args): Result =>
+    (Object.prototype.hasOwnProperty.call(cases, node.type)
+      ? (cases[node.type as Node['type']] as (node: Node, ...args: Args) => Result)
+      : otherwise)(node, ...args)
+
+## The module [src/ast/LoomNode.ts]
 
 The module opens with the book's first line of code, the comment the chapter "The first syntax" wrote to show an arrow at work. This is the first file the book writes in reading order, so the comment stands at the head of the language it began.
 
@@ -148,3 +210,117 @@ The module opens with the book's first line of code, the comment the chapter "Th
 ::[Rejected fragments]
 
 ::[The node combinator]
+
+::[Constructing a node]
+
+::[Telling nodes apart]
+
+## Testing a constructed node
+
+These cases hold `nodeOf` to what the section "Constructing a node" says of it. They construct nodes of two small schemas of their own. A `Word` is a node with a value. A `ShortWord` is the same node with a check that refuses a value of more than four letters, since `nodeOf` must read a tag from a schema that carries a check as well.
+
+A constructed node is the node its schema would make, the tag included. `nodeOf` writes the schema's tag last, so a tag that rides in on the fields never survives, as happens when one node is spread into another. And `nodeOf` runs no check. It constructs a short word of eight letters, which the schema refuses when it decodes the same value.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Result, Schema } from 'effect'
+import { loomNode, nodeOf, okHealth, type Position } from '#ast/LoomNode'
+
+const at: Position = { start: { line: 1, offset: 0 }, end: { line: 1, offset: 4 } }
+
+const WordSchema = loomNode('Word', { value: Schema.String })
+
+const ShortWordSchema = loomNode('ShortWord', { value: Schema.String }).check(
+  Schema.makeFilter((word) =>
+    word.value.length <= 4 ? undefined : 'a short word has four letters at most',
+  ),
+)
+
+const fieldsOf = (value: string) => ({ position: at, source: value, health: okHealth, value })
+
+describe('nodeOf', () => {
+  it('gives the node its schema would make', () => {
+    const word = nodeOf(WordSchema, fieldsOf('loom'))
+    expect(word).toEqual({ type: 'Word', ...fieldsOf('loom') })
+    expect(word).toEqual(WordSchema.make(fieldsOf('loom')))
+  })
+
+  it('reads the tag of a schema that carries a check', () => {
+    expect(nodeOf(ShortWordSchema, fieldsOf('warp')).type).toBe('ShortWord')
+  })
+
+  it("writes the schema's tag over a tag its fields carry", () => {
+    const word = nodeOf(WordSchema, fieldsOf('weft'))
+    expect(nodeOf(ShortWordSchema, { ...word }).type).toBe('ShortWord')
+  })
+
+  it('runs no check, where decoding does', () => {
+    const long = nodeOf(ShortWordSchema, fieldsOf('tapestry'))
+    expect(long.value).toBe('tapestry')
+    expect(Result.isFailure(Schema.decodeUnknownResult(ShortWordSchema)(long))).toBe(true)
+  })
+})
+
+## Testing a table of cases
+
+These cases hold `byType` and `byTypeOr` to what the section "Telling nodes apart" says of them. A `Shape` is one of three small nodes. `areaOf` is a table with a case for each, and `scaled` is a table whose cases take a factor after the node. `roundness` is a table for the circle alone, with a default.
+
+A call reaches the case under the node's tag, and the case receives that node, as the square's case reads a side no other shape has. Further arguments arrive after the node. A tag with no case of its own takes the default. And a tag that matches a name every object inherits takes the default too, where a bare read of the record would have returned the inherited method. No union of Loom's holds such a tag, and the compiler refuses a table written for one, so the case hands `roundness` a node the types do not know.
+
+=>
+
+import { byType, byTypeOr } from '#ast/LoomNode'
+
+type Circle = { readonly type: 'Circle'; readonly radius: number }
+
+type Square = { readonly type: 'Square'; readonly side: number }
+
+type Dot = { readonly type: 'Dot' }
+
+type Shape = Circle | Square | Dot
+
+const areaOf = byType<Shape>()({
+  Circle: (circle) => Math.PI * circle.radius ** 2,
+  Square: (square) => square.side ** 2,
+  Dot: () => 0,
+})
+
+const scaled = byType<Shape, [factor: number]>()({
+  Circle: (circle, factor): Shape => ({ ...circle, radius: circle.radius * factor }),
+  Square: (square, factor): Shape => ({ ...square, side: square.side * factor }),
+  Dot: (dot): Shape => dot,
+})
+
+const roundness = byTypeOr<Shape>()({ Circle: () => 'round' }, () => 'not round')
+
+describe('byType', () => {
+  it("calls the case under the node's tag, with that node", () => {
+    expect(areaOf({ type: 'Square', side: 3 })).toBe(9)
+    expect(areaOf({ type: 'Dot' })).toBe(0)
+  })
+
+  it('hands a case the further arguments after the node', () => {
+    expect(scaled({ type: 'Square', side: 3 }, 2)).toEqual({ type: 'Square', side: 6 })
+  })
+})
+
+describe('byTypeOr', () => {
+  it('takes the default for a tag with no case', () => {
+    expect(roundness({ type: 'Circle', radius: 1 })).toBe('round')
+    expect(roundness({ type: 'Dot' })).toBe('not round')
+  })
+
+  it('takes the default for a tag that matches an inherited name', () => {
+    const stray = { type: 'constructor' } as unknown as Shape
+    expect(roundness(stray)).toBe('not round')
+  })
+})
+
+## The foundation's tests [test/LoomNode.test.ts]
+
+=>
+
+::[Testing a constructed node]
+
+::[Testing a table of cases]

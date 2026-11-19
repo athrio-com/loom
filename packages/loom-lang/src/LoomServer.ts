@@ -233,6 +233,21 @@ const heldText = (uri: URI): Effect.Effect<Option.Option<string>, never, Workspa
     Effect.flatMap(([source, documents]) => Effect.option(documents.read(source.locationOf(uri)))),
   )
 
+const snapshotBy = Match.fn(
+  (
+    _within: {
+      readonly onDisk: (uri: URI) => Option.Option<IScriptSnapshot>
+      readonly inMemory: (uri: URI) => Option.Option<IScriptSnapshot>
+    },
+    uri: URI,
+  ) => uri,
+).pipe(
+  Match.withReturnType<Option.Option<IScriptSnapshot>>(),
+  Match.when((loom) => !isLoom(loom), () => Option.none<IScriptSnapshot>()),
+  Match.when((loom) => loom.scheme === 'file', (matched, { onDisk }) => onDisk(matched)),
+  Match.orElse((matched, { inMemory }) => inMemory(matched)),
+)
+
 const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
   const read = new Map<string, SavedLoom>()
   const shown = new Map<string, ShownLoom>()
@@ -273,11 +288,7 @@ const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
         ),
     )
   return (uri) =>
-    Match.value(uri).pipe(
-      Match.when((loom) => !isLoom(loom), () => Option.none<IScriptSnapshot>()),
-      Match.when((loom) => loom.scheme === 'file', onDisk),
-      Match.orElse(inMemory),
-    )
+    snapshotBy({ onDisk, inMemory }, uri)
 }
 
 export const workspaceProject = (
@@ -326,11 +337,10 @@ const reconfiguredWorkspaces = (
   source: WorkspaceSource['Service'],
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<string> =>
-  pipe(
-    changes,
-    Array.filter((change) => change.uri.endsWith('/.loom/config.yaml')),
-    Array.map((change) => dirname(dirname(source.locationOf(URI.parse(change.uri))))),
-    Array.dedupe,
+  Array.dedupe(
+    changes
+      .filter((change) => change.uri.endsWith('/.loom/config.yaml'))
+      .map((change) => dirname(dirname(source.locationOf(URI.parse(change.uri))))),
   )
 
 const reloadProject = (
@@ -366,7 +376,7 @@ export const rebuildUnder = (
       compiler.invalidateWithin(workspace).pipe(
         Effect.andThen(
           Effect.forEach(
-            Array.filter(openLooms(server), (uri) => within(workspace, source.locationOf(uri))),
+            openLooms(server).filter((uri) => within(workspace, source.locationOf(uri))),
             (uri) => recordEdit(edited, uri),
             { discard: true },
           ),
@@ -400,11 +410,10 @@ const retypedWorkspaces = (
   home: string,
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<string> =>
-  pipe(
-    changes,
-    Array.filter((change) => isCompilerSetting(change.uri)),
-    Array.map((change) => workspaceFor(home, URI.parse(change.uri))),
-    Array.dedupe,
+  Array.dedupe(
+    changes
+      .filter((change) => isCompilerSetting(change.uri))
+      .map((change) => workspaceFor(home, URI.parse(change.uri))),
   )
 
 const retype = (
@@ -449,7 +458,7 @@ const closedLoomChanges = (
   server: LanguageServer,
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<FileEvent> =>
-  Array.filter(changes, (change) => {
+  changes.filter((change) => {
     const uri = URI.parse(change.uri)
     return isLoom(uri) && server.documents.get(uri) === undefined
   })
@@ -475,7 +484,7 @@ const fetchReported = (
   WorkspaceSource.pipe(
     Effect.flatMap((source) =>
       Effect.forEach(
-        Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
+        changes.map((change) => URI.parse(change.uri)).filter(isLoom),
         (uri) => fetchSaved(source.locationOf(uri)),
         { discard: true },
       ),
@@ -493,18 +502,16 @@ const rereadLooms = (
   )
 
 const openLooms = (server: LanguageServer): ReadonlyArray<URI> =>
-  pipe(
-    server.documents.all(),
-    Array.map((document) => URI.parse(document.uri)),
-    Array.filter(isLoom),
-  )
+  server.documents
+    .all()
+    .map((document) => URI.parse(document.uri))
+    .filter(isLoom)
 
 const openLoomsIn = (
   server: LanguageServer,
   home: string,
   workspace: string,
-): ReadonlyArray<URI> =>
-  Array.filter(openLooms(server), (uri) => workspaceFor(home, uri) === workspace)
+): ReadonlyArray<URI> => openLooms(server).filter((uri) => workspaceFor(home, uri) === workspace)
 
 const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
   effect.pipe(
@@ -576,17 +583,15 @@ const reproject = (
   alsoForgotten: ReadonlyArray<URI>,
 ): Effect.Effect<void> => {
   const forgotten = [
-    ...pipe(
-      changes,
-      Array.filter((change) => change.type === FileChangeType.Deleted),
-      Array.map((change) => URI.parse(change.uri)),
-    ),
+    ...changes
+      .filter((change) => change.type === FileChangeType.Deleted)
+      .map((change) => URI.parse(change.uri)),
     ...alsoForgotten,
   ]
   return changes.length === 0
     ? Effect.void
     : Effect.forEach(
-        Array.dedupe(Array.map(changes, (change) => workspaceFor(home, URI.parse(change.uri)))),
+        Array.dedupe(changes.map((change) => workspaceFor(home, URI.parse(change.uri)))),
         (workspace) => reprojectWorkspace(server, home, projects, workspace, forgotten),
         { discard: true },
       ).pipe(
@@ -685,7 +690,7 @@ const isRelations = (change: FileEvent): boolean => change.uri.endsWith('/.loom/
 const watchRelations = (server: LanguageServer): void => {
   void server.fileWatcher.watchFiles(['**/.loom/relations.lock'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
-    if (Array.some(changes, isRelations)) void server.languageFeatures.requestRefresh(true)
+    if (changes.some(isRelations)) void server.languageFeatures.requestRefresh(true)
   })
 }
 
@@ -766,14 +771,13 @@ const applySummaryEdits = (
             server.connection.workspace.applyEdit({
               label: 'Keep a box in step',
               edit: {
-                documentChanges: Array.map(
-                  Object.entries(Array.groupBy(edits, (edit) => edit.path)),
+                documentChanges: Object.entries(Array.groupBy(edits, (edit) => edit.path)).map(
                   ([path, inLoom]) => ({
                     textDocument: {
                       uri: source.uriOf(path).toString(),
                       version: server.documents.get(source.uriOf(path))?.version ?? null,
                     },
-                    edits: Array.map(inLoom, (edit) => ({ range: edit.range, newText: edit.text })),
+                    edits: inLoom.map((edit) => ({ range: edit.range, newText: edit.text })),
                   }),
                 ),
               },
@@ -831,7 +835,7 @@ const keepInStep = (
 }
 
 const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effect.Effect<void> =>
-  Ref.update(seen, (texts) => new Map(Array.filter([...texts], ([key]) => key !== uri.toString())))
+  Ref.update(seen, (texts) => new Map([...texts].filter(([key]) => key !== uri.toString())))
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(

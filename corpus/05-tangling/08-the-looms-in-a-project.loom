@@ -43,7 +43,7 @@ A set of patterns speaks for the folder it belongs to. A `.gitignore` speaks for
 
 `relativeIn` places a path within a folder. It gives the path relative to the folder, with forward slashes as Git writes them, and gives nothing for a path outside the folder or for the folder itself.
 
-`verdictIn` asks one layer about one path. A layer can speak only for a path inside its folder. A folder is asked about with a trailing slash, because a pattern like `drafts/` matches folders and nothing else. The layer answers in one of three ways. `Option.some(true)` means a pattern ignores the path. `Option.some(false)` means a `!` pattern brings it back. `Option.none` means no pattern spoke to the path, and the question passes to the next layer.
+`verdictIn` asks one layer about one path. A layer can speak only for a path inside its folder. A folder is asked about with a trailing slash, because a pattern like `drafts/` matches folders and nothing else. The layer answers in one of three ways. `Option.some(true)` means a pattern ignores the path. `Option.some(false)` means a `!` pattern brings it back. `Option.none` means no pattern spoke to the path, and the question passes to the next layer. `verdictOf` reads the answer out of what the `ignore` package reports for a path. A walk asks about every file and folder of a corpus, so the matcher is built once, when the module loads.
 
 =>
 
@@ -64,13 +64,17 @@ const relativeIn = (base: Path, path: Path): Option.Option<string> => {
     : Option.some(rel.split(sep).join('/'))
 }
 
+const verdictOf: (tested: ReturnType<Ignore['test']>) => Option.Option<boolean> = Match.type<
+  ReturnType<Ignore['test']>
+>().pipe(
+  Match.when({ ignored: true }, () => Option.some(true)),
+  Match.when({ unignored: true }, () => Option.some(false)),
+  Match.orElse(() => Option.none<boolean>()),
+)
+
 const verdictIn = (layer: Layer, path: Path, isDir: boolean): Option.Option<boolean> =>
   Option.flatMap(relativeIn(layer.base, path), (rel) =>
-    Match.value(layer.rules.test(isDir ? `${rel}/` : rel)).pipe(
-      Match.when({ ignored: true }, () => Option.some(true)),
-      Match.when({ unignored: true }, () => Option.some(false)),
-      Match.orElse(() => Option.none<boolean>()),
-    ),
+    verdictOf(layer.rules.test(isDir ? `${rel}/` : rel)),
   )
 
 ## What Git ignores
@@ -83,7 +87,7 @@ Git also reads an excludes file in each person's home folder, and Loom does not.
 
 `gitDirOf` finds a repository's Git folder from the repository's top folder. In an ordinary clone, `.git` is the Git folder itself. In a linked worktree or a submodule, `.git` is a file whose `gitdir:` line points at the real Git folder. Reading a folder as text fails, so the text of `.git` tells the two cases apart. `commonDirOf` takes one step more. A worktree's Git folder names, in a `commondir` file, the folder it shares with the main checkout, and `info/exclude` lives in that shared folder.
 
-`textOf` reads a file's text, and gives nothing for a file that is missing or is a folder. `fileLayer` turns an ignore file into a layer for the folder it speaks for, when the file exists. `repositoryAt` gathers the layers a repository starts with: its `info/exclude`, then the `.gitignore` in its top folder.
+`textOf` reads a file's text, and gives nothing for a file that is missing or is a folder. `fileLayer` turns an ignore file into a layer for the folder it speaks for, when the file exists. `excludeOf` names a repository's `info/exclude` file. `repositoryAt` gathers the layers a repository starts with: its `info/exclude`, then the `.gitignore` in its top folder.
 
 =>
 
@@ -112,11 +116,10 @@ const commonDirOf = (gitDir: Path): Path =>
     Option.getOrElse(() => gitDir),
   )
 
+const excludeOf = (top: Path): Path => join(commonDirOf(gitDirOf(top)), 'info', 'exclude')
+
 const repositoryAt = (top: Path): ReadonlyArray<Layer> =>
-  Array.getSomes([
-    fileLayer(top, join(commonDirOf(gitDirOf(top)), 'info', 'exclude')),
-    fileLayer(top, join(top, '.gitignore')),
-  ])
+  Array.getSomes([fileLayer(top, excludeOf(top)), fileLayer(top, join(top, '.gitignore'))])
 
 ~
 
@@ -160,15 +163,47 @@ const ignores = (own: Layer, git: GitRules, path: Path, isDir: boolean): boolean
     Option.getOrElse(() => false),
   )
 
+## An answer and the files behind it
+
+Every answer this module gives is read from the disk. A walk reads the entries of each folder it opens, the text of each ignore file, and whether a folder holds a configuration of its own. Its answer stays true until one of those changes.
+
+Some callers ask the same question many times. The compiler asks for a loom's corpus once for every loom of a book, and the editor asks on every keystroke. Such a caller can keep an answer, provided it knows which files and folders the answer was read from, since it can then ask the disk only whether those have changed.
+
+A `Reading` is an answer together with the paths it was read from. A path stands in the list whether or not anything is there. A `.gitignore` that appears tomorrow changes the answer as much as one that is edited, so the place where it would stand belongs to the reading. This module only reports the paths. The file-system source keeps the readings, as the chapter "Where a workspace is kept" describes.
+
+`gitFilesOf` lists the files that say what Git ignores in one folder, the files `entering` reads there: the folder's `.git`, its `.gitignore`, and, for a folder that begins a repository, the `commondir` file and the `info/exclude` file. `gitFilesTo` lists those files for every folder from the filesystem's root down to a folder, as `gitRulesAt` reads them. `askedAbout` lists what a walk inside a project reads to decide about a folder: the configuration that would make the folder a workspace of its own, and the folder's Git files.
+
+A repository's `.git` is a folder, and its modified time changes whenever Git writes inside it. A reading that names it therefore ends at the next Git command, and the caller that kept it walks once more.
+
+=>
+
+export interface Reading<Answer> {
+  readonly answer: Answer
+  readonly from: ReadonlyArray<Path>
+}
+
+const gitFilesOf = (dir: Path): ReadonlyArray<Path> => [
+  join(dir, '.git'),
+  join(dir, '.gitignore'),
+  ...(existsSync(join(dir, '.git')) ? [join(gitDirOf(dir), 'commondir'), excludeOf(dir)] : []),
+]
+
+const gitFilesTo = (dir: Path): ReadonlyArray<Path> => {
+  const parent = dirname(dir)
+  return [...(parent === dir ? [] : gitFilesTo(parent)), ...gitFilesOf(dir)]
+}
+
+const askedAbout = (dir: Path): ReadonlyArray<Path> => [configurationOf(dir), ...gitFilesOf(dir)]
+
 ## Walking a folder
 
-A walk descends a folder one level at a time and decides at each entry. It never enters a folder it would only throw away, such as a `node_modules` with thousands of files. The walk carries a `Scope`, which answers three questions. `opens` says whether to enter a folder. `keeps` says whether a loom belongs. `into` gives the scope to carry inside a folder.
+A walk descends a folder one level at a time and decides at each entry. It never enters a folder it would only throw away, such as a `node_modules` with thousands of files. The walk carries a `Scope`, which answers four questions. `opens` says whether to enter a folder. `keeps` says whether a loom belongs. `into` gives the scope to carry inside a folder. `asks` lists the paths the scope reads to decide about a folder, which the walk reports in its reading.
 
 `storeDirs` names the four folders that hold no one's looms: `node_modules` holds installed packages, `dist` holds built output, `.git` holds Git's history, and `.loom` holds Loom's own store. Every walk skips them, and the tangler's watch skips a change inside them.
 
 A walk inside a project carries `projectScope`. It opens a folder unless the folder is one of the store folders, is a workspace of its own, or is ignored. A folder that holds its own configuration is a separate workspace, and its looms belong to that project and its lock. `isWorkspace` makes that call by the rule the language store uses to find a workspace, so a `.loom` folder with no configuration in it, such as one that only keeps a loose loom's lock, closes nothing off. The scope keeps a loom unless the loom is ignored. Entering a folder brings that folder's Git rules into the scope. `scopeAt` builds the scope a walk starts with in a given folder, from the project's own layer and the Git rules in force in that folder.
 
-A walk outside any project carries `looseScope`, which skips only the store folders. Loom walks this way through the folder of a loom no project holds.
+A walk outside any project carries `looseScope`, which skips only the store folders and reads nothing to decide about a folder. Loom walks this way through the folder of a loom no project holds.
 
 =>
 
@@ -178,6 +213,7 @@ interface Scope {
   readonly opens: (dir: Path) => boolean
   readonly keeps: (loom: Path) => boolean
   readonly into: (dir: Path) => Scope
+  readonly asks: (dir: Path) => ReadonlyArray<Path>
 }
 
 const projectScope = (own: Layer, git: GitRules): Scope => ({
@@ -185,12 +221,14 @@ const projectScope = (own: Layer, git: GitRules): Scope => ({
     !storeDirs.has(basename(dir)) && !isWorkspace(dir) && !ignores(own, git, dir, true),
   keeps: (loom) => !ignores(own, git, loom, false),
   into: (dir) => projectScope(own, entering(dir, git)),
+  asks: askedAbout,
 })
 
 const looseScope: Scope = {
   opens: (dir) => !storeDirs.has(basename(dir)),
   keeps: () => true,
   into: () => looseScope,
+  asks: () => [],
 }
 
 const scopeAt = (project: LoomProject, dir: Path): Scope =>
@@ -200,7 +238,9 @@ const scopeAt = (project: LoomProject, dir: Path): Scope =>
 
 `walk` lists the looms under a folder in the scope it is given. It enters each folder the scope opens and keeps each loom the scope keeps. A loom is any entry whose name ends in `.loom` and that is not a folder, so the `.loom` store itself never counts as one. `entriesIn` reads one folder's entries, and lists nothing for a folder it cannot read. The compiler then builds a corpus of one, the file alone.
 
-`loomsIn` is the walk every caller uses. Given a folder and its project, it walks the folder in that project's scope, or in the loose scope when there is no project.
+A walk gives a reading. Its answer is the looms, and it was read from every folder the walk listed and every path its scope asked about. `readingAt` gives the reading one entry of a folder leads to. A folder the scope opens leads to its own walk, with what the scope asked about it. A folder the scope leaves closed leads to no loom, but the scope still asked about it, since a closed folder opens again when its configuration is deleted. A store folder is never asked about. A loom the scope keeps is the entry itself, and it adds no path, because the folder that lists it already stands in the reading.
+
+`walkIn` is the walk behind every caller. Given a folder and its project, it walks the folder in that project's scope, or in the loose scope when there is no project. A project's scope begins with the Git rules above the folder, so the reading holds the files those rules came from as well. `loomsIn` gives the looms alone, for a caller that asks once.
 
 =>
 
@@ -212,30 +252,56 @@ const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
   }
 }
 
-const walk = (dir: Path, scope: Scope): ReadonlyArray<Path> =>
-  Array.flatMap(entriesIn(dir), (entry) => {
+type Walk = Reading<ReadonlyArray<Path>>
+
+const noLooms: Walk = { answer: [], from: [] }
+
+const readingAt = Match.fn(
+  (
+    _within: {
+      readonly full: Path
+      readonly scope: Scope
+    },
+    entry: { readonly opened: boolean; readonly closed: boolean; readonly kept: boolean },
+  ) => entry,
+).pipe(
+  Match.withReturnType<Walk>(),
+  Match.when({ opened: true }, (_entry, { full, scope }) => {
+    const below = walk(full, scope.into(full))
+    return { answer: below.answer, from: [...scope.asks(full), ...below.from] }
+  }),
+  Match.when({ closed: true }, (_entry, { full, scope }) => ({ answer: [], from: scope.asks(full) })),
+  Match.when({ kept: true }, (_entry, { full }) => ({ answer: [full], from: [] })),
+  Match.orElse(() => noLooms),
+)
+
+const walk = (dir: Path, scope: Scope): Walk => {
+  const below = entriesIn(dir).map((entry) => {
     const full = resolvePath(dir, entry.name)
-    return Match.value(entry).pipe(
-      Match.when(
-        (e) => e.isDirectory() && scope.opens(full),
-        () => walk(full, scope.into(full)),
-      ),
-      Match.when(
-        (e) => !e.isDirectory() && e.name.endsWith('.loom') && scope.keeps(full),
-        (): ReadonlyArray<Path> => [full],
-      ),
-      Match.orElse((): ReadonlyArray<Path> => []),
-    )
+    const opened = entry.isDirectory() && scope.opens(full)
+    return readingAt({ full, scope }, {
+      opened,
+      closed: entry.isDirectory() && !opened && !storeDirs.has(entry.name),
+      kept: !entry.isDirectory() && entry.name.endsWith('.loom') && scope.keeps(full),
+    })
+  })
+  return {
+    answer: below.flatMap((reading) => reading.answer),
+    from: [dir, ...below.flatMap((reading) => reading.from)],
+  }
+}
+
+export const walkIn = (dir: Path, project: Option.Option<LoomProject>): Walk =>
+  Option.match(project, {
+    onNone: () => walk(dir, looseScope),
+    onSome: (p) => {
+      const below = walk(dir, scopeAt(p, dir))
+      return { answer: below.answer, from: [...gitFilesTo(dir), ...below.from] }
+    },
   })
 
 export const loomsIn = (dir: Path, project: Option.Option<LoomProject>): ReadonlyArray<Path> =>
-  walk(
-    dir,
-    Option.match(project, {
-      onNone: () => looseScope,
-      onSome: (p) => scopeAt(p, dir),
-    }),
-  )
+  walkIn(dir, project).answer
 
 ## One loom at a time
 
@@ -243,27 +309,39 @@ A walk settles membership for every loom under a folder. Sometimes the question 
 
 `holds` answers the question the way a walk from the root would, without listing the root. It steps down from the root through each folder on the way to the loom, carrying the scope the walk would carry. It stops at the first folder the walk would not open. Past the last folder, it asks whether the walk would keep the loom. A loom outside the root is not the project's at all. `foldersBetween` lists the folders on the way, from just below the root down to the folder that holds the loom.
 
+Most of the work of an answer goes into the scope at the root, where the project's patterns and the Git rules above the root are compiled into layers. That scope serves every loom of the project. `holdsOf` builds it once and gives the question itself as its answer: a function that takes a loom and says whether the project holds it. The reading names the Git files down to the root, which are all the scope was built from. The function reads the folders on the way to a loom each time it is asked, so nothing about those folders is kept with it. `holds` asks about one loom through a scope built for that one question.
+
 =>
 
 const foldersBetween = (root: Path, dir: Path): ReadonlyArray<Path> =>
   dir === root || dirname(dir) === dir ? [] : [...foldersBetween(root, dirname(dir)), dir]
 
-export const holds = (project: LoomProject, loom: Path): boolean =>
-  Option.isSome(relativeIn(project.root, loom)) &&
-  pipe(
-    foldersBetween(project.root, dirname(loom)),
-    Array.reduce(Option.some(scopeAt(project, project.root)), (scope, dir) =>
-      scope.pipe(
-        Option.filter((s) => s.opens(dir)),
-        Option.map((s) => s.into(dir)),
+const holdsFrom =
+  (project: LoomProject, atRoot: Scope) =>
+  (loom: Path): boolean =>
+    Option.isSome(relativeIn(project.root, loom)) &&
+    pipe(
+      foldersBetween(project.root, dirname(loom)).reduce(
+        (scope, dir) =>
+          scope.pipe(
+            Option.filter((s) => s.opens(dir)),
+            Option.map((s) => s.into(dir)),
+          ),
+        Option.some(atRoot),
       ),
-    ),
-    Option.exists((scope) => scope.keeps(loom)),
-  )
+      Option.exists((scope) => scope.keeps(loom)),
+    )
+
+export const holdsOf = (project: LoomProject): Reading<(loom: Path) => boolean> => ({
+  answer: holdsFrom(project, scopeAt(project, project.root)),
+  from: gitFilesTo(project.root),
+})
+
+export const holds = (project: LoomProject, loom: Path): boolean => holdsOf(project).answer(loom)
 
 ## What the module draws on
 
-The `ignore` package compiles a pattern list the way Git matches it, and answers for a path with `test`. Node's `fs` reads folders, ignore files, and Git's pointer files synchronously, because the editor discovers a corpus inside Volar's synchronous hook, which cannot wait. Node's `path` module places one path relative to another. Effect supplies `Option` for an answer that may be absent, the `Array` combinators, `Match`, and `pipe`. `ResolvedConfig`, from `@athrio/loom-config`, carries a file's workspace and its configured patterns. The language store supplies `isWorkspace`, which tells a nested workspace by its configuration.
+The `ignore` package compiles a pattern list the way Git matches it, and answers for a path with `test`. Node's `fs` reads folders, ignore files, and Git's pointer files synchronously, because the editor discovers a corpus inside Volar's synchronous hook, which cannot wait. Node's `path` module places one path relative to another. Effect supplies `Option` for an answer that may be absent, the `Array` combinators, `Match`, and `pipe`. `ResolvedConfig`, from `@athrio/loom-config`, carries a file's workspace and its configured patterns. The language store supplies `isWorkspace`, which tells a nested workspace by its configuration, and `configurationOf`, which names the file that holds it.
 
 =>
 
@@ -280,7 +358,7 @@ import {
   sep,
 } from 'node:path'
 import { type ResolvedConfig } from '@athrio/loom-config/LoomConfig'
-import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
+import { configurationOf, isWorkspace } from '@athrio/loom-lang-services/LoomStore'
 
 ## The module {Tangle}
 
@@ -295,6 +373,8 @@ import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
 ::[What Git ignores]
 
 ::[Which pattern wins]
+
+::[An answer and the files behind it]
 
 ::[Walking a folder]
 

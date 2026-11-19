@@ -1,4 +1,4 @@
-import { Array, Match } from 'effect'
+import { Match } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import { Copied, type Message, type Model } from './model'
 import { broadSeam, carpetMark, operationsCarpet } from './components'
@@ -74,7 +74,7 @@ export const operations: ReadonlyArray<Operation> = [
 const jsonLine = (line: ReadonlyArray<readonly [string, string]>, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('json-line')],
-    Array.map(line, ([text, kind]) => h.span([h.Class(`tok-${kind}`)], [text])),
+    line.map(([text, kind]) => h.span([h.Class(`tok-${kind}`)], [text])),
   )
 
 const jsonBlock = (
@@ -83,19 +83,30 @@ const jsonBlock = (
 ): Html =>
   h.div(
     [h.Class('px-json')],
-    Array.map(lines, (line) => jsonLine(line, h)),
+    lines.map((line) => jsonLine(line, h)),
   )
+
+const drawingOf = Match.fn(
+  (
+    _within: {
+      readonly operation: Operation
+      readonly h: HtmlBuilder<Message>
+    },
+    drawing: Operation['drawing'],
+  ) => drawing,
+).pipe(
+  Match.withReturnType<Html>(),
+  Match.when(Match.undefined, (_drawing, { operation, h }) =>
+    h.div([h.Class('ops-art')], [jsonBlock(operation.json ?? [], h)]),
+  ),
+  Match.orElse((drawing, { h }) => h.div([h.Class('ops-svg'), h.InnerHTML(drawing)], [])),
+)
 
 const illustration = (operation: Operation, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('ops-frame')],
     [
-      Match.value(operation.drawing).pipe(
-        Match.when(Match.undefined, () =>
-          h.div([h.Class('ops-art')], [jsonBlock(operation.json ?? [], h)]),
-        ),
-        Match.orElse((drawing) => h.div([h.Class('ops-svg'), h.InnerHTML(drawing)], [])),
-      ),
+      drawingOf({ operation, h }, operation.drawing),
     ],
   )
 
@@ -146,7 +157,7 @@ export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
       ),
       h.div(
         [h.Class('ops-grid')],
-        Array.map(operations, (operation) => operationCard(operation, model.copied, h)),
+        operations.map((operation) => operationCard(operation, model.copied, h)),
       ),
       h.div([h.Class('ops-progress'), h.AriaHidden(true)], []),
     ],

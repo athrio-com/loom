@@ -1,5 +1,5 @@
 import { Array, Data, Effect, Match, Option, Result, Schema, pipe } from 'effect'
-import { loomNode, type Position, shifted } from '#ast/LoomNode'
+import { loomNode, type Position, shifted, byType } from '#ast/LoomNode'
 
 export const Probe = 'loom/Probe'
 
@@ -149,21 +149,19 @@ const localeNamed = (written: string): Result.Result<string, Unread> =>
     onNone: () => unread({ wanted: 'locale' }),
   })
 
-export const readAs =
-  (type: ScalarType) =>
-  (written: string): Result.Result<Read, Unread> =>
-    Match.value(type).pipe(
-      Match.when(isChoice, (chosen) => wordAmong(chosen.choice, written)),
-      Match.when('boolean', () =>
-        Result.map(wordAmong(['true', 'false'], written), (word) => word === 'true'),
-      ),
-      Match.when('number', () =>
-        numeral.test(written) ? Result.succeed(Number(written)) : unread({ wanted: 'number' }),
-      ),
-      Match.when('locale', () => localeNamed(written)),
-      Match.whenOr('text', 'reference', () => Result.succeed(written)),
-      Match.exhaustive,
-    )
+export const readAs = Match.fn((_written: string, type: ScalarType) => type).pipe(
+  Match.withReturnType<Result.Result<Read, Unread>>(),
+  Match.when(isChoice, (chosen, written) => wordAmong(chosen.choice, written)),
+  Match.when('boolean', (_type, written) =>
+    Result.map(wordAmong(['true', 'false'], written), (word) => word === 'true'),
+  ),
+  Match.when('number', (_type, written) =>
+    numeral.test(written) ? Result.succeed(Number(written)) : unread({ wanted: 'number' }),
+  ),
+  Match.when('locale', (_type, written) => localeNamed(written)),
+  Match.whenOr('text', 'reference', (_type, written) => Result.succeed(written)),
+  Match.exhaustive,
+)
 
 export const settleKind = 'To be settled'
 
@@ -446,12 +444,12 @@ export const boxKeys: Keys = {
   anchors: 'reference',
 }
 
-export const specifierKind = (specifier: SpecifierToken | ParametersToken): Option.Option<string> =>
-  Match.value(specifier).pipe(
-    Match.when({ type: 'Specifier' }, (labelled) => Option.some(labelled.label.value)),
-    Match.when({ type: 'Parameters' }, (held) => parameterValue(held, 'kind')),
-    Match.exhaustive,
-  )
+export const specifierKind: (
+  specifier: SpecifierToken | ParametersToken,
+) => Option.Option<string> = byType<SpecifierToken | ParametersToken>()({
+  Specifier: (labelled) => Option.some(labelled.label.value),
+  Parameters: (held) => parameterValue(held, 'kind'),
+})
 
 const knownBoxKind = (kind: string): string =>
   Option.getOrElse(

@@ -163,7 +163,7 @@ const approve = (target: string) =>
     const { path, line } = chosenAt(target)
     const looms = yield* formatter.looms(resolvePath(process.cwd(), path))
     const approved = yield* Effect.forEach(looms, (loom) => compiler.approve(loom, onLine(line)))
-    const count = Array.flatten(approved).length
+    const count = approved.flat().length
     yield* count === 0
       ? Console.log(`loom: found no reference to approve at ${target}`)
       : Console.log(`loom: approved ${count} ${count === 1 ? 'reference' : 'references'}`)
@@ -198,7 +198,7 @@ const reviewedFrom =
   (drift: Drift): Reviewed => ({
     loom: relative(cwd, drift.loom),
     section: drift.section,
-    references: Array.map(drift.relations, (relation) => ({
+    references: drift.relations.map((relation) => ({
       at: `${relative(cwd, relation.loom)}:${relation.at.start.line}`,
       kind: relation.kind,
       to: relation.to,
@@ -206,20 +206,22 @@ const reviewedFrom =
   })
 
 const driftText = (drift: Reviewed): string =>
-  Array.join(
-    [
-      `\`${drift.section}\` in ${drift.loom} has changed since these references to it were approved:`,
-      ...Array.map(drift.references, (reference) => `  ${reference.at}  ${reference.kind}`),
-    ],
-    '\n',
-  )
+  [
+    `\`${drift.section}\` in ${drift.loom} has changed since these references to it were approved:`,
+    ...drift.references.map((reference) => `  ${reference.at}  ${reference.kind}`),
+  ].join('\n')
 
-const reviewText = (drifts: ReadonlyArray<Reviewed>, json: boolean): string =>
-  Match.value({ json, drifted: Array.isReadonlyArrayNonEmpty(drifts) }).pipe(
-    Match.when({ json: true }, () => JSON.stringify(drifts, null, 2)),
-    Match.when({ drifted: false }, () => 'loom: no approved reference has drifted'),
-    Match.orElse(() => Array.join(Array.map(drifts, driftText), '\n\n')),
-  )
+const reviewText = Match.fn(
+  (
+    drifts: ReadonlyArray<Reviewed>,
+    json: boolean,
+  ) => ({ json, drifted: Array.isReadonlyArrayNonEmpty(drifts) }),
+).pipe(
+  Match.withReturnType<string>(),
+  Match.when({ json: true }, (_facts, drifts) => JSON.stringify(drifts, null, 2)),
+  Match.when({ drifted: false }, () => 'loom: no approved reference has drifted'),
+  Match.orElse((_facts, drifts) => drifts.map(driftText).join('\n\n')),
+)
 
 const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
   Effect.gen(function* () {
@@ -229,8 +231,8 @@ const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
     const { path, line } = chosenAt(Option.getOrElse(target, () => '.'))
     const looms = yield* formatter.looms(resolvePath(cwd, path))
     const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
-    const drifts = driftsIn(Array.filter(Array.flatten(relations), onLine(line)))
-    yield* Console.log(reviewText(Array.map(drifts, reviewedFrom(cwd)), json))
+    const drifts = driftsIn(relations.flat().filter(onLine(line)))
+    yield* Console.log(reviewText(drifts.map(reviewedFrom(cwd)), json))
     if (check && Array.isReadonlyArrayNonEmpty(drifts))
       yield* Effect.sync(() => void (process.exitCode = 1))
   })
@@ -644,20 +646,20 @@ const projectAt = (path: string): Option.Option<string> =>
 
 const marked = (mark: RegExp) => (path: string) => mark.test(path)
 
-const installationAt = (path: string, otherwise: Installation): Installation =>
-  Match.value(path).pipe(
-    Match.when(marked(/[\\/]Cellar[\\/]/), () => Installation.Homebrew()),
-    Match.when(marked(/[\\/]\.bun[\\/]/), () => Installation.Bun()),
-    Match.when(marked(/[\\/]pnpm[\\/]/), () => Installation.Pnpm()),
-    Match.when(marked(/[\\/]node_modules[\\/]/), (p) =>
-      Option.match(projectAt(p), {
-        onNone: () => Installation.Npm(),
-        onSome: (root) => Installation.Project({ root, manager: projectManager(root) }),
-      }),
-    ),
-    Match.when(marked(/[\\/]npm[\\/][^\\/]+$/), () => Installation.Npm()),
-    Match.orElse(() => otherwise),
-  )
+const installationAt = Match.fn((path: string, _otherwise: Installation) => path).pipe(
+  Match.withReturnType<Installation>(),
+  Match.when(marked(/[\\/]Cellar[\\/]/), () => Installation.Homebrew()),
+  Match.when(marked(/[\\/]\.bun[\\/]/), () => Installation.Bun()),
+  Match.when(marked(/[\\/]pnpm[\\/]/), () => Installation.Pnpm()),
+  Match.when(marked(/[\\/]node_modules[\\/]/), (p) =>
+    Option.match(projectAt(p), {
+      onNone: () => Installation.Npm(),
+      onSome: (root) => Installation.Project({ root, manager: projectManager(root) }),
+    }),
+  ),
+  Match.when(marked(/[\\/]npm[\\/][^\\/]+$/), () => Installation.Npm()),
+  Match.orElse((_matched, _path, otherwise) => otherwise),
+)
 
 ~
 
@@ -827,8 +829,7 @@ const assetUrl = (release: Release, asset: string): Effect.Effect<string, Releas
 
 const listedChecksum = (sums: string, asset: string): Option.Option<string> =>
   pipe(
-    sums.split('\n'),
-    Array.map((line) => line.trim().split(/\s+/)),
+    sums.split('\n').map((line) => line.trim().split(/\s+/)),
     Array.findFirst((fields) => fields[1] === asset || fields[1] === `*${asset}`),
     Option.flatMap((fields) => Option.fromNullishOr(fields[0])),
   )
@@ -1013,14 +1014,13 @@ const isProgram = (file: string): boolean =>
   )
 
 const programsOnPath = (command: string): ReadonlyArray<string> =>
-  pipe(
-    (process.env.PATH ?? '').split(delimiter),
-    Array.filter((folder) => folder !== ''),
-    Array.flatMap((folder) =>
-      Array.map(commandNames(command), (name) => resolvePath(folder, name)),
-    ),
-    Array.filter(isProgram),
-    Array.dedupeWith((one, other) => realOf(one) === realOf(other)),
+  Array.dedupeWith(
+    (process.env.PATH ?? '')
+      .split(delimiter)
+      .filter((folder) => folder !== '')
+      .flatMap((folder) => commandNames(command).map((name) => resolvePath(folder, name)))
+      .filter(isProgram),
+    (one, other) => realOf(one) === realOf(other),
   )
 
 const loomsOnPath = (): ReadonlyArray<string> => programsOnPath('loom')
@@ -1086,11 +1086,9 @@ const pathFindings = (looms: ReadonlyArray<string>): ReadonlyArray<Finding> =>
       isThisLoom(first)
         ? Finding.Fine({ note: `a terminal runs this loom, at ${first}` })
         : otherLoom(first, `a terminal runs ${first} instead`),
-      ...pipe(
-        rest,
-        Array.filter((file) => !isThisLoom(file)),
-        Array.map((file) => otherLoom(file, `${file} is on PATH too`)),
-      ),
+      ...rest
+        .filter((file) => !isThisLoom(file))
+        .map((file) => otherLoom(file, `${file} is on PATH too`)),
     ],
   })
 
@@ -1118,37 +1116,47 @@ const serviceFindings = (languages: ReadonlyArray<string>, root: string): Readon
     onEmpty: () => [
       Finding.Fine({ note: 'no language is activated, so the store needs no service' }),
     ],
-    onNonEmpty: (ids) => Array.map(ids, (id) => serviceFinding(id, root)),
+    onNonEmpty: (ids) => ids.map((id) => serviceFinding(id, root)),
   })
 
 ~
 
 The last question is the TypeScript 7 that Loom fetches for a project that installs no TypeScript. The language server fetches it the first time such a project asks, once per machine, into `~/.loom/typescript/<version>/`. Only a workspace that turns TypeScript on can ask, so the doctor asks this question only there. A machine that holds the fetched TypeScript already is in order.
 
-On a machine that does not, the fetch still lies ahead. The standalone executable fetches with the Bun it carries, which always runs. The npm package fetches with npm, which fails when npm is not on `PATH`, as on a Linux system whose Node came without it. That failure is the one problem here. The install script fixes it, because the standalone executable needs no npm.
+On a machine that does not, the fetch still lies ahead. The standalone executable fetches with the Bun it carries, which always runs. The npm package fetches with npm, which fails when npm is not on `PATH`, as on a Linux system whose Node came without it. That failure is the one problem here. The install script fixes it, because the standalone executable needs no npm. `fetchFinding` words the finding by what the machine has to fetch with.
 
 =>
 
+const fetchFinding = Match.fn(
+  (
+    _within: {
+      readonly fetchInto: string
+    },
+    has: { readonly standalone: boolean; readonly npm: boolean },
+  ) => has,
+).pipe(
+  Match.withReturnType<Finding>(),
+  Match.when({ standalone: true }, (_has, { fetchInto }) =>
+    Finding.Fine({
+      note: `the language server fetches ${fetchInto} the first time a project with no TypeScript asks`,
+    }),
+  ),
+  Match.when({ npm: true }, (_has, { fetchInto }) =>
+    Finding.Fine({
+      note: `the language server fetches ${fetchInto} with npm the first time a project with no TypeScript asks`,
+    }),
+  ),
+  Match.orElse((_has, { fetchInto }) =>
+    Finding.Problem({
+      note: `the language server has no npm to fetch ${fetchInto} with, for a project with no TypeScript`,
+      fix: installLine,
+    }),
+  ),
+)
+
 const unfetchedTypeScript = (): Finding => {
   const fetchInto = `TypeScript ${typeScriptVersion} into ${fetchedTypeScriptDir(typeScriptVersion)}`
-  return Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
-    Match.when({ standalone: true }, () =>
-      Finding.Fine({
-        note: `the language server fetches ${fetchInto} the first time a project with no TypeScript asks`,
-      }),
-    ),
-    Match.when({ npm: true }, () =>
-      Finding.Fine({
-        note: `the language server fetches ${fetchInto} with npm the first time a project with no TypeScript asks`,
-      }),
-    ),
-    Match.orElse(() =>
-      Finding.Problem({
-        note: `the language server has no npm to fetch ${fetchInto} with, for a project with no TypeScript`,
-        fix: installLine,
-      }),
-    ),
-  )
+  return fetchFinding({ fetchInto }, { standalone, npm: programsOnPath('npm').length > 0 })
 }
 
 const typeScriptFinding = (): Finding =>
@@ -1180,13 +1188,14 @@ The doctor prints its findings in two groups, the machine's and then the workspa
 const amber = (s: string): string => `\x1b[38;5;214m${s}${reset}`
 
 const findingLines = (findings: ReadonlyArray<Finding>): string =>
-  Array.map(
-    findings,
-    Finding.$match({
-      Fine: ({ note }) => `   ${teal('✓')} ${note}`,
-      Problem: ({ note, fix }) => `   ${amber('✗')} ${note}\n       ${fix}`,
-    }),
-  ).join('\n')
+  findings
+    .map(
+      Finding.$match({
+        Fine: ({ note }) => `   ${teal('✓')} ${note}`,
+        Problem: ({ note, fix }) => `   ${amber('✗')} ${note}\n       ${fix}`,
+      }),
+    )
+    .join('\n')
 
 const doctor = Effect.gen(function* () {
   const dir = process.cwd()
@@ -1196,7 +1205,7 @@ const doctor = Effect.gen(function* () {
     onNone: () => Effect.succeed([] as ReadonlyArray<Finding>),
     onSome: workspaceFindings,
   })
-  const problems = Array.filter([...machine, ...inWorkspace], Finding.$is('Problem')).length
+  const problems = [...machine, ...inWorkspace].filter(Finding.$is('Problem')).length
   yield* Console.log(
     `\n   ${dim('this machine')}\n${findingLines(machine)}\n\n` +
       Option.match(workspace, {

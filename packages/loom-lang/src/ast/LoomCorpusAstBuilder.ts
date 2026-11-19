@@ -30,6 +30,12 @@ export class ReadError extends Data.TaggedError('ReadError')<{
   }
 }
 
+export interface ParsedLoom {
+  readonly path: Location
+  readonly text: string
+  readonly tree: ParsedDocument
+}
+
 export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>()(
   'LoomCorpusAstBuilder',
   {
@@ -41,18 +47,18 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
       const documents = yield* LoomDocumentBuilder
       const products = yield* ProductBuilder
 
-      const parsed = (
+      const parse = (
         source: Source,
         path: Location,
-        delims: AnchorDelims,
-      ): Effect.Effect<{ readonly text: string; readonly tree: ParsedDocument }> =>
+        delims: AnchorDelims = defaultAnchorDelims,
+      ): Effect.Effect<ParsedLoom> =>
         source.read(path).pipe(
           Effect.flatMap((text) => {
             const onBadDelims = (err: InvalidAnchorDelims) =>
               Effect.succeed(emptyDocument(text, err.message))
             return checkAnchorDelims(delims).pipe(
-              Effect.andThen(sourceRanges.stream(text)),
-              Effect.flatMap((ranges) =>
+              Effect.andThen(sourceRanges.rangesOf(text)),
+              Effect.map((ranges) =>
                 pipe(
                   ranges,
                   classify.classifyWefts(text),
@@ -67,13 +73,25 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                 WhitespaceAnchorDelims: onBadDelims,
                 ReservedAnchorDelims: onBadDelims,
               }),
-              Effect.map((tree) => ({ text, tree })),
+              Effect.map((tree): ParsedLoom => ({ path, text, tree })),
             )
           }),
           Effect.catchTag('ReadError', (err) =>
-            Effect.succeed({ text: '', tree: emptyDocument('', err.message) }),
+            Effect.succeed<ParsedLoom>({ path, text: '', tree: emptyDocument('', err.message) }),
           ),
         )
+
+      const finish = (
+        loom: ParsedLoom,
+        primaryLanguage?: string,
+        variables: Record<string, string> = {},
+        declared: Declared = nothingDeclared,
+      ): Effect.Effect<LoomModule> => {
+        const doc = documents.build(loom.tree, declared)
+        return products
+          .build(doc, loom.path, primaryLanguage, variables)
+          .pipe(Effect.map((product) => ({ path: loom.path, text: loom.text, doc, product })))
+      }
 
       const build = (
         source: Source,
@@ -83,14 +101,11 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         variables: Record<string, string> = {},
         declared: Declared = nothingDeclared,
       ): Effect.Effect<LoomModule> =>
-        Effect.gen(function* () {
-          const { text, tree } = yield* parsed(source, path, delims)
-          const doc = documents.build(tree, declared)
-          const product = yield* products.build(doc, path, primaryLanguage, variables)
-          return { path, text, doc, product }
-        })
+        parse(source, path, delims).pipe(
+          Effect.flatMap((loom) => finish(loom, primaryLanguage, variables, declared)),
+        )
 
-      return { build }
+      return { parse, finish, build }
     }),
   },
 ) {

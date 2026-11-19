@@ -1,0 +1,233 @@
+---
+Part V, Chapter 12: How long a build takes
+Package: packages/loom-lang/test/Speed.test.ts
+Language: TypeScript
+---
+
+# How long a build takes
+
+The tests of the other chapters check what Loom produces. None of them checks how long Loom takes to produce it, so a build can become fifty times slower while every one of them passes. The tests in this chapter fail when a build slows down.
+
+Time is hard to test, because a machine's speed is not Loom's doing. One build takes twice as long on a busy machine as on an idle one, and a test that fails for that reason is soon ignored. So no test here trusts a bare time. Slowness comes in three kinds, and each kind has a guard that a slow machine does not set off.
+
+- **Work done twice.** A count catches it exactly, on any machine. The chapter "The compile layer" counts that each loom is parsed once and finished once. The chapter "Where a workspace is kept" shows that a corpus is walked once while its folders stand.
+- **Work that grows with the corpus.** A step that reads the whole corpus again for every loom costs little in a small book and most of the build in a large one. A ratio catches it. The ratio compares the time one loom takes in a small corpus with the time one takes in a large corpus, and both are measured in one run on one machine.
+- **Work that has grown heavy.** A budget catches it. A budget is a time the build must stay under, set about four times above what the build takes, so only a build several times slower fails.
+
+A budget that wide cannot see a build that takes twice as long as it did. So each test also prints what it measured, and the number stands in the log of every run, where two runs can be compared.
+
+## A compiler that has built nothing
+
+A measurement starts from a compiler that holds nothing. `fromNothing` is the compiler over the file system, as the command line builds it, with one difference: its disk cache keeps nothing, so every loom is parsed from its text. A layer is built anew wherever it is provided, so each use of `fromNothing` gives a compiler of its own.
+
+`millis` runs an effect and gives the milliseconds it took beside its result.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Array, Duration, Effect, Layer, ManagedRuntime, Order } from 'effect'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSettings } from '../src/WorkspaceSettings'
+import { FileSystemSource, WorkspaceSource } from '../src/WorkspaceSource'
+
+const fromNothing = LoomCompiler.layer.pipe(
+  Layer.provideMerge(DocumentSource.layer),
+  Layer.provideMerge(Layer.mergeAll(FileSystemSource, FileSystemSettings, LoomDiskCache.none)),
+  Layer.provideMerge(LoomConfig.layer),
+)
+
+const millis = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<readonly [number, A], E, R> =>
+  Effect.timed(work).pipe(
+    Effect.map(([spent, result]) => [Duration.toMillis(spent), result] as const),
+  )
+
+## The book, built from nothing
+
+Loom's own book is the largest corpus at hand, and it is the corpus its authors wait for. The first test handles every loom of the book through a compiler that has built nothing. `handled` does to one loom what the command line and the editor do to it: it tangles the loom, and it judges the loom as the editor does on every change. The compiler's `tangle` method resolves a loom's files and writes none of them, so the test leaves the repository as it found it.
+
+The book grows, so its budget is set by the line: 65 milliseconds for every thousand lines of looms. On a laptop the build takes about a quarter of that. `linesIn` counts the lines of one loom.
+
+The two tests of the book share one compiler, `bookCompiler`. The first test uses it before anything else does, which is what makes its build a build from nothing.
+
+=>
+
+const root = resolve(import.meta.dir, '../../..')
+
+const book = join(root, 'corpus', 'book.loom')
+
+const linesIn = (loom: string): number => readFileSync(loom, 'utf8').split('\n').length
+
+const bookCompiler = ManagedRuntime.make(fromNothing)
+
+const handled = (compiler: LoomCompiler['Service'], loom: string) =>
+  compiler.tangle(loom).pipe(Effect.andThen(compiler.diagnose(loom)))
+
+const bookBuilt = Effect.gen(function* () {
+  const source = yield* WorkspaceSource
+  const compiler = yield* LoomCompiler
+  const looms = yield* source.corpusOf(book)
+  const [spent] = yield* millis(Effect.forEach(looms, (loom) => handled(compiler, loom)))
+  const thousands = looms.reduce((sum, loom) => sum + linesIn(loom), 0) / 1000
+  return { looms: looms.length, thousands, spent }
+})
+
+describe('the book', () => {
+  it('is built from nothing within its budget', async () => {
+    const { looms, thousands, spent } = await bookCompiler.runPromise(bookBuilt)
+    console.log(
+      `speed: the book, ${looms} looms and ${Math.round(thousands)} thousand lines, was built from nothing in ${Math.round(spent)} ms, ${(spent / thousands).toFixed(1)} ms for each thousand lines`,
+    )
+    expect(spent / thousands).toBeLessThan(65)
+  }, 120_000)
+})
+
+## A keystroke
+
+An author who types in a loom waits for the compiler after every keystroke. The compiler builds the edited loom again and projects it against the corpus it has built already. The second test types into the longest loom of the book, since that loom costs the most to build again.
+
+`typedInto` gives the compiler a source that answers with the edited text for one loom and with the saved text for every other, as the editor's own source does. `keystrokes` projects the loom once as it is saved, so the corpus is built before the author types. It then types five times, each time a different word, and times each projection.
+
+The test judges the middle of the five times, so one pause of the machine does not decide it. The budget is 180 milliseconds, about four times what a keystroke takes on a laptop.
+
+=>
+
+const typedInto = (documents: DocumentSource['Service'], loom: string, text: string) => ({
+  read: (path: string) => (path === loom ? Effect.succeed(text) : documents.read(path)),
+  list: documents.list,
+})
+
+const keystrokes = Effect.gen(function* () {
+  const source = yield* WorkspaceSource
+  const compiler = yield* LoomCompiler
+  const documents = yield* DocumentSource
+  const looms = yield* source.corpusOf(book)
+  const longest = looms.reduce(
+    (found, loom) => (linesIn(loom) > linesIn(found) ? loom : found),
+    book,
+  )
+  const saved = readFileSync(longest, 'utf8')
+  yield* compiler.compile(documents, longest)
+  return yield* Effect.forEach(Array.range(1, 5), (stroke) =>
+    millis(
+      compiler.compile(
+        typedInto(documents, longest, saved.replace('\n\n', `\n\nA word ${stroke}. `)),
+        longest,
+      ),
+    ).pipe(Effect.map(([spent]) => spent)),
+  )
+})
+
+describe('a keystroke in the longest loom of the book', () => {
+  it('is answered within its budget', async () => {
+    const times = Array.sort(await bookCompiler.runPromise(keystrokes), Order.Number)
+    const middle = times[2] ?? Infinity
+    console.log(`speed: a keystroke was answered in ${Math.round(middle)} ms`)
+    expect(middle).toBeLessThan(180)
+  }, 120_000)
+})
+
+## A corpus eight times the size
+
+The third test asks whether a loom costs more to build in a large corpus than in a small one. It needs two corpora that differ in size and in nothing else, so it writes them itself.
+
+A generated corpus is a row of batches. `batchOf` writes one batch as a loom: a title, twelve steps, and one file. Each step is a section with a sentence and a line of code. The file composes the twelve steps of its own batch, and it composes the first step of the first batch, so every loom but the first reaches into another loom. Each loom reaches one other, whatever the size of the corpus, so the work a loom calls for is the same in both corpora. `generated` writes a workspace of as many batches as it is asked for, in a temporary folder, and lists its looms.
+
+=>
+
+const steps = 12
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const stepName = (batch: number, step: number): string => `Step ${step} of batch ${batch}`
+
+const stepOf = (batch: number, step: number): ReadonlyArray<string> => [
+  `## ${stepName(batch, step)}`,
+  '',
+  `Step ${step} of batch ${batch} adds ${step} to the number it is given.`,
+  '',
+  '=>',
+  '',
+  `export const step${batch}x${step} = (given: number): number => given + ${step}`,
+  '',
+]
+
+const batchOf = (batch: number): string =>
+  lines(
+    `# Batch ${batch}`,
+    '',
+    `Batch ${batch} holds ${steps} steps and the file that composes them.`,
+    '',
+    ...Array.range(1, steps).flatMap((step) => stepOf(batch, step)),
+    `## The file of batch ${batch} [src/batch${batch}.ts]`,
+    '',
+    '=>',
+    '',
+    ...Array.range(1, steps).flatMap((step) => [anchor(stepName(batch, step)), '']),
+    ...(batch > 1 ? [anchor(`Batch 1, ${stepName(1, 1)}`)] : []),
+  )
+
+const generated = (count: number): ReadonlyArray<string> => {
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'loom-speed-')))
+  mkdirSync(join(workspace, '.loom'))
+  mkdirSync(join(workspace, 'corpus'))
+  writeFileSync(join(workspace, '.loom', 'config.yaml'), 'corpus: corpus\nprimary: typescript\n')
+  return Array.range(1, count).map((batch) => {
+    const loom = join(workspace, 'corpus', `batch-${batch}.loom`)
+    writeFileSync(loom, batchOf(batch))
+    return loom
+  })
+}
+
+~
+
+`perLoom` generates a corpus, handles every loom of it through a compiler that has built nothing, and gives the milliseconds one loom took.
+
+The test builds a corpus of 50 looms and a corpus of 400. When every step of a build handles a loom by itself, a loom costs the same in both. When some step reads the whole corpus again for every loom, a loom in the larger corpus costs several times as much, and up to eight. The test allows one and a half times as much. That leaves room for the garbage collector, which works harder over a larger heap, and for nothing as large as a second reading of the corpus.
+
+The test first builds a corpus of ten looms and discards the time, so both measured builds run on code the engine has already compiled.
+
+=>
+
+const perLoom = (count: number): Promise<number> => {
+  const looms = generated(count)
+  return Effect.runPromise(
+    LoomCompiler.pipe(
+      Effect.flatMap((compiler) =>
+        millis(Effect.forEach(looms, (loom) => handled(compiler, loom))),
+      ),
+      Effect.map(([spent]) => spent / count),
+      Effect.provide(fromNothing),
+    ),
+  )
+}
+
+describe('a corpus eight times the size', () => {
+  it('costs no more for each loom', async () => {
+    await perLoom(10)
+    const small = await perLoom(50)
+    const large = await perLoom(400)
+    console.log(
+      `speed: a loom took ${small.toFixed(1)} ms among 50 looms and ${large.toFixed(1)} ms among 400`,
+    )
+    expect(large / small).toBeLessThan(1.5)
+  }, 120_000)
+})
+
+## The speed tests {Tangle}
+
+=>
+
+::[A compiler that has built nothing]
+
+::[The book, built from nothing]
+
+::[A keystroke]
+
+::[A corpus eight times the size]

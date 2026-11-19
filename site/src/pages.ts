@@ -1,4 +1,4 @@
-import { Array, Effect, FileSystem, Option, pipe, Schema as S } from 'effect'
+import { Effect, FileSystem, Option, pipe, Schema as S } from 'effect'
 import { basename, dirname, extname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
@@ -105,11 +105,11 @@ export const modelAt = (book: Option.Option<Corpus>, place: Place): Model => ({
 })
 
 export const everyAddress = (book: Option.Option<Corpus>): ReadonlyArray<string> => [
-  ...Array.map(Route.literals, pathOf),
-  ...Array.map(docsCorpus.pages, (page) => chapterPath('/docs', page.slug)),
+  ...Route.literals.map(pathOf),
+  ...docsCorpus.pages.map((page) => chapterPath('/docs', page.slug)),
   ...Option.match(book, {
     onNone: () => [],
-    onSome: (corpus) => Array.map(corpus.pages, (page) => chapterPath('/source', page.slug)),
+    onSome: (corpus) => corpus.pages.map((page) => chapterPath('/source', page.slug)),
   }),
 ]
 

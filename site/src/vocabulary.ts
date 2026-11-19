@@ -1,4 +1,3 @@
-import { Array } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
 import { broadSeam, carpetMark, vocabularyCarpet } from './components'
 
@@ -101,6 +100,6 @@ export const vocabulary = (): Html =>
           ),
         ],
       ),
-      ih.div([ih.Class('mark-set')], Array.map(marks, markCard)),
+      ih.div([ih.Class('mark-set')], marks.map(markCard)),
     ],
   )

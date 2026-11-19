@@ -1,4 +1,17 @@
-import { Array, Config, Context, Data, Effect, Layer, Option, Redacted, Ref, Schema } from 'effect'
+import {
+  Array,
+  Config,
+  Context,
+  Data,
+  Effect,
+  Equal,
+  Layer,
+  Option,
+  pipe,
+  Redacted,
+  Ref,
+  Schema,
+} from 'effect'
 import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
@@ -14,7 +27,15 @@ import {
 import { type Location } from '@athrio/loom-ast/LoomCorpusAst'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { type KeptRelation, KeptRelationSchema } from '#ast/Relations'
-import { holds, loomsIn, projectIn, type Path } from './LoomProject'
+import {
+  holdsOf,
+  loomsIn,
+  projectIn,
+  walkIn,
+  type LoomProject,
+  type Path,
+  type Reading,
+} from './LoomProject'
 import { LoomDiskCache } from './LoomDiskCache'
 import {
   FileSystemSettings,
@@ -83,17 +104,110 @@ const corpusFolderOf = (workspace: Location, manifest: Option.Option<WorkspaceMa
     onSome: (m) => join(workspace, m.corpus ?? defaultCorpus),
   })
 
-const corpusWalk = (resolved: ResolvedConfig, loom: Location): ReadonlyArray<Location> =>
-  Option.match(
-    Option.filter(projectIn(resolved), (project) => holds(project, loom)),
-    {
-      onNone: () => loomsIn(dirname(loom), Option.none()),
-      onSome: (project) =>
-        loomsIn(
-          Option.getOrElse(Option.fromNullishOr(resolved.corpusDir), () => dirname(loom)),
-          Option.some(project),
+interface KeptReading<Answer> {
+  readonly answer: Answer
+  readonly times: ReadonlyArray<readonly [Path, Option.Option<number>]>
+}
+
+type KeptReadings<Answer> = Ref.Ref<ReadonlyMap<string, KeptReading<Answer>>>
+
+const timeOf = (path: Path): Option.Option<number> =>
+  pipe(
+    Option.liftThrowable(() => statSync(path, { throwIfNoEntry: false }))(),
+    Option.flatMap(Option.fromNullishOr),
+    Option.map((stats) => stats.mtimeMs),
+  )
+
+const stands = <Answer,>(kept: KeptReading<Answer>): boolean =>
+  kept.times.every(([path, time]) => Equal.equals(timeOf(path), time))
+
+const tickOf = (time: number): number => (time % 1000 === 0 ? 2000 : 50)
+
+const settled = (time: Option.Option<number>, taken: number): boolean =>
+  Option.match(time, { onNone: () => true, onSome: (at) => at + tickOf(at) <= taken })
+
+const keptOf = <Answer>(
+  reading: Reading<Answer>,
+  taken: number,
+): Option.Option<KeptReading<Answer>> => {
+  const times = reading.from.map((path) => [path, timeOf(path)] as const)
+  return times.every(([, time]) => settled(time, taken))
+    ? Option.some({ answer: reading.answer, times })
+    : Option.none()
+}
+
+const answeredAfresh = <Answer>(
+  kept: KeptReadings<Answer>,
+  key: string,
+  read: () => Reading<Answer>,
+): Effect.Effect<Answer> =>
+  Effect.sync(() => {
+    const taken = Date.now()
+    const reading = read()
+    return { answer: reading.answer, fresh: keptOf(reading, taken) }
+  }).pipe(
+    Effect.tap(({ fresh }) =>
+      Option.match(fresh, {
+        onNone: () => Effect.void,
+        onSome: (reading) => Ref.update(kept, (held) => new Map(held).set(key, reading)),
+      }),
+    ),
+    Effect.map(({ answer }) => answer),
+  )
+
+const answered = <Answer>(
+  kept: KeptReadings<Answer>,
+  key: string,
+  read: () => Reading<Answer>,
+): Effect.Effect<Answer> =>
+  Ref.get(kept).pipe(
+    Effect.flatMap((held) =>
+      Effect.sync(() => Option.filter(Option.fromNullishOr(held.get(key)), stands)),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onSome: (reading) => Effect.succeed(reading.answer),
+        onNone: () => answeredAfresh(kept, key, read),
+      }),
+    ),
+  )
+
+interface KeptAnswers {
+  readonly walks: KeptReadings<ReadonlyArray<Location>>
+  readonly holds: KeptReadings<(loom: Path) => boolean>
+}
+
+const keyOf = (path: Path, project: Option.Option<LoomProject>): string =>
+  JSON.stringify([path, Option.getOrNull(project)])
+
+const holderOf = (
+  kept: KeptAnswers,
+  resolved: ResolvedConfig,
+  loom: Location,
+): Effect.Effect<Option.Option<LoomProject>> =>
+  Option.match(projectIn(resolved), {
+    onNone: () => Effect.succeed(Option.none()),
+    onSome: (project) =>
+      answered(kept.holds, keyOf(project.root, Option.some(project)), () => holdsOf(project)).pipe(
+        Effect.flatMap((holds) =>
+          Effect.sync(() => (holds(loom) ? Option.some(project) : Option.none())),
         ),
-    },
+      ),
+  })
+
+const corpusWalk = (
+  kept: KeptAnswers,
+  resolved: ResolvedConfig,
+  loom: Location,
+): Effect.Effect<ReadonlyArray<Location>> =>
+  holderOf(kept, resolved, loom).pipe(
+    Effect.flatMap((holder) => {
+      const folder = Option.match(holder, {
+        onNone: () => dirname(loom),
+        onSome: () => Option.getOrElse(Option.fromNullishOr(resolved.corpusDir), () => dirname(loom)),
+      })
+      return answered(kept.walks, keyOf(folder, holder), () => walkIn(folder, holder))
+    }),
   )
 
 export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink: string): Path =>
@@ -115,6 +229,10 @@ export const FileSystemSource = Layer.effect(
   WorkspaceSource,
   Effect.gen(function* () {
     const config = yield* LoomConfig
+    const kept: KeptAnswers = {
+      walks: yield* Ref.make<ReadonlyMap<string, KeptReading<ReadonlyArray<Location>>>>(new Map()),
+      holds: yield* Ref.make<ReadonlyMap<string, KeptReading<(loom: Path) => boolean>>>(new Map()),
+    }
     const open = (workspace: Location): Effect.Effect<Workspace, ReadError> =>
       Effect.gen(function* () {
         const manifest = Option.fromNullishOr(yield* config.manifest(workspace))
@@ -140,9 +258,7 @@ export const FileSystemSource = Layer.effect(
       open,
       read: fromDisk,
       corpusOf: (loom) =>
-        config
-          .resolve(loom)
-          .pipe(Effect.flatMap((resolved) => Effect.sync(() => corpusWalk(resolved, loom)))),
+        config.resolve(loom).pipe(Effect.flatMap((resolved) => corpusWalk(kept, resolved, loom))),
       workspaceOf,
       placeOf: (loom, sink) =>
         config
@@ -176,7 +292,7 @@ const relationsIn = (workspace: Location): Effect.Effect<ReadonlyArray<KeptRelat
     ),
     Effect.flatMap(Schema.decodeUnknownEffect(RelationsFile)),
     Effect.map((file) =>
-      Array.map(file.relations, (relation) => ({
+      file.relations.map((relation) => ({
         ...relation,
         loom: join(workspace, relation.loom),
       })),
@@ -185,12 +301,11 @@ const relationsIn = (workspace: Location): Effect.Effect<ReadonlyArray<KeptRelat
   )
 
 const relationsText = (workspace: Location, relations: ReadonlyArray<KeptRelation>): string => {
-  const rows = Array.map(
-    relations,
+  const rows = relations.map(
     (relation) =>
       `    ${JSON.stringify({ ...relation, loom: relative(workspace, relation.loom) })}`,
   )
-  return `{\n  "version": 1,\n  "relations": [\n${Array.join(rows, ',\n')}\n  ]\n}\n`
+  return `{\n  "version": 1,\n  "relations": [\n${rows.join(',\n')}\n  ]\n}\n`
 }
 
 const keptFile = (workspace: Location, relations: ReadonlyArray<KeptRelation>): KeptFile => ({

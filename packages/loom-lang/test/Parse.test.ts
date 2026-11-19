@@ -1,7 +1,7 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
-import { Effect, Schema, Stream, pipe } from 'effect'
+import { Effect, Schema, pipe } from 'effect'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { LoomSourceRanges } from '#ast/LineRanges'
@@ -46,9 +46,8 @@ const classifyText = (text: string): ReadonlyArray<LoomWeft> =>
     Effect.gen(function* () {
       const sources = yield* LoomSourceRanges
       const classifier = yield* WeftClassifier
-      const ranges = yield* sources.stream(text)
-      const stream = classifier.classifyWefts(text)(ranges)
-      return yield* Stream.runCollect(stream)
+      const ranges = yield* sources.rangesOf(text)
+      return classifier.classifyWefts(text)(ranges)
     }).pipe(
       Effect.provide(LoomSourceRanges.layer),
       Effect.provide(WeftClassifier.layer),
@@ -62,13 +61,12 @@ const tokeniseText = (text: string): ReadonlyArray<LoomWeft> =>
       const sources = yield* LoomSourceRanges
       const classifier = yield* WeftClassifier
       const tokeniser = yield* WeftTokeniser
-      const ranges = yield* sources.stream(text)
-      const stream = pipe(
+      const ranges = yield* sources.rangesOf(text)
+      return pipe(
         ranges,
         classifier.classifyWefts(text),
         tokeniser.tokeniseWefts(text),
       )
-      return yield* Stream.runCollect(stream)
     }).pipe(
       Effect.provide(LoomSourceRanges.layer),
       Effect.provide(WeftClassifier.layer),

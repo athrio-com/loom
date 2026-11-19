@@ -162,16 +162,15 @@ export const Model = S.Struct({
 })
 export type Model = typeof Model.Type
 
-export const pathOf = (route: Route): string =>
-  Match.value(route).pipe(
-    Match.when('home', () => '/'),
-    Match.when('docs', () => '/docs'),
-    Match.when('why-loom', () => '/why-loom'),
-    Match.when('community', () => '/community'),
-    Match.when('source', () => '/source'),
-    Match.when('license', () => '/license'),
-    Match.exhaustive,
-  )
+export const pathOf: (route: Route) => string = Match.type<Route>().pipe(
+  Match.when('home', () => '/'),
+  Match.when('docs', () => '/docs'),
+  Match.when('why-loom', () => '/why-loom'),
+  Match.when('community', () => '/community'),
+  Match.when('source', () => '/source'),
+  Match.when('license', () => '/license'),
+  Match.exhaustive,
+)
 
 export const routeOf = (pathname: string): Option.Option<Route> =>
   Array.findFirst(Route.literals, (route) => pathOf(route) === pathname)

@@ -236,16 +236,15 @@ Each route answers at one address. The home page sits at the root, and every oth
 
 =>
 
-export const pathOf = (route: Route): string =>
-  Match.value(route).pipe(
-    Match.when('home', () => '/'),
-    Match.when('docs', () => '/docs'),
-    Match.when('why-loom', () => '/why-loom'),
-    Match.when('community', () => '/community'),
-    Match.when('source', () => '/source'),
-    Match.when('license', () => '/license'),
-    Match.exhaustive,
-  )
+export const pathOf: (route: Route) => string = Match.type<Route>().pipe(
+  Match.when('home', () => '/'),
+  Match.when('docs', () => '/docs'),
+  Match.when('why-loom', () => '/why-loom'),
+  Match.when('community', () => '/community'),
+  Match.when('source', () => '/source'),
+  Match.when('license', () => '/license'),
+  Match.exhaustive,
+)
 
 ~
 

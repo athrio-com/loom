@@ -38,7 +38,7 @@ export const isLoomTrope = (id: string): boolean => loomTropes.includes(id)
 
 The store lives in the workspace, under `.loom/services/` — the directory `loom add` fills, beside the committed `config.yaml`. Git ignores the store, since Loom rebuilds it on demand, while the configuration is committed. Loom installs each language's service there once, to serve the whole workspace, and never under the user's home directory: a project's tools belong to the project, not to the machine.
 
-A path belongs to the nearest workspace above it. A workspace is a folder that holds a configuration, the `.loom/config.yaml` file that `loom init` writes, and `isWorkspace` asks that of a folder. A `.loom` folder alone does not make one. The install script keeps the standalone executable in `~/.loom/bin`, and a loose loom keeps the lock of its last tangle in a `.loom` folder beside it. Neither folder holds a configuration, so neither turns the folder above it into a workspace. The rule keeps the home folder, which holds `~/.loom/bin` once Loom is installed, from becoming a workspace that every loose loom under it falls into.
+A path belongs to the nearest workspace above it. A workspace is a folder that holds a configuration, the `.loom/config.yaml` file that `loom init` writes. `configurationOf` names that file for a folder, and `isWorkspace` asks whether the folder holds it. A `.loom` folder alone does not make a workspace. The install script keeps the standalone executable in `~/.loom/bin`, and a loose loom keeps the lock of its last tangle in a `.loom` folder beside it. Neither folder holds a configuration, so neither turns the folder above it into a workspace. The rule keeps the home folder, which holds `~/.loom/bin` once Loom is installed, from becoming a workspace that every loose loom under it falls into.
 
 `workspaceOf` walks up from a directory to the first workspace, and yields nothing when it reaches the filesystem's root without finding one. Workspaces can nest. A Git worktree checked out inside a repository carries a configuration of its own. The walk stops at the first configuration it meets, so a loom in the worktree belongs to the worktree, not to the repository around it.
 
@@ -46,7 +46,9 @@ A path belongs to the nearest workspace above it. A workspace is a folder that h
 
 =>
 
-export const isWorkspace = (dir: string): boolean => existsSync(join(dir, '.loom', 'config.yaml'))
+export const configurationOf = (dir: string): string => join(dir, '.loom', 'config.yaml')
+
+export const isWorkspace = (dir: string): boolean => existsSync(configurationOf(dir))
 
 export const workspaceOf = (dir: string): Option.Option<string> => {
   if (isWorkspace(dir)) return Option.some(dir)
@@ -217,8 +219,7 @@ const packageManager = (root: string, spec: string): PackageManager =>
       }
     : {
         command: 'npm',
-        args: Array.map(
-          ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
+        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'].map(
           quotedOnWindows,
         ),
         env: process.env,

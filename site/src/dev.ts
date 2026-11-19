@@ -1,4 +1,4 @@
-import { Array, Data, Effect, FileSystem, Layer, Option, PubSub, Schedule, Stream } from 'effect'
+import { Data, Effect, FileSystem, Layer, Option, PubSub, Schedule, Stream } from 'effect'
 import { HttpServer, HttpServerResponse } from 'effect/http'
 import { ChildProcess } from 'effect/process'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
@@ -78,13 +78,13 @@ const restartingServer = (reloads: PubSub.PubSub<void>) =>
     Effect.map(Option.getOrElse(() => 0)),
   )
 
-const sourceDirs = Array.map(['corpus', 'docs'], (dir) => join(siteDir, '..', dir))
+const sourceDirs = ['corpus', 'docs'].map((dir) => join(siteDir, '..', dir))
 
 const loomChanges = Stream.unwrap(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     return Stream.mergeAll(
-      Array.map(sourceDirs, (dir) =>
+      sourceDirs.map((dir) =>
         fs.watch(dir, { recursive: true }).pipe(Stream.catch(() => Stream.never)),
       ),
       { concurrency: 'unbounded' },

@@ -1,5 +1,5 @@
-import { Array, Effect, Option, Schema } from 'effect'
-import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+import { Array, Option, Schema } from 'effect'
+import { HealthSchema, PositionSchema } from '#ast/LoomNode'
 
 const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
   tag: Tag,
@@ -7,7 +7,7 @@ const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
 ) =>
   Schema.Struct({
     type: Schema.tag(tag),
-    health: HealthSchema.pipe(Schema.withConstructorDefault(Effect.succeed(okHealth))),
+    health: HealthSchema,
     ...fields,
   })
 

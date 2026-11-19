@@ -64,9 +64,9 @@ process.stdin.on('end', () => {
         hook_event_name,
         'You just opened a Loom corpus. Its code sections are pure functional ' +
           'programming with Effect: model each component as an Effect.Service, ' +
-          'dispatch a union with an exhaustive Match rather than an if/else ladder ' +
+          'dispatch a union with a table of cases or an exhaustive Match rather than an if/else ladder ' +
           'or a nested ternary, carry absence as an Option and failure as a tagged ' +
-          'error, and transform with the Array module over pipe — never a loop or a ' +
+          'error, and transform with an array\'s own methods and Effect\'s Array module — never a loop or a ' +
           'let accumulator. ' + LOAD,
       )
       return

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Array, Effect, Option, Stream, pipe } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -51,9 +51,8 @@ const classifierKinds = (text: string): Effect.Effect<ReadonlyArray<LineKind>> =
   Effect.gen(function* () {
     const sources = yield* LoomSourceRanges
     const classifier = yield* WeftClassifier
-    const ranges = yield* sources.stream(text)
-    const wefts = yield* Stream.runCollect(classifier.classifyWefts(text)(ranges))
-    return Array.map(wefts, kindOf)
+    const ranges = yield* sources.rangesOf(text)
+    return classifier.classifyWefts(text)(ranges).map(kindOf)
   }).pipe(
     Effect.provide(LoomSourceRanges.layer),
     Effect.provide(WeftClassifier.layer),
@@ -110,7 +109,7 @@ const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKi
   const [, block, startRow, endRow, endColumn] = match
   const start = Number(startRow)
   const end = Number(endColumn) === 0 ? Number(endRow) - 1 : Number(endRow)
-  return Array.map(Array.range(start, end), (row) => [row, blockKind[block as Block]] as const)
+  return Array.range(start, end).map((row) => [row, blockKind[block as Block]] as const)
 }
 
 type Mark = 'arrow' | 'tilde' | 'code_fence' | 'box_fence'
@@ -125,17 +124,16 @@ const markKind: Record<Mark, LineKind> = {
 const markPattern = /\((arrow|tilde|code_fence|box_fence) \[(\d+), \d+\]/g
 
 const markRows = (tree: string): ReadonlyArray<readonly [number, LineKind]> =>
-  Array.map(
-    Array.fromIterable(tree.matchAll(markPattern)),
+  Array.fromIterable(tree.matchAll(markPattern)).map(
     ([, mark, row]) => [Number(row), markKind[mark as Mark]] as const,
   )
 
 const grammarKinds = (tree: string, count: number): ReadonlyArray<LineKind> => {
   const rows = new Map([
-    ...Array.flatMap(Array.fromIterable(tree.matchAll(blockPattern)), rowsOf),
+    ...Array.fromIterable(tree.matchAll(blockPattern)).flatMap(rowsOf),
     ...markRows(tree),
   ])
-  return count === 0 ? [] : Array.map(Array.range(0, count - 1), (row) => rows.get(row) ?? 'none')
+  return count === 0 ? [] : Array.range(0, count - 1).map((row) => rows.get(row) ?? 'none')
 }
 
 type Disagreement = {
@@ -148,11 +146,9 @@ const disagreements = (
   classifier: ReadonlyArray<LineKind>,
   grammar: ReadonlyArray<LineKind>,
 ): ReadonlyArray<Disagreement> =>
-  pipe(
-    Array.zip(classifier, grammar),
-    Array.map(([c, g], i) => ({ line: i + 1, classifier: c, grammar: g })),
-    Array.filter((d) => d.classifier !== d.grammar),
-  )
+  Array.zip(classifier, grammar)
+    .map(([c, g], i) => ({ line: i + 1, classifier: c, grammar: g }))
+    .filter((d) => d.classifier !== d.grammar)
 
 const checkLoom = (file: string): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -180,23 +176,20 @@ describe('the generated parser', () => {
 
 const repository = resolve(grammarDir, '..', '..')
 
-const repositoryLooms: ReadonlyArray<string> = pipe(
-  ['corpus', 'docs', 'examples'],
-  Array.flatMap((folder) =>
-    Array.map(
-      readdirSync(join(repository, folder), { recursive: true, encoding: 'utf8' }),
-      (path) => join(folder, path),
+const repositoryLooms: ReadonlyArray<string> = ['corpus', 'docs', 'examples']
+  .flatMap((folder) =>
+    readdirSync(join(repository, folder), { recursive: true, encoding: 'utf8' }).map((path) =>
+      join(folder, path),
     ),
-  ),
-  Array.filter(
+  )
+  .filter(
     (path) =>
       path.endsWith('.loom') &&
       path.split(/[\\/]/).every((part) => part !== 'node_modules' && !part.startsWith('.')),
-  ),
-)
+  )
 
 describe('the grammar agrees with the classifier', () => {
-  Array.forEach(repositoryLooms, (path) =>
+  repositoryLooms.forEach((path) =>
     it.effect(path, () => checkLoom(join(repository, path)), 30_000),
   )
 })
@@ -410,14 +403,12 @@ const injectionOf = (match: string): ReadonlyArray<Injection> => {
     captures,
     ([, name]) => name === 'injection.language' || name === 'injection.filename',
   )
-  const content = pipe(
-    captures,
-    Array.filter(([, name]) => name === 'injection.content'),
-    Array.map(([, , startRow, startColumn, endRow, endColumn]) => ({
+  const content = captures
+    .filter(([, name]) => name === 'injection.content')
+    .map(([, , startRow, startColumn, endRow, endColumn]) => ({
       start: [Number(startRow), Number(startColumn)] as const,
       end: [Number(endRow), Number(endColumn)] as const,
-    })),
-  )
+    }))
   return pipe(
     Array.head(content),
     Option.map((first) => ({
@@ -435,7 +426,11 @@ const injectionOf = (match: string): ReadonlyArray<Injection> => {
 const injectionsOf = (query: string, file: string): Effect.Effect<ReadonlyArray<Injection>> =>
   Effect.map(
     treeSitter(['query', '--lib-path', library, '--lang-name', 'loom', query, file]),
-    (printed) => Array.flatMap(printed.split(/^\s*pattern: \d+$/m).slice(1), injectionOf),
+    (printed) =>
+      printed
+        .split(/^\s*pattern: \d+$/m)
+        .slice(1)
+        .flatMap(injectionOf),
   )
 
 const languageForms = [
@@ -491,7 +486,7 @@ const languageForms = [
 ]
 
 const rowsWhere = (test: (line: string) => boolean): ReadonlyArray<number> =>
-  Array.filter(Array.range(0, languageForms.length - 1), (row) => test(languageForms[row]))
+  Array.range(0, languageForms.length - 1).filter((row) => test(languageForms[row]))
 
 const headingRows = rowsWhere((line) => line.startsWith('# '))
 
@@ -503,14 +498,10 @@ const blockEnd = (arrow: number): number =>
 
 const codeLanguages = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
   Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
-    Array.map(
-      rowsWhere((line) => line.startsWith('=>')),
-      (arrow) =>
-        pipe(
-          injections,
-          Array.filter((injection) => injection.row >= arrow && injection.row < blockEnd(arrow)),
-          Array.map((injection) => injection.language),
-        ),
+    rowsWhere((line) => line.startsWith('=>')).map((arrow) =>
+      injections
+        .filter((injection) => injection.row >= arrow && injection.row < blockEnd(arrow))
+        .map((injection) => injection.language),
     ),
   )
 
@@ -564,22 +555,20 @@ const covers = (span: Span, position: Position): boolean =>
   before(span.start, position) && !before(span.end, position)
 
 describe('the anchors in a code block', () => {
-  Array.forEach(
-    [
-      'queries/injections.scm',
-      'editors/helix/queries/loom/injections.scm',
-      'editors/zed/languages/loom/injections.scm',
-    ],
-    (query) =>
-      it.effect(`stay out of the text ${query} injects`, () =>
-        Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
-          expect(
-            Array.some(injections, (injection) =>
-              Array.some(injection.content, (span) => covers(span, [anchorRow, 0])),
-            ),
-          ).toBe(false),
-        ),
+  ;[
+    'queries/injections.scm',
+    'editors/helix/queries/loom/injections.scm',
+    'editors/zed/languages/loom/injections.scm',
+  ].forEach((query) =>
+    it.effect(`stay out of the text ${query} injects`, () =>
+      Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
+        expect(
+          injections.some((injection) =>
+            injection.content.some((span) => covers(span, [anchorRow, 0])),
+          ),
+        ).toBe(false),
       ),
+    ),
   )
 })
 
@@ -601,7 +590,7 @@ const pinnedRevision = (manifest: string): Option.Option<string> =>
   )
 
 describe('the pins', () => {
-  Array.forEach(['editors/zed/extension.toml', 'editors/helix/languages.toml'], (manifest) =>
+  ;['editors/zed/extension.toml', 'editors/helix/languages.toml'].forEach((manifest) =>
     it.effect(`${manifest} pins the commit that last changed the grammar`, () =>
       Effect.map(lastGrammarCommit, (commit) =>
         expect(pinnedRevision(manifest)).toEqual(Option.some(commit)),

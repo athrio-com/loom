@@ -1,11 +1,17 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
+import { memoize } from 'effect/Function'
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
-import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
+import { type Diagnostic, type Health, type Position, byType } from '@athrio/loom-ast/LoomNode'
 import type { LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
-import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import {
+  LoomCorpusAstBuilder,
+  type ParsedLoom,
+  type ReadError,
+  type Source,
+} from '#ast/LoomCorpusAstBuilder'
 import {
   catalogueOf,
   type Catalogue,
@@ -107,6 +113,7 @@ import {
   declaredKindsOf,
   kindFaults,
   noDeclarations,
+  tropeIn,
   tropeOf,
   tropesOf,
 } from '#ast/DeclaredKinds'
@@ -151,8 +158,8 @@ import {
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
-import { LoomDiskCache } from './LoomDiskCache'
-import { WorkspaceSettings } from './WorkspaceSettings'
+import { type Built, declaredKey, LoomDiskCache } from './LoomDiskCache'
+import { type BuildSettings, WorkspaceSettings } from './WorkspaceSettings'
 import { type RelationsNotKept, WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
@@ -162,30 +169,50 @@ type Modules = ReadonlyMap<Location, LoomModule>
 
 const scopedTo = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
   const keep = new Set(paths)
-  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
+  return new Map(Array.fromIterable(modules).filter(([p]) => keep.has(p)))
 }
 
 type Corpus = { readonly modules: Modules; readonly kinds: DeclaredKinds }
 
+type KeptCorpus = {
+  readonly held: Modules
+  readonly installed: Declarations
+  readonly corpus: Corpus
+}
+
+const sameModules = (one: Modules, other: Modules): boolean =>
+  one.size === other.size &&
+  Array.zip(Array.fromIterable(one), Array.fromIterable(other)).every(
+    ([[path, module], [otherPath, otherModule]]) => path === otherPath && module === otherModule,
+  )
+
 const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
   const drop = new Set(paths)
-  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => !drop.has(p)))
+  return new Map(Array.fromIterable(modules).filter(([p]) => !drop.has(p)))
 }
 
 const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
+
+type Waiting = { readonly loom: ParsedLoom; readonly settings: BuildSettings }
+
+const wasBuiltWith =
+  (wanted: Option.Option<Declared>) =>
+  (kept: Built): boolean =>
+    Option.match(wanted, {
+      onNone: () => true,
+      onSome: (declared) => kept.builtAs === declaredKey(declared),
+    })
 
 const anchorLabels = (
   kinds: DeclaredKinds,
   standing: Option.Option<Standing>,
 ): ReadonlyArray<string> => [
   ...anchorKinds,
-  ...Array.map(
-    Array.filter(
-      kinds.anchor,
+  ...kinds.anchor
+    .filter(
       (declared) => !Option.exists(declared.standsIn, (place) => !Option.contains(standing, place)),
-    ),
-    (declared) => declared.kind,
-  ),
+    )
+    .map((declared) => declared.kind),
 ]
 
 const keyedKind = (declared: {
@@ -194,21 +221,18 @@ const keyedKind = (declared: {
 }): KeyedKind => ({ kind: declared.kind, parameters: declared.parameters })
 
 const declaredIn = (kinds: DeclaredKinds): Declared => ({
-  section: Array.map(kinds.section, (each) => ({ ...keyedKind(each), codeless: each.codeless })),
-  anchor: Array.map(kinds.anchor, (each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
-  box: Array.map(kinds.box, keyedKind),
-  loom: Array.map(kinds.loom, (each) => ({
+  section: kinds.section.map((each) => ({ ...keyedKind(each), codeless: each.codeless })),
+  anchor: kinds.anchor.map((each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
+  box: kinds.box.map(keyedKind),
+  loom: kinds.loom.map((each) => ({
     kind: each.kind,
     numbered: each.numbered,
     zone: each.zone,
     codeless: each.codeless,
     holds: each.holds,
   })),
-  headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
+  headings: Object.fromEntries(kinds.headings.map((each) => [each.key, each.type] as const)),
 })
-
-const sameDeclared = (one: Declared, other: Declared): boolean =>
-  JSON.stringify(one) === JSON.stringify(other)
 
 const entryOf = (
   modules: Modules,
@@ -229,14 +253,14 @@ const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray
         DuplicateName({
           name: title.source,
           sibling: 'chapter',
-          where: Array.join(Array.map(looms, loomName), ', '),
+          where: looms.map(loomName).join(', '),
         }),
         title.position,
       ).diagnostics,
   })
 
 const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  Array.flatMap(linksOf(module), (link) => {
+  linksOf(module).flatMap((link) => {
     const trails = anchorTrails(catalogue, module.path, link)
     return Array.match(trails, {
       onEmpty: () =>
@@ -256,10 +280,9 @@ const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
   })
 
 const referenceFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  pipe(
-    referencesOf(module),
-    Array.filter((held) => !isTropeEntry(held)),
-    Array.flatMap((held) =>
+  referencesOf(module)
+    .filter((held) => !isTropeEntry(held))
+    .flatMap((held) =>
       Array.match(referenceTrails(catalogue, module.path, held), {
         onEmpty: () =>
           faulty(
@@ -278,8 +301,7 @@ const referenceFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArra
                 held.value.position,
               ).diagnostics,
       }),
-    ),
-  )
+    )
 
 const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
   ...Option.match(bookTwinsOf(catalogue, module), {
@@ -289,7 +311,7 @@ const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
         DuplicateName({
           name: title.source,
           sibling: 'book',
-          where: Array.join(Array.map(looms, loomName), ', '),
+          where: looms.map(loomName).join(', '),
         }),
         title.position,
       ).diagnostics,
@@ -333,7 +355,7 @@ const namedLanguages = (module: LoomModule): ReadonlyArray<NamedLanguage> =>
       Option.flatMap(Option.fromNullishOr(module.doc.frontmatter?.package), (named) =>
         Option.map(singleFile(Option.some(named.value)), () => fileLanguage(named)),
       ),
-      ...Array.map(module.doc.sections, sectionLanguageAt),
+      ...module.doc.sections.map(sectionLanguageAt),
     ],
     Array.getSomes,
     Array.dedupeWith((one, other) => one.language === other.language),
@@ -347,13 +369,11 @@ const languageFaults = (
     onNone: (): ReadonlyArray<Diagnostic> => [],
     onSome: (languages) => {
       const servedHere = [...ownLanguages, ...languages]
-      return pipe(
-        namedLanguages(module),
-        Array.filter(({ language }) => !Array.contains(servedHere, language)),
-        Array.flatMap(
+      return namedLanguages(module)
+        .filter(({ language }) => !Array.contains(servedHere, language))
+        .flatMap(
           ({ language, position }) => faulty(UnservedLanguage({ language }), position).diagnostics,
-        ),
-      )
+        )
     },
   })
 
@@ -380,9 +400,9 @@ const corpusDiagnostics = (
   served: Option.Option<ReadonlyArray<string>>,
 ) => {
   const catalogue = catalogueOf(modules)
-  const landing = landingOf(catalogue, modules)
+  const landing = landingOf(modules)
   const boundaries = boundariesOf(modules, catalogue, tropesOf(modules))
-  const used = usedSections(catalogue, modules)
+  const used = usedSections(modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(catalogue, modules, module, landing),
@@ -396,12 +416,13 @@ const corpusDiagnostics = (
     ...driftFaults(catalogue, module, relations),
     ...languageFaults(served, module),
     ...boundaryFaults(boundaries, catalogue, modules, module),
-    ...Array.flatMap(
-      boxNoticesIn({ modules }, module),
-      (notice) => boxNoticeHealth(notice).diagnostics,
-    ),
+    ...boxNoticesIn({ modules }, module).flatMap((notice) => boxNoticeHealth(notice).diagnostics),
   ]
 }
+
+const tangleFaults: (corpus: Corpus) => (module: LoomModule) => ReadonlyArray<Diagnostic> = memoize(
+  (corpus: Corpus) => memoize(corpusDiagnostics(corpus.modules, corpus.kinds, [], Option.none())),
+)
 
 export interface TangledFile {
   readonly section: string
@@ -426,7 +447,7 @@ const resolveSinks = (
       onNone: () => Effect.succeed<Resolved>({ files: [], unwritten: [] }),
       onSome: (module) => {
         const catalogue = catalogueOf(modules)
-        const landing = landingOf(catalogue, modules)
+        const landing = landingOf(modules)
         return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.flatMap((path) =>
@@ -444,8 +465,8 @@ const resolveSinks = (
           ),
         ).pipe(
           Effect.map((each) => ({
-            files: Array.map(each, (one) => one.file),
-            unwritten: Array.flatMap(each, (one) => one.unwritten),
+            files: each.map((one) => one.file),
+            unwritten: each.flatMap((one) => one.unwritten),
           })),
         )
       },
@@ -462,7 +483,7 @@ const unsettledFailures = (
     Option.match({
       onNone: (): ReadonlyArray<Unsettled> => [],
       onSome: (module) =>
-        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, catalogue)),
+        module.product.files.flatMap((file) => unsettledIn(modules, file.code, catalogue)),
     }),
     Array.dedupeWith(
       (one, other) =>
@@ -472,8 +493,7 @@ const unsettledFailures = (
     Record.toEntries,
     Array.map(([path, unsettled]) => ({
       path,
-      diagnostics: Array.flatMap(
-        unsettled,
+      diagnostics: unsettled.flatMap(
         (one) =>
           faulty(
             one.moduleAnchor
@@ -559,7 +579,7 @@ const byLoom = (
     unwritten,
     Array.groupBy((one) => one.path),
     Record.toEntries,
-    Array.map(([path, each]) => ({ path, diagnostics: Array.map(each, (one) => one.diagnostic) })),
+    Array.map(([path, each]) => ({ path, diagnostics: each.map((one) => one.diagnostic) })),
   )
 
 export type SummaryEdit = {
@@ -605,7 +625,7 @@ const frameLocationOf = (
 const frameFixOf = (modules: Modules, fix: ConceptFix): FrameFix => ({
   title: fix.title,
   edits: Array.getSomes(
-    Array.map(fix.edits, (edit) =>
+    fix.edits.map((edit) =>
       Option.map(
         frameLocationOf(modules, { path: edit.path, position: edit.at }),
         (location): FrameEdit => ({ ...location, text: edit.text }),
@@ -645,54 +665,45 @@ const kindFaceOf = (frontmatter: LoomFrontmatter): { readonly value: string } | 
     })),
   )
 
-const partFaceOf = (part: Part): string =>
-  Match.value(part).pipe(
-    Match.when({ type: 'Fragment' }, (fragment) => fragment.text),
-    Match.when({ type: 'NameRef' }, (ref) =>
-      Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
-    ),
-    Match.when(
-      { type: 'ModuleRef' },
-      (ref) =>
-        `module ${Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf })} ${Option.match(
-          ref.file,
-          { onNone: () => '', onSome: (file) => file.name },
-        )}`,
-    ),
-    Match.exhaustive,
-  )
+const partFaceOf: (part: Part) => string = byType<Part>()({
+  Fragment: (fragment) => fragment.text,
+  NameRef: (ref) =>
+    Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
+  ModuleRef: (ref) =>
+    `module ${Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf })} ${Option.match(
+      ref.file,
+      { onNone: () => '', onSome: (file) => file.name },
+    )}`,
+})
 
 const faceOf = (module: LoomModule): string =>
   JSON.stringify({
     frontmatter: Option.match(Option.fromNullishOr(module.doc.frontmatter), {
       onNone: () => [],
       onSome: (frontmatter) =>
-        Array.map(
-          [
-            frontmatter.part,
-            frontmatter.partName,
-            frontmatter.chapter,
-            frontmatter.discussion,
-            kindFaceOf(frontmatter),
-            frontmatter.title,
-            frontmatter.package,
-            frontmatter.language,
-          ],
-          tokenValue,
-        ),
+        [
+          frontmatter.part,
+          frontmatter.partName,
+          frontmatter.chapter,
+          frontmatter.discussion,
+          kindFaceOf(frontmatter),
+          frontmatter.title,
+          frontmatter.package,
+          frontmatter.language,
+        ].map(tokenValue),
     }),
-    titles: Array.map(module.doc.sections, (section) =>
+    titles: module.doc.sections.map((section) =>
       Option.getOrElse(
         Option.map(Option.fromNullishOr(section.heading.title), (title) => title.source),
         () => '',
       ),
     ),
-    code: Array.map(module.product.code, (code) => [
+    code: module.product.code.map((code) => [
       code.origin.name,
       code.languageId,
-      Array.map(code.fragments, partFaceOf),
+      code.fragments.map(partFaceOf),
     ]),
-    files: Array.map(module.product.files, (file) => [file.path, file.code.origin.name]),
+    files: module.product.files.map((file) => [file.path, file.code.origin.name]),
   })
 
 interface Composition {
@@ -729,8 +740,7 @@ const samePlaces = (
 ): boolean =>
   Option.match(Option.all([Option.fromNullishOr(before), Option.fromNullishOr(after)]), {
     onNone: () => before === after,
-    onSome: ([was, now]) =>
-      was.length === now.length && Array.every(was, (path, i) => path === now[i]),
+    onSome: ([was, now]) => was.length === now.length && was.every((path, i) => path === now[i]),
   })
 
 const changedSince = (
@@ -738,8 +748,7 @@ const changedSince = (
   modules: Modules,
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): ReadonlyArray<Location> =>
-  Array.filter(
-    Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
+  Array.dedupe([...previous.modules.keys(), ...modules.keys()]).filter(
     (path) =>
       previous.modules.get(path) !== modules.get(path) ||
       !samePlaces(previous.placed.get(path), placed.get(path)),
@@ -769,7 +778,7 @@ const recompose = (
   const stale = staleSince(previous, modules, placed)
   if (stale.size === 0) return Effect.succeed({ ...previous, modules, placed })
   const catalogue = catalogueOf(modules)
-  const landing = landingOf(catalogue, modules)
+  const landing = landingOf(modules)
   return Effect.forEach(Array.fromIterable(modules.values()), (module) =>
     pipe(
       Option.fromNullishOr(previous.files.get(module.path)),
@@ -791,7 +800,7 @@ const recompose = (
 }
 
 const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
-  Array.flatten(Array.fromIterable(composition.files.values()))
+  Array.fromIterable(composition.files.values()).flat()
 
 const promisedNamesIn = (
   modules: Modules,
@@ -806,17 +815,14 @@ const promisedNamesIn = (
     Option.match({
       onNone: (): ReadonlyArray<PromisedName> => [],
       onSome: (root) =>
-        pipe(
-          unsettledIn(modules, root),
-          Array.flatMap((unsettled) =>
-            Array.map(unsettled.provides, (provided): PromisedName => ({
+        Array.dedupeWith(
+          unsettledIn(modules, root).flatMap((unsettled) =>
+            unsettled.provides.map((provided): PromisedName => ({
               name: provided.name,
               section: unsettled.name,
             })),
           ),
-          Array.dedupeWith(
-            (one, other) => one.name === other.name && one.section === other.section,
-          ),
+          (one, other) => one.name === other.name && one.section === other.section,
         ),
     }),
   )
@@ -826,13 +832,13 @@ const namesAt = (modules: Modules, path: Location): ReadonlyArray<string> =>
     Option.fromNullishOr(modules.get(path)),
     Option.match({
       onNone: () => [],
-      onSome: (module) => Array.map(module.product.code, (c) => c.origin.name),
+      onSome: (module) => module.product.code.map((c) => c.origin.name),
     }),
   )
 
 const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   const roots = rootNamesAt(modules, path)
-  return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
+  return namesAt(modules, path).filter((name) => roots.has(name.toLowerCase()))
 }
 
 const projectTree = (
@@ -845,15 +851,12 @@ const projectTree = (
     entry.text,
     [
       fromProse(modules, entry.path),
-      ...pipe(
-        rootsAt(modules, entry.path),
-        Array.map((name) =>
-          fromProduct(
-            modules,
-            { path: entry.path, name },
-            catalogue,
-            Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
-          ),
+      ...rootsAt(modules, entry.path).map((name) =>
+        fromProduct(
+          modules,
+          { path: entry.path, name },
+          catalogue,
+          Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
         ),
       ),
     ],
@@ -875,19 +878,20 @@ const productFeatures: CodeMapping['data'] = {
   structure: true,
 }
 
-const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
-  Match.value(kind).pipe(
-    Match.when('source', () => ({
-      verification: true,
-      format: true,
-      semantic: { shouldHighlight: () => false },
-      completion: true,
-      structure: true,
-    })),
-    Match.when('product', () => productFeatures),
-    Match.when(Match.defined, (symbol) => profileOf(symbol).features),
-    Match.orElse(() => productFeatures),
-  )
+const featuresOf: (kind: Mapping['kind']) => CodeMapping['data'] = Match.type<
+  Mapping['kind']
+>().pipe(
+  Match.when('source', () => ({
+    verification: true,
+    format: true,
+    semantic: { shouldHighlight: () => false },
+    completion: true,
+    structure: true,
+  })),
+  Match.when('product', () => productFeatures),
+  Match.when(Match.defined, (symbol) => profileOf(symbol).features),
+  Match.orElse(() => productFeatures),
+)
 
 const toCodeMapping = (m: Mapping): CodeMapping => ({
   sourceOffsets: [m.source.start.offset],
@@ -901,8 +905,8 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   id: vc.id,
   languageId: vc.languageId,
   snapshot: stringSnapshot(vc.code),
-  mappings: Array.map(vc.mappings, toCodeMapping),
-  embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
+  mappings: vc.mappings.map(toCodeMapping),
+  embeddedCodes: vc.embeddedCodes.map(toVolar),
 })
 
 export class DocumentSource extends Context.Service<DocumentSource>()('DocumentSource', {
@@ -922,7 +926,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
       hold: (looms: ReadonlyMap<Location, string>): Effect.Effect<void> =>
         Ref.update(held, (texts) => new Map([...texts, ...looms])),
       forget: (loom: Location): Effect.Effect<void> =>
-        Ref.update(held, (texts) => new Map(Array.filter([...texts], ([path]) => path !== loom))),
+        Ref.update(held, (texts) => new Map([...texts].filter(([path]) => path !== loom))),
       list: Option.some((loom: Location): Effect.Effect<ReadonlyArray<Location>> => source.corpusOf(loom)),
     }
   }),
@@ -944,6 +948,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const tropes = yield* Effect.serviceOption(TropePackages)
     const coreChapters = yield* Ref.make<Modules>(new Map())
     const declaredFor = yield* Ref.make<ReadonlyMap<Location, Declared>>(new Map())
+    const builtAs = yield* Ref.make<ReadonlyMap<Location, string>>(new Map())
+    const keptCorpora = yield* Ref.make<ReadonlyMap<Location, KeptCorpus>>(new Map())
 
     const installedKinds = (loom: Location): Effect.Effect<Declarations> =>
       Option.match(tropes, {
@@ -1012,7 +1018,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
       if (!holdsModuleRefs(modules)) return Effect.succeed(new Map())
       const catalogue = catalogueOf(modules)
-      const landing = landingOf(catalogue, modules)
+      const landing = landingOf(modules)
       return Effect.forEach(entry.product.code, (root) =>
         fileOfRoot(entry, root).pipe(
           Effect.flatMap((from) => writtenFor(modules, catalogue, landing, root, from)),
@@ -1028,28 +1034,49 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
       )
 
+    const remembered = (path: Location, load: Effect.Effect<Built>): Effect.Effect<LoomModule> =>
+      memo.get(
+        path,
+        load.pipe(
+          Effect.tap((built) =>
+            Ref.update(builtAs, (was) => new Map(was).set(path, built.builtAs)),
+          ),
+          Effect.map((built) => built.module),
+        ),
+      )
+
+    const finished =
+      (settings: BuildSettings, declared: Declared) =>
+      (loom: ParsedLoom): Effect.Effect<Built> =>
+        builder.finish(loom, settings.primaryLanguage, settings.variables, declared).pipe(
+          Effect.map((module): Built => ({ module, builtAs: declaredKey(declared) })),
+          Effect.tap((built) => disk.keep(documents, settings, built)),
+        )
+
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
-      Effect.all([config.resolve(path), declaredOf(path)]).pipe(
-        Effect.flatMap(([settings, declared]) =>
-          memo.get(
+      Effect.all([config.resolve(path), Ref.get(declaredFor)]).pipe(
+        Effect.flatMap(([settings, settled]) => {
+          const wanted = Option.fromNullishOr(settled.get(path))
+          return remembered(
             path,
-            disk.through(
-              source,
-              documents,
-              path,
-              settings,
-              declared,
-              builder.build(
-                source,
-                path,
-                settings.delims,
-                settings.primaryLanguage,
-                settings.variables,
-                declared,
+            disk.recalled(source, path, settings).pipe(
+              Effect.map(Option.filter(wasBuiltWith(wanted))),
+              Effect.flatMap(
+                Option.match({
+                  onSome: (kept) => Effect.succeed(kept),
+                  onNone: () =>
+                    builder
+                      .parse(source, path, settings.delims)
+                      .pipe(
+                        Effect.flatMap(
+                          finished(settings, Option.getOrElse(wanted, () => nothingDeclared)),
+                        ),
+                      ),
+                }),
               ),
             ),
-          ),
-        ),
+          )
+        }),
       )
 
     const evict = (paths: ReadonlyArray<Location>): Effect.Effect<void> =>
@@ -1058,7 +1085,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const corpusPaths = (source: Source, entry: Location): Effect.Effect<ReadonlyArray<Location>> =>
       Option.match(source.list, {
         onNone: () => Effect.succeed<ReadonlyArray<Location>>([entry]),
-        onSome: (list) => list(entry).pipe(Effect.map((found) => Array.dedupe([entry, ...found]))),
+        onSome: (list) =>
+          list(entry).pipe(
+            Effect.map((found) =>
+              Array.dedupe(Array.contains(found, entry) ? found : [entry, ...found]),
+            ),
+          ),
       })
 
     const matchEntry = (source: Source, path: Location): Effect.Effect<void> =>
@@ -1072,27 +1104,65 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
       )
 
-    const loadCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
-      corpusPaths(source, entry).pipe(
-        Effect.flatMap((paths) =>
-          Effect.forEach(paths, (path) =>
-            loadOne(source, path).pipe(Effect.map((m) => [path, m] as const)),
+    const waitingAmong = (
+      source: Source,
+      paths: ReadonlyArray<Location>,
+    ): Effect.Effect<ReadonlyArray<Waiting>> =>
+      memo.entries.pipe(
+        Effect.flatMap((held) =>
+          Effect.forEach(
+            paths.filter((path) => !held.has(path)),
+            (path) =>
+              config.resolve(path).pipe(
+                Effect.flatMap((settings) =>
+                  disk.recalled(source, path, settings).pipe(
+                    Effect.flatMap(
+                      Option.match({
+                        onSome: (kept) =>
+                          remembered(path, Effect.succeed(kept)).pipe(
+                            Effect.as(Option.none<Waiting>()),
+                          ),
+                        onNone: () =>
+                          builder
+                            .parse(source, path, settings.delims)
+                            .pipe(Effect.map((loom) => Option.some<Waiting>({ loom, settings }))),
+                      }),
+                    ),
+                  ),
+                ),
+              ),
           ),
         ),
-        Effect.map((pairs) => new Map(pairs)),
+        Effect.map(Array.getSomes),
       )
 
+    const heldAmong = (paths: ReadonlyArray<Location>): Effect.Effect<Modules> =>
+      memo.entries.pipe(
+        Effect.map(
+          (held): Modules =>
+            new Map(
+              Array.getSomes(
+                paths.map((path) =>
+                  Option.map(
+                    Option.fromNullishOr(held.get(path)),
+                    (module) => [path, module] as const,
+                  ),
+                ),
+              ),
+            ),
+        ),
+      )
+
+    const keptCore = (core: LoomModule): Effect.Effect<void> =>
+      Ref.update(coreChapters, (was) => new Map(was).set(core.path, core))
+
     const coreChapterOf = (source: Source, chapter: LoomModule): Effect.Effect<LoomModule> =>
-      Effect.all([
-        Ref.get(coreChapters),
-        declaredOf(chapter.path),
-        config.resolve(chapter.path),
-      ]).pipe(
-        Effect.flatMap(([kept, declared, settings]) =>
-          Option.match(Option.fromNullishOr(kept.get(chapter.path)), {
+      Effect.all([Ref.get(coreChapters), Ref.get(builtAs), config.resolve(chapter.path)]).pipe(
+        Effect.flatMap(([cores, built, settings]) =>
+          Option.match(Option.fromNullishOr(cores.get(chapter.path)), {
             onSome: (core) => Effect.succeed(core),
             onNone: () =>
-              (sameDeclared(declared, nothingDeclared)
+              (built.get(chapter.path) === declaredKey(nothingDeclared)
                 ? Effect.succeed(chapter)
                 : builder.build(
                     source,
@@ -1101,29 +1171,35 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     settings.primaryLanguage,
                     settings.variables,
                   )
-              ).pipe(
-                Effect.tap((core) =>
-                  Ref.update(coreChapters, (was) => new Map(was).set(chapter.path, core)),
-                ),
-              ),
+              ).pipe(Effect.tap(keptCore)),
           }),
         ),
       )
 
+    const coreChapterFrom = ({ loom, settings }: Waiting): Effect.Effect<LoomModule> =>
+      builder
+        .finish(loom, settings.primaryLanguage, settings.variables)
+        .pipe(Effect.tap(keptCore))
+
     const registryOf = (
       source: Source,
       modules: Modules,
+      waiting: ReadonlyArray<Waiting>,
       entry: Location,
     ): Effect.Effect<DeclaredKinds> =>
       Effect.all([
-        Effect.forEach(Array.filter(Array.fromIterable(modules.values()), inTrope), (chapter) =>
+        Effect.forEach(Array.fromIterable(modules.values()).filter(inTrope), (chapter) =>
           coreChapterOf(source, chapter),
+        ),
+        Effect.forEach(
+          waiting.filter(({ loom }) => Option.isSome(tropeIn(loom.tree))),
+          coreChapterFrom,
         ),
         installedKinds(entry),
       ]).pipe(
-        Effect.map(([chapters, installed]) => {
+        Effect.map(([built, parsed, installed]) => {
           const core: Modules = new Map(
-            Array.map(chapters, (chapter) => [chapter.path, chapter] as const),
+            [...built, ...parsed].map((chapter) => [chapter.path, chapter] as const),
           )
           return declaredKindsOf(core, installed)
         }),
@@ -1133,44 +1209,103 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       modules: Modules,
       declared: Declared,
     ): Effect.Effect<ReadonlyArray<Location>> =>
-      Ref.get(declaredFor).pipe(
-        Effect.map((kept) =>
-          Array.filter(
-            Array.fromIterable(modules.keys()),
-            (path) =>
-              !sameDeclared(
-                Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => nothingDeclared),
-                declared,
-              ),
+      Ref.get(builtAs).pipe(
+        Effect.map((built) => {
+          const now = declaredKey(declared)
+          return Array.fromIterable(modules.keys()).filter((path) => built.get(path) !== now)
+        }),
+      )
+
+    const settle = (paths: ReadonlyArray<Location>, declared: Declared): Effect.Effect<void> =>
+      Ref.update(
+        declaredFor,
+        (was) => new Map([...was, ...paths.map((path) => [path, declared] as const)]),
+      )
+
+    const registered = (
+      source: Source,
+      entry: Location,
+      paths: ReadonlyArray<Location>,
+      modules: Modules,
+      waiting: ReadonlyArray<Waiting>,
+    ): Effect.Effect<Corpus> =>
+      registryOf(source, modules, waiting, entry).pipe(
+        Effect.flatMap((kinds) => {
+          const declared = declaredIn(kinds)
+          return settle(paths, declared).pipe(
+            Effect.andThen(staleIn(modules, declared)),
+            Effect.flatMap((stale) =>
+              Array.isReadonlyArrayEmpty(stale) && Array.isReadonlyArrayEmpty(waiting)
+                ? Effect.succeed<Corpus>({ modules, kinds })
+                : memo.evict(stale).pipe(
+                    Effect.andThen(Effect.forEach(stale, (path) => loadOne(source, path))),
+                    Effect.andThen(
+                      Effect.forEach(waiting, ({ loom, settings }) =>
+                        remembered(loom.path, finished(settings, declared)(loom)),
+                      ),
+                    ),
+                    Effect.andThen(heldAmong(paths)),
+                    Effect.map((built): Corpus => ({ modules: built, kinds })),
+                  ),
+            ),
+          )
+        }),
+      )
+
+    const builtCorpus = (
+      source: Source,
+      entry: Location,
+      installed: Declarations,
+    ): Effect.Effect<Corpus> =>
+      Effect.gen(function* () {
+        const paths = yield* corpusPaths(source, entry)
+        const waiting = yield* waitingAmong(source, paths)
+        const modules = yield* heldAmong(paths)
+        const notes = yield* Ref.get(keptCorpora)
+        return yield* Option.match(
+          Array.findFirst(
+            Array.fromIterable(notes.values()),
+            (note) =>
+              Array.isReadonlyArrayEmpty(waiting) &&
+              note.installed === installed &&
+              sameModules(note.corpus.modules, modules),
+          ),
+          {
+            onSome: (note) => Effect.succeed(note.corpus),
+            onNone: () => registered(source, entry, paths, modules, waiting),
+          },
+        )
+      })
+
+    const kept = (entry: Location, installed: Declarations, corpus: Corpus): Effect.Effect<void> =>
+      memo.entries.pipe(
+        Effect.flatMap((held) =>
+          Ref.update(
+            keptCorpora,
+            (notes) =>
+              new Map([
+                ...Array.fromIterable(notes).filter(([, note]) => note.held === held),
+                [entry, { held, installed, corpus }] as const,
+              ]),
           ),
         ),
       )
 
     const corpusOf = (source: Source, entry: Location): Effect.Effect<Corpus> =>
-      loadCorpus(source, entry).pipe(
-        Effect.flatMap((modules) =>
-          registryOf(source, modules, entry).pipe(
-            Effect.flatMap((kinds) => {
-              const declared = declaredIn(kinds)
-              return staleIn(modules, declared).pipe(
-                Effect.flatMap((stale) =>
-                  Array.isReadonlyArrayEmpty(stale)
-                    ? Effect.succeed<Corpus>({ modules, kinds })
-                    : Ref.update(
-                        declaredFor,
-                        (kept) =>
-                          new Map([
-                            ...kept,
-                            ...Array.map(stale, (path) => [path, declared] as const),
-                          ]),
-                      ).pipe(
-                        Effect.andThen(memo.evict(stale)),
-                        Effect.andThen(loadCorpus(source, entry)),
-                        Effect.map((rebuilt): Corpus => ({ modules: rebuilt, kinds })),
-                      ),
+      Effect.all([memo.entries, installedKinds(entry), Ref.get(keptCorpora)]).pipe(
+        Effect.flatMap(([held, installed, notes]) =>
+          Option.match(
+            Option.filter(
+              Option.fromNullishOr(notes.get(entry)),
+              (note) => note.held === held && note.installed === installed,
+            ),
+            {
+              onSome: (note) => Effect.succeed(note.corpus),
+              onNone: () =>
+                builtCorpus(source, entry, installed).pipe(
+                  Effect.tap((corpus) => kept(entry, installed, corpus)),
                 ),
-              )
-            }),
+            },
           ),
         ),
       )
@@ -1202,13 +1337,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       tangle: (path: Location): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
         corpusOf(documents, path).pipe(
-          Effect.flatMap(({ modules, kinds }) => {
+          Effect.flatMap((corpus) => {
+            const { modules } = corpus
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors(
-                { modules: scoped },
-                corpusDiagnostics(modules, kinds, [], Option.none()),
-              ),
+              ...corpusErrors({ modules: scoped }, tangleFaults(corpus)),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -1276,7 +1409,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             return Effect.all([parsedAs(before), parsedAs(after)]).pipe(
               Effect.map(([was, now]) =>
                 Array.getSomes(
-                  Array.map(syncedSummaries({ modules }, was, now), (edit) =>
+                  syncedSummaries({ modules }, was, now).map((edit) =>
                     Option.map(
                       Option.fromNullishOr(modules.get(edit.path)),
                       (target): SummaryEdit => ({
@@ -1384,12 +1517,9 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(
-                Option.getOrElse(conceptReferencesAt(vocabulariesIn(modules), path, offset), () =>
-                  referencesAt({ modules }, path, offset),
-                ),
-                (loc) => frameLocationOf(modules, loc),
-              ),
+              Option.getOrElse(conceptReferencesAt(vocabulariesIn(modules), path, offset), () =>
+                referencesAt({ modules }, path, offset),
+              ).map((loc) => frameLocationOf(modules, loc)),
             ),
           ),
         ),
@@ -1397,7 +1527,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       links: (path: Location, start: number, end: number): Effect.Effect<ReadonlyArray<FrameFix>> =>
         Effect.all([config.resolve(path), buildCorpus(documents, path)]).pipe(
           Effect.map(([settings, modules]) =>
-            Array.map(linksAt(vocabulariesIn(modules), path, start, end, settings.delims), (fix) =>
+            linksAt(vocabulariesIn(modules), path, start, end, settings.delims).map((fix) =>
               frameFixOf(modules, fix),
             ),
           ),
@@ -1406,9 +1536,9 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       moves: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameMove>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
-            Array.map(movesAt(vocabulariesIn(modules), path, offset), (move): FrameMove => ({
+            movesAt(vocabulariesIn(modules), path, offset).map((move): FrameMove => ({
               concept: move.concept,
-              targets: Array.map(move.targets, (fix) => frameFixOf(modules, fix)),
+              targets: move.targets.map((fix) => frameFixOf(modules, fix)),
             })),
           ),
         ),
@@ -1426,7 +1556,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.map((pairs): Modules => new Map(pairs)),
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(conceptSymbolsIn({ modules }, query), (symbol) =>
+              conceptSymbolsIn({ modules }, query).map((symbol) =>
                 Option.map(frameLocationOf(modules, symbol.location), (location): FrameSymbol => ({
                   name: symbol.name,
                   container: symbol.container,
@@ -1459,9 +1589,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) => [
             ...Array.getSomes(
-              Array.map(renameAt({ modules }, path, offset), (loc) =>
-                frameLocationOf(modules, loc),
-              ),
+              renameAt({ modules }, path, offset).map((loc) => frameLocationOf(modules, loc)),
             ),
             ...Option.toArray(
               Option.flatMap(conceptRenameAt({ modules }, path, offset), (rename) =>
@@ -1508,7 +1636,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                 onNone: () => [],
                 onSome: (module) =>
                   Array.getSomes(
-                    Array.map(symbolsOf(module.doc), (symbol) =>
+                    symbolsOf(module.doc).map((symbol) =>
                       Option.flatMap(profileOf(symbol.kind).semantic, (token) =>
                         Option.map(
                           frameLocationOf(modules, {
@@ -1534,7 +1662,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             Option.match(Option.fromNullishOr(modules.get(path)), {
               onNone: (): ReadonlyArray<FrameBox> => [],
               onSome: (module) =>
-                Array.map(openedBoxesOf(module.doc), (opened): FrameBox => ({
+                openedBoxesOf(module.doc).map((opened): FrameBox => ({
                   startLine: lineCharAt(module.text, opened.opener.position.start.offset).line,
                   endLine: lineCharAt(module.text, lastLineOf(opened).position.start.offset).line,
                   caption: captionOf(opened),
@@ -1549,7 +1677,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             Option.match(Option.fromNullishOr(modules.get(path)), {
               onNone: (): ReadonlyArray<FrameHint> => [],
               onSome: (module) =>
-                Array.map(hintsAt({ modules }, path), (hint): FrameHint => ({
+                hintsAt({ modules }, path).map((hint): FrameHint => ({
                   position: lineCharAt(module.text, hint.offset),
                   label: hint.label,
                 })),
@@ -1571,8 +1699,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               {
                 onNone: (): ReadonlyArray<FrameCompletion> => [],
                 onSome: ([module, slot]) =>
-                  Array.map(
-                    anchorLabels(kinds, standingAt({ modules }, path, offset)),
+                  anchorLabels(kinds, standingAt({ modules }, path, offset)).map(
                     (label): FrameCompletion => ({
                       label,
                       range: {
@@ -1591,7 +1718,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(contractsIn(modules, path), (contract) =>
+              contractsIn(modules, path).map((contract) =>
                 Option.map(
                   Option.fromNullishOr(modules.get(contract.target)),
                   (target): FrameContract => ({
@@ -1603,7 +1730,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                       },
                     },
                     language: contract.language,
-                    expected: Array.map(contract.provides, (provided) => ({
+                    expected: contract.provides.map((provided) => ({
                       name: provided.name,
                       diagnostic: faultAt(
                         MissingSymbol({
@@ -1631,7 +1758,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       reach: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>
         buildCorpus(documents, path).pipe(
-          Effect.map((modules) => Array.filter(reachable(modules, path), (p) => p !== path)),
+          Effect.map((modules) => reachable(modules, path).filter((p) => p !== path)),
         ),
 
       invalidate: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>
@@ -1639,14 +1766,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.flatMap((modules) =>
             modules.has(path)
               ? evict([path]).pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
-              : Effect.succeed<ReadonlyArray<Location>>([]),
+              : Ref.set(keptCorpora, new Map()).pipe(Effect.as<ReadonlyArray<Location>>([])),
           ),
         ),
 
       invalidateWithin: (dir: Location): Effect.Effect<ReadonlyArray<Location>> =>
         memo.entries.pipe(
           Effect.map((modules) =>
-            Array.filter(Array.fromIterable(modules.keys()), (path) => within(dir, path)),
+            Array.fromIterable(modules.keys()).filter((path) => within(dir, path)),
           ),
           Effect.tap((paths) => evict(paths)),
         ),

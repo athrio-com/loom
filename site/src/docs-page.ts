@@ -62,11 +62,11 @@ const booksOf = (corpus: Corpus): ReadonlyArray<Book> =>
 
 const partsOf = (corpus: Corpus): ReadonlyArray<Part> => [
   ...corpus.nav,
-  ...Array.flatMap(booksOf(corpus), (book) => book.nav),
+  ...booksOf(corpus).flatMap((book) => book.nav),
 ]
 
 const holds = (parts: ReadonlyArray<Part>, slug: string): boolean =>
-  Array.some(parts, (part) => Array.some(part.chapters, (chapter) => chapter.slug === slug))
+  parts.some((part) => part.chapters.some((chapter) => chapter.slug === slug))
 
 const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
   Array.findFirst(partsOf(corpus), (part) => holds([part], slug))
@@ -78,19 +78,18 @@ const openingOf = (book: Book): ReadonlyArray<Chapter> =>
   book.slug === '' ? [] : [{ number: '', title: book.name, slug: book.slug }]
 
 const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
-  ...Array.flatMap(corpus.nav, (part) => part.chapters),
-  ...Array.flatMap(booksOf(corpus), (book) => [
+  ...corpus.nav.flatMap((part) => part.chapters),
+  ...booksOf(corpus).flatMap((book) => [
     ...openingOf(book),
-    ...Array.flatMap(book.nav, (part) => part.chapters),
+    ...book.nav.flatMap((part) => part.chapters),
   ]),
 ]
 
 const readable = (slug: string): string =>
-  pipe(
-    slug.split('/'),
-    Array.map((segment) => segment.replace(/^\d+-/, '')),
-    Array.join('/'),
-  )
+  slug
+    .split('/')
+    .map((segment) => segment.replace(/^\d+-/, ''))
+    .join('/')
 
 export const chapterPath = (base: string, slug: string): string => `${base}/${readable(slug)}`
 
@@ -105,7 +104,7 @@ export const docsChapterAt = (pathname: string): Option.Option<string> =>
 
 export const sliceOf = (corpus: Corpus, slug: string): Corpus => {
   const shown = slug === '' ? firstSlugOf(corpus) : slug
-  return { ...corpus, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
+  return { ...corpus, pages: corpus.pages.filter((page) => page.slug === shown) }
 }
 
 type Section = {
@@ -141,12 +140,12 @@ const grow = (sections: ReadonlyArray<Section>, block: Block): ReadonlyArray<Sec
       )
 
 const cutOf = (page: Page): Cut => {
-  const body = Array.filter(page.blocks, (block) => !isTitle(block))
+  const body = page.blocks.filter((block) => !isTitle(block))
   const [opening, rest] = Array.span(body, (block) => !isSectionHead(block))
   return {
     title: Array.findFirst(page.blocks, isTitle),
     opening,
-    sections: Array.reduce(rest, [] as ReadonlyArray<Section>, grow),
+    sections: rest.reduce(grow, [] as ReadonlyArray<Section>),
   }
 }
 
@@ -178,21 +177,17 @@ export const withLinks = (
 ): string =>
   pipe(
     [
-      ...Array.map(
-        Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []),
+      ...Option.getOrElse(Option.fromNullishOr(prose.links), (): ReadonlyArray<CodeLink> => []).map(
         (link): Mark => ({ offset: link.offset, length: link.length, write: () => write(link) }),
       ),
-      ...Array.map(
-        Option.getOrElse(
-          Option.fromNullishOr(prose.recognised),
-          (): ReadonlyArray<RecognisedWord> => [],
-        ),
-        (word): Mark => ({
-          offset: word.offset,
-          length: word.length,
-          write: (text) => recognise(word, text),
-        }),
-      ),
+      ...Option.getOrElse(
+        Option.fromNullishOr(prose.recognised),
+        (): ReadonlyArray<RecognisedWord> => [],
+      ).map((word): Mark => ({
+        offset: word.offset,
+        length: word.length,
+        write: (text) => recognise(word, text),
+      })),
     ],
     Array.sort(Order.mapInput(Order.Number, (mark: Mark) => -mark.offset)),
     Array.reduce(
@@ -219,16 +214,13 @@ const linkedMarkdown = (prose: ProseBlock, base: string): string =>
 
 const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   const [first, ...rest] = markdown.split(FENCE)
-  return Array.filter(
-    [
-      { type: 'text', markdown: first ?? '' } as Piece,
-      ...Array.flatMap(Array.chunksOf(rest, 5), ([, , kind, body, after]): ReadonlyArray<Piece> => [
-        { type: 'fence', kind: kind ?? '', body: body ?? '' },
-        { type: 'text', markdown: after ?? '' },
-      ]),
-    ],
-    (piece) => piece.type === 'fence' || piece.markdown.trim() !== '',
-  )
+  return [
+    { type: 'text', markdown: first ?? '' } as Piece,
+    ...Array.chunksOf(rest, 5).flatMap(([, , kind, body, after]): ReadonlyArray<Piece> => [
+      { type: 'fence', kind: kind ?? '', body: body ?? '' },
+      { type: 'text', markdown: after ?? '' },
+    ]),
+  ].filter((piece) => piece.type === 'fence' || piece.markdown.trim() !== '')
 }
 
 const textOf = (
@@ -259,7 +251,7 @@ const ENTITIES: ReadonlyArray<readonly [string, string]> = [
 ]
 
 const commandOf = (escaped: string): string =>
-  Array.reduce(ENTITIES, escaped, (text, [entity, glyph]) => text.split(entity).join(glyph))
+  ENTITIES.reduce((text, [entity, glyph]) => text.split(entity).join(glyph), escaped)
 
 const COMMAND_INKS: ReadonlyArray<readonly [string, string]> = [
   ['loom init', 'var(--init)'],
@@ -282,22 +274,23 @@ const inlineCommands = (html: string, copied: string): string =>
     return `<button type="button" class="${done ? 'inline-copy done' : 'inline-copy'}" style="--cmd-ink: ${inkOf(command)}" data-copy="${escaped}" title="Copy the command"><code>${escaped}</code>${done ? TICK_GLYPH : COPY_GLYPH}</button>`
   })
 
-const fenceOf = (kind: string, body: string, model: Model, h: HtmlBuilder<Message>): Html =>
-  Match.value(kind).pipe(
-    Match.when('install', () => installLine(model, h)),
-    Match.when('picture', () => pictureOf(body.trim(), h)),
-    Match.when('run', () => runLine(body.trim(), model, h)),
-    Match.when('loom', () => loomCanvas(body, model.copied, h)),
-    Match.when('bash', () => commandsOf(body, model, h)),
-    Match.orElse(() => codeSheet(body, model.copied, h)),
-  )
+const fenceOf = Match.fn(
+  (kind: string, _body: string, _model: Model, _h: HtmlBuilder<Message>) => kind,
+).pipe(
+  Match.withReturnType<Html>(),
+  Match.when('install', (_matched, _kind, _body, model, h) => installLine(model, h)),
+  Match.when('picture', (_matched, _kind, body, _model, h) => pictureOf(body.trim(), h)),
+  Match.when('run', (_matched, _kind, body, model, h) => runLine(body.trim(), model, h)),
+  Match.when('loom', (_matched, _kind, body, model, h) => loomCanvas(body, model.copied, h)),
+  Match.when('bash', (_matched, _kind, body, model, h) => commandsOf(body, model, h)),
+  Match.orElse((_matched, _kind, body, model, h) => codeSheet(body, model.copied, h)),
+)
 
 const commandsOf = (body: string, model: Model, h: HtmlBuilder<Message>): Html => {
-  const lines = pipe(
-    body.split('\n'),
-    Array.map((line) => line.trim()),
-    Array.filter((line) => line !== ''),
-  )
+  const lines = body
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
   return pipe(
     Array.head(lines),
     Option.filter(() => lines.length === 1),
@@ -369,11 +362,10 @@ type Runner = {
 const bunRunner: Runner = { runtime: 'bun', label: 'bun', logo: bunIcon() }
 const nodeRunner: Runner = { runtime: 'npm', label: 'node', logo: nodeIcon() }
 
-const runnerOf = (runtime: Runtime): Runner =>
-  Match.value(runtime).pipe(
-    Match.when('bun', () => bunRunner),
-    Match.orElse(() => nodeRunner),
-  )
+const runnerOf: (runtime: Runtime) => Runner = Match.type<Runtime>().pipe(
+  Match.when('bun', () => bunRunner),
+  Match.orElse(() => nodeRunner),
+)
 
 const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
   const chosen = runnerOf(model.runtime)
@@ -382,7 +374,7 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
     [
       h.div(
         [h.Class('rt-tabs')],
-        Array.map([bunRunner, nodeRunner], (runner) =>
+        [bunRunner, nodeRunner].map((runner) =>
           h.button(
             [
               h.Class(runner.label === chosen.label ? 'rt-tab here' : 'rt-tab'),
@@ -418,12 +410,12 @@ type Span = {
 const byOffset = Order.mapInput(Order.Number, (span: Span) => span.offset)
 
 const unsettledAt = (block: CodeBlock, offset: number): boolean =>
-  Array.some(block.unsettled, (span) => span.offset === offset)
+  block.unsettled.some((span) => span.offset === offset)
 
 const spansOf = (block: CodeBlock): ReadonlyArray<Span> =>
   Array.sort(
     [
-      ...Array.map(block.links, (link): Span => ({
+      ...block.links.map((link): Span => ({
         offset: link.offset,
         length: link.length,
         runOf: (text) => ({
@@ -433,18 +425,14 @@ const spansOf = (block: CodeBlock): ReadonlyArray<Span> =>
           unsettled: unsettledAt(block, link.offset),
         }),
       })),
-      ...Array.map(
-        Array.filter(
-          block.unsettled,
-          (span) => !Array.some(block.links, (link) => link.offset === span.offset),
-        ),
-        (span): Span => ({
+      ...block.unsettled
+        .filter((span) => !block.links.some((link) => link.offset === span.offset))
+        .map((span): Span => ({
           offset: span.offset,
           length: span.length,
           runOf: (text) => ({ type: 'unsettled', text }),
-        }),
-      ),
-      ...Array.map(block.marks, (mark): Span => ({
+        })),
+      ...block.marks.map((mark): Span => ({
         offset: mark.offset,
         length: mark.length,
         runOf: (text) => ({ type: 'mark', text, kind: mark.kind }),
@@ -457,17 +445,14 @@ const plain = (text: string): Run => ({ type: 'plain', text })
 
 const runsOf = (block: CodeBlock): ReadonlyArray<Run> => {
   const spans = spansOf(block)
-  const ends = Array.map(spans, (span) => span.offset + span.length)
-  return Array.filter(
-    [
-      ...Array.flatMap(Array.zip([0, ...ends], spans), ([from, span]) => [
-        plain(block.code.slice(from, span.offset)),
-        span.runOf(block.code.slice(span.offset, span.offset + span.length)),
-      ]),
-      plain(block.code.slice(Option.getOrElse(Array.last(ends), () => 0))),
-    ],
-    (run) => run.text !== '',
-  )
+  const ends = spans.map((span) => span.offset + span.length)
+  return [
+    ...Array.zip([0, ...ends], spans).flatMap(([from, span]) => [
+      plain(block.code.slice(from, span.offset)),
+      span.runOf(block.code.slice(span.offset, span.offset + span.length)),
+    ]),
+    plain(block.code.slice(Option.getOrElse(Array.last(ends), () => 0))),
+  ].filter((run) => run.text !== '')
 }
 
 const ESCAPES: ReadonlyArray<readonly [RegExp, string]> = [
@@ -478,27 +463,27 @@ const ESCAPES: ReadonlyArray<readonly [RegExp, string]> = [
 ]
 
 const escaped = (text: string): string =>
-  Array.reduce(ESCAPES, text, (out, [pattern, entity]) => out.replace(pattern, entity))
+  ESCAPES.reduce((out, [pattern, entity]) => out.replace(pattern, entity), text)
 
-const runHtml = (run: Run, base: string, page: Page): string =>
-  Match.value(run).pipe(
-    Match.when({ type: 'plain' }, (plain) => escaped(plain.text)),
-    Match.when(
-      { type: 'anchor' },
-      (anchor) =>
-        `<a class="code-anchor${anchor.unsettled ? ' unsettled' : ''}" href="${escaped(anchorHref(base, page.slug, anchor.link))}">${escaped(anchor.text)}</a>`,
+const runHtml = Match.fn((run: Run, _base: string, _page: Page) => run).pipe(
+  Match.withReturnType<string>(),
+  Match.when({ type: 'plain' }, (plain) => escaped(plain.text)),
+  Match.when(
+    { type: 'anchor' },
+    (anchor, _run, base, page) =>
+      `<a class="code-anchor${anchor.unsettled ? ' unsettled' : ''}" href="${escaped(anchorHref(base, page.slug, anchor.link))}">${escaped(anchor.text)}</a>`,
     ),
-    Match.when(
-      { type: 'unsettled' },
-      (unsettled) =>
-        `<span class="code-anchor unsettled" title="To be settled">${escaped(unsettled.text)}</span>`,
-    ),
-    Match.when(
-      { type: 'mark' },
-      (mark) => `<span class="tok-${mark.kind}">${escaped(mark.text)}</span>`,
-    ),
-    Match.exhaustive,
-  )
+  Match.when(
+    { type: 'unsettled' },
+    (unsettled) =>
+      `<span class="code-anchor unsettled" title="To be settled">${escaped(unsettled.text)}</span>`,
+  ),
+  Match.when(
+    { type: 'mark' },
+    (mark) => `<span class="tok-${mark.kind}">${escaped(mark.text)}</span>`,
+  ),
+  Match.exhaustive,
+)
 
 const arrowChip = (block: CodeBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
   Option.toArray(
@@ -544,10 +529,9 @@ const codeOf = (
               h.code(
                 [
                   h.InnerHTML(
-                    Array.join(
-                      Array.map(runsOf(block), (run) => runHtml(run, base, page)),
-                      '',
-                    ),
+                    runsOf(block)
+                      .map((run) => runHtml(run, base, page))
+                      .join(''),
                   ),
                 ],
                 [],
@@ -560,29 +544,31 @@ const codeOf = (
     ],
   )
 
-const blockOf = (
-  block: Block,
-  base: string,
-  page: Page,
-  model: Model,
-  h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => [
-      h.h3([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
-    ]),
-    Match.when({ type: 'prose' }, (prose) =>
-      Array.map(piecesOf(linkedMarkdown(prose, base)), (piece) =>
-        piece.type === 'text'
-          ? textOf(piece.markdown, 'docs-prose', model.copied, h)
-          : fenceOf(piece.kind, piece.body, model, h),
-      ),
+const blockOf = Match.fn(
+  (block: Block, _base: string, _page: Page, _model: Model, _h: HtmlBuilder<Message>) => block,
+).pipe(
+  Match.withReturnType<ReadonlyArray<Html>>(),
+  Match.when({ type: 'heading' }, (heading, _block, _base, _page, _model, h) => [
+    h.h3([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
+  ]),
+  Match.when({ type: 'prose' }, (prose, _block, base, _page, model, h) =>
+    piecesOf(linkedMarkdown(prose, base)).map((piece) =>
+      piece.type === 'text'
+        ? textOf(piece.markdown, 'docs-prose', model.copied, h)
+        : fenceOf(piece.kind, piece.body, model, h),
     ),
-    Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
-    Match.when({ type: 'note' }, (note) => noteOf(note, model.copied, h)),
-    Match.when({ type: 'message' }, (message) => [messageOf(message, h)]),
-    Match.exhaustive,
-  )
+  ),
+  Match.when({ type: 'code' }, (code, _block, base, page, model, h) =>
+    [codeOf(code, base, page, model.copied, h)],
+  ),
+  Match.when({ type: 'note' }, (note, _block, _base, _page, model, h) =>
+    noteOf(note, model.copied, h),
+  ),
+  Match.when({ type: 'message' }, (message, _block, _base, _page, _model, h) =>
+    [messageOf(message, h)],
+  ),
+  Match.exhaustive,
+)
 
 const captionLine = (note: NoteBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
   Option.match(Option.fromNullishOr(note.caption), {
@@ -653,7 +639,7 @@ const sectionOf = (
       headOf(mark, section.heading, h),
       h.div(
         [h.Class('doc-stack')],
-        Array.flatMap(section.blocks, (block) => blockOf(block, base, page, model, h)),
+        section.blocks.flatMap((block) => blockOf(block, base, page, model, h)),
       ),
     ],
   )
@@ -699,12 +685,12 @@ const breadcrumb = (
   )
 
 const openingPieces = (cut: Cut, base: string): ReadonlyArray<Piece> =>
-  Array.flatMap(cut.opening, (block) =>
+  cut.opening.flatMap((block) =>
     block.type === 'prose' ? piecesOf(linkedMarkdown(block, base)) : [],
   )
 
 const textsOf = (pieces: ReadonlyArray<Piece>): ReadonlyArray<string> =>
-  Array.flatMap(pieces, (piece) => (piece.type === 'text' ? [piece.markdown] : []))
+  pieces.flatMap((piece) => (piece.type === 'text' ? [piece.markdown] : []))
 
 const PARAGRAPH_BREAK = /\n[ \t]*\n/
 
@@ -716,10 +702,7 @@ const gistAndRest = (
     onNonEmpty: ([first, ...others]) => {
       const at = first.search(PARAGRAPH_BREAK)
       const [gist, more] = at < 0 ? [first, ''] : [first.slice(0, at), first.slice(at)]
-      return [
-        Option.some(gist),
-        Array.filter([more, ...others], (text) => text.trim() !== ''),
-      ] as const
+      return [Option.some(gist), [more, ...others].filter((text) => text.trim() !== '')] as const
     },
   })
 
@@ -769,7 +752,7 @@ const docHead = (
           ),
           h.div(
             [h.Class('hero-cli')],
-            Array.flatMap(pieces, (piece) =>
+            pieces.flatMap((piece) =>
               piece.type === 'fence' ? [fenceOf(piece.kind, piece.body, model, h)] : [],
             ),
           ),
@@ -809,11 +792,10 @@ const frontmatterText = (page: Page, text: string, h: HtmlBuilder<Message>): Htm
   h.div(
     [h.Class('frontmatter')],
     [
-      ...pipe(
-        text.split('\n'),
-        Array.filter((line) => line.trim() !== '' && line.trim() !== '---'),
-        Array.map((line) => frontmatterField(line, h)),
-      ),
+      ...text
+        .split('\n')
+        .filter((line) => line.trim() !== '' && line.trim() !== '---')
+        .map((line) => frontmatterField(line, h)),
       h.a(
         [
           h.Class('raw-source'),
@@ -1012,7 +994,7 @@ const chapterRows = (
         ),
         h.div(
           [h.Class('menu-subs')],
-          Array.map(cut.sections, (section) =>
+          cut.sections.map((section) =>
             sectionButton(section, section.heading.id === reachedOf(cut, active), h),
           ),
         ),
@@ -1043,7 +1025,7 @@ const menuGroups = (
       [h.Class('menu-part')],
       [
         h.span([h.Class('eyebrow')], [part.name]),
-        ...Array.flatMap(part.chapters, (chapter) =>
+        ...part.chapters.flatMap((chapter) =>
           chapterRows(chapter, page, cut, active, base, markFor, h),
         ),
       ],
@@ -1060,9 +1042,9 @@ const menuGroups = (
           [book.name],
         )
   return [
-    ...Array.map(corpus.nav, partGroup),
-    ...Array.map(booksOf(corpus), (book) =>
-      h.div([h.Class('menu-book')], [bookName(book), ...Array.map(book.nav, partGroup)]),
+    ...corpus.nav.map(partGroup),
+    ...booksOf(corpus).map((book) =>
+      h.div([h.Class('menu-book')], [bookName(book), ...book.nav.map(partGroup)]),
     ),
   ]
 }
@@ -1223,14 +1205,10 @@ type OpeningOf = (
 export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
   const [, rest] = gistAndRest(textsOf(openingPieces(cut, base)))
   const leading = [
-    ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
-    ...pipe(
-      cut.opening,
-      Array.filter(
-        (block) => block.type === 'code' || block.type === 'note' || block.type === 'message',
-      ),
-      Array.flatMap((block) => blockOf(block, base, page, model, h)),
-    ),
+    ...rest.map((markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
+    ...cut.opening
+      .filter((block) => block.type === 'code' || block.type === 'note' || block.type === 'message')
+      .flatMap((block) => blockOf(block, base, page, model, h)),
   ]
   return {
     cardMark: (chapter) => carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam),
@@ -1267,7 +1245,7 @@ const sourceOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
               ),
             ],
           ),
-          ...Array.flatMap(cut.opening, (block) => blockOf(block, base, page, model, h)),
+          ...cut.opening.flatMap((block) => blockOf(block, base, page, model, h)),
         ],
       ),
     ],
@@ -1303,7 +1281,7 @@ export const wovenPage = (
                   [h.Class('docs-article')],
                   [
                     ...opening.lead,
-                    ...Array.map(cut.sections, (section, place) =>
+                    ...cut.sections.map((section, place) =>
                       sectionOf(
                         opening.markOf(section, place),
                         section,

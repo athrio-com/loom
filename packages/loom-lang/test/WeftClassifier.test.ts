@@ -1,7 +1,7 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
-import { Effect, Stream } from 'effect'
+import { Effect } from 'effect'
 import type { LineRange } from '#ast/LineRanges'
 import { incompleteHealth, okHealth } from '@athrio/loom-ast/LoomNode'
 import { WeftClassifier } from '#ast/WeftClassifier'
@@ -35,9 +35,7 @@ const classify = (lines: ReadonlyArray<string>): ReadonlyArray<LoomWeft> => {
   return Effect.runSync(
     Effect.gen(function* () {
       const c = yield* WeftClassifier
-      const source = Stream.fromIterable(ranges)
-      const chunk = yield* Stream.runCollect(c.classifyWefts(text)(source))
-      return chunk
+      return c.classifyWefts(text)(ranges)
     }).pipe(Effect.provide(WeftClassifier.layer)),
   )
 }

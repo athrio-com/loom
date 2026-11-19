@@ -43,10 +43,10 @@ const boxIn = (line: string) =>
     weft.box ? [weft.box] : [],
   )[0]
 
-const judgedIn = (
+const judgedIn: (
   braces: SpecifierToken | ParametersToken | undefined,
-): ReadonlyArray<{ readonly health: Health }> =>
-  Match.value(braces).pipe(
+) => ReadonlyArray<{ readonly health: Health }> =
+  Match.type<SpecifierToken | ParametersToken | undefined>().pipe(
     Match.when(Match.undefined, () => []),
     Match.when({ type: 'Parameters' }, (held) => [...held.parameters, ...held.labels]),
     Match.when({ type: 'Specifier' }, (labelled) => [labelled.label]),

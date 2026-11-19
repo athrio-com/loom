@@ -157,7 +157,7 @@ const conceptsIn = (
   catalogue: Catalogue,
   looms: ReadonlyArray<Location>,
 ): ReadonlyArray<ConceptRef> =>
-  Array.filter(catalogue.concepts, (concept) => looms.includes(concept.module))
+  catalogue.concepts.filter((concept) => looms.includes(concept.module))
 
 const namesConcept =
   (words: ReadonlySet<string>) =>
@@ -169,36 +169,33 @@ const importsOf = (
   named: (name: string) => boolean,
   looms: ReadonlyArray<LoomModule>,
 ): ReadonlyArray<ConceptRef> =>
-  Array.flatMap(looms, (module) =>
-    pipe(
-      linksOf(module),
-      Array.filter((link) => named(link.name.value)),
-      Array.map((link) =>
-        Option.flatMap(resolveAnchor(catalogue, module.path, link), (ref) =>
-          conceptAt(catalogue, ref),
+  looms.flatMap((module) =>
+    Array.getSomes(
+      linksOf(module)
+        .filter((link) => named(link.name.value))
+        .map((link) =>
+          Option.flatMap(resolveAnchor(catalogue, module.path, link), (ref) =>
+            conceptAt(catalogue, ref),
+          ),
         ),
-      ),
-      Array.getSomes,
     ),
   )
 
 export const vocabulariesOf = (catalogue: Catalogue, boundaries: Boundaries): Vocabularies => {
   const modules = Array.fromIterable(catalogue.modules.values())
   const scopes: ReadonlyMap<Location, Scope> = new Map(
-    Array.map(modules, (module) => [module.path, scopeOf(boundaries, catalogue, module)] as const),
+    modules.map((module) => [module.path, scopeOf(boundaries, catalogue, module)] as const),
   )
   const outward = enclosingScopeOf(boundaries, catalogue)
   const named = namesConcept(
-    new Set(
-      Array.flatMap(catalogue.concepts, (concept) => Array.map(conceptNames(concept), foldFirst)),
-    ),
+    new Set(catalogue.concepts.flatMap((concept) => conceptNames(concept).map(foldFirst))),
   )
   const loomsIn = (scope: Scope): ReadonlyArray<LoomModule> =>
-    Array.filter(modules, (module) =>
+    modules.filter((module) =>
       Option.exists(Option.fromNullishOr(scopes.get(module.path)), (own) => sameScope(own, scope)),
     )
   const nestedIn = (scope: Scope): ReadonlyArray<TropeNode> =>
-    Array.filter(Array.fromIterable(boundaries.tropes.values()), (node) =>
+    Array.fromIterable(boundaries.tropes.values()).filter((node) =>
       Option.exists(outward(Scope.Trope({ trope: node.name })), (around) =>
         sameScope(around, scope),
       ),
@@ -208,19 +205,16 @@ export const vocabulariesOf = (catalogue: Catalogue, boundaries: Boundaries): Vo
     return [
       ...conceptsIn(
         catalogue,
-        Array.map(own, (module) => module.path),
+        own.map((module) => module.path),
       ),
-      ...Array.flatMap(nestedIn(scope), (node) => conceptsIn(catalogue, node.entries)),
+      ...nestedIn(scope).flatMap((node) => conceptsIn(catalogue, node.entries)),
       ...importsOf(catalogue, named, own),
     ]
   }
   const standing = Array.dedupeWith(Array.fromIterable(scopes.values()), sameScope)
-  const chains = Array.map(standing, (scope) => scopeChainOf(boundaries, catalogue, scope))
+  const chains = standing.map((scope) => scopeChainOf(boundaries, catalogue, scope))
   const added = new Map(
-    Array.map(Array.dedupeWith(Array.flatten(chains), sameScope), (scope) => [
-      scopeKey(scope),
-      addedBy(scope),
-    ]),
+    Array.dedupeWith(chains.flat(), sameScope).map((scope) => [scopeKey(scope), addedBy(scope)]),
   )
   return {
     catalogue,
@@ -230,7 +224,7 @@ export const vocabulariesOf = (catalogue: Catalogue, boundaries: Boundaries): Vo
       Array.zipWith(standing, chains, (scope, chain) => [
         scopeKey(scope),
         vocabularyOf(
-          Array.flatMap(chain, (around) =>
+          chain.flatMap((around) =>
             Option.getOrElse(Option.fromNullishOr(added.get(scopeKey(around))), () => []),
           ),
         ),
@@ -294,23 +288,23 @@ const wordPattern = (forms: ReadonlyArray<string>): Option.Option<RegExp> =>
     Option.liftPredicate(forms, Array.isReadonlyArrayNonEmpty),
     (some) =>
       new RegExp(
-        `(?<![\\p{L}\\p{N}_])(?:${Array.join(Array.map(some, formPattern), '|')})(?![\\p{L}\\p{N}_])`,
+        `(?<![\\p{L}\\p{N}_])(?:${some.map(formPattern).join('|')})(?![\\p{L}\\p{N}_])`,
         'gu',
       ),
   )
 
 const vocabularyOf = (gathered: ReadonlyArray<ConceptRef>): Vocabulary => {
   const concepts = Array.dedupeWith(gathered, sameConcept)
-  const named = Array.flatMap(concepts, (concept) =>
-    Array.map(Array.dedupe(Array.map(conceptNames(concept), foldFirst)), (name) => ({
+  const named = concepts.flatMap((concept) =>
+    Array.dedupe(conceptNames(concept).map(foldFirst)).map((name) => ({
       name,
       concept,
     })),
   )
   const claims: ReadonlyMap<string, ReadonlyArray<ConceptRef>> = new Map(
-    Array.map(Object.entries(Array.groupBy(named, ({ name }) => name)), ([name, found]) => [
+    Object.entries(Array.groupBy(named, ({ name }) => name)).map(([name, found]) => [
       name,
-      Array.map(found, ({ concept }) => concept),
+      found.map(({ concept }) => concept),
     ]),
   )
   return {
@@ -369,7 +363,7 @@ const readOn = (state: Reading, line: ProseLine): readonly [Reading, boolean] =>
 
 const readableLines = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<ProseLine> =>
   Array.getSomes(
-    Array.mapAccum(Array.filter(wefts, isProseLine), outside, (state, line) => {
+    Array.mapAccum(wefts.filter(isProseLine), outside, (state, line) => {
       const [next, readable] = readOn(state, line)
       return [next, readable ? Option.some(line) : Option.none<ProseLine>()]
     })[1],
@@ -383,11 +377,10 @@ const blanked = (text: string, from: number, to: number): string =>
 const scanTextOf = (line: ProseLine): string => {
   const start = line.position.start.offset
   const tokens = [...line.anchors, ...(line.type === 'PreambleWeft' ? line.warps : [])]
-  return Array.reduce(
-    tokens,
-    line.source.replace(literals, (found) => ' '.repeat(found.length)),
+  return tokens.reduce(
     (text, token) =>
       blanked(text, token.position.start.offset - start, token.position.end.offset - start),
+    line.source.replace(literals, (found) => ' '.repeat(found.length)),
   )
 }
 
@@ -401,14 +394,14 @@ const wordsOn =
   (vocabulary: Vocabulary, pattern: RegExp, own: Option.Option<ConceptRef>) =>
   (line: ProseLine): ReadonlyArray<ClaimedWord> =>
     Array.getSomes(
-      Array.map(Array.fromIterable(scanTextOf(line).matchAll(pattern)), (found) => {
+      Array.fromIterable(scanTextOf(line).matchAll(pattern)).map((found) => {
         const claims = Option.getOrElse(
           Option.fromNullishOr(vocabulary.claims.get(foldFirst(found[0]))),
           (): ReadonlyArray<ConceptRef> => [],
         )
         const from = line.position.start.offset + found.index
         return claims.length === 0 ||
-          Option.exists(own, (self) => Array.some(claims, (claim) => sameConcept(claim, self)))
+          Option.exists(own, (self) => claims.some((claim) => sameConcept(claim, self)))
           ? Option.none()
           : Option.some({
               word: found[0],
@@ -428,20 +421,18 @@ type Passage = {
 
 const passagesOf = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Passage> => [
   { own: Option.none(), lines: readableLines(module.doc.preamble) },
-  ...Array.map(module.doc.sections, (section): Passage => {
+  ...module.doc.sections.map((section): Passage => {
     const concept = isConceptSection(section)
       ? conceptAt(catalogue, { module: module.path, section })
       : Option.none()
     const listing = new Set(
-      Array.map(
-        Option.isSome(concept) ? formLinesOf(section) : [],
+      (Option.isSome(concept) ? formLinesOf(section) : []).map(
         (line) => line.position.start.offset,
       ),
     )
     return {
       own: concept,
-      lines: Array.filter(
-        readableLines([...section.preamble, ...section.code]),
+      lines: readableLines([...section.preamble, ...section.code]).filter(
         (line) => !listing.has(line.position.start.offset),
       ),
     }
@@ -460,8 +451,8 @@ export const claimedWordsIn = (
     Option.match({
       onNone: (): ReadonlyArray<ClaimedWord> => [],
       onSome: ({ vocabulary, pattern }) =>
-        Array.flatMap(passagesOf(vocabularies.catalogue, module), ({ own, lines }) =>
-          Array.flatMap(lines, wordsOn(vocabulary, pattern, own)),
+        passagesOf(vocabularies.catalogue, module).flatMap(({ own, lines }) =>
+          lines.flatMap(wordsOn(vocabulary, pattern, own)),
         ),
     }),
   )
@@ -485,7 +476,7 @@ export const recognisedIn = (
   vocabularies: Vocabularies,
   module: LoomModule,
 ): ReadonlyArray<Recognised> =>
-  Array.getSomes(Array.map(claimedWordsIn(vocabularies, module), recognisedOf))
+  Array.getSomes(claimedWordsIn(vocabularies, module).map(recognisedOf))
 
 const covers = (position: Position, offset: number): boolean =>
   position.start.offset <= offset && offset <= position.end.offset
@@ -548,12 +539,10 @@ const recognisedUsesOf = (
   vocabularies: Vocabularies,
   concept: ConceptRef,
 ): ReadonlyArray<CorpusLocation> =>
-  Array.flatMap(Array.fromIterable(vocabularies.catalogue.modules.values()), (module) =>
-    pipe(
-      recognisedIn(vocabularies, module),
-      Array.filter((found) => sameConcept(found.concept, concept)),
-      Array.map(({ word }): CorpusLocation => ({ path: module.path, position: word.position })),
-    ),
+  Array.fromIterable(vocabularies.catalogue.modules.values()).flatMap((module) =>
+    recognisedIn(vocabularies, module)
+      .filter((found) => sameConcept(found.concept, concept))
+      .map(({ word }): CorpusLocation => ({ path: module.path, position: word.position })),
   )
 
 export const conceptReferencesAt = (
@@ -591,17 +580,16 @@ export const linksAt = (
   Option.match(moduleAt(vocabularies, path), {
     onNone: (): ReadonlyArray<ConceptFix> => [],
     onSome: (module) =>
-      pipe(
-        claimedWordsIn(vocabularies, module),
-        Array.filter(
+      claimedWordsIn(vocabularies, module)
+        .filter(
           (found) =>
             found.claims.length > 1 &&
             found.position.start.offset <= end &&
             start <= found.position.end.offset,
-        ),
-        Array.flatMap((found) =>
+        )
+        .flatMap((found) =>
           Array.getSomes(
-            Array.map(found.claims, (concept) =>
+            found.claims.map((concept) =>
               Option.map(
                 conceptPathOf(vocabularies.catalogue, path, concept, found.word),
                 (named): ConceptFix => ({
@@ -614,7 +602,6 @@ export const linksAt = (
             ),
           ),
         ),
-      ),
   })
 
 ## Moving a concept up
@@ -642,8 +629,7 @@ const homeOf = (vocabularies: Vocabularies, scope: Scope): Option.Option<LoomMod
         (node) => node.root,
       )
     : pipe(
-        Array.fromIterable(vocabularies.catalogue.modules.values()),
-        Array.filter((module) =>
+        Array.fromIterable(vocabularies.catalogue.modules.values()).filter((module) =>
           Option.exists(Option.fromNullishOr(vocabularies.scopes.get(module.path)), (own) =>
             sameScope(own, scope),
           ),
@@ -679,18 +665,17 @@ const titlesItsLoom = (module: LoomModule, concept: ConceptRef): boolean =>
 
 const endOf = (text: string): Point => ({ line: text.split('\n').length, offset: text.length })
 
-const separatorAfter = (text: string): string =>
-  Match.value(text).pipe(
-    Match.when(
-      (held: string) => held === '' || held.endsWith('\n\n'),
-      () => '',
-    ),
-    Match.when(
-      (held: string) => held.endsWith('\n'),
-      () => '\n',
-    ),
-    Match.orElse(() => '\n\n'),
-  )
+const separatorAfter: (text: string) => string = Match.type<string>().pipe(
+  Match.when(
+    (held: string) => held === '' || held.endsWith('\n\n'),
+    () => '',
+  ),
+  Match.when(
+    (held: string) => held.endsWith('\n'),
+    () => '\n',
+  ),
+  Match.orElse(() => '\n\n'),
+)
 
 const movedTo = (
   module: LoomModule,
@@ -737,16 +722,14 @@ export const movesAt = (
             Option.fromNullishOr(vocabularies.scopes.get(path)),
             Option.map((scope) =>
               Array.getSomes(
-                Array.map(
-                  Array.drop(
-                    scopeChainOf(vocabularies.boundaries, vocabularies.catalogue, scope),
-                    1,
-                  ),
-                  (target) =>
-                    Option.map(homeOf(vocabularies, target), (home): ConceptFix => ({
-                      title: `Move \`${concept.name.source}\` up to ${labelOf(target)}`,
-                      edits: movedTo(module, concept, home),
-                    })),
+                Array.drop(
+                  scopeChainOf(vocabularies.boundaries, vocabularies.catalogue, scope),
+                  1,
+                ).map((target) =>
+                  Option.map(homeOf(vocabularies, target), (home): ConceptFix => ({
+                    title: `Move \`${concept.name.source}\` up to ${labelOf(target)}`,
+                    edits: movedTo(module, concept, home),
+                  })),
                 ),
               ),
             ),
@@ -839,7 +822,8 @@ The cases compile small corpora held in memory and ask the compiler what an edit
 
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Effect, Layer, Match, Option as Opt } from 'effect'
+import { Effect, Layer, Option as Opt } from 'effect'
+import { byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { WovenBlock } from '../src/weave/WovenCorpus'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -1152,12 +1136,13 @@ Find references on a concept's heading lists the heading and every word that rec
 
 =>
 
-const wordsOf = (block: WovenBlock): string =>
-  Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => `# ${heading.title}`),
-    Match.when({ type: 'prose' }, (prose) => prose.markdown),
-    Match.orElse((other) => other.type),
-  )
+const wordsOf: (block: WovenBlock) => string = byTypeOr<WovenBlock>()(
+  {
+    heading: (heading) => `# ${heading.title}`,
+    prose: (prose) => prose.markdown,
+  },
+  (other) => other.type,
+)
 
 describe('uses in the editor and the index', () => {
   it.effect('finds every word that recognises a concept', () =>

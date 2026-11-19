@@ -1,5 +1,5 @@
 import { Match, Option, Schema } from 'effect'
-import { loomNode } from '#ast/LoomNode'
+import { byType, byTypeOr, loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   type BoxToken,
@@ -124,32 +124,32 @@ export const SectionBodyWeftSchema = Schema.Union([
 ])
 export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
 
-export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'PreambleWeft' }, (line) => Option.fromNullishOr(line.box)),
-    Match.when({ type: 'ProseWeft' }, (line) => Option.fromNullishOr(line.box)),
-    Match.orElse(() => Option.none<BoxToken>()),
-  )
+export const boxOf: (weft: LoomWeft) => Option.Option<BoxToken> = byTypeOr<LoomWeft>()(
+  {
+    PreambleWeft: (line) => Option.fromNullishOr(line.box),
+    ProseWeft: (line) => Option.fromNullishOr(line.box),
+  },
+  () => Option.none<BoxToken>(),
+)
 
-export const standingOf = (weft: PreambleWeft | SectionBodyWeft): Standing =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'PreambleWeft' }, (): Standing => 'prose'),
-    Match.when({ type: 'TildeWeft' }, (): Standing => 'prose'),
-    Match.when({ type: 'ProseWeft' }, (): Standing => 'prose'),
-    Match.when({ type: 'ArrowWeft' }, (): Standing => 'code'),
-    Match.when({ type: 'CodeWeft' }, (): Standing => 'code'),
-    Match.when({ type: 'FenceWeft' }, (): Standing => 'code'),
-    Match.exhaustive,
-  )
+export const standingOf: (weft: PreambleWeft | SectionBodyWeft) => Standing = byType<PreambleWeft | SectionBodyWeft>()({
+  PreambleWeft: (): Standing => 'prose',
+  TildeWeft: (): Standing => 'prose',
+  ProseWeft: (): Standing => 'prose',
+  ArrowWeft: (): Standing => 'code',
+  CodeWeft: (): Standing => 'code',
+  FenceWeft: (): Standing => 'code',
+})
+
+const openAfter = Match.fn((_inBox: boolean, side: BoxToken['side']) => side).pipe(
+  Match.when('open', () => true),
+  Match.when('close', () => false),
+  Match.when('stray', (_side, inBox) => inBox),
+  Match.exhaustive,
+)
 
 export const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
   Option.match(boxOf(weft), {
     onNone: () => inBox,
-    onSome: (box) =>
-      Match.value(box.side).pipe(
-        Match.when('open', () => true),
-        Match.when('close', () => false),
-        Match.when('stray', () => inBox),
-        Match.exhaustive,
-      ),
+    onSome: (box) => openAfter(inBox, box.side),
   })

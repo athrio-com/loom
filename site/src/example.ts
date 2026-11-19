@@ -228,28 +228,21 @@ const scanLine = (scan: Scan, source: Line, index: number): Scan =>
   pipe(
     index === 0 ? scan : enter(scan),
     (opened) =>
-      Array.reduce(
-        Array.flatMap(source.tokens, (token) => token.text.split('')),
-        opened,
-        (carried, char, at) => strike(carried, char, at === 0),
-      ),
+      source.tokens
+        .flatMap((token) => token.text.split(''))
+        .reduce((carried, char, at) => strike(carried, char, at === 0), opened),
     (typed) => rested(typed, source.rest),
   )
 
-const SCAN: Scan = Array.reduce(
-  DOCUMENT,
-  { costs: [], owed: 0, burst: 1, raw: 0, struck: 0 },
-  scanLine,
-)
+const SCAN: Scan = DOCUMENT.reduce(scanLine, { costs: [], owed: 0, burst: 1, raw: 0, struck: 0 })
 
 const NORM = SCAN.struck === 0 ? 1 : SCAN.struck / SCAN.raw
 
 export const CHARACTERS = SCAN.costs.length
 
-const CLOCK: ReadonlyArray<number> = Array.reduce(
-  SCAN.costs,
-  [0] as ReadonlyArray<number>,
+const CLOCK: ReadonlyArray<number> = SCAN.costs.reduce(
   (clock, cost) => [...clock, clock[clock.length - 1]! + (cost < 0 ? 1 : cost * NORM)],
+  [0] as ReadonlyArray<number>,
 )
 
 export const RUN = CLOCK[CHARACTERS]!
@@ -281,17 +274,20 @@ type Cut = {
 }
 
 const cutTokens = (tokens: ReadonlyArray<Token>, left: number): Cut =>
-  Array.reduce(tokens, { taken: [], left, whole: true } as Cut, (cut, token) => {
-    if (cut.left <= 0) {
-      return { ...cut, whole: false }
-    }
-    const take = Math.min(cut.left, token.text.length)
-    return {
-      taken: [...cut.taken, { ...token, text: token.text.slice(0, take) }],
-      left: cut.left - take,
-      whole: cut.whole && take === token.text.length,
-    }
-  })
+  tokens.reduce(
+    (cut, token) => {
+      if (cut.left <= 0) {
+        return { ...cut, whole: false }
+      }
+      const take = Math.min(cut.left, token.text.length)
+      return {
+        taken: [...cut.taken, { ...token, text: token.text.slice(0, take) }],
+        left: cut.left - take,
+        whole: cut.whole && take === token.text.length,
+      }
+    },
+    { taken: [], left, whole: true } as Cut,
+  )
 
 export const frameAt = (struck: number, playing: boolean): ReadonlyArray<Shown> => {
   const walk = (index: number, left: number, out: ReadonlyArray<Shown>): ReadonlyArray<Shown> => {
@@ -370,32 +366,30 @@ const WOVEN: ReadonlyArray<string> = [
 
 const JSON_TOKEN = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+)|(true|false|null)|([^"\d]+)/g
 
-const jsonTokens = (source: string): ReadonlyArray<Token> =>
-  pipe(
-    Array.fromIterable(source.matchAll(JSON_TOKEN)),
-    Array.flatMap((match) =>
-      Match.value(match).pipe(
-        Match.when(
-          (found) => found[1] !== undefined && found[2] !== undefined,
-          (found) => [plain(found[1]!, BLUE), plain(found[2]!, GREY)],
-        ),
-        Match.when(
-          (found) => found[1] !== undefined,
-          (found) => [plain(found[1]!, GREEN)],
-        ),
-        Match.when(
-          (found) => found[3] !== undefined || found[4] !== undefined,
-          (found) => [plain(found[3] ?? found[4]!, VIOLET)],
-        ),
-        Match.orElse((found) => [plain(found[5] ?? '', GREY)]),
-      ),
-    ),
-  )
+const matchTokens = Match.type<RegExpMatchArray>().pipe(
+  Match.withReturnType<ReadonlyArray<Token>>(),
+  Match.when(
+    (found) => found[1] !== undefined && found[2] !== undefined,
+    (found) => [plain(found[1]!, BLUE), plain(found[2]!, GREY)],
+  ),
+  Match.when(
+    (found) => found[1] !== undefined,
+    (found) => [plain(found[1]!, GREEN)],
+  ),
+  Match.when(
+    (found) => found[3] !== undefined || found[4] !== undefined,
+    (found) => [plain(found[3] ?? found[4]!, VIOLET)],
+  ),
+  Match.orElse((found) => [plain(found[5] ?? '', GREY)]),
+)
 
-const outputLines = (which: PlayerOutput): ReadonlyArray<ReadonlyArray<Token>> =>
-  Match.value(which).pipe(
-    Match.when('tangle', () => Array.map(TANGLED, (source) => [plain(source)])),
-    Match.when('weave', () => Array.map(WOVEN, jsonTokens)),
+const jsonTokens = (source: string): ReadonlyArray<Token> =>
+  Array.fromIterable(source.matchAll(JSON_TOKEN)).flatMap((match) => matchTokens(match))
+
+const outputLines: (which: PlayerOutput) => ReadonlyArray<ReadonlyArray<Token>> =
+  Match.type<PlayerOutput>().pipe(
+    Match.when('tangle', () => TANGLED.map((source) => [plain(source)])),
+    Match.when('weave', () => WOVEN.map(jsonTokens)),
     Match.exhaustive,
   )
 
@@ -426,7 +420,7 @@ const shownLine = (shown: Shown, h: HtmlBuilder<Message>): Html =>
     ],
     [
       ...(shown.lit ? [h.span([h.AriaHidden(true), h.Class('pl-cur')], [])] : []),
-      ...Array.map(shown.tokens, (token) => tokenSpan(token, h)),
+      ...shown.tokens.map((token) => tokenSpan(token, h)),
       ...(shown.caret
         ? [h.span([h.AriaHidden(true), h.Class(shown.held ? 'pl-caret blink' : 'pl-caret')], [])]
         : []),
@@ -461,10 +455,10 @@ const outputPanel = (which: PlayerOutput, h: HtmlBuilder<Message>): Html =>
       ),
       h.div(
         [h.Class('pl-result-body')],
-        Array.map(outputLines(which), (tokens) =>
+        outputLines(which).map((tokens) =>
           h.div(
             [h.Class('pl-result-line')],
-            Array.map(tokens, (token) => tokenSpan(token, h)),
+            tokens.map((token) => tokenSpan(token, h)),
           ),
         ),
       ),
@@ -502,28 +496,34 @@ const closesFence = (fence: Fence, text: string): boolean =>
   )
 
 const withAnchors = (text: string): ReadonlyArray<Token> =>
-  pipe(
-    text.split(/(::\[[^\]]*\])/),
-    Array.filter((piece) => piece !== ''),
-    Array.map((piece) =>
+  text
+    .split(/(::\[[^\]]*\])/)
+    .filter((piece) => piece !== '')
+    .map((piece) =>
       piece.startsWith(`::${'['}`) ? chip(piece, VIOLET, WASH.violet, false) : plain(piece),
-    ),
-  )
+    )
+
+const titlePiece = Match.fn(
+  (
+    _within: {
+      readonly piece: string
+    },
+    mark: string,
+  ) => mark,
+).pipe(
+  Match.withReturnType<Token>(),
+  Match.when('{', (_mark, { piece }) => chip(piece, AMBER, AMBER_WASH)),
+  Match.when('[', (_mark, { piece }) => chip(piece, BLUE, WASH.blue, false)),
+  Match.orElse((_mark, { piece }) => plain(piece, BLUE, true)),
+)
 
 const headingTokens = (marks: string, title: string): ReadonlyArray<Token> => [
   chip(marks, BLUE, WASH.blue),
   plain(' '),
-  ...pipe(
-    title.split(/(\{[^}]*\}|\[[^\]]*\])/),
-    Array.filter((piece) => piece !== ''),
-    Array.map((piece) =>
-      Match.value(piece.charAt(0)).pipe(
-        Match.when('{', () => chip(piece, AMBER, AMBER_WASH)),
-        Match.when('[', () => chip(piece, BLUE, WASH.blue, false)),
-        Match.orElse(() => plain(piece, BLUE, true)),
-      ),
-    ),
-  ),
+  ...title
+    .split(/(\{[^}]*\}|\[[^\]]*\])/)
+    .filter((piece) => piece !== '')
+    .map((piece) => titlePiece({ piece }, piece.charAt(0))),
 ]
 
 const fieldTokens = (text: string): ReadonlyArray<Token> =>
@@ -600,17 +600,16 @@ const readLine = (reading: Reading, text: string, at: number): Reading => {
 }
 
 const canvasLines = (source: string): ReadonlyArray<CanvasLine> =>
-  Array.reduce(
-    source.replace(/\n$/, '').split('\n'),
-    {
+  source
+    .replace(/\n$/, '')
+    .split('\n')
+    .reduce(readLine, {
       lines: [],
       inFrontmatter: false,
       inCode: false,
       awaiting: false,
       fence: Option.none(),
-    } as Reading,
-    readLine,
-  ).lines
+    } as Reading).lines
 
 const canvasCopy = (source: string, copied: string, h: HtmlBuilder<Message>): Html => {
   const id = `loom:${source}`
@@ -632,10 +631,10 @@ export const loomCanvas = (source: string, copied: string, h: HtmlBuilder<Messag
     [h.Class('docs-canvas')],
     [
       canvasCopy(source, copied, h),
-      ...Array.map(canvasLines(source), (line) =>
+      ...canvasLines(source).map((line) =>
         h.div(
           [h.Class(line.kept ? 'pl-line kept' : 'pl-line'), h.Style({ minHeight: '1em' })],
-          Array.map(line.tokens, (token) => tokenSpan(token, h)),
+          line.tokens.map((token) => tokenSpan(token, h)),
         ),
       ),
     ],
@@ -694,25 +693,23 @@ const transport = (player: Player, h: HtmlBuilder<Message>): Html =>
 
 const finished = (player: Player): boolean => player.struck >= CHARACTERS
 
-const playTitle = (player: Player): string =>
-  Match.value(player).pipe(
-    Match.when(
-      (state) => state.playing,
-      () => 'Pause',
-    ),
-    Match.when(finished, () => 'Play it again'),
-    Match.orElse(() => 'Play'),
-  )
+const playTitle: (player: Player) => string = Match.type<Player>().pipe(
+  Match.when(
+    (state) => state.playing,
+    () => 'Pause',
+  ),
+  Match.when(finished, () => 'Play it again'),
+  Match.orElse(() => 'Play'),
+)
 
-const playGlyph = (player: Player): Html =>
-  Match.value(player).pipe(
-    Match.when(
-      (state) => state.playing,
-      () => pauseIcon(),
-    ),
-    Match.when(finished, () => replayIcon()),
-    Match.orElse(() => playTriangle()),
-  )
+const playGlyph: (player: Player) => Html = Match.type<Player>().pipe(
+  Match.when(
+    (state) => state.playing,
+    () => pauseIcon(),
+  ),
+  Match.when(finished, () => replayIcon()),
+  Match.orElse(() => playTriangle()),
+)
 
 const cardClass = (player: Player, done: boolean): string => {
   const running = player.playing ? ' running' : ''
@@ -762,7 +759,7 @@ export const example = (model: Model, h: HtmlBuilder<Message>): Html => {
                   h.div(
                     [h.Class('pl-column')],
                     [
-                      ...Array.map(shown, (line) => shownLine(line, h)),
+                      ...shown.map((line) => shownLine(line, h)),
                       ...(offering
                         ? [
                             h.div(

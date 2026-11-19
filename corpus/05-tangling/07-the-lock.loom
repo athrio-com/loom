@@ -32,7 +32,7 @@ An orphan is a path the lock still records that the latest build no longer produ
 =>
 
 export const orphansOf = (lock: LoomLock, produced: ReadonlySet<string>): ReadonlyArray<string> =>
-  Array.filter(lock.tangled, (path) => !produced.has(path))
+  lock.tangled.filter((path) => !produced.has(path))
 
 ## Recording and pruning
 

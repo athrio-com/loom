@@ -46,10 +46,10 @@ const parentOf = (root: LoomModule): Option.Option<string> =>
 
 const nodeOf = (catalogue: Catalogue, trope: Trope, root: LoomModule): TropeNode => {
   const names = Option.fromNullishOr(root.doc.frontmatter?.entries)
-  const listed = Array.map(
-    Option.getOrElse(names, () => []),
-    (name): Listed => ({ name, chapter: tropeEntryModuleOf(catalogue, root.path, name.value) }),
-  )
+  const listed = Option.getOrElse(names, () => []).map((name): Listed => ({
+    name,
+    chapter: tropeEntryModuleOf(catalogue, root.path, name.value),
+  }))
   return {
     name: trope.name,
     root,
@@ -57,7 +57,7 @@ const nodeOf = (catalogue: Catalogue, trope: Trope, root: LoomModule): TropeNode
     listed,
     entries: Option.isNone(names)
       ? [root.path]
-      : Array.getSomes(Array.map(listed, (entry) => Option.map(entry.chapter, (m) => m.path))),
+      : Array.getSomes(listed.map((entry) => Option.map(entry.chapter, (m) => m.path))),
   }
 }
 
@@ -89,19 +89,17 @@ export const boundariesOf = (
 ): Boundaries => {
   const tropes: ReadonlyMap<string, TropeNode> = new Map(
     Array.getSomes(
-      Array.map(gathered, (trope) =>
+      gathered.map((trope) =>
         Option.map(trope.root, (root) => [trope.name, nodeOf(catalogue, trope, root)] as const),
       ),
     ),
   )
-  const held = pipe(
-    gathered,
-    Array.filter((trope) => tropes.has(trope.name)),
-    Array.flatMap((trope) => trope.chapters),
-    Array.sort(Order.mapInput(Order.String, (module: LoomModule) => module.path)),
+  const held = Array.sort(
+    gathered.filter((trope) => tropes.has(trope.name)).flatMap((trope) => trope.chapters),
+    Order.mapInput(Order.String, (module: LoomModule) => module.path),
   )
   const chains = new Map(
-    Array.map(held, (module) => [
+    held.map((module) => [
       module.path,
       Option.match(tropeOf(module), {
         onNone: (): ReadonlyArray<string> => [],
@@ -109,17 +107,21 @@ export const boundariesOf = (
       }),
     ]),
   )
-  const derived = Array.reduce(held, new Map<Location, string>(), (found, module) =>
-    Option.match(tropeOf(module), {
-      onNone: () => found,
-      onSome: (trope) =>
-        Array.reduce(reachesOf(catalogue, module), found, (was, each) =>
-          was.has(each.target) ||
-          !Option.exists(Option.fromNullishOr(modules.get(each.target)), namesNoTrope)
-            ? was
-            : new Map(was).set(each.target, trope),
-        ),
-    }),
+  const derived = held.reduce(
+    (found, module) =>
+      Option.match(tropeOf(module), {
+        onNone: () => found,
+        onSome: (trope) =>
+          reachesOf(catalogue, module).reduce(
+            (was, each) =>
+              was.has(each.target) ||
+              !Option.exists(Option.fromNullishOr(modules.get(each.target)), namesNoTrope)
+                ? was
+                : new Map(was).set(each.target, trope),
+            found,
+          ),
+      }),
+    new Map<Location, string>(),
   )
   return { tropes, chains, derived }
 }
@@ -142,6 +144,25 @@ const entriesOffRoot = (module: LoomModule): ReadonlyArray<Diagnostic> =>
         }),
       )
 
+const cycleStep = Match.fn(
+  (
+    _within: {
+      readonly parent: string
+      readonly path: ReadonlyArray<string>
+      readonly walk: (
+        name: string,
+        path: ReadonlyArray<string>,
+      ) => Option.Option<ReadonlyArray<string>>
+    },
+    found: { readonly closes: boolean; readonly seen: boolean },
+  ) => found,
+).pipe(
+  Match.withReturnType<Option.Option<ReadonlyArray<string>>>(),
+  Match.when({ closes: true }, (_found, { parent, path }) => Option.some([...path, parent])),
+  Match.when({ seen: true }, () => Option.none<ReadonlyArray<string>>()),
+  Match.orElse((_found, { parent, path, walk }) => walk(parent, [...path, parent])),
+)
+
 const loopOf = (
   tropes: ReadonlyMap<string, TropeNode>,
   start: string,
@@ -151,16 +172,9 @@ const loopOf = (
       Option.fromNullishOr(tropes.get(name)),
       Option.flatMap((node) => node.parent),
       Option.flatMap((parent) =>
-        Match.value(parent).pipe(
-          Match.when(
-            (next: string) => next === start,
-            (next) => Option.some([...path, next]),
-          ),
-          Match.when(
-            (next: string) => path.includes(next),
-            () => Option.none<ReadonlyArray<string>>(),
-          ),
-          Match.orElse((next) => walk(next, [...path, next])),
+        cycleStep(
+          { parent, path, walk },
+          { closes: parent === start, seen: path.includes(parent) },
         ),
       ),
     )
@@ -224,18 +238,16 @@ const listedFault = (
   })
 
 const entryFaults = (boundaries: Boundaries, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  pipe(
-    Array.fromIterable(boundaries.tropes.values()),
-    Array.filter((node) => node.root.path === module.path),
-    Array.flatMap((node) =>
-      Array.flatMap(node.listed, (entry) =>
+  Array.fromIterable(boundaries.tropes.values())
+    .filter((node) => node.root.path === module.path)
+    .flatMap((node) =>
+      node.listed.flatMap((entry) =>
         Option.match(listedFault(boundaries, node.name, entry), {
           onNone: (): ReadonlyArray<Diagnostic> => [],
           onSome: (fault) => faulty(fault, entry.name.position).diagnostics,
         }),
       ),
-    ),
-  )
+    )
 
 const crossedFault = (
   boundaries: Boundaries,
@@ -245,7 +257,7 @@ const crossedFault = (
 ): Option.Option<LoomFault> =>
   pipe(
     Array.findLast(
-      Array.filter(chainIn(boundaries, target.path), (trope) => !own.includes(trope)),
+      chainIn(boundaries, target.path).filter((trope) => !own.includes(trope)),
       (trope) => !isEntry(boundaries, trope, target.path),
     ),
     Option.flatMap((trope) => Option.fromNullishOr(boundaries.tropes.get(trope))),
@@ -254,9 +266,7 @@ const crossedFault = (
         chapter: titleOf(target),
         trope: node.name,
         entries: Array.getSomes(
-          Array.map(node.entries, (path) =>
-            Option.map(Option.fromNullishOr(modules.get(path)), titleOf),
-          ),
+          node.entries.map((path) => Option.map(Option.fromNullishOr(modules.get(path)), titleOf)),
         ),
       }),
     ),
@@ -278,7 +288,7 @@ const reachingInside = (
   })
   return boundaries.tropes.size === 0
     ? []
-    : Array.flatMap(reachesOf(catalogue, module), (each) =>
+    : reachesOf(catalogue, module).flatMap((each) =>
         Option.match(
           Option.flatMap(Option.fromNullishOr(modules.get(each.target)), (target) =>
             crossedFault(boundaries, modules, own, target),

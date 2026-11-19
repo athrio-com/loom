@@ -156,7 +156,7 @@ const takeLanding: Effect.Effect<Option.Option<Landing>> = Effect.try(() => {
 )
 
 const textsIn = (node: Node): ReadonlyArray<Text> =>
-  node instanceof Text ? [node] : Array.flatMap(Array.fromIterable(node.childNodes), textsIn)
+  node instanceof Text ? [node] : Array.fromIterable(node.childNodes).flatMap(textsIn)
 
 const readable = (text: Text): boolean =>
   Option.match(Option.fromNullishOr(text.parentElement), {
@@ -197,7 +197,7 @@ const offsetIn = (flat: string, sought: string): Option.Option<number> =>
 
 const rangeIn = (texts: ReadonlyArray<Text>, words: string, before: string): Option.Option<Range> => {
   const runs = runsOf(texts)
-  const flat = folded(Array.join(Array.map(texts, (text) => text.data), ''))
+  const flat = folded(texts.map((text) => text.data).join(''))
   return pipe(
     offsetIn(flat, `${before}${words}`),
     Option.map((at) => at + before.length),
@@ -229,12 +229,12 @@ const rangeOf = (url: URL, landing: Landing): Option.Option<Range> =>
   )
 
 const rangeAt = (url: URL, landing: Landing): Option.Option<Range> => {
-  const texts = Array.filter(textsIn(contentOf()), readable)
+  const texts = textsIn(contentOf()).filter(readable)
   return Option.match(headingOf(url), {
     onNone: () => rangeIn(texts, landing.words, landing.before),
     onSome: (target) => {
-      const inside = Array.filter(texts, (text) => target.contains(text))
-      const after = Array.filter(texts, (text) => follows(target, text))
+      const inside = texts.filter((text) => target.contains(text))
+      const after = texts.filter((text) => follows(target, text))
       return isHeading(target)
         ? pipe(
             rangeIn(after, landing.words, landing.before),
@@ -374,13 +374,13 @@ const TAIL = LINE * 3
 const StageMark = S.Literals(['caret', 'foot', 'head'])
 type StageMark = typeof StageMark.Type
 
-const markedTop = (mark: StageMark, stage: HTMLElement): number =>
-  Match.value(mark).pipe(
-    Match.when('head', () => 0),
-    Match.when('foot', () => stage.scrollHeight - stage.clientHeight),
-    Match.when('caret', () => stage.scrollTop + TAIL),
-    Match.exhaustive,
-  )
+const markedTop = Match.fn((mark: StageMark, _stage: HTMLElement) => mark).pipe(
+  Match.withReturnType<number>(),
+  Match.when('head', () => 0),
+  Match.when('foot', (_matched, _mark, stage) => stage.scrollHeight - stage.clientHeight),
+  Match.when('caret', (_matched, _mark, stage) => stage.scrollTop + TAIL),
+  Match.exhaustive,
+)
 
 const moveStage = (mark: StageMark): void =>
   Option.match(Option.fromNullishOr(document.getElementById('loom-stage')), {
@@ -479,112 +479,113 @@ const stepped = (model: Model, delta: number): Step => {
   }
 }
 
-const update = (model: Model, message: Message): Step =>
-  Match.value(message).pipe(
-    Match.withReturnType<Step>(),
-    Match.tagsExhaustive({
-      ToggledPlay: () => ({ model: { ...model, player: toggled(model.player) } }),
-      Ticked: ({ delta }) => stepped(model, delta),
-      SkippedToEnd: () => ({
-        model: {
-          ...model,
-          player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false },
-        },
-        commands: [MoveStage({ to: 'foot' })],
-      }),
-      ReplayedDocument: () => ({
-        model: {
-          ...model,
-          player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
-        },
-        commands: [MoveStage({ to: 'head' })],
-      }),
-      ToggledFullHeight: () =>
-        model.player.full
-          ? { model: { ...model, player: { ...model.player, full: false } } }
-          : { model, commands: [GlideToCard()] },
-      GrewCard: () => ({ model: { ...model, player: { ...model.player, full: true } } }),
-      ShowedOutput: ({ which }) => ({
-        model: {
-          ...model,
-          player: {
-            ...model.player,
-            output: Option.contains(model.player.output, which)
-              ? Option.none()
-              : Option.some(which),
-          },
-        },
-      }),
-      StageMoved: () => ({ model }),
-      SelectedSection: ({ id }) => ({
-        model: { ...model, activeSection: id, drawerOpen: false },
-        commands: [ScrollToSection({ id })],
-      }),
-      SectionScrolled: () => ({ model }),
-      SpottedSection: ({ id }) =>
-        id === model.activeSection ? { model } : { model: { ...model, activeSection: id } },
-      WentTo: ({ route }) =>
-        drawsInPlace(route) || Option.isSome(model.book)
-          ? { model: { ...model, route, searchOpen: false } }
-          : { model, commands: [LoadPage({ href: pathOf(route) })] },
-      OpenedChapter: ({ slug }) => ({
-        model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
-        commands: [ScrollToTop()],
-      }),
-      PickedRuntime: ({ runtime }) => ({ model: { ...model, runtime } }),
-      OpenedDrawer: () => ({ model: { ...model, drawerOpen: true } }),
-      ClosedDrawer: () => ({ model: { ...model, drawerOpen: false } }),
-      OpenedSearch: () => ({
-        model: { ...model, searchOpen: true, focus: 0 },
-        commands: [FocusPalette()],
-      }),
-      FocusedPalette: () => ({ model }),
-      ClosedSearch: () => ({
-        model: {
-          ...model,
-          searchOpen: false,
-          query: '',
-          focus: 0,
-          caret: 0,
-          searching: false,
-          found: [],
-        },
-      }),
-      MovedCaret: ({ at }) => ({ model: { ...model, caret: at } }),
-      Typed: ({ query }) =>
-        searchable(query)
-          ? {
-              model: { ...model, query, focus: 0, searching: true },
-              commands: [Search({ query, exact: model.exact })],
-            }
-          : { model: { ...model, query, focus: 0, searching: false, found: [] } },
-      ToggledExact: () => {
-        const exact = !model.exact
-        return searchable(model.query)
-          ? {
-              model: { ...model, exact, focus: 0, searching: true },
-              commands: [Search({ query: model.query, exact }), FocusPalette()],
-            }
-          : { model: { ...model, exact }, commands: [FocusPalette()] }
+const stepFor = Match.type<Message>().pipe(
+  Match.withReturnType<(model: Model) => Step>(),
+  Match.tagsExhaustive({
+    ToggledPlay: () => (model) => ({ model: { ...model, player: toggled(model.player) } }),
+    Ticked: ({ delta }) => (model) => stepped(model, delta),
+    SkippedToEnd: () => (model) => ({
+      model: {
+        ...model,
+        player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false },
       },
-      Found: ({ query, exact, groups }) =>
-        query === model.query && exact === model.exact
-          ? { model: { ...model, found: groups, searching: false, focus: firstResult(groups) } }
-          : { model },
-      OpenedHit: ({ href, words, before, area }) => ({
-        model,
-        commands: [OpenFound({ href, words, before, area })],
-      }),
-      MovedFocus: ({ delta, count }) => ({
-        model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
-      }),
-      Copied: ({ id, text }) => ({
-        model: { ...model, copied: id },
-        commands: [CopyThenReset({ text })],
-      }),
-      CopyReset: () => ({ model: { ...model, copied: '' } }),
+      commands: [MoveStage({ to: 'foot' })],
     }),
-  )
+    ReplayedDocument: () => (model) => ({
+      model: {
+        ...model,
+        player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
+      },
+      commands: [MoveStage({ to: 'head' })],
+    }),
+    ToggledFullHeight: () => (model) =>
+      model.player.full
+        ? { model: { ...model, player: { ...model.player, full: false } } }
+        : { model, commands: [GlideToCard()] },
+    GrewCard: () => (model) => ({ model: { ...model, player: { ...model.player, full: true } } }),
+    ShowedOutput: ({ which }) => (model) => ({
+      model: {
+        ...model,
+        player: {
+          ...model.player,
+          output: Option.contains(model.player.output, which)
+            ? Option.none()
+            : Option.some(which),
+        },
+      },
+    }),
+    StageMoved: () => (model) => ({ model }),
+    SelectedSection: ({ id }) => (model) => ({
+      model: { ...model, activeSection: id, drawerOpen: false },
+      commands: [ScrollToSection({ id })],
+    }),
+    SectionScrolled: () => (model) => ({ model }),
+    SpottedSection: ({ id }) => (model) =>
+      id === model.activeSection ? { model } : { model: { ...model, activeSection: id } },
+    WentTo: ({ route }) => (model) =>
+      drawsInPlace(route) || Option.isSome(model.book)
+        ? { model: { ...model, route, searchOpen: false } }
+        : { model, commands: [LoadPage({ href: pathOf(route) })] },
+    OpenedChapter: ({ slug }) => (model) => ({
+      model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
+      commands: [ScrollToTop()],
+    }),
+    PickedRuntime: ({ runtime }) => (model) => ({ model: { ...model, runtime } }),
+    OpenedDrawer: () => (model) => ({ model: { ...model, drawerOpen: true } }),
+    ClosedDrawer: () => (model) => ({ model: { ...model, drawerOpen: false } }),
+    OpenedSearch: () => (model) => ({
+      model: { ...model, searchOpen: true, focus: 0 },
+      commands: [FocusPalette()],
+    }),
+    FocusedPalette: () => (model) => ({ model }),
+    ClosedSearch: () => (model) => ({
+      model: {
+        ...model,
+        searchOpen: false,
+        query: '',
+        focus: 0,
+        caret: 0,
+        searching: false,
+        found: [],
+      },
+    }),
+    MovedCaret: ({ at }) => (model) => ({ model: { ...model, caret: at } }),
+    Typed: ({ query }) => (model) =>
+      searchable(query)
+        ? {
+            model: { ...model, query, focus: 0, searching: true },
+            commands: [Search({ query, exact: model.exact })],
+          }
+        : { model: { ...model, query, focus: 0, searching: false, found: [] } },
+    ToggledExact: () => (model) => {
+      const exact = !model.exact
+      return searchable(model.query)
+        ? {
+            model: { ...model, exact, focus: 0, searching: true },
+            commands: [Search({ query: model.query, exact }), FocusPalette()],
+          }
+        : { model: { ...model, exact }, commands: [FocusPalette()] }
+    },
+    Found: ({ query, exact, groups }) => (model) =>
+      query === model.query && exact === model.exact
+        ? { model: { ...model, found: groups, searching: false, focus: firstResult(groups) } }
+        : { model },
+    OpenedHit: ({ href, words, before, area }) => (model) => ({
+      model,
+      commands: [OpenFound({ href, words, before, area })],
+    }),
+    MovedFocus: ({ delta, count }) => (model) => ({
+      model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
+    }),
+    Copied: ({ id, text }) => (model) => ({
+      model: { ...model, copied: id },
+      commands: [CopyThenReset({ text })],
+    }),
+    CopyReset: () => (model) => ({ model: { ...model, copied: '' } }),
+  }),
+)
+
+const update = (model: Model, message: Message): Step => stepFor(message)(model)
 
 const SPY_OFFSET = 100
 const SPY_TARGETS = '.docs-article h2[id]'
@@ -592,7 +593,7 @@ const SPY_TARGETS = '.docs-article h2[id]'
 const activeSectionId = (): Option.Option<string> => {
   const targets = Array.fromIterable(document.querySelectorAll<HTMLElement>(SPY_TARGETS))
   return pipe(
-    Array.last(Array.filter(targets, (el) => el.getBoundingClientRect().top <= SPY_OFFSET)),
+    Array.last(targets.filter((el) => el.getBoundingClientRect().top <= SPY_OFFSET)),
     Option.orElse(() => Array.head(targets)),
     Option.map((el) => el.id),
     Option.filter((id) => id.length > 0),

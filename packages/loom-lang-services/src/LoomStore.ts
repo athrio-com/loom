@@ -23,7 +23,9 @@ export const loomTropes: ReadonlyArray<string> = ['mermaid']
 
 export const isLoomTrope = (id: string): boolean => loomTropes.includes(id)
 
-export const isWorkspace = (dir: string): boolean => existsSync(join(dir, '.loom', 'config.yaml'))
+export const configurationOf = (dir: string): string => join(dir, '.loom', 'config.yaml')
+
+export const isWorkspace = (dir: string): boolean => existsSync(configurationOf(dir))
 
 export const workspaceOf = (dir: string): Option.Option<string> => {
   if (isWorkspace(dir)) return Option.some(dir)
@@ -136,8 +138,7 @@ const packageManager = (root: string, spec: string): PackageManager =>
       }
     : {
         command: 'npm',
-        args: Array.map(
-          ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
+        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'].map(
           quotedOnWindows,
         ),
         env: process.env,

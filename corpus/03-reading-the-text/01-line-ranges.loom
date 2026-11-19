@@ -9,7 +9,7 @@ Language: TypeScript
 
 A loom arrives as plain text, and Loom reads it into the tree Part II describes. Four passes do the reading, a chapter each: line ranges split the text into lines, the classifier names each line's kind, the tokeniser reads the marks inside each line, and the document builder assembles the document. The fifth chapter builds one module from a loom, its document beside the product composed from it, and the last gathers how every pass reads fenced code.
 
-`LineRanges` is the parser's first pass. `LoomSourceRanges` turns a file's text into a stream of half-open `[start, end)` ranges, one per line — the offsets every later pass slices against and Volar maps from. It detects the file's line-terminator convention once and refuses a file that mixes conventions, the one failure the parse chain cannot pin to a node.
+`LineRanges` is the parser's first pass. Its service, `LoomSourceRanges`, cuts a file's text into ranges, one for each line. A range is a half-open pair of offsets, `[start, end)`. Every later pass slices the text by these offsets, and Volar maps from them. The service detects once how the file ends its lines, and it refuses a file that ends them in more than one way. That is the one failure the parse chain cannot pin to a node.
 
 ## Terminator conventions
 
@@ -106,9 +106,13 @@ const strayKind = (primary: EolKind, match: string): EolKind => {
   return primary
 }
 
-## Streaming the ranges
+## The range of every line
 
-A `LineRange` is a half-open `[start, end)` pair of byte offsets, terminator included; `LineRangeSchema` mirrors it for schema fields, both offsets non-negative integers. `lineRanges` streams them by walking the text with the convention's `pattern` — each step emits the range up to the end of the next terminator, and the last line, having none, runs to the end of the text. The source string is never split or copied; later passes slice it on demand.
+A `LineRange` is a half-open pair of offsets, `[start, end)`, and a line's terminator falls inside the line's range. `LineRangeSchema` mirrors the pair for schema fields, and holds both offsets to non-negative integers.
+
+`lineRanges` gives the range of every line of a text. The convention's `pattern` finds every terminator, and a line ends where its terminator ends. The first line starts at offset zero, and every other line starts where the line before it ended. The last line has no terminator, so it runs to the end of the text. It is empty when the text ends with a terminator.
+
+The text itself is never split or copied. A later pass slices it by a range when it needs the line.
 
 =>
 
@@ -122,28 +126,24 @@ const NonNegativeInt = Schema.Number.check(
 
 export const LineRangeSchema = Schema.Tuple([NonNegativeInt, NonNegativeInt])
 
-const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
-  Stream.unfold(0, (from) =>
-    Effect.sync(() => {
-      if (from > text.length) return undefined
-      eol.pattern.lastIndex = from
-      const m = eol.pattern.exec(text)
-      if (!m) return [[from, text.length], text.length + 1] as const
-      return [[from, eol.pattern.lastIndex], eol.pattern.lastIndex] as const
-    }),
+const lineRanges = (text: string, eol: Eol): ReadonlyArray<LineRange> => {
+  const ends = [...text.matchAll(eol.pattern)].map(
+    (terminator) => terminator.index + terminator[0].length,
   )
+  return Array.zip([0, ...ends], [...ends, text.length])
+}
 
 ## The service
 
-`LoomSourceRanges` is the pass as an Effect service. Its `stream` detects the convention, checks for a mix — failing with `MixedEOL` — then streams the ranges. A single line with no terminator yields one range covering the whole text.
+`LoomSourceRanges` is the pass as an Effect service. Its `rangesOf` method detects the convention, checks the text for a mix, and gives the range of every line. It fails with `MixedEOL` when the text mixes terminators. A text with no terminator is a single line, and `rangesOf` gives the one range that covers it.
 
 =>
 
 export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()('LoomSourceRanges', {
   make: Effect.succeed({
-    stream: (text: string): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
+    rangesOf: (text: string): Effect.Effect<ReadonlyArray<LineRange>, MixedEOL> =>
       Option.match(detectEol(text), {
-        onNone: () => Effect.succeed(Stream.make([0, text.length] as const)),
+        onNone: () => Effect.succeed<ReadonlyArray<LineRange>>([[0, text.length]]),
         onSome: (eol) =>
           checkMixed(text, eol).pipe(Effect.map((validEol) => lineRanges(text, validEol))),
       }),
@@ -154,11 +154,11 @@ export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()('LoomS
 
 ## What this module draws on
 
-Effect supplies `Stream` for the ranges, `Data` for the tagged `MixedEOL` error, `Schema` for `LineRangeSchema`, and `Option` and `Effect` for the rest.
+Effect supplies `Array.zip` to pair each line's start with its end, `Data` for the tagged `MixedEOL` error, `Schema` for `LineRangeSchema`, and `Option` and `Effect` for the rest.
 
 =>
 
-import { Context, Effect, Layer, Option, Stream, Data, Schema } from 'effect'
+import { Array, Context, Effect, Layer, Option, Data, Schema } from 'effect'
 
 ## The module {Tangle}
 
@@ -172,6 +172,6 @@ import { Context, Effect, Layer, Option, Stream, Data, Schema } from 'effect'
 
 ::[Checking for a mix]
 
-::[Streaming the ranges]
+::[The range of every line]
 
 ::[The service]

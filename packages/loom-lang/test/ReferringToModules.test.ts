@@ -1,6 +1,6 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Array, Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import { dirname, relative } from 'node:path'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -101,7 +101,7 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
   )
 
 const messagesOf = (files: Record<string, string>, entry: string) =>
-  Effect.map(diagnosed(files, entry), (found) => Array.map(found, (one) => one.message))
+  Effect.map(diagnosed(files, entry), (found) => found.map((one) => one.message))
 
 describe('an anchor of the Module kind names its module', () => {
   it.effect('writes the path to the file the name finds', () =>

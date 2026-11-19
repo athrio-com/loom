@@ -86,7 +86,7 @@ const editorGrammar = {
 
 ~
 
-Vite's library mode builds a single entry point to `dist/main.js`. The bundle targets Node 20, so Node runs it directly and Bun, being Node-compatible, runs the same bundle unchanged. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a `#!/usr/bin/env node` shebang, making it directly executable. The VS Code extension runs in the editor's CommonJS host, so its Vite config emits that format instead.
+Vite's library mode builds from one entry, `src/start.ts`, to `dist/main.js`. The bundle targets Node 20, so Node runs it directly and Bun, being Node-compatible, runs the same bundle unchanged. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a `#!/usr/bin/env node` shebang, making it directly executable. The VS Code extension runs in the editor's CommonJS host, so its Vite config emits that format instead.
 
 =>
 
@@ -109,7 +109,7 @@ export default defineConfig({
     sourcemap: true,
     minify: false,
     lib: {
-      entry: resolve(here, 'src/main.ts'),
+      entry: resolve(here, 'src/start.ts'),
       formats: ['es'],
       fileName: () => 'main.js',
     },
@@ -119,6 +119,24 @@ export default defineConfig({
     },
   },
 })
+
+## The entry that starts the program [src/start.ts]
+
+Node compiles a module before it runs a line of it, and the bundle holds some five megabytes of JavaScript. Without a cache, a `loom` command under Node spends about seventy milliseconds of every start compiling code that the run before compiled already.
+
+Node can keep what it compiles. The `enableCompileCache` function, from `node:module`, turns on a cache for every module loaded after the call. Node writes the compiled code to the system's temporary folder, and reads it back on the next start while the module's text is the same.
+
+The cache covers only what loads after the call, and a module's static imports load before its first line runs. So the bundle's entry is this small module, not the program. It turns the cache on and then imports the program with a dynamic `import`, which loads the program and everything the program imports under the cache.
+
+Node gained the function in version 22.1, and the bundle targets Node 20. The entry reads `node:module` as a whole and calls the function only where it exists, so an older Node starts the program as it always did.
+
+=>
+
+import * as nodeModule from 'node:module'
+
+nodeModule.enableCompileCache?.()
+
+await import('./main')
 
 ## The grammar's module, declared [src/tree-sitter-loom.d.ts]
 

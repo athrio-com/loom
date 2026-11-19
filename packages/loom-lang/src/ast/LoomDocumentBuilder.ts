@@ -1,5 +1,5 @@
 import { Array, Context, Effect, Layer, Match, Option, pipe, Result } from 'effect'
-import { type Health, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
+import { type Health, nodeOf, okHealth, type Position, byType } from '@athrio/loom-ast/LoomNode'
 import type {
   ClaimedDocument,
   ClaimedSection,
@@ -104,7 +104,7 @@ export const nothingDeclared: Declared = {
 }
 
 const kindsOf = (declared: ReadonlyArray<{ readonly kind: string }>): ReadonlyArray<string> =>
-  Array.map(declared, (each) => each.kind)
+  declared.map((each) => each.kind)
 
 export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
   'LoomDocumentBuilder',
@@ -114,7 +114,7 @@ export class LoomDocumentBuilder extends Context.Service<LoomDocumentBuilder>()(
         const kinds = [...sectionKinds, ...kindsOf(declared.section)]
         const codeless = [
           ...codelessKinds,
-          ...kindsOf(Array.filter(declared.section, (each) => each.codeless)),
+          ...kindsOf(declared.section.filter((each) => each.codeless)),
         ]
         return pipe(
           parsed,
@@ -146,23 +146,21 @@ const expandedHeading =
     judged(besideParameters(labelKey(kinds)))({
       ...heading,
       specifier: Option.getOrUndefined(
-        Option.map(Option.fromNullishOr(heading.specifier), inFull(kinds)),
+        Option.map(Option.fromNullishOr(heading.specifier), (specifier) =>
+          inFull(specifier, kinds),
+        ),
       ),
     })
 
-const inFull =
-  (kinds: ReadonlyArray<string>) =>
-  (specifier: SpecifierToken | ParametersToken): ParametersToken =>
-    Match.value(specifier).pipe(
-      Match.when({ type: 'Parameters' }, (held) => held),
-      Match.when({ type: 'Specifier' }, expandedLabel(kinds)),
-      Match.exhaustive,
-    )
+const inFull = byType<SpecifierToken | ParametersToken, [kinds: ReadonlyArray<string>]>()<ParametersToken>({
+  Parameters: (held) => held,
+  Specifier: (labelled, kinds) => expandedLabel(kinds)(labelled),
+})
 
 const expandedLabel =
   (kinds: ReadonlyArray<string>) =>
   (labelled: SpecifierToken): ParametersToken =>
-    ParametersTokenSchema.make({
+    nodeOf(ParametersTokenSchema, {
       position: labelled.position,
       source: labelled.source,
       health: {
@@ -180,18 +178,18 @@ const expandedLabel =
 const labelParameter =
   (kinds: ReadonlyArray<string>) =>
   (label: SpecifierLabelToken): ParameterToken =>
-    ParameterTokenSchema.make({
+    nodeOf(ParameterTokenSchema, {
       position: label.position,
       source: label.source,
       health: okHealth,
-      key: ParameterKeyTokenSchema.make({
+      key: nodeOf(ParameterKeyTokenSchema, {
         position: { start: label.position.start, end: label.position.start },
         source: '',
         health: okHealth,
         value: labelKey(kinds)(label.value),
       }),
       values: [
-        ParameterValueTokenSchema.make({
+        nodeOf(ParameterValueTokenSchema, {
           position: label.position,
           source: label.source,
           health: okHealth,
@@ -242,7 +240,7 @@ const sameWord = (one: string, other: string): boolean => one.toLowerCase() === 
 const holdsKind =
   (kind: string) =>
   (loom: KindOfLoom): boolean =>
-    Array.some(loom.holds, (held) => sameWord(held, kind))
+    loom.holds.some((held) => sameWord(held, kind))
 
 const loomNamed = (looms: ReadonlyArray<KindOfLoom>, word: string): Option.Option<KindOfLoom> =>
   Array.findFirst(looms, (loom) => sameWord(loom.kind, word))
@@ -260,10 +258,10 @@ const heldElsewhere = (
   own: Option.Option<KindOfLoom>,
 ): ReadonlyArray<Held> =>
   pipe(
-    Array.flatMap(looms, (loom) => loom.holds),
+    looms.flatMap((loom) => loom.holds),
     Array.dedupeWith(sameWord),
     Array.filter((kind) => !Option.exists(own, holdsKind(kind))),
-    Array.map((kind): Held => ({ kind, looms: kindsOf(Array.filter(looms, holdsKind(kind))) })),
+    Array.map((kind): Held => ({ kind, looms: kindsOf(looms.filter(holdsKind(kind))) })),
   )
 
 const isHeld =
@@ -281,7 +279,7 @@ export const claimedDocument =
     const loom = ownKind(looms, expanded)
     const elsewhere = heldElsewhere(looms, loom)
     const scope: Scope = {
-      kinds: Array.filter(kinds, (kind) => !Array.some(elsewhere, isHeld(kind))),
+      kinds: kinds.filter((kind) => !elsewhere.some(isHeld(kind))),
       codeless,
       elsewhere,
       loom,
@@ -359,7 +357,7 @@ const unclaimed =
       specifier: {
         ...stated.held,
         health: { ...stated.held.health, status: fault.status },
-        parameters: Array.map(stated.held.parameters, (parameter) =>
+        parameters: stated.held.parameters.map((parameter) =>
           parameter === stated.parameter ? { ...parameter, health: fault } : parameter,
         ),
       },
@@ -408,23 +406,23 @@ export const coreKeys: Record<BracesOn, Keys> = {
   box: boxKeys,
 }
 
-const takesOn =
-  (keys: Record<BracesOn, Keys>, declared: Declared) =>
-  (on: BracesOn): Takes =>
-    Match.value(on).pipe(
-      Match.when('heading', () => ({
-        on,
-        keys: { ...keys.heading, ...declared.headings },
-        kinds: Option.none(),
-      })),
-      Match.when('anchor', () => ({
-        on,
-        keys: keys.anchor,
-        kinds: Option.some([...anchorKinds, ...kindsOf(declared.anchor)]),
-      })),
-      Match.when('box', () => ({ on, keys: keys.box, kinds: Option.none() })),
-      Match.exhaustive,
-    )
+const takesOn = Match.fn(
+  (_keys: Record<BracesOn, Keys>, _declared: Declared, on: BracesOn) => on,
+).pipe(
+  Match.withReturnType<Takes>(),
+  Match.when('heading', (on, keys, declared) => ({
+    on,
+    keys: { ...keys.heading, ...declared.headings },
+    kinds: Option.none(),
+  })),
+  Match.when('anchor', (on, keys, declared) => ({
+    on,
+    keys: keys.anchor,
+    kinds: Option.some([...anchorKinds, ...kindsOf(declared.anchor)]),
+  })),
+  Match.when('box', (on, keys) => ({ on, keys: keys.box, kinds: Option.none() })),
+  Match.exhaustive,
+)
 
 const withKind = (
   takes: Takes,
@@ -458,7 +456,7 @@ const bracedSection =
 const overBraces =
   (keys: Record<BracesOn, Keys>, declared: Declared, step: OnBearer) =>
   (claimed: ClaimedDocument): ClaimedDocument => {
-    const takes = takesOn(keys, declared)
+    const takes = (on: BracesOn): Takes => takesOn(keys, declared, on)
     const inside: ClaimedDocument = rewritten(claimed, {
       WarpAnchor: (anchor: WarpAnchorToken): WarpAnchorToken =>
         step(withKind(takes('anchor'), declared.anchor, bracedKind(anchor)))(anchor),
@@ -474,16 +472,12 @@ export const checkedDocument = (
   keys: Record<BracesOn, Keys>,
   declared: Declared = nothingDeclared,
 ): ((claimed: ClaimedDocument) => ClaimedDocument) =>
-  overBraces(keys, declared, (takes) => judged(faultedBraces(takes)))
+  overBraces(keys, declared, (takes) => judged((braces) => faultedBraces(braces, takes)))
 
-const faultedBraces =
-  (takes: Takes) =>
-  (braces: Braces): Option.Option<Braces> =>
-    Match.value(braces).pipe(
-      Match.when({ type: 'Parameters' }, faultedParameters(takes)),
-      Match.when({ type: 'Specifier' }, faultedLabel(takes)),
-      Match.exhaustive,
-    )
+const faultedBraces = byType<Braces, [takes: Takes]>()<Option.Option<Braces>>({
+  Parameters: (held, takes) => faultedParameters(takes)(held),
+  Specifier: (labelled, takes) => faultedLabel(takes)(labelled),
+})
 
 type Valued = { readonly value: string; readonly position: Position }
 
@@ -510,7 +504,7 @@ const unreadValue = (
   values: ReadonlyArray<ParameterValueToken>,
 ): Option.Option<Health> =>
   Array.findFirst(values, (value) =>
-    Result.match(readAs(type)(value.value), {
+    Result.match(readAs(value.value, type), {
       onSuccess: () => Option.none(),
       onFailure: (unread) =>
         Option.some(faulty(WrongValue({ key, value: value.value, unread }), value.position)),
@@ -528,7 +522,7 @@ const parameterFault = (
   earlier: ReadonlyArray<ParameterToken>,
 ): Option.Option<Health> => {
   const key = parameter.key.value
-  return Array.some(earlier, (before) => before.key.value === key)
+  return earlier.some((before) => before.key.value === key)
     ? Option.some(faulty(RepeatedKey({ key }), parameter.key.position))
     : Option.match(keyType(takes.keys, key), {
         onNone: () =>
@@ -546,7 +540,7 @@ const parameterFault = (
 const faultedParameters =
   (takes: Takes) =>
   (held: ParametersToken): Option.Option<ParametersToken> => {
-    const faults = Array.map(held.parameters, (parameter, at) =>
+    const faults = held.parameters.map((parameter, at) =>
       parameterFault(takes, parameter, Array.take(held.parameters, at)),
     )
     return Option.map(Array.head(Array.getSomes(faults)), (first) => ({
@@ -594,26 +588,23 @@ const judged =
       }),
     )
 
-const referringBraces =
+const refersIn =
   (takes: Takes) =>
-  (braces: Braces): Option.Option<Braces> => {
-    const refers = (parameter: ParameterToken): boolean =>
-      Option.exists(keyType(takes.keys, parameter.key.value), holdsReferences)
-    return Match.value(braces).pipe(
-      Match.when({ type: 'Parameters' }, (held) =>
-        Array.some(held.parameters, refers)
-          ? Option.some<Braces>({
-              ...held,
-              parameters: Array.map(held.parameters, (parameter) =>
-                refers(parameter) ? { ...parameter, refers: true as const } : parameter,
-              ),
-            })
-          : Option.none<Braces>(),
-      ),
-      Match.when({ type: 'Specifier' }, () => Option.none<Braces>()),
-      Match.exhaustive,
-    )
-  }
+  (parameter: ParameterToken): boolean =>
+    Option.exists(keyType(takes.keys, parameter.key.value), holdsReferences)
+
+const referringBraces = byType<Braces, [takes: Takes]>()<Option.Option<Braces>>({
+  Parameters: (held, takes) =>
+    held.parameters.some(refersIn(takes))
+      ? Option.some<Braces>({
+          ...held,
+          parameters: held.parameters.map((parameter) =>
+            refersIn(takes)(parameter) ? { ...parameter, refers: true as const } : parameter,
+          ),
+        })
+      : Option.none<Braces>(),
+  Specifier: () => Option.none<Braces>(),
+})
 
 const rebraced =
   (rewrite: (braces: Braces) => Option.Option<Braces>) =>
@@ -631,43 +622,38 @@ export const referringDocument = (
   keys: Record<BracesOn, Keys>,
   declared: Declared = nothingDeclared,
 ): ((claimed: ClaimedDocument) => ClaimedDocument) =>
-  overBraces(keys, declared, (takes) => rebraced(referringBraces(takes)))
+  overBraces(keys, declared, (takes) => rebraced((braces) => referringBraces(braces, takes)))
 
-const kindFaulted =
-  (fault: LoomFault) =>
-  (braces: Braces): Option.Option<Braces> =>
-    Match.value(braces).pipe(
-      Match.when({ type: 'Specifier' }, (labelled) => {
-        const health = faulty(fault, labelled.label.position)
-        return Option.some<Braces>({
-          ...labelled,
-          health: { ...labelled.health, status: health.status },
-          label: { ...labelled.label, health },
-        })
-      }),
-      Match.when({ type: 'Parameters' }, (held) =>
-        Option.map(
-          Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
-          (stated): Braces => {
-            const health = faulty(
-              fault,
-              Option.getOrElse(
-                Option.map(Array.head(stated.values), (value) => value.position),
-                () => stated.position,
-              ),
-            )
-            return {
-              ...held,
-              health: { ...held.health, status: health.status },
-              parameters: Array.map(held.parameters, (parameter) =>
-                parameter === stated ? { ...parameter, health } : parameter,
-              ),
-            }
-          },
-        ),
-      ),
-      Match.exhaustive,
-    )
+const kindFaulted = byType<Braces, [fault: LoomFault]>()<Option.Option<Braces>>({
+  Specifier: (labelled, fault) => {
+    const health = faulty(fault, labelled.label.position)
+    return Option.some<Braces>({
+      ...labelled,
+      health: { ...labelled.health, status: health.status },
+      label: { ...labelled.label, health },
+    })
+  },
+  Parameters: (held, fault) =>
+    Option.map(
+      Array.findFirst(held.parameters, (parameter) => parameter.key.value === 'kind'),
+      (stated): Braces => {
+        const health = faulty(
+          fault,
+          Option.getOrElse(
+            Option.map(Array.head(stated.values), (value) => value.position),
+            () => stated.position,
+          ),
+        )
+        return {
+          ...held,
+          health: { ...held.health, status: health.status },
+          parameters: held.parameters.map((parameter) =>
+            parameter === stated ? { ...parameter, health } : parameter,
+          ),
+        }
+      },
+    ),
+})
 
 const placedAnchor =
   (kinds: ReadonlyArray<AnchorKind>, standing: Standing) =>
@@ -685,7 +671,7 @@ const placedAnchor =
       ),
       Option.match({
         onNone: () => anchor,
-        onSome: (fault) => judged(kindFaulted(fault))(anchor),
+        onSome: (fault) => judged((braces) => kindFaulted(braces, fault))(anchor),
       }),
     )
 
@@ -694,10 +680,8 @@ type Lined = { readonly anchors: ReadonlyArray<WarpAnchorToken> }
 const placedLine =
   (kinds: ReadonlyArray<AnchorKind>, standing: Standing) =>
   <Line extends Lined>(line: Line): Line => {
-    const anchors = Array.map(line.anchors, placedAnchor(kinds, standing))
-    return Array.every(anchors, (anchor, at) => anchor === line.anchors[at])
-      ? line
-      : { ...line, anchors }
+    const anchors = line.anchors.map(placedAnchor(kinds, standing))
+    return anchors.every((anchor, at) => anchor === line.anchors[at]) ? line : { ...line, anchors }
   }
 
 export const placedDocument =
@@ -705,7 +689,7 @@ export const placedDocument =
   (claimed: ClaimedDocument): ClaimedDocument => {
     const placed = <Line extends PreambleWeft | SectionBodyWeft>(line: Line): Line =>
       placedLine(kinds, standingOf(line))(line)
-    return Array.some(kinds, (each) => Option.isSome(each.standsIn))
+    return kinds.some((each) => Option.isSome(each.standsIn))
       ? rewritten(claimed, {
           PreambleWeft: (line: PreambleWeft): PreambleWeft => placed(line),
           TildeWeft: (line: TildeWeft): TildeWeft => placed(line),

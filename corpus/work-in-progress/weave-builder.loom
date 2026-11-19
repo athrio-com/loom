@@ -13,11 +13,11 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, `Order` for the reading order the pages come out in, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `catalogueOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. It supplies `bookOf` and `isBookLoom` too, which tell the book a loom stands in and the loom that opens a book, and the concepts the index lists: `conceptAt`, which finds the concept a section defines, `conceptNames` and `foldFirst`, which tell the words a concept answers to, `definitionLinesOf`, which gives a concept's definition, and `sectionLinksOf`, which gives the links a section makes. The scopes of concepts supply `vocabulariesIn` and `recognisedIn`, which find the plain words each loom recognises, each a `Recognised`. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the corpus's structure: `buildContents` reads the corpus's frontmatter into its books, each with its parts and chapters, its orphan chapters, and the back matter that lists its discussions, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its books, its parts and entries, its pages, the source anchor each block records, and the blocks, links, recognised words, and unsettled spans a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Order` for the reading order the pages come out in, and `pipe` for the spine. `byTypeOr`, from the node foundation, tells a section's runs and markers apart. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, `boxOf` and `boxKind`, which find a note among them, and the anchor token a code link resolves. The corpus supplies `catalogueOf` and `resolveAnchor`, the same lookup the editor navigates by, so a code anchor reaches the very section a bare `::[…]` composes, with the `Location` that names a loom and the `Position` of an anchor. It supplies `bookOf` and `isBookLoom` too, which tell the book a loom stands in and the loom that opens a book, and the concepts the index lists: `conceptAt`, which finds the concept a section defines, `conceptNames` and `foldFirst`, which tell the words a concept answers to, `definitionLinesOf`, which gives a concept's definition, and `sectionLinksOf`, which gives the links a section makes. The scopes of concepts supply `vocabulariesIn` and `recognisedIn`, which find the plain words each loom recognises, each a `Recognised`. The product pass supplies `sectionNameOf` and the product model `keyOf`, which name a section, and the projection supplies `unsettledRef`, which tells a reference that stops short of code. The contents pass supplies the corpus's structure: `buildContents` reads the corpus's frontmatter into its books, each with its parts and chapters, its orphan chapters, and the back matter that lists its discussions, which the navigation projects into its tree. From the woven side come the types of everything the pass builds: the corpus, its books, its parts and entries, its pages, the source anchor each block records, and the links, recognised words, and unsettled spans a page holds. A block carries a tag, so the schemas of the blocks come too, and `nodeOf` from the node foundation constructs a block of each.
 
 =>
 
-import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, Order, pipe } from 'effect'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import {
   boxOf,
@@ -42,35 +42,27 @@ import {
   resolveAnchor,
   sectionLinksOf,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { type Position } from '@athrio/loom-ast/LoomNode'
+import { nodeOf, type Position, byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { keyOf } from '@athrio/loom-ast/ProductAst'
 import { sectionNameOf } from '#ast/ProductBuilder'
 import { unsettledRef } from '#ast/LoomVirtualCodeBuilder'
 import { type Recognised, recognisedIn, vocabulariesIn } from '#ast/ConceptScope'
 import {
   type AnchorLink,
-  AnchorLinkSchema,
   CodeBlockSchema,
   HeadingBlockSchema,
   MessageBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
   type RecognisedWord,
-  RecognisedWordSchema,
   type SourceAnchor,
-  SourceAnchorSchema,
-  UnsettledSpanSchema,
+  type UnsettledSpan,
   type WovenBlock,
   type WovenBook,
-  WovenBookSchema,
   type WovenCorpus,
-  WovenCorpusSchema,
   type WovenNavEntry,
-  WovenNavEntrySchema,
   type WovenPage,
-  WovenPageSchema,
   type WovenPart,
-  WovenPartSchema,
 } from './WovenCorpus'
 import {
   backMatterHeading,
@@ -110,12 +102,12 @@ export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus
   const contents = buildContents(corpus, root)
   const uses = usesByConcept(weaving, modules, root)
   const indexes = Array.getSomes(
-    Array.map(contents.books, (book) => indexPageOf(weaving, modules, uses, book.name)),
+    contents.books.map((book) => indexPageOf(weaving, modules, uses, book.name)),
   )
   const indexOf = (book: string): Option.Option<WovenNavEntry> =>
     Option.map(
       Array.findFirst(indexes, (page) => page.slug === indexSlug(book)),
-      (page) => WovenNavEntrySchema.make({ number: '', title: page.title, slug: page.slug }),
+      (page): WovenNavEntry => ({ number: '', title: page.title, slug: page.slug }),
     )
   const nav = Option.getOrElse(
     Option.map(
@@ -124,31 +116,24 @@ export const buildCorpus = (corpus: LoomCorpusAst, root?: Location): WovenCorpus
     ),
     (): ReadonlyArray<WovenPart> => [],
   )
-  const books = Array.map(
-    Array.filter(contents.books, (book) => book.name !== ''),
-    wovenBook(slugOf, indexOf),
-  )
-  const partOfSlug = partIndex([...nav, ...Array.flatMap(books, (book) => book.nav)])
+  const books = contents.books.filter((book) => book.name !== '').map(wovenBook(slugOf, indexOf))
+  const partOfSlug = partIndex([...nav, ...books.flatMap((book) => book.nav)])
   const pages = pipe(
     [
-      ...Array.getSomes(
-        Array.map(modules, (module) => buildPage(module, weaving, partOfSlug, root)),
-      ),
+      ...Array.getSomes(modules.map((module) => buildPage(module, weaving, partOfSlug, root))),
       ...indexes,
     ],
     Array.sort(inReadingOrder(readingOrderOf(nav, books))),
   )
-  return WovenCorpusSchema.make({ nav, books: pagedBooks(books, pages), pages })
+  return { nav, books: pagedBooks(books, pages), pages }
 }
 
 const pagedBooks = (
   books: ReadonlyArray<WovenBook>,
   pages: ReadonlyArray<WovenPage>,
 ): ReadonlyArray<WovenBook> =>
-  Array.map(books, (book) =>
-    Array.some(pages, (page) => page.slug === book.slug)
-      ? book
-      : WovenBookSchema.make({ ...book, slug: '' }),
+  books.map((book) =>
+    pages.some((page) => page.slug === book.slug) ? book : { ...book, slug: '' },
   )
 
 ## What a page marks as unsettled
@@ -173,29 +158,24 @@ const weavingOf = (
 ): Weaving => {
   const catalogue = catalogueOf(modules)
   const vocabularies = vocabulariesIn(modules)
-  const unsettled = pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((module) =>
-      Array.flatMap(module.product.code, (code) =>
-        Array.getSomes(
-          Array.map(code.fragments, (part) =>
-            part.type === 'NameRef'
-              ? unsettledRef(modules, catalogue, module.path, part)
-              : Option.none(),
-          ),
+  const unsettled = Array.fromIterable(modules.values()).flatMap((module) =>
+    module.product.code.flatMap((code) =>
+      Array.getSomes(
+        code.fragments.map((part) =>
+          part.type === 'NameRef'
+            ? unsettledRef(modules, catalogue, module.path, part)
+            : Option.none(),
         ),
       ),
     ),
   )
   return {
     catalogue,
-    anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
-    sections: new Set(
-      Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
-    ),
+    anchors: new Set(unsettled.map((one) => anchorKey(one.path, one.anchor))),
+    sections: new Set(unsettled.flatMap((one) => Option.toArray(Option.map(one.section, keyOf)))),
     root,
     recognised: new Map(
-      Array.map(Array.fromIterable(modules.values()), (module) => [
+      Array.fromIterable(modules.values()).map((module) => [
         module.path,
         recognisedIn(vocabularies, module),
       ]),
@@ -253,7 +233,7 @@ type SlugOf = (path: Location) => string
 const wovenEntry =
   (slugOf: SlugOf) =>
   (chapter: TocChapter): WovenNavEntry =>
-    WovenNavEntrySchema.make({
+    ({
       number: chapter.number,
       title: chapter.title,
       slug: slugOf(chapter.path),
@@ -264,17 +244,16 @@ const wovenEntry =
 
 const wovenPart =
   (slugOf: SlugOf) =>
-  (part: TocPart): WovenPart =>
-    WovenPartSchema.make({
-      number: part.number,
-      name: part.name,
-      chapters: Array.map(part.chapters, wovenEntry(slugOf)),
-    })
+  (part: TocPart): WovenPart => ({
+    number: part.number,
+    name: part.name,
+    chapters: part.chapters.map(wovenEntry(slugOf)),
+  })
 
 const wovenBackLoom =
   (slugOf: SlugOf) =>
   (loom: TocBackLoom): WovenNavEntry =>
-    WovenNavEntrySchema.make({
+    ({
       number: '',
       title: loom.title,
       slug: slugOf(loom.path),
@@ -287,11 +266,11 @@ const orphansPart = (
   orphans.length === 0
     ? []
     : [
-        WovenPartSchema.make({
+        {
           number: '',
           name: orphansHeading,
-          chapters: Array.map(orphans, wovenEntry(slugOf)),
-        }),
+          chapters: orphans.map(wovenEntry(slugOf)),
+        },
       ]
 
 const backMatterPart = (
@@ -299,13 +278,10 @@ const backMatterPart = (
   backMatter: TocBackMatter,
   index: Option.Option<WovenNavEntry>,
 ): ReadonlyArray<WovenPart> => {
-  const entries = [
-    ...Array.map(backMatter.looms, wovenBackLoom(slugOf)),
-    ...Option.toArray(index),
-  ]
+  const entries = [...backMatter.looms.map(wovenBackLoom(slugOf)), ...Option.toArray(index)]
   return entries.length === 0
     ? []
-    : [WovenPartSchema.make({ number: '', name: backMatterHeading, chapters: entries })]
+    : [{ number: '', name: backMatterHeading, chapters: entries }]
 }
 
 const bookNav = (
@@ -313,7 +289,7 @@ const bookNav = (
   book: TocBook,
   index: Option.Option<WovenNavEntry>,
 ): ReadonlyArray<WovenPart> => [
-  ...Array.map(book.parts, wovenPart(slugOf)),
+  ...book.parts.map(wovenPart(slugOf)),
   ...orphansPart(slugOf, book.orphans),
   ...backMatterPart(slugOf, book.backMatter, index),
 ]
@@ -321,37 +297,27 @@ const bookNav = (
 const wovenBook =
   (slugOf: SlugOf, indexOf: (book: string) => Option.Option<WovenNavEntry>) =>
   (book: TocBook): WovenBook =>
-    WovenBookSchema.make({
+    ({
       name: book.name,
       slug: book.path === '' ? '' : slugOf(book.path),
       nav: bookNav(slugOf, book, indexOf(book.name)),
     })
 
 const partIndex = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, string> =>
-  new Map(
-    Array.flatMap(nav, (part) =>
-      Array.map(part.chapters, (chapter) => [chapter.slug, part.name] as const),
-    ),
-  )
+  new Map(nav.flatMap((part) => part.chapters.map((chapter) => [chapter.slug, part.name] as const)))
 
 const slugsOf = (nav: ReadonlyArray<WovenPart>): ReadonlyArray<string> =>
-  Array.flatMap(nav, (part) => Array.map(part.chapters, (chapter) => chapter.slug))
+  nav.flatMap((part) => part.chapters.map((chapter) => chapter.slug))
 
 const readingOrderOf = (
   nav: ReadonlyArray<WovenPart>,
   books: ReadonlyArray<WovenBook>,
 ): ReadonlyMap<string, number> =>
   new Map(
-    Array.map(
-      [
-        ...slugsOf(nav),
-        ...Array.flatMap(books, (book) => [
-          ...(book.slug === '' ? [] : [book.slug]),
-          ...slugsOf(book.nav),
-        ]),
-      ],
-      (slug, at) => [slug, at] as const,
-    ),
+    [
+      ...slugsOf(nav),
+      ...books.flatMap((book) => [...(book.slug === '' ? [] : [book.slug]), ...slugsOf(book.nav)]),
+    ].map((slug, at) => [slug, at] as const),
   )
 
 const inReadingOrder = (order: ReadonlyMap<string, number>): Order.Order<WovenPage> =>
@@ -402,21 +368,21 @@ const buildPage = (
     ? Option.none()
     : Option.map(chapterTitleOf(module), (title): WovenPage => {
         const slug = pageSlug(weaving.catalogue, module.path)
-        return WovenPageSchema.make({
+        return {
           slug,
           title,
           part: partOfSlug.get(slug),
           book: Option.getOrUndefined(bookOf(module)),
           frontmatter: module.doc.frontmatter?.source,
           blocks: buildBlocks(module, weaving),
-        })
+        }
       })
 
 const buildBlocks = (module: LoomModule, weaving: Weaving): ReadonlyArray<WovenBlock> =>
-  Array.flatMap(module.doc.sections, sectionBlocks(module, weaving))
+  module.doc.sections.flatMap(sectionBlocks(module, weaving))
 
 const sectionSource = (module: LoomModule, weaving: Weaving, section: LoomSection): SourceAnchor =>
-  SourceAnchorSchema.make({
+  ({
     chapter: pageSlug(weaving.catalogue, module.path),
     section: slugify(titleSource(section)),
   })
@@ -428,7 +394,7 @@ const sectionBlocks =
     const runs = splitRuns(sectionBody(section))
     return [
       headingBlock(module, weaving, section, source),
-      ...Array.flatMap(runs, (run, index) =>
+      ...runs.flatMap((run, index) =>
         runBlocks(module, weaving, section, source)(run, tildeOpens(Array.get(runs, index + 1))),
       ),
     ]
@@ -436,11 +402,12 @@ const sectionBlocks =
 
 const titleSource = (section: LoomSection): string => section.heading.title?.source ?? ''
 
-const headingLevel = (section: LoomSection): number =>
-  Match.value(section.heading.marker).pipe(
-    Match.when({ type: 'Divider' }, () => 2),
-    Match.orElse((marker) => Math.max(1, marker.source.replace(/[^#]/g, '').length)),
-  )
+const levelOf = byTypeOr<LoomSection['heading']['marker']>()<number>(
+  { Divider: () => 2 },
+  (marker) => Math.max(1, marker.source.replace(/[^#]/g, '').length),
+)
+
+const headingLevel = (section: LoomSection): number => levelOf(section.heading.marker)
 
 const headingBlock = (
   module: LoomModule,
@@ -448,7 +415,7 @@ const headingBlock = (
   section: LoomSection,
   source: SourceAnchor,
 ): WovenBlock =>
-  HeadingBlockSchema.make({
+  nodeOf(HeadingBlockSchema, {
     source,
     level: headingLevel(section),
     title: titleSource(section),
@@ -467,7 +434,7 @@ A note is a box of the `Note` kind, and the classifier has already marked the li
 
 A tilde means something else in a discussion. In a chapter a tilde only returns to prose, and the text written after it is prose too. In a discussion a tilde opens a message, and the text after it is the name of the message's author. So in a discussion `runBlocks` turns a run that a tilde opens into a message block, then the blocks of the message's words. `messageBlock` reads the author's name from the tilde.
 
-The frame is not lost, though, because a reader learning Loom needs to see it. A code block keeps the arrow that opened it, as it was written. Whether a tilde closed it is a fact about the next run, not this one: `tildeOpens` looks at the run that follows, and a run that begins with a tilde means this block was closed by it. A block followed by nothing, or by the next heading, ran on to its end. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
+The frame is not lost, though, because a reader learning Loom needs to see it. A code block keeps the arrow that opened it, as it was written. Whether a tilde closed it is a fact about the next run, not this one: `tildeOpens` looks at the run that follows, and a run that begins with a tilde means this block was closed by it. A block followed by nothing, or by the next heading, ran on to its end. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it. `blocksOpenedBy` reads a run by its first line: an arrow opens a block of code, and any other line opens prose.
 
 =>
 
@@ -509,24 +476,23 @@ const tildeOpens = (run: Option.Option<ReadonlyArray<BodyWeft>>): boolean =>
     Option.exists((weft) => weft.type === 'TildeWeft'),
   )
 
-const markerInline = (marker: BodyWeft): Option.Option<Piece> =>
-  Match.value(marker).pipe(
-    Match.when({ type: 'ArrowWeft' }, (a) =>
+const markerInline: (marker: BodyWeft) => Option.Option<Piece> = byTypeOr<BodyWeft>()(
+  {
+    ArrowWeft: (a) =>
       Option.map(Option.fromNullishOr(a.code), (code) => ({
         start: code.position.start.offset,
-        end: marker.position.end.offset,
+        end: a.position.end.offset,
         blank: false,
       })),
-    ),
-    Match.when({ type: 'TildeWeft' }, (t) =>
+    TildeWeft: (t) =>
       Option.map(Option.fromNullishOr(t.prose), (prose) => ({
         start: prose.position.start.offset,
-        end: marker.position.end.offset,
+        end: t.position.end.offset,
         blank: false,
       })),
-    ),
-    Match.orElse(() => Option.none<Piece>()),
-  )
+  },
+  () => Option.none<Piece>(),
+)
 
 const pieceOfWeft = (weft: BodyWeft): Piece => ({
   start: weft.position.start.offset,
@@ -535,10 +501,10 @@ const pieceOfWeft = (weft: BodyWeft): Piece => ({
 })
 
 const runSpan = (run: ReadonlyArray<BodyWeft>): Option.Option<Span> => {
-  const pieces = Array.flatMap(run, (weft, index) =>
+  const pieces = run.flatMap((weft, index) =>
     index === 0 && isMarker(weft) ? Option.toArray(markerInline(weft)) : [pieceOfWeft(weft)],
   )
-  const kept = Array.filter(pieces, (piece) => !piece.blank)
+  const kept = pieces.filter((piece) => !piece.blank)
   return Array.isReadonlyArrayNonEmpty(kept)
     ? Option.some({
         start: Array.headNonEmpty(kept).start,
@@ -627,11 +593,11 @@ const proseBlockOf = (
       return markdown.length === 0
         ? []
         : [
-            ProseBlockSchema.make({
+            nodeOf(ProseBlockSchema, {
               source,
               markdown,
               links: Array.getSomes(
-                Array.map(anchorsWithin(wefts, span), (anchor) =>
+                anchorsWithin(wefts, span).map((anchor) =>
                   resolveLink(module, weaving, start, anchor),
                 ),
               ),
@@ -647,24 +613,20 @@ const recognisedWithin = (
   span: Span,
   blockStart: number,
 ): ReadonlyArray<RecognisedWord> =>
-  pipe(
-    Option.getOrElse(
-      Option.fromNullishOr(weaving.recognised.get(module.path)),
-      (): ReadonlyArray<Recognised> => [],
-    ),
-    Array.filter(
+  Option.getOrElse(
+    Option.fromNullishOr(weaving.recognised.get(module.path)),
+    (): ReadonlyArray<Recognised> => [],
+  )
+    .filter(
       ({ word }) =>
         word.position.start.offset >= span.start && word.position.end.offset <= span.end,
-    ),
-    Array.map(({ word, concept }) =>
-      RecognisedWordSchema.make({
-        offset: word.position.start.offset - blockStart,
-        length: word.position.end.offset - word.position.start.offset,
-        concept: concept.name.source,
-        definition: concept.definition,
-      }),
-    ),
-  )
+    )
+    .map(({ word, concept }): RecognisedWord => ({
+      offset: word.position.start.offset - blockStart,
+      length: word.position.end.offset - word.position.start.offset,
+      concept: concept.name.source,
+      definition: concept.definition,
+    }))
 
 const proseBlocks = (
   module: LoomModule,
@@ -672,10 +634,10 @@ const proseBlocks = (
   run: ReadonlyArray<BodyWeft>,
   source: SourceAnchor,
 ): ReadonlyArray<WovenBlock> =>
-  Array.flatMap(stretchesOf(run), (stretch) =>
+  stretchesOf(run).flatMap((stretch) =>
     stretch.note
       ? [
-          NoteBlockSchema.make({
+          nodeOf(NoteBlockSchema, {
             source,
             caption: Option.getOrUndefined(captionOfNote(stretch.wefts)),
             markdown: textOf(module, bodyOf(stretch.wefts)),
@@ -694,46 +656,73 @@ const codeBlock = (
   arrow: string,
   closed: boolean,
 ): WovenBlock =>
-  CodeBlockSchema.make({
+  nodeOf(CodeBlockSchema, {
     source,
     language: codeLanguage(module, section),
     code: sliceContent(module.text, span),
     arrow,
     closed,
     links: Array.getSomes(
-      Array.map(anchorsWithin(run, span), (anchor) =>
-        resolveLink(module, weaving, span.start, anchor),
-      ),
+      anchorsWithin(run, span).map((anchor) => resolveLink(module, weaving, span.start, anchor)),
     ),
-    unsettled: pipe(
-      anchorsWithin(run, span),
-      Array.filter((anchor) => weaving.anchors.has(anchorKey(module.path, anchor.name.position))),
-      Array.map((anchor) =>
-        UnsettledSpanSchema.make({
-          offset: anchor.position.start.offset - span.start,
-          length: anchor.position.end.offset - anchor.position.start.offset,
-        }),
-      ),
-    ),
+    unsettled: anchorsWithin(run, span)
+      .filter((anchor) => weaving.anchors.has(anchorKey(module.path, anchor.name.position)))
+      .map((anchor): UnsettledSpan => ({
+        offset: anchor.position.start.offset - span.start,
+        length: anchor.position.end.offset - anchor.position.start.offset,
+      })),
   })
 
 const anchorsWithin = (run: ReadonlyArray<BodyWeft>, span: Span): ReadonlyArray<WarpAnchorToken> =>
-  Array.filter(
-    Array.flatMap(run, (weft) => weft.anchors),
-    (anchor) =>
-      anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
-  )
+  run
+    .flatMap((weft) => weft.anchors)
+    .filter(
+      (anchor) =>
+        anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
+    )
 
 const isDiscussion = (module: LoomModule): boolean =>
   module.doc.frontmatter?.discussion !== undefined
 
 const messageBlock = (tilde: TildeWeft, source: SourceAnchor): WovenBlock =>
-  MessageBlockSchema.make({
+  nodeOf(MessageBlockSchema, {
     source,
     author: Option.getOrUndefined(
       Option.map(Option.fromNullishOr(tilde.prose), (name) => name.source.trim()),
     ),
   })
+
+const blocksOpenedBy = byTypeOr<
+  BodyWeft,
+  [
+    within: {
+      readonly module: LoomModule
+      readonly weaving: Weaving
+      readonly section: LoomSection
+      readonly source: SourceAnchor
+      readonly run: ReadonlyArray<BodyWeft>
+      readonly span: Span
+      readonly closed: boolean
+    },
+  ]
+>()<ReadonlyArray<WovenBlock>>(
+  {
+    ArrowWeft: (opened, { module, weaving, section, source, run, span, closed }) => [
+      codeBlock(
+        module,
+        weaving,
+        section,
+        source,
+        run,
+        span,
+        opened.arrow.source.trim(),
+        closed,
+      ),
+    ],
+  },
+  (_first, { module, weaving, source, run }) =>
+    proseBlocks(module, weaving, run, source),
+)
 
 const runBlocks =
   (module: LoomModule, weaving: Weaving, section: LoomSection, source: SourceAnchor) =>
@@ -746,22 +735,7 @@ const runBlocks =
           : Option.match(runSpan(run), {
               onNone: (): ReadonlyArray<WovenBlock> => [],
               onSome: (span) =>
-                Match.value(first).pipe(
-                  Match.withReturnType<ReadonlyArray<WovenBlock>>(),
-                  Match.when({ type: 'ArrowWeft' }, (opened) => [
-                    codeBlock(
-                      module,
-                      weaving,
-                      section,
-                      source,
-                      run,
-                      span,
-                      opened.arrow.source.trim(),
-                      closed,
-                    ),
-                  ]),
-                  Match.orElse(() => proseBlocks(module, weaving, run, source)),
-                ),
+                blocksOpenedBy(first, { module, weaving, section, source, run, span, closed }),
             }),
     })
 
@@ -773,9 +747,7 @@ const runBlocks =
 
 const wordOf = (name: string, concept: ConceptRef): string => {
   const last = name.slice(name.lastIndexOf(',') + 1).trim()
-  return Array.some(conceptNames(concept), (form) => foldFirst(form) === foldFirst(last))
-    ? last
-    : name
+  return conceptNames(concept).some((form) => foldFirst(form) === foldFirst(last)) ? last : name
 }
 
 const resolveLink = (
@@ -789,7 +761,7 @@ const resolveLink = (
     Option.flatMap((ref) =>
       Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink => {
         const concept = conceptAt(weaving.catalogue, ref)
-        return AnchorLinkSchema.make({
+        return {
           name: Option.match(concept, {
             onNone: () => anchor.name.value,
             onSome: (found) => wordOf(anchor.name.value, found),
@@ -805,7 +777,7 @@ const resolveLink = (
               Option.filter((definition) => definition !== ''),
             ),
           ),
-        })
+        }
       }),
     ),
   )
@@ -838,17 +810,14 @@ type Phrase = {
 }
 
 const linkedBlock = (source: SourceAnchor, pieces: ReadonlyArray<Phrase>): WovenBlock =>
-  ProseBlockSchema.make({
+  nodeOf(ProseBlockSchema, {
     source,
-    markdown: Array.join(
-      Array.map(pieces, (piece) => piece.text),
-      '',
-    ),
+    markdown: pieces.map((piece) => piece.text).join(''),
     links: Array.getSomes(
       Array.mapAccum(pieces, 0, (at, piece) => [
         at + piece.text.length,
-        Option.map(piece.target, (target) =>
-          AnchorLinkSchema.make({
+        Option.map(piece.target, (target): AnchorLink =>
+          ({
             name: piece.text,
             targetSlug: target.slug,
             targetId: target.id,
@@ -876,50 +845,48 @@ const recognisedInSection = (
   module: LoomModule,
   section: LoomSection,
 ): ReadonlyArray<ConceptRef> =>
-  pipe(
-    Option.getOrElse(
-      Option.fromNullishOr(weaving.recognised.get(module.path)),
-      (): ReadonlyArray<Recognised> => [],
-    ),
-    Array.filter(
+  Option.getOrElse(
+    Option.fromNullishOr(weaving.recognised.get(module.path)),
+    (): ReadonlyArray<Recognised> => [],
+  )
+    .filter(
       ({ word }) =>
         word.position.start.offset >= section.position.start.offset &&
         word.position.end.offset <= section.position.end.offset,
-    ),
-    Array.map(({ concept }) => concept),
-  )
+    )
+    .map(({ concept }) => concept)
 
 const usesByConcept = (
   weaving: Weaving,
   modules: ReadonlyArray<LoomModule>,
   root: Location | undefined,
 ): ReadonlyMap<string, ReadonlyArray<Use>> => {
-  const pairs = pipe(
-    Array.filter(modules, (module) => module.path !== root),
-    Array.flatMap((module) =>
-      Array.flatMap(module.doc.sections, (section) =>
-        pipe(
-          [
-            ...Array.flatMap(sectionLinksOf(section), (link) =>
-              Option.toArray(
-                Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
-                  conceptAt(weaving.catalogue, ref),
+  const pairs = Array.sort(
+    modules
+      .filter((module) => module.path !== root)
+      .flatMap((module) =>
+        module.doc.sections.flatMap((section) =>
+          pipe(
+            [
+              ...sectionLinksOf(section).flatMap((link) =>
+                Option.toArray(
+                  Option.flatMap(resolveAnchor(weaving.catalogue, module.path, link), (ref) =>
+                    conceptAt(weaving.catalogue, ref),
+                  ),
                 ),
               ),
-            ),
-            ...recognisedInSection(weaving, module, section),
-          ],
-          Array.map((concept) => conceptKey(concept.module, concept.section)),
-          Array.dedupe,
-          Array.map((key) => ({ key, use: { module, section } })),
+              ...recognisedInSection(weaving, module, section),
+            ].map((concept) => conceptKey(concept.module, concept.section)),
+            Array.dedupe,
+            Array.map((key) => ({ key, use: { module, section } })),
+          ),
         ),
       ),
-    ),
-    Array.sort(Order.mapInput(byUse(weaving), (pair: { readonly use: Use }) => pair.use)),
+    Order.mapInput(byUse(weaving), (pair: { readonly use: Use }) => pair.use),
   )
   return new Map(
     Object.entries(Array.groupBy(pairs, (pair) => pair.key)).map(
-      ([key, found]) => [key, Array.map(found, (pair) => pair.use)] as const,
+      ([key, found]) => [key, found.map((pair) => pair.use)] as const,
     ),
   )
 }
@@ -940,15 +907,15 @@ const entryBlocks = (
   concept: ConceptRef,
 ): ReadonlyArray<WovenBlock> => {
   const id = slugify(concept.name.source)
-  const source = SourceAnchorSchema.make({ chapter: slug, section: id })
-  const forms = Array.map(concept.forms, (form) => form.value)
+  const source: SourceAnchor = { chapter: slug, section: id }
+  const forms = concept.forms.map((form) => form.value)
   const home = Array.findFirst(modules, (module) => module.path === concept.module)
   const uses = Option.getOrElse(
     Option.fromNullishOr(usesOf.get(conceptKey(concept.module, concept.section))),
     (): ReadonlyArray<Use> => [],
   )
   return [
-    HeadingBlockSchema.make({
+    nodeOf(HeadingBlockSchema, {
       source,
       level: 2,
       title: concept.name.source,
@@ -963,9 +930,9 @@ const entryBlocks = (
     ...(forms.length === 0
       ? []
       : [
-          ProseBlockSchema.make({
+          nodeOf(ProseBlockSchema, {
             source,
-            markdown: `Also: ${Array.join(forms, ', ')}.`,
+            markdown: `Also: ${forms.join(', ')}.`,
             links: [],
           }),
         ]),
@@ -987,7 +954,7 @@ const entryBlocks = (
         ? []
         : [
             { text: ' Used in ', target: Option.none() },
-            ...Array.flatMap(uses, (use, at): ReadonlyArray<Phrase> => [
+            ...uses.flatMap((use, at): ReadonlyArray<Phrase> => [
               ...(at === 0 ? [] : [{ text: ', ', target: Option.none() }]),
               placeOf(weaving, use),
             ]),
@@ -1005,33 +972,26 @@ const indexPageOf = (
 ): Option.Option<WovenPage> => {
   const slug = indexSlug(book)
   return pipe(
-    Array.filter(
-      weaving.catalogue.concepts,
-      (concept) => bookNameOf(weaving, concept.module) === book,
-    ),
+    weaving.catalogue.concepts.filter((concept) => bookNameOf(weaving, concept.module) === book),
     Array.sort(byConceptName),
     Option.liftPredicate(Array.isReadonlyArrayNonEmpty),
-    Option.map((concepts) =>
-      WovenPageSchema.make({
-        slug,
-        title: indexHeading,
-        part: backMatterHeading,
-        book: book === '' ? undefined : book,
-        blocks: [
-          HeadingBlockSchema.make({
-            source: SourceAnchorSchema.make({ chapter: slug, section: 'index' }),
-            level: 1,
-            title: indexHeading,
-            id: 'index',
-            unsettled: false,
-            divider: false,
-          }),
-          ...Array.flatMap(concepts, (concept) =>
-            entryBlocks(weaving, modules, usesOf, slug, concept),
-          ),
-        ],
-      }),
-    ),
+    Option.map((concepts): WovenPage => ({
+      slug,
+      title: indexHeading,
+      part: backMatterHeading,
+      book: book === '' ? undefined : book,
+      blocks: [
+        nodeOf(HeadingBlockSchema, {
+          source: { chapter: slug, section: 'index' },
+          level: 1,
+          title: indexHeading,
+          id: 'index',
+          unsettled: false,
+          divider: false,
+        }),
+        ...concepts.flatMap((concept) => entryBlocks(weaving, modules, usesOf, slug, concept)),
+      ],
+    })),
   )
 }
 

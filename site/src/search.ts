@@ -35,88 +35,83 @@ const cellsOf = (table: Run): ReadonlyArray<Run> => [
   ...(table.rows ?? []).flat(),
 ]
 
+const runWords = Match.type<Run>().pipe(
+  Match.withReturnType<ReadonlyArray<string>>(),
+  Match.when(
+    (each: Run) => SILENT.includes(each.type ?? ''),
+    () => [],
+  ),
+  Match.when(
+    (each: Run) => (each.tokens ?? []).length > 0,
+    (each) => wordsOf(each.tokens ?? []),
+  ),
+  Match.when(
+    (each: Run) => each.items !== undefined,
+    (each) => wordsOf(each.items ?? []),
+  ),
+  Match.when(
+    (each: Run) => each.rows !== undefined,
+    (each) => wordsOf(cellsOf(each)),
+  ),
+  Match.orElse((each) => [each.text ?? '']),
+)
+
 const wordsOf = (runs: ReadonlyArray<Run>): ReadonlyArray<string> =>
-  Array.flatMap(runs, (run) =>
-    Match.value(run).pipe(
-      Match.withReturnType<ReadonlyArray<string>>(),
-      Match.when(
-        (each: Run) => SILENT.includes(each.type ?? ''),
-        () => [],
-      ),
-      Match.when(
-        (each: Run) => (each.tokens ?? []).length > 0,
-        (each) => wordsOf(each.tokens ?? []),
-      ),
-      Match.when(
-        (each: Run) => each.items !== undefined,
-        (each) => wordsOf(each.items ?? []),
-      ),
-      Match.when(
-        (each: Run) => each.rows !== undefined,
-        (each) => wordsOf(cellsOf(each)),
-      ),
-      Match.orElse((each) => [each.text ?? '']),
-    ),
-  )
+  runs.flatMap((run) => runWords(run))
 
 const proseText = (markdown: string): string =>
   wordsOf(Array.fromIterable(marked.lexer(markdown))).join(' ')
 
 const flattened = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
-const blockWords = (block: Block): string =>
-  Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => heading.title),
-    Match.when({ type: 'prose' }, (prose) => proseText(withLinks(prose, (link) => link.name))),
-    Match.when({ type: 'note' }, (note) =>
-      Array.join(
-        [...Option.toArray(Option.fromNullishOr(note.caption)), proseText(note.markdown)],
-        ' ',
-      ),
-    ),
-    Match.when({ type: 'code' }, (code) => code.code),
-    Match.when({ type: 'message' }, (message) => message.author ?? ''),
-    Match.exhaustive,
-  )
+const blockWords: (block: Block) => string = Match.type<Block>().pipe(
+  Match.when({ type: 'heading' }, (heading) => heading.title),
+  Match.when({ type: 'prose' }, (prose) => proseText(withLinks(prose, (link) => link.name))),
+  Match.when({ type: 'note' }, (note) =>
+    [...Option.toArray(Option.fromNullishOr(note.caption)), proseText(note.markdown)].join(' '),
+  ),
+  Match.when({ type: 'code' }, (code) => code.code),
+  Match.when({ type: 'message' }, (message) => message.author ?? ''),
+  Match.exhaustive,
+)
 
 type Draft = { readonly heading: string; readonly id: string; readonly words: ReadonlyArray<string> }
 
 type Cutting = { readonly done: ReadonlyArray<Draft>; readonly filling: Draft }
 
-const cut = (cutting: Cutting, block: Block): Cutting =>
-  Match.value(block).pipe(
-    Match.withReturnType<Cutting>(),
-    Match.when({ type: 'heading', level: 1 }, () => cutting),
-    Match.when({ type: 'heading', level: 2 }, (heading) => ({
-      done: [...cutting.done, cutting.filling],
-      filling: { heading: heading.title, id: heading.id, words: [] },
-    })),
-    Match.orElse((other) => ({
-      ...cutting,
-      filling: { ...cutting.filling, words: [...cutting.filling.words, blockWords(other)] },
-    })),
-  )
+const cut = Match.fn((_cutting: Cutting, block: Block) => block).pipe(
+  Match.withReturnType<Cutting>(),
+  Match.withReturnType<Cutting>(),
+  Match.when({ type: 'heading', level: 1 }, (_block, cutting) => cutting),
+  Match.when({ type: 'heading', level: 2 }, (heading, cutting) => ({
+    done: [...cutting.done, cutting.filling],
+    filling: { heading: heading.title, id: heading.id, words: [] },
+  })),
+  Match.orElse((other, cutting) => ({
+    ...cutting,
+    filling: { ...cutting.filling, words: [...cutting.filling.words, blockWords(other)] },
+  })),
+)
 
 const draftsOf = (page: Page): ReadonlyArray<Draft> => {
   const opening: Draft = { heading: page.title, id: '', words: [] }
-  const { done, filling } = Array.reduce(page.blocks, { done: [], filling: opening } as Cutting, cut)
+  const { done, filling } = page.blocks.reduce(cut, { done: [], filling: opening } as Cutting)
   return [...done, filling]
 }
 
 const corpusEntries = (corpus: Corpus, base: string, route: Route): ReadonlyArray<Entry> =>
-  Array.filter(
-    Array.flatMap(corpus.pages, (page) => {
-    const address = chapterPath(base, page.slug)
-    return Array.map(draftsOf(page), (draft) => ({
-      route,
-      href: draft.id === '' ? address : `${address}#${draft.id}`,
-      place: page.title,
-      heading: draft.heading,
-      text: flattened(draft.words.join(' ')),
-    }))
-    }),
-    (entry) => !anchorsAlone(entry.text),
-  )
+  corpus.pages
+    .flatMap((page) => {
+      const address = chapterPath(base, page.slug)
+      return draftsOf(page).map((draft) => ({
+        route,
+        href: draft.id === '' ? address : `${address}#${draft.id}`,
+        place: page.title,
+        heading: draft.heading,
+        text: flattened(draft.words.join(' ')),
+      }))
+    })
+    .filter((entry) => !anchorsAlone(entry.text))
 
 const ANCHORS = /:{2}\[[^\]]*\](\([^)]*\))?/g
 
@@ -159,7 +154,7 @@ const sectionsOfBody = (html: string): Effect.Effect<ReadonlyArray<PageSection>>
       })
       .transform(new Response(html))
       .text()
-    return Array.map(sections, (section) => ({
+    return sections.map((section) => ({
       id: section.id,
       heading: unescaped(flattened(section.headings[0] ?? '')),
       text: unescaped(flattened(section.words.join(''))),
@@ -176,32 +171,29 @@ const ENTITIES: ReadonlyArray<readonly [string, string]> = [
 ]
 
 const unescaped = (text: string): string =>
-  Array.reduce(ENTITIES, text, (out, [entity, glyph]) => out.split(entity).join(glyph))
+  ENTITIES.reduce((out, [entity, glyph]) => out.split(entity).join(glyph), text)
 
-export const pageName = (route: Route): string =>
-  Match.value(route).pipe(
-    Match.when('home', () => 'Loom'),
-    Match.when('docs', () => 'Docs'),
-    Match.when('source', () => 'Source'),
-    Match.when('why-loom', () => 'Why Loom'),
-    Match.when('community', () => 'Community'),
-    Match.when('license', () => 'License'),
-    Match.exhaustive,
-  )
+export const pageName: (route: Route) => string = Match.type<Route>().pipe(
+  Match.when('home', () => 'Loom'),
+  Match.when('docs', () => 'Docs'),
+  Match.when('source', () => 'Source'),
+  Match.when('why-loom', () => 'Why Loom'),
+  Match.when('community', () => 'Community'),
+  Match.when('license', () => 'License'),
+  Match.exhaustive,
+)
 
 const pageEntries = (route: Route, body: string): Effect.Effect<ReadonlyArray<Entry>> =>
   Effect.map(sectionsOfBody(body), (sections) =>
-    pipe(
-      sections,
-      Array.filter((section) => !UNSEARCHED.includes(section.id)),
-      Array.map((section) => ({
+    sections
+      .filter((section) => !UNSEARCHED.includes(section.id))
+      .map((section) => ({
         route,
         href: `${pathOf(route)}#${section.id}`,
         place: pageName(route),
         heading: section.heading,
         text: section.text,
       })),
-    ),
   )
 
 const OWN_PAGES: ReadonlyArray<Route> = ['home', 'why-loom', 'community', 'license']
@@ -277,8 +269,7 @@ const PER_PAGE = 5
 
 const orderOf = (results: ReadonlyArray<Result>): ReadonlyArray<Route> => [
   ...pipe(
-    results,
-    Array.map((result) => result.entry.route),
+    results.map((result) => result.entry.route),
     Array.dedupe,
     Array.filter((route) => route !== 'source'),
   ),
@@ -296,28 +287,25 @@ const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
 export type Result = { readonly entry: Entry; readonly words: string; readonly meaning: boolean }
 
 export const groupsOf = (results: ReadonlyArray<Result>): ReadonlyArray<SearchGroup> =>
-  pipe(
-    orderOf(results),
-    Array.map((route) => ({
+  orderOf(results)
+    .map((route) => ({
       route,
       hits: pipe(
-        results,
-        Array.filter((result) => result.entry.route === route),
+        results.filter((result) => result.entry.route === route),
         Array.take(PER_PAGE),
         Array.map((result) => hitOf(result.entry, result.words, result.meaning)),
       ),
-    })),
-    Array.filter((group) => group.hits.length > 0),
-  )
+    }))
+    .filter((group) => group.hits.length > 0)
 
 export const searchIn = (index: ReadonlyArray<Entry>, query: string): ReadonlyArray<SearchGroup> => {
   const needle = query.trim().toLowerCase()
   return needle.length < MIN_QUERY
     ? []
     : pipe(
-        index,
-        Array.map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) })),
-        Array.filter((each) => each.rank > 0),
+        index
+          .map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) }))
+          .filter((each) => each.rank > 0),
         Array.sort(byRelevance),
         Array.map((each): Result => ({ entry: each.entry, words: needle, meaning: false })),
         groupsOf,

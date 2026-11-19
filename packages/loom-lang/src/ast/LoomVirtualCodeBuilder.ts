@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import {
   isMeant,
   keyOf,
@@ -10,7 +10,7 @@ import {
   type Ref,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
-import { type Position } from '@athrio/loom-ast/LoomNode'
+import { byType, type Position } from '@athrio/loom-ast/LoomNode'
 import {
   catalogueOf,
   type Catalogue,
@@ -58,7 +58,7 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
   code: a.code + b.code,
   mappings: [
     ...a.mappings,
-    ...Array.map(b.mappings, (m) => ({
+    ...b.mappings.map((m) => ({
       ...m,
       genStart: m.genStart + a.code.length,
     })),
@@ -68,7 +68,7 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
 
 const clipMappings = (mappings: ReadonlyArray<Mapping>, genLen: number): ReadonlyArray<Mapping> =>
   Array.getSomes(
-    Array.map(mappings, (m) =>
+    mappings.map((m) =>
       m.genStart >= genLen
         ? Option.none()
         : Option.some(
@@ -96,48 +96,77 @@ const mappedIn = (text: string, source: Position, owner: Location, home: Locatio
     owner === home ? [{ genStart: 0, genLength: text.length, source, kind: 'product' }] : [],
   )
 
-const inlinePart =
-  (
-    modules: ReadonlyMap<Location, LoomModule>,
-    catalogue: Catalogue,
-    seen: ReadonlySet<string>,
-    home: Location,
-    owner: Location,
-    specifiers: Specifiers,
-  ) =>
-  (part: Part): LoomVirtualCode =>
-    Match.value(part).pipe(
-      Match.when({ type: 'Fragment' }, (fragment) =>
-        mappedIn(fragment.text, fragment.origin, owner, home),
+const inlinePart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly home: Location
+      readonly owner: Location
+      readonly specifiers: Specifiers
+    },
+  ]
+>()<LoomVirtualCode>({
+  Fragment: (fragment, { home, owner }) =>
+    mappedIn(fragment.text, fragment.origin, owner, home),
+  ModuleRef: (ref, { home, owner, specifiers }) =>
+    Option.match(specifiers(owner, ref), {
+      onNone: () => emptyLeaf,
+      onSome: (specifier) => mappedIn(specifier, ref.anchor, owner, home),
+    }),
+  NameRef: (ref, { modules, catalogue, seen, home, owner, specifiers }) =>
+    pipe(
+      targetOf(catalogue, owner, ref),
+      Option.filter((t) => !seen.has(keyOf(t))),
+      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
+      Option.match({
+        onNone: () => emptyLeaf,
+        onSome: ([t, node]) =>
+          absorbTrailingNewline(
+            inlineComposed(
+              modules,
+              catalogue,
+              new Set([...seen, keyOf(t)]),
+              home,
+              specifiers,
+            )(node),
+          ),
+      }),
+    ),
+})
+
+type Inlined = { readonly vc: LoomVirtualCode; readonly trim: boolean }
+
+const withPart = byType<
+  Part,
+  [
+    within: {
+      readonly acc: Inlined
+      readonly build: (part: Part) => LoomVirtualCode
+      readonly node: Code
+      readonly i: number
+    },
+  ]
+>()<Inlined>({
+  Fragment: (fragment, { acc, build }) => ({
+    vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(fragment) : fragment)),
+    trim: false,
+  }),
+  ModuleRef: (ref, { acc, build }) =>
+    ({ vc: concat(acc.vc, build(ref)), trim: false }),
+  NameRef: (ref, { acc, build, node, i }) => {
+    const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
+    return {
+      vc: concat(
+        acc.vc,
+        owns ? indentBlock(build(ref), lineIndentOf(acc.vc.code)) : build(ref),
       ),
-      Match.when({ type: 'ModuleRef' }, (ref) =>
-        Option.match(specifiers(owner, ref), {
-          onNone: () => emptyLeaf,
-          onSome: (specifier) => mappedIn(specifier, ref.anchor, owner, home),
-        }),
-      ),
-      Match.when({ type: 'NameRef' }, (ref) =>
-        pipe(
-          targetOf(catalogue, owner, ref),
-          Option.filter((t) => !seen.has(keyOf(t))),
-          Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
-          Option.match({
-            onNone: () => emptyLeaf,
-            onSome: ([t, node]) =>
-              absorbTrailingNewline(
-                inlineComposed(
-                  modules,
-                  catalogue,
-                  new Set([...seen, keyOf(t)]),
-                  home,
-                  specifiers,
-                )(node),
-              ),
-          }),
-        ),
-      ),
-      Match.exhaustive,
-    )
+      trim: owns,
+    }
+  },
+})
 
 const inlineComposed =
   (
@@ -148,33 +177,11 @@ const inlineComposed =
     specifiers: Specifiers,
   ) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, catalogue, seen, home, node.origin.path, specifiers)
-    const seed: { vc: LoomVirtualCode; trim: boolean } = {
-      vc: emptyLeaf,
-      trim: false,
-    }
+    const build = (part: Part): LoomVirtualCode =>
+      inlinePart(part, { modules, catalogue, seen, home, owner: node.origin.path, specifiers })
+    const seed: Inlined = { vc: emptyLeaf, trim: false }
     return pipe(
-      node.fragments,
-      Array.reduce(seed, (acc, part, i) =>
-        Match.value(part).pipe(
-          Match.when({ type: 'Fragment' }, (fragment) => ({
-            vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(fragment) : fragment)),
-            trim: false,
-          })),
-          Match.when({ type: 'ModuleRef' }, (ref) => ({ vc: concat(acc.vc, build(ref)), trim: false })),
-          Match.when({ type: 'NameRef' }, (ref) => {
-            const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
-            return {
-              vc: concat(
-                acc.vc,
-                owns ? indentBlock(build(ref), lineIndentOf(acc.vc.code)) : build(ref),
-              ),
-              trim: owns,
-            }
-          }),
-          Match.exhaustive,
-        ),
-      ),
+      node.fragments.reduce((acc, part, i) => withPart(part, { acc, build, node, i }), seed),
       (acc) => acc.vc,
     )
   }
@@ -245,34 +252,41 @@ export const unsettledRef = (
       ),
   })
 
+const unsettledInPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly node: Code
+    },
+  ]
+>()<ReadonlyArray<Unsettled>>({
+  Fragment: (): ReadonlyArray<Unsettled> => [],
+  ModuleRef: (ref, { modules, catalogue, node }) =>
+    Option.toArray(unsettledModuleRef(modules, catalogue, node, ref)),
+  NameRef: (ref, { modules, catalogue, seen, node }) =>
+    Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
+      onSome: (unsettled): ReadonlyArray<Unsettled> => [unsettled],
+      onNone: () =>
+        pipe(
+          targetOf(catalogue, node.origin.path, ref),
+          Option.filter((reached) => !seen.has(keyOf(reached))),
+          Option.flatMap((reached) =>
+            Option.map(lookup(modules, reached), (code) =>
+              unsettledFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
+            ),
+          ),
+          Option.getOrElse((): ReadonlyArray<Unsettled> => []),
+        ),
+    }),
+})
+
 const unsettledFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Unsettled> =>
-    Array.flatMap(node.fragments, (part) =>
-      Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<Unsettled> => []),
-        Match.when({ type: 'ModuleRef' }, (ref) =>
-          Option.toArray(unsettledModuleRef(modules, catalogue, node, ref)),
-        ),
-        Match.when({ type: 'NameRef' }, (ref) =>
-          Option.match(unsettledRef(modules, catalogue, node.origin.path, ref), {
-            onSome: (unsettled): ReadonlyArray<Unsettled> => [unsettled],
-            onNone: () =>
-              pipe(
-                targetOf(catalogue, node.origin.path, ref),
-                Option.filter((reached) => !seen.has(keyOf(reached))),
-                Option.flatMap((reached) =>
-                  Option.map(lookup(modules, reached), (code) =>
-                    unsettledFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
-                  ),
-                ),
-                Option.getOrElse((): ReadonlyArray<Unsettled> => []),
-              ),
-          }),
-        ),
-        Match.exhaustive,
-      ),
-    )
+    node.fragments.flatMap((part) => unsettledInPart(part, { modules, catalogue, seen, node }))
 
 export const unsettledIn = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -287,30 +301,38 @@ export interface HeldModuleRef {
   readonly ref: ModuleRef
 }
 
+const moduleRefsInPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly node: Code
+    },
+  ]
+>()<ReadonlyArray<HeldModuleRef>>({
+  Fragment: (): ReadonlyArray<HeldModuleRef> => [],
+  ModuleRef: (ref, { node }): ReadonlyArray<HeldModuleRef> => [
+    { owner: node.origin.path, host: node, ref },
+  ],
+  NameRef: (ref, { modules, catalogue, seen, node }) =>
+    pipe(
+      targetOf(catalogue, node.origin.path, ref),
+      Option.filter((reached) => !seen.has(keyOf(reached))),
+      Option.flatMap((reached) =>
+        Option.map(lookup(modules, reached), (code) =>
+          moduleRefsFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
+        ),
+      ),
+      Option.getOrElse((): ReadonlyArray<HeldModuleRef> => []),
+    ),
+})
+
 const moduleRefsFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<HeldModuleRef> =>
-    Array.flatMap(node.fragments, (part) =>
-      Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<HeldModuleRef> => []),
-        Match.when({ type: 'ModuleRef' }, (ref): ReadonlyArray<HeldModuleRef> => [
-          { owner: node.origin.path, host: node, ref },
-        ]),
-        Match.when({ type: 'NameRef' }, (ref) =>
-          pipe(
-            targetOf(catalogue, node.origin.path, ref),
-            Option.filter((reached) => !seen.has(keyOf(reached))),
-            Option.flatMap((reached) =>
-              Option.map(lookup(modules, reached), (code) =>
-                moduleRefsFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))(code),
-              ),
-            ),
-            Option.getOrElse((): ReadonlyArray<HeldModuleRef> => []),
-          ),
-        ),
-        Match.exhaustive,
-      ),
-    )
+    node.fragments.flatMap((part) => moduleRefsInPart(part, { modules, catalogue, seen, node }))
 
 export const moduleRefsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -319,29 +341,37 @@ export const moduleRefsIn = (
 ): ReadonlyArray<HeldModuleRef> =>
   moduleRefsFrom(modules, catalogue, new Set([keyOf(root.origin)]))(root)
 
+const unfoundInPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly seen: ReadonlySet<string>
+      readonly node: Code
+    },
+  ]
+>()<ReadonlyArray<string>>({
+  Fragment: (): ReadonlyArray<string> => [],
+  ModuleRef: (): ReadonlyArray<string> => [],
+  NameRef: (ref, { modules, catalogue, seen, node }) =>
+    Option.match(targetOf(catalogue, node.origin.path, ref), {
+      onNone: (): ReadonlyArray<string> => [ref.name],
+      onSome: (reached) =>
+        pipe(
+          Option.some(reached),
+          Option.filter((found) => !seen.has(keyOf(found))),
+          Option.flatMap((found) => lookup(modules, found)),
+          Option.map(unfoundFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))),
+          Option.getOrElse((): ReadonlyArray<string> => []),
+        ),
+    }),
+})
+
 const unfoundFrom =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<string> =>
-    Array.flatMap(node.fragments, (part) =>
-      Match.value(part).pipe(
-        Match.when({ type: 'Fragment' }, (): ReadonlyArray<string> => []),
-        Match.when({ type: 'ModuleRef' }, (): ReadonlyArray<string> => []),
-        Match.when({ type: 'NameRef' }, (ref) =>
-          Option.match(targetOf(catalogue, node.origin.path, ref), {
-            onNone: (): ReadonlyArray<string> => [ref.name],
-            onSome: (reached) =>
-              pipe(
-                Option.some(reached),
-                Option.filter((found) => !seen.has(keyOf(found))),
-                Option.flatMap((found) => lookup(modules, found)),
-                Option.map(unfoundFrom(modules, catalogue, new Set([...seen, keyOf(reached)]))),
-                Option.getOrElse((): ReadonlyArray<string> => []),
-              ),
-          }),
-        ),
-        Match.exhaustive,
-      ),
-    )
+    node.fragments.flatMap((part) => unfoundInPart(part, { modules, catalogue, seen, node }))
 
 export const unfoundIn = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -360,8 +390,9 @@ export type Contract = {
 
 const writtenSpan = (code: Code): Option.Option<Position> =>
   pipe(
-    code.fragments,
-    Array.map((part) => (part.type === 'Fragment' ? Option.some(part.origin) : Option.none())),
+    code.fragments.map((part) =>
+      part.type === 'Fragment' ? Option.some(part.origin) : Option.none(),
+    ),
     Array.getSomes,
     Array.match({
       onEmpty: () => Option.none(),
@@ -398,7 +429,7 @@ const composedOf =
   (modules: ReadonlyMap<Location, LoomModule>, catalogue: Catalogue, seen: ReadonlySet<string>) =>
   (node: Code): ReadonlyArray<Code> => [
     node,
-    ...Array.flatMap(node.fragments, (part) =>
+    ...node.fragments.flatMap((part) =>
       part.type === 'NameRef'
         ? pipe(
             targetOf(catalogue, node.origin.path, part),
@@ -420,18 +451,25 @@ const composedSpan = (
   root: Code,
 ): Option.Option<Position> =>
   pipe(
-    composedOf(modules, catalogue, new Set([keyOf(root.origin)]))(root),
-    Array.filter((code) => code.origin.path === root.origin.path),
-    Array.map(writtenSpan),
+    composedOf(
+      modules,
+      catalogue,
+      new Set([keyOf(root.origin)]),
+    )(root)
+      .filter((code) => code.origin.path === root.origin.path)
+      .map(writtenSpan),
     Array.getSomes,
     Array.match({
       onEmpty: () => Option.none(),
       onNonEmpty: (spans) =>
         Option.some(
-          Array.reduce(Array.tailNonEmpty(spans), Array.headNonEmpty(spans), (whole, span) => ({
-            start: span.start.offset < whole.start.offset ? span.start : whole.start,
-            end: span.end.offset > whole.end.offset ? span.end : whole.end,
-          })),
+          Array.tailNonEmpty(spans).reduce(
+            (whole, span) => ({
+              start: span.start.offset < whole.start.offset ? span.start : whole.start,
+              end: span.end.offset > whole.end.offset ? span.end : whole.end,
+            }),
+            Array.headNonEmpty(spans),
+          ),
         ),
     }),
   )
@@ -485,6 +523,26 @@ const tropeContractOf = (
     }
   })
 
+const contractOfPart = byType<
+  Part,
+  [
+    within: {
+      readonly modules: ReadonlyMap<Location, LoomModule>
+      readonly catalogue: Catalogue
+      readonly path: Location
+      readonly landing: Landing
+      readonly module: LoomModule
+      readonly host: Code
+    },
+  ]
+>()<Option.Option<Contract>>({
+  NameRef: (ref, { modules, catalogue, path }) =>
+    contractOf(modules, catalogue, path, ref),
+  ModuleRef: (ref, { modules, catalogue, landing, module, host }) =>
+    moduleContractOf(modules, catalogue, landing, module, host, ref),
+  Fragment: () => Option.none<Contract>(),
+})
+
 export const contractsIn = (
   modules: ReadonlyMap<Location, LoomModule>,
   path: Location,
@@ -493,28 +551,17 @@ export const contractsIn = (
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: (): ReadonlyArray<Contract> => [],
     onSome: (module) => {
-      const landing = landingOf(catalogue, modules)
+      const landing = landingOf(modules)
       return [
-        ...pipe(
-          module.product.code,
-          Array.flatMap((host) =>
-            Array.map(host.fragments, (part) =>
-              Match.value(part).pipe(
-                Match.when({ type: 'NameRef' }, (ref) => contractOf(modules, catalogue, path, ref)),
-                Match.when({ type: 'ModuleRef' }, (ref) =>
-                  moduleContractOf(modules, catalogue, landing, module, host, ref),
-                ),
-                Match.when({ type: 'Fragment' }, () => Option.none<Contract>()),
-                Match.exhaustive,
-              ),
+        ...Array.getSomes(
+          module.product.code.flatMap((host) =>
+            host.fragments.map((part) =>
+              contractOfPart(part, { modules, catalogue, path, landing, module, host }),
             ),
           ),
-          Array.getSomes,
         ),
         ...Array.getSomes(
-          Array.map(tropeContractsIn(catalogue, path), (contract) =>
-            tropeContractOf(modules, contract),
-          ),
+          tropeContractsIn(catalogue, path).map((contract) => tropeContractOf(modules, contract)),
         ),
       ]
     },
@@ -583,8 +630,8 @@ const reindentMapping = (
   newStarts: ReadonlyArray<number>,
 ): ReadonlyArray<Mapping> => {
   const end = m.genStart + m.genLength
-  const cuts = [m.genStart, ...Array.filter(oldStarts, (s) => s > m.genStart && s < end), end]
-  return Array.map(Array.zip(cuts, Array.drop(cuts, 1)), ([a, b]) => {
+  const cuts = [m.genStart, ...oldStarts.filter((s) => s > m.genStart && s < end), end]
+  return Array.zip(cuts, Array.drop(cuts, 1)).map(([a, b]) => {
     const line = lineIndexOf(oldStarts, a)
     return {
       genStart: newStarts[line] + (a - oldStarts[line]),
@@ -606,12 +653,8 @@ const indentBlock = (vc: LoomVirtualCode, indent: string): LoomVirtualCode => {
   const newStarts = newStartsOf(lines, oldStarts, indent.length)
   return {
     ...vc,
-    code: pipe(
-      lines,
-      Array.map((line, i) => (i === 0 || line === '' ? line : indent + line)),
-      Array.join('\n'),
-    ),
-    mappings: Array.flatMap(vc.mappings, (m) => reindentMapping(m, vc.code, oldStarts, newStarts)),
+    code: lines.map((line, i) => (i === 0 || line === '' ? line : indent + line)).join('\n'),
+    mappings: vc.mappings.flatMap((m) => reindentMapping(m, vc.code, oldStarts, newStarts)),
   }
 }
 
@@ -623,7 +666,7 @@ const spanOf = (position: Position, kind: MappingKind): Mapping => ({
 })
 
 export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
-  Array.map(symbolsOf(doc), (symbol) => spanOf(symbol.position, symbol.kind))
+  symbolsOf(doc).map((symbol) => spanOf(symbol.position, symbol.kind))
 
 export const fromCode = (
   modules: ReadonlyMap<Location, LoomModule>,
@@ -660,40 +703,42 @@ const isCodeWeft = (weft: { readonly type: string }): boolean =>
   weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
 
 const proseMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
-  pipe(
-    [
-      ...doc.preamble,
-      ...Array.flatMap(doc.sections, (section) => [
-        section.heading,
-        ...section.preamble,
-        ...Array.filter(section.code, (weft) => !isCodeWeft(weft)),
-      ]),
-    ],
-    Array.map((token) => spanOf(token.position, 'prose')),
-  )
+  [
+    ...doc.preamble,
+    ...doc.sections.flatMap((section) => [
+      section.heading,
+      ...section.preamble,
+      ...section.code.filter((weft) => !isCodeWeft(weft)),
+    ]),
+  ].map((token) => spanOf(token.position, 'prose'))
+
+const blank = (text: string): string => text.replace(/[^\n]/g, ' ')
+
+const proseOf = (module: LoomModule): string => {
+  const spans = module.doc.sections
+    .flatMap((section) => section.code)
+    .filter(isCodeWeft)
+    .map((weft) => [weft.position.start.offset, weft.position.end.offset] as const)
+  const ends: Array.NonEmptyReadonlyArray<number> = [0, ...spans.map(([, end]) => end)]
+  return [
+    ...spans.map(
+      ([start, end], at) =>
+        module.text.slice(ends[at], start) + blank(module.text.slice(start, end)),
+    ),
+    module.text.slice(Array.lastNonEmpty(ends)),
+  ].join('')
+}
 
 export const fromProse = (modules: ReadonlyMap<Location, LoomModule>, path: Location): LoomVirtualCode =>
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: () => leaf('prose', 'prose', '', []),
-    onSome: (module) => {
-      const code = pipe(
-        module.doc.sections,
-        Array.flatMap((section) => section.code),
-        Array.filter(isCodeWeft),
-        Array.reduce(module.text, (acc, weft) => {
-          const start = weft.position.start.offset
-          const end = weft.position.end.offset
-          return acc.slice(0, start) + acc.slice(start, end).replace(/[^\n]/g, ' ') + acc.slice(end)
-        }),
-      )
-      return {
-        id: 'prose',
-        languageId: 'prose',
-        code,
-        mappings: proseMappings(module.doc),
-        embeddedCodes: [],
-      }
-    },
+    onSome: (module) => ({
+      id: 'prose',
+      languageId: 'prose',
+      code: proseOf(module),
+      mappings: proseMappings(module.doc),
+      embeddedCodes: [],
+    }),
   })
 
 export const rootVirtualCode = (
@@ -725,27 +770,20 @@ export const rootNamesAt = (
 ): ReadonlySet<string> => {
   const here = modules.get(path)?.product?.code ?? []
   const named = new Set(
-    pipe(
-      here,
-      Array.flatMap((code) => code.fragments),
-      Array.map((part) =>
-        part.type === 'NameRef'
-          ? part.target.pipe(
-              Option.filter((t) => t.path === path),
-              Option.map((t) => t.name.toLowerCase()),
-            )
-          : Option.none(),
-      ),
-      Array.getSomes,
+    Array.getSomes(
+      here
+        .flatMap((code) => code.fragments)
+        .map((part) =>
+          part.type === 'NameRef'
+            ? part.target.pipe(
+                Option.filter((t) => t.path === path),
+                Option.map((t) => t.name.toLowerCase()),
+              )
+            : Option.none(),
+        ),
     ),
   )
-  return new Set(
-    pipe(
-      here,
-      Array.map((code) => code.origin.name.toLowerCase()),
-      Array.filter((id) => !named.has(id)),
-    ),
-  )
+  return new Set(here.map((code) => code.origin.name.toLowerCase()).filter((id) => !named.has(id)))
 }
 
 export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuilder>()(

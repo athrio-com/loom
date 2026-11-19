@@ -77,7 +77,7 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('reuses built modules across requests (the memo)', () =>
+  it.effect('builds each module once, and keeps the corpus between requests', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const memo = yield* LoomMemo
@@ -86,10 +86,98 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
       expect(first).toMatchObject({ misses: 2, size: 2 })
 
       yield* c.reach('/book.loom')
-      const second = yield* memo.stats
-      expect(second.misses).toBe(2)
-      expect(second.hits).toBeGreaterThan(first.hits)
+      expect(yield* memo.stats).toEqual(first)
+
+      yield* c.reach('/chapter.loom')
+      expect(yield* memo.stats).toMatchObject({ misses: 2, size: 2 })
     }).pipe(Effect.provide(layer)),
+  )
+})
+
+import { Context, Ref } from 'effect'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { WeaveBuilder } from '../src/weave/WeaveBuilder'
+
+type Step = 'parsed' | 'finished' | 'built'
+
+class Steps extends Context.Service<Steps>()('Steps', {
+  make: Effect.map(Ref.make<Record<Step, number>>({ parsed: 0, finished: 0, built: 0 }), (counts) => ({
+    counts,
+  })),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+const CountedBuilder = Layer.effect(
+  LoomCorpusAstBuilder,
+  Effect.gen(function* () {
+    const builder = yield* LoomCorpusAstBuilder
+    const { counts } = yield* Steps
+    const counted =
+      <Args extends ReadonlyArray<unknown>, A>(
+        step: Step,
+        run: (...args: Args) => Effect.Effect<A>,
+      ) =>
+      (...args: Args): Effect.Effect<A> =>
+        Ref.update(counts, (was) => ({ ...was, [step]: was[step] + 1 })).pipe(
+          Effect.andThen(run(...args)),
+        )
+    return {
+      parse: counted('parsed', builder.parse),
+      finish: counted('finished', builder.finish),
+      build: counted('built', builder.build),
+    }
+  }),
+).pipe(Layer.provide(Layer.merge(LoomCorpusAstBuilder.layer, Steps.layer)))
+
+const withTrope: Record<string, string> = {
+  ...files,
+  '/mermaid.loom': lines(
+    '---',
+    'Trope Chapter: Mermaid',
+    '---',
+    '',
+    '# Mermaid',
+    '',
+    '## What it declares {Manifest}',
+    '',
+    '=>',
+    JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { box: [{ kind: 'Mermaid', body: 'text' }] } },
+    }),
+  ),
+}
+
+const TropeDocs = Layer.succeed(DocumentSource, {
+  read: (path: string) => Effect.succeed(withTrope[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(withTrope))),
+  hold: () => Effect.void,
+  forget: () => Effect.void,
+})
+
+const countedLayer = Layer.provide(
+  Layer.merge(
+    Layer.effect(LoomCompiler, LoomCompiler.make).pipe(
+      Layer.provide(Layer.mergeAll(CountedBuilder, LoomMemo.layer, WeaveBuilder.layer)),
+    ),
+    Steps.layer,
+  ),
+  Layer.mergeAll(TropeDocs, TestConfig, FileSystemSource, LoomDiskCache.none),
+)
+
+describe('LoomCompiler — a corpus nobody has built', () => {
+  it.effect('parses each loom once and finishes it once', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const { counts } = yield* Steps
+      yield* c.reach('/book.loom')
+      expect(yield* Ref.get(counts)).toEqual({ parsed: 3, finished: 4, built: 0 })
+
+      yield* c.invalidate('/chapter.loom')
+      yield* c.reach('/book.loom')
+      expect(yield* Ref.get(counts)).toEqual({ parsed: 4, finished: 5, built: 0 })
+    }).pipe(Effect.provide(countedLayer)),
   )
 })
 

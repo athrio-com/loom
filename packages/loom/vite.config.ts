@@ -73,7 +73,7 @@ export default defineConfig({
     sourcemap: true,
     minify: false,
     lib: {
-      entry: resolve(here, 'src/main.ts'),
+      entry: resolve(here, 'src/start.ts'),
       formats: ['es'],
       fileName: () => 'main.js',
     },

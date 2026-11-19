@@ -30,8 +30,7 @@ const loomsIn = (folder: string): ReadonlyArray<Location> =>
     Option.liftThrowable(() => readdirSync(folder))(),
     Option.map((names) =>
       pipe(
-        names,
-        Array.filter((name) => name.endsWith('.loom')),
+        names.filter((name) => name.endsWith('.loom')),
         Array.sort(Order.String),
         Array.map((name) => join(folder, name)),
       ),
@@ -42,7 +41,7 @@ const loomsIn = (folder: string): ReadonlyArray<Location> =>
 const keyFor = (workspace: Location, tropes: ReadonlyArray<string>): string =>
   JSON.stringify([
     workspace,
-    ...Array.map(tropes, (id) => [id, Option.getOrNull(installedTropeVersion(id, workspace))]),
+    ...tropes.map((id) => [id, Option.getOrNull(installedTropeVersion(id, workspace))]),
   ])
 
 export class TropePackages extends Context.Service<TropePackages>()('TropePackages', {
@@ -56,7 +55,7 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
       tropes: ReadonlyArray<string>,
     ): Effect.Effect<Declarations> =>
       Effect.forEach(
-        Array.flatMap(tropes, (id) => loomsIn(join(tropeDir(id, workspace), 'looms'))),
+        tropes.flatMap((id) => loomsIn(join(tropeDir(id, workspace), 'looms'))),
         (path) =>
           builder.build(fromDisk, path).pipe(Effect.map((module) => [path, module] as const)),
       ).pipe(

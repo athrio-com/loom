@@ -1,4 +1,3 @@
-import { Array } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
 import { type Carpet, carpetStyle, fineSeam, loomMark } from './components'
 
@@ -65,7 +64,7 @@ export const pageHead = (id: string, title: string, lead: string): Html =>
         [ih.Class('page-head-grid')],
         [
           ih.p([ih.Class('prose page-lead')], [lead]),
-          ih.div([ih.Class('page-places')], Array.map(places, placeCard)),
+          ih.div([ih.Class('page-places')], places.map(placeCard)),
         ],
       ),
     ],

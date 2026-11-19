@@ -296,7 +296,7 @@ export const projectOver = (
 
 `savedLooms` builds the reader that `projectOver` calls `savedLoom`. It fetches a loom through `fetchSaved` and keeps its snapshot until the file's modified time moves. A save the editor never reports still moves that time, so the server sees the saved text even from an editor that sends no change notifications. Volar asks for a script each time it needs one, and a fresh snapshot is a new version to Volar, so a loom read afresh on every ask would be projected afresh on every ask. A chapter read once is projected once. A file that is no loom, or that is no longer on disk, yields nothing, and the language forgets it.
 
-A loom kept anywhere but on a disk has no modified time. `onDisk` reads a loom whose address is a file, and `inMemory` answers any other loom from the text the `DocumentSource` service holds, through `heldText`. It keeps the snapshot until that text changes, so a remote chapter is projected once too. A loom the source never handed over would have to be fetched, and a fetch cannot finish inside Volar's synchronous call, so `runSyncExit` reports the failure and the loom yields nothing.
+A loom kept anywhere but on a disk has no modified time. `onDisk` reads a loom whose address is a file, and `inMemory` answers any other loom from the text the `DocumentSource` service holds, through `heldText`. It keeps the snapshot until that text changes, so a remote chapter is projected once too. A loom the source never handed over would have to be fetched, and a fetch cannot finish inside Volar's synchronous call, so `runSyncExit` reports the failure and the loom yields nothing. `snapshotBy` picks between the two by a loom's address, and gives nothing for a file that is no loom.
 
 =>
 
@@ -328,6 +328,21 @@ const heldText = (uri: URI): Effect.Effect<Option.Option<string>, never, Workspa
   Effect.all([WorkspaceSource, DocumentSource]).pipe(
     Effect.flatMap(([source, documents]) => Effect.option(documents.read(source.locationOf(uri)))),
   )
+
+const snapshotBy = Match.fn(
+  (
+    _within: {
+      readonly onDisk: (uri: URI) => Option.Option<IScriptSnapshot>
+      readonly inMemory: (uri: URI) => Option.Option<IScriptSnapshot>
+    },
+    uri: URI,
+  ) => uri,
+).pipe(
+  Match.withReturnType<Option.Option<IScriptSnapshot>>(),
+  Match.when((loom) => !isLoom(loom), () => Option.none<IScriptSnapshot>()),
+  Match.when((loom) => loom.scheme === 'file', (matched, { onDisk }) => onDisk(matched)),
+  Match.orElse((matched, { inMemory }) => inMemory(matched)),
+)
 
 const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
   const read = new Map<string, SavedLoom>()
@@ -369,11 +384,7 @@ const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
         ),
     )
   return (uri) =>
-    Match.value(uri).pipe(
-      Match.when((loom) => !isLoom(loom), () => Option.none<IScriptSnapshot>()),
-      Match.when((loom) => loom.scheme === 'file', onDisk),
-      Match.orElse(inMemory),
-    )
+    snapshotBy({ onDisk, inMemory }, uri)
 }
 
 ~
@@ -444,11 +455,10 @@ const reconfiguredWorkspaces = (
   source: WorkspaceSource['Service'],
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<string> =>
-  pipe(
-    changes,
-    Array.filter((change) => change.uri.endsWith('/.loom/config.yaml')),
-    Array.map((change) => dirname(dirname(source.locationOf(URI.parse(change.uri))))),
-    Array.dedupe,
+  Array.dedupe(
+    changes
+      .filter((change) => change.uri.endsWith('/.loom/config.yaml'))
+      .map((change) => dirname(dirname(source.locationOf(URI.parse(change.uri))))),
   )
 
 const reloadProject = (
@@ -484,7 +494,7 @@ export const rebuildUnder = (
       compiler.invalidateWithin(workspace).pipe(
         Effect.andThen(
           Effect.forEach(
-            Array.filter(openLooms(server), (uri) => within(workspace, source.locationOf(uri))),
+            openLooms(server).filter((uri) => within(workspace, source.locationOf(uri))),
             (uri) => recordEdit(edited, uri),
             { discard: true },
           ),
@@ -518,11 +528,10 @@ const retypedWorkspaces = (
   home: string,
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<string> =>
-  pipe(
-    changes,
-    Array.filter((change) => isCompilerSetting(change.uri)),
-    Array.map((change) => workspaceFor(home, URI.parse(change.uri))),
-    Array.dedupe,
+  Array.dedupe(
+    changes
+      .filter((change) => isCompilerSetting(change.uri))
+      .map((change) => workspaceFor(home, URI.parse(change.uri))),
   )
 
 const retype = (
@@ -585,7 +594,7 @@ const closedLoomChanges = (
   server: LanguageServer,
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<FileEvent> =>
-  Array.filter(changes, (change) => {
+  changes.filter((change) => {
     const uri = URI.parse(change.uri)
     return isLoom(uri) && server.documents.get(uri) === undefined
   })
@@ -611,7 +620,7 @@ const fetchReported = (
   WorkspaceSource.pipe(
     Effect.flatMap((source) =>
       Effect.forEach(
-        Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
+        changes.map((change) => URI.parse(change.uri)).filter(isLoom),
         (uri) => fetchSaved(source.locationOf(uri)),
         { discard: true },
       ),
@@ -645,18 +654,16 @@ A deleted chapter leaves its script behind in Volar, with the projection it last
 =>
 
 const openLooms = (server: LanguageServer): ReadonlyArray<URI> =>
-  pipe(
-    server.documents.all(),
-    Array.map((document) => URI.parse(document.uri)),
-    Array.filter(isLoom),
-  )
+  server.documents
+    .all()
+    .map((document) => URI.parse(document.uri))
+    .filter(isLoom)
 
 const openLoomsIn = (
   server: LanguageServer,
   home: string,
   workspace: string,
-): ReadonlyArray<URI> =>
-  Array.filter(openLooms(server), (uri) => workspaceFor(home, uri) === workspace)
+): ReadonlyArray<URI> => openLooms(server).filter((uri) => workspaceFor(home, uri) === workspace)
 
 const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
   effect.pipe(
@@ -734,17 +741,15 @@ const reproject = (
   alsoForgotten: ReadonlyArray<URI>,
 ): Effect.Effect<void> => {
   const forgotten = [
-    ...pipe(
-      changes,
-      Array.filter((change) => change.type === FileChangeType.Deleted),
-      Array.map((change) => URI.parse(change.uri)),
-    ),
+    ...changes
+      .filter((change) => change.type === FileChangeType.Deleted)
+      .map((change) => URI.parse(change.uri)),
     ...alsoForgotten,
   ]
   return changes.length === 0
     ? Effect.void
     : Effect.forEach(
-        Array.dedupe(Array.map(changes, (change) => workspaceFor(home, URI.parse(change.uri)))),
+        Array.dedupe(changes.map((change) => workspaceFor(home, URI.parse(change.uri)))),
         (workspace) => reprojectWorkspace(server, home, projects, workspace, forgotten),
         { discard: true },
       ).pipe(
@@ -867,7 +872,7 @@ const isRelations = (change: FileEvent): boolean => change.uri.endsWith('/.loom/
 const watchRelations = (server: LanguageServer): void => {
   void server.fileWatcher.watchFiles(['**/.loom/relations.lock'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
-    if (Array.some(changes, isRelations)) void server.languageFeatures.requestRefresh(true)
+    if (changes.some(isRelations)) void server.languageFeatures.requestRefresh(true)
   })
 }
 
@@ -978,14 +983,13 @@ const applySummaryEdits = (
             server.connection.workspace.applyEdit({
               label: 'Keep a box in step',
               edit: {
-                documentChanges: Array.map(
-                  Object.entries(Array.groupBy(edits, (edit) => edit.path)),
+                documentChanges: Object.entries(Array.groupBy(edits, (edit) => edit.path)).map(
                   ([path, inLoom]) => ({
                     textDocument: {
                       uri: source.uriOf(path).toString(),
                       version: server.documents.get(source.uriOf(path))?.version ?? null,
                     },
-                    edits: Array.map(inLoom, (edit) => ({ range: edit.range, newText: edit.text })),
+                    edits: inLoom.map((edit) => ({ range: edit.range, newText: edit.text })),
                   }),
                 ),
               },
@@ -1043,7 +1047,7 @@ const keepInStep = (
 }
 
 const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effect.Effect<void> =>
-  Ref.update(seen, (texts) => new Map(Array.filter([...texts], ([key]) => key !== uri.toString())))
+  Ref.update(seen, (texts) => new Map([...texts].filter(([key]) => key !== uri.toString())))
 
 ## The program
 
@@ -1320,15 +1324,12 @@ const editorAt = async (folder: string, experimental?: unknown) => {
       options: { tabSize: 2, insertSpaces: true },
     })) ?? []
   const diagnostics = async (path: string): Promise<ReadonlyArray<string>> =>
-    Array.map(
-      (
-        await connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
-          'textDocument/diagnostic',
-          { textDocument: { uri: pathToFileURL(path).href } },
-        )
-      ).items,
-      (diagnostic) => diagnostic.message,
-    )
+    (
+      await connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
+        'textDocument/diagnostic',
+        { textDocument: { uri: pathToFileURL(path).href } },
+      )
+    ).items.map((diagnostic) => diagnostic.message)
   const fixes = async (path: string, line: number): Promise<ReadonlyArray<CodeAction>> =>
     (await connection.sendRequest<CodeAction[] | null>('textDocument/codeAction', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -1338,13 +1339,12 @@ const editorAt = async (folder: string, experimental?: unknown) => {
   const hints = async (
     path: string,
   ): Promise<ReadonlyArray<{ readonly position: unknown; readonly label: unknown }>> =>
-    Array.map(
+    (
       (await connection.sendRequest<InlayHint[] | null>('textDocument/inlayHint', {
         textDocument: { uri: pathToFileURL(path).href },
         range: { start: { line: 0, character: 0 }, end: { line: 10_000, character: 0 } },
-      })) ?? [],
-      (hint) => ({ position: hint.position, label: hint.label }),
-    )
+      })) ?? []
+    ).map((hint) => ({ position: hint.position, label: hint.label }))
   const folds = async (path: string): Promise<ReadonlyArray<FoldingRange>> =>
     (await connection.sendRequest<FoldingRange[] | null>('textDocument/foldingRange', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -1354,15 +1354,12 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     line: number,
     character: number,
   ): Promise<ReadonlyArray<{ readonly label: unknown; readonly textEdit: unknown }>> =>
-    Array.map(
-      (
-        (await connection.sendRequest<CompletionList | null>('textDocument/completion', {
-          textDocument: { uri: pathToFileURL(path).href },
-          position: { line, character },
-        })) ?? { items: [] }
-      ).items,
-      (item) => ({ label: item.label, textEdit: item.textEdit }),
-    )
+    (
+      (await connection.sendRequest<CompletionList | null>('textDocument/completion', {
+        textDocument: { uri: pathToFileURL(path).href },
+        position: { line, character },
+      })) ?? { items: [] }
+    ).items.map((item) => ({ label: item.label, textEdit: item.textEdit }))
   const definition = async (
     path: string,
     line: number,
@@ -1372,15 +1369,13 @@ const editorAt = async (folder: string, experimental?: unknown) => {
       'textDocument/definition',
       { textDocument: { uri: pathToFileURL(path).href }, position: { line, character } },
     )
-    return Array.map(
-      Option.match(Option.fromNullishOr(found), {
-        onNone: (): ReadonlyArray<Location | LocationLink> => [],
-        onSome: (one) => (globalThis.Array.isArray(one) ? one : [one]),
-      }),
-      (one) =>
-        'targetUri' in one
-          ? { uri: one.targetUri, line: one.targetSelectionRange.start.line }
-          : { uri: one.uri, line: one.range.start.line },
+    return Option.match(Option.fromNullishOr(found), {
+      onNone: (): ReadonlyArray<Location | LocationLink> => [],
+      onSome: (one) => (globalThis.Array.isArray(one) ? one : [one]),
+    }).map((one) =>
+      'targetUri' in one
+        ? { uri: one.targetUri, line: one.targetSelectionRange.start.line }
+        : { uri: one.uri, line: one.range.start.line },
     )
   }
   const rename = async (
@@ -1396,15 +1391,13 @@ const editorAt = async (folder: string, experimental?: unknown) => {
       position: { line, character },
       newName,
     })
-    const byDocument = Array.flatMap(edit?.documentChanges ?? [], (change) =>
-      'edits' in change
-        ? Array.map(change.edits, (one) => [change.textDocument.uri, one] as const)
-        : [],
+    const byDocument = (edit?.documentChanges ?? []).flatMap((change) =>
+      'edits' in change ? change.edits.map((one) => [change.textDocument.uri, one] as const) : [],
     )
-    const byChange = Array.flatMap(Object.entries(edit?.changes ?? {}), ([uri, edits]) =>
-      Array.map(edits, (one) => [uri, one] as const),
+    const byChange = Object.entries(edit?.changes ?? {}).flatMap(([uri, edits]) =>
+      edits.map((one) => [uri, one] as const),
     )
-    return Array.map([...byDocument, ...byChange], ([uri, one]) => ({
+    return [...byDocument, ...byChange].map(([uri, one]) => ({
       uri,
       line: one.range.start.line,
       newText: one.newText,
@@ -1441,7 +1434,7 @@ const editorAt = async (folder: string, experimental?: unknown) => {
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
-  Array.map(edits, (edit) => edit.newText)
+  edits.map((edit) => edit.newText)
 
 ~
 
@@ -2443,7 +2436,7 @@ const projectOf = (
 
 const serverWith = (...open: ReadonlyArray<URI>): LanguageServer =>
   ({
-    documents: { all: () => Array.map(open, (uri) => ({ uri: uri.toString() })) },
+    documents: { all: () => open.map((uri) => ({ uri: uri.toString() })) },
   }) as unknown as LanguageServer
 
 const closedEditor = {
@@ -2792,7 +2785,7 @@ describe("LoomServer — a trope's entries", () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns, and `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
@@ -2813,7 +2806,7 @@ import {
   type TextEdit,
   type WorkspaceEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
+import { Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSettings } from '../src/WorkspaceSettings'

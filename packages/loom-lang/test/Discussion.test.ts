@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { Array, Effect, Layer, Match, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
+import { byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -7,6 +8,7 @@ import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { parseDocument, ParseLayer } from './parse'
+import type { WovenBlock } from '../src/weave/WovenCorpus'
 
 const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
@@ -44,6 +46,14 @@ const compiled = <A, E>(
   files: Record<string, string>,
   use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
 ) => Effect.runPromise(LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files))))
+
+const bylineOrWords = byTypeOr<WovenBlock>()(
+  {
+    message: (message) => [['message', message.author]],
+    prose: (prose) => [['prose', prose.markdown]],
+  },
+  () => [],
+)
 
 const diagnosed = (files: Record<string, string>, entry: string) =>
   compiled(files, (compiler) => compiler.diagnose(entry)).then((found) =>
@@ -303,13 +313,7 @@ describe("the book's back matter", () => {
   it('weaves each message as a byline, then its words', async () => {
     const site = await compiled(files, (compiler) => compiler.weave(root))
     const page = site.pages.find((one) => one.title === 'Waking')
-    const blocks = Array.flatMap(page?.blocks ?? [], (block) =>
-      Match.value(block).pipe(
-        Match.when({ type: 'message' }, (message) => [['message', message.author]]),
-        Match.when({ type: 'prose' }, (prose) => [['prose', prose.markdown]]),
-        Match.orElse(() => []),
-      ),
-    )
+    const blocks = (page?.blocks ?? []).flatMap((block) => bylineOrWords(block))
     expect(blocks).toEqual([
       ['prose', 'What wakes a monster?'],
       ['message', 'Yegor'],

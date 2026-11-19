@@ -74,14 +74,14 @@ const THEME: ThemeRegistration = {
   bg: PLAIN,
   settings: [
     { settings: { foreground: PLAIN } },
-    ...Array.map(SCOPES, ([kind, scope]) => ({ scope: [...scope], settings: { foreground: kind } })),
+    ...SCOPES.map(([kind, scope]) => ({ scope: [...scope], settings: { foreground: kind } })),
   ],
 }
 
 const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
   createHighlighterCore({
     themes: [THEME],
-    langs: Array.map(Array.dedupe(GRAMMARS.values()), (grammar) => bundledLanguages[grammar]),
+    langs: Array.dedupe(GRAMMARS.values()).map((grammar) => bundledLanguages[grammar]),
     engine: createOnigurumaEngine(import('shiki/wasm')),
   }),
 )
@@ -91,13 +91,12 @@ type Place = { readonly offset: number; readonly length: number }
 const anchorSpans = (block: CodeBlock): ReadonlyArray<Place> => [...block.links, ...block.unsettled]
 
 const blanked = (block: CodeBlock): string =>
-  Array.reduce(
-    anchorSpans(block),
-    block.code,
+  anchorSpans(block).reduce(
     (code, anchor) =>
       code.slice(0, anchor.offset) +
       '_'.repeat(anchor.length) +
       code.slice(anchor.offset + anchor.length),
+    block.code,
   )
 
 const kindOf = S.decodeUnknownOption(TokenKind)
@@ -110,16 +109,18 @@ const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<
     onNone: () => [],
     onSome: (lang) =>
       pipe(
-        highlighter.codeToTokensBase(blanked(block), { lang, theme: THEME.name }),
-        Array.flatten,
-        Array.map((token) =>
-          Option.map(
-            kindOf(token.color),
-            (kind): CodeMark => ({ offset: token.offset, length: token.content.length, kind }),
+        highlighter
+          .codeToTokensBase(blanked(block), { lang, theme: THEME.name })
+          .flat()
+          .map((token) =>
+            Option.map(kindOf(token.color), (kind): CodeMark => ({
+              offset: token.offset,
+              length: token.content.length,
+              kind,
+            })),
           ),
-        ),
         Array.getSomes,
-        Array.filter((mark) => !Array.some(anchorSpans(block), (anchor) => overlaps(mark, anchor))),
+        Array.filter((mark) => !anchorSpans(block).some((anchor) => overlaps(mark, anchor))),
       ),
   })
 
@@ -130,9 +131,9 @@ const colouredBlock =
 
 const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Corpus => ({
   ...corpus,
-  pages: Array.map(corpus.pages, (page) => ({
+  pages: corpus.pages.map((page) => ({
     ...page,
-    blocks: Array.map(page.blocks, colouredBlock(highlighter)),
+    blocks: page.blocks.map(colouredBlock(highlighter)),
   })),
 })
 

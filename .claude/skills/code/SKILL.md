@@ -1,6 +1,6 @@
 ---
 name: code
-description: Loom's functional discipline for code — the rules, worked examples, and checklist for writing every component as pure functional programming with Effect (Context.Service over Context.Tag, Match over if/else ladders and nested ternaries, Option over null, Array.* over loops, errors as data). The counterpart to the prose standard: apply it when writing or reviewing the code in any .loom corpus or any @athrio/* package, and check against its questions before presenting.
+description: Loom's functional discipline for code — the rules, worked examples, and checklist for writing every component as pure functional programming with Effect (Context.Service over Context.Tag, a table or a Match over if/else ladders and nested ternaries, Option over null, an array's own methods and Effect's Array over loops, errors as data). The counterpart to the prose standard: apply it when writing or reviewing the code in any .loom corpus or any @athrio/* package, and check against its questions before presenting.
 ---
 
 # Pure functional programming with Effect
@@ -63,15 +63,31 @@ At the entry point, assemble the graph once and provide it once. Compose indepen
 
 ## A model and its Builder
 
-Every significant structure is a Schema **model** — `LoomDocument`, `Product`, `LoomVirtualCode` — defined with `Schema.Struct`, `Schema.Union`, or the `loomNode` helper. The pass that produces a model is a **Builder**: a `Context.Service` named `XxxBuilder` wrapping a pure function from one model to the next. `LoomAstBuilder.build` takes a stream of wefts and returns a `LoomDocument`; `ProductBuilder.build` turns a module's sections into its `Product`. The Builder is the pass.
+Every significant structure is a Schema **model** — `LoomDocument`, `Product`, `LoomVirtualCode` — defined with `Schema.Struct`, `Schema.Union`, or the `loomNode` helper. The pass that produces a model is a **Builder**: a `Context.Service` named `XxxBuilder` wrapping a pure function from one model to the next. `LoomAstBuilder.build` takes a loom's wefts and returns a `ParsedDocument`; `ProductBuilder.build` turns a module's sections into its `Product`. The Builder is the pass.
 
-Name the pass for its model, with "build" as the verb. The earlier agent nouns — `Transducer`, `Resolver`, `Synthesiser` — are gone, and the verbs `transduce`, `resolve`, `synthesise`, `render` no longer name passes. Construct a model node through its schema, not a bare object literal: `PreambleWeftSchema.make({ … })` fills the `type` tag from the schema's constructor default, and `Schema.tag("PreambleWeft")` is what supplies that default. A schema refined with `.check(Schema.makeFilter(…))` does not propagate the tag default through the refinement, so there a literal `type` is correct — `SpecifierLabelTokenSchema`, which constrains its `value`, is such a refined case.
+Name the pass for its model, with "build" as the verb. The earlier agent nouns — `Transducer`, `Resolver`, `Synthesiser` — are gone, and the verbs `transduce`, `resolve`, `synthesise`, `render` no longer name passes.
 
 *The fault and its fix.*
 - ✗ `type Product = { … }` as a plain type, plus a loose `function produce(module) { … }`
-- ✓ a `LoomDocument` schema, paired with a `LoomAstBuilder` service whose `build(source): Effect.Effect<LoomDocument>` is the pass
+- ✓ a `ParsedDocument` schema, paired with a `LoomAstBuilder` service whose `build(wefts): ParsedDocument` is the pass
 
-> Is each structure a Schema model paired with an `XxxBuilder` service? Are nodes built through `.make`, not bare literals? Is the pass named for its model, not an agent verb?
+> Is each structure a Schema model paired with an `XxxBuilder` service? Is the pass named for its model, not an agent verb?
+
+## A node is constructed with `nodeOf`
+
+A node is a model value that carries a `type` tag: a weft, a token, a section, a product fragment, a woven block. Construct one through its schema with `nodeOf`, from `LoomNode`: `nodeOf(PreambleWeftSchema, { … })`. `nodeOf` reads the tag the schema declares and writes it onto the fields. The schema names the node at the place it is constructed, and the compiler checks every field against the schema's type. A bare object literal with a hand-written `type` loses both.
+
+Do not construct a node through its schema's `.make`. That method walks the whole schema on every call, to fill in defaults and run checks, and the walk costs about ten times what the node costs to construct: about 1,080 ns against 100 ns, measured on a code weft. Loom constructs a node for every token of every line, on every keystroke, so `.make` took about a quarter of a build. All it added to a node was the tag, because the compiler had already checked the fields. For the same reason a node schema carries no constructor default beyond its tag: `nodeOf` fills none in, so the caller writes every field, a product node's `health` included.
+
+A structure with no tag, such as a `Product`, a `WovenPage`, or a `TocChapter`, has nothing for a schema to write. Construct it as an object literal in a typed position: the body of an arrow with a return type, or a `const` with an annotation.
+
+`nodeOf` checks nothing while the program runs, so it suits a value the program itself makes. Decode instead, with `Schema.decodeUnknownResult`, in two places. One is the edge, where a value arrives from outside the program, such as a manifest or a configuration file. The other is where a value's fit is the very question: `buildSpecifierLabel` decodes a label to learn whether it is well formed, and constructs a faulted token with `nodeOf` when it is not.
+
+*The fault and its fix.*
+- ✗ `CodeWeftSchema.make({ …weft, health: okHealth })`, or `{ type: "CodeWeft", …weft, health: okHealth }`
+- ✓ `nodeOf(CodeWeftSchema, { …weft, health: okHealth })`, and for a structure with no tag, `(page): WovenNavEntry => ({ number: "", title: page.title, slug: page.slug })`
+
+> Is every node constructed with `nodeOf`, not through `.make` and not as a bare literal with a hand-written tag? Is a structure with no tag a literal in a typed position? Is a value decoded only at the edge, or where its fit is the question?
 
 ## Make the illegal state unrepresentable
 
@@ -85,7 +101,7 @@ Model the domain so a wrong value cannot be built, rather than admitting it and 
 
 ## An error is a value
 
-An error is a value in the type, not an exception thrown past it. A single failure is a `Data.TaggedError` — `TangleError`, `ReadError` — carrying its own fields and `message`. A closed catalog of faults is a `Data.TaggedEnum`: `LoomFault` lists every Loom diagnostic, and its `describe` maps each tag to a message through an exhaustive `Match`. Raise a failure with `Effect.fail` or `yield*`, and recover by tag with `Effect.catchTag` or `Effect.catchTags`, so the type tells you which failures still remain. Do not `throw`, do not `catch (e)` and read its string, do not widen the error to `unknown`.
+An error is a value in the type, not an exception thrown past it. A single failure is a `Data.TaggedError` — `TangleError`, `ReadError` — carrying its own fields and `message`. A closed catalog of faults is a `Data.TaggedEnum`: `LoomFault` lists every Loom diagnostic, and its `describe` maps each tag to a message through the enumeration's own exhaustive `$match`. Raise a failure with `Effect.fail` or `yield*`, and recover by tag with `Effect.catchTag` or `Effect.catchTags`, so the type tells you which failures still remain. Do not `throw`, do not `catch (e)` and read its string, do not widen the error to `unknown`.
 
 *The fault and its fix.*
 - ✗ `throw new Error("cannot read " + path)`, caught later as `catch (e) { if (String(e).includes("read")) … }`
@@ -93,33 +109,86 @@ An error is a value in the type, not an exception thrown past it. A single failu
 
 > Is every failure a tagged value, raised with `Effect.fail` and recovered by tag? Did you `throw`, or inspect an error's string, instead?
 
-## One `Match` closes every case
+## Every case is closed in one place
 
-When behavior turns on which case a value is, match the whole value once and let `Match.exhaustive` prove every case is handled. `modeOf` and `appendToDocument` are the shape: `Match.value(node).pipe(Match.when({ type: "LoomSection" }, …), …, Match.exhaustive)`. On a `Data.TaggedEnum`, match the tag — `LoomFault.describe` runs `Match.value(fault).pipe(Match.tag("UnclosedDelimiter", …), …, Match.exhaustive)`.
+When behavior turns on which case a value is, dispatch on the whole value once, in one place the compiler can close. Add a case to the union and that place fails to compile until you handle it. An `if`/`else if` ladder over the same cases compiles fine with one case missing and falls silently through to the wrong branch.
 
-The exhaustive close is the point. Add a case to the union and the `Match` fails to compile until you handle it. An `if`/`else if` ladder over the same cases compiles fine with one case missing and falls silently through to the wrong branch.
+Which construct closes the cases depends on what they read. Where every case names only the kind of node, a table closes them, and the next rule says how. A `Data.TaggedEnum` carries an exhaustive table of its own, `$match`, which takes one case for every tag: `Place.$match(place, { Book: …, Part: …, Chapter: …, Section: …, Box: … })`. `describe` reads every fault through the one `LoomFault` gives, kept as `matchFault`. Where a case reads more than a tag, a `Match` closed by `Match.exhaustive` does it: `Match.type<Facts>().pipe(Match.when({ codeless: true }, …), Match.when({ written: false, whole: true }, …), …, Match.exhaustive)`.
 
 *The fault and its fix.*
 - ✗ `if (w.type === "HeadingWeft") … else if (w.type === "ArrowWeft") … else …`
-- ✓ `Match.value(w).pipe(Match.when({ type: "HeadingWeft" }, …), Match.when({ type: "ArrowWeft" }, …), …, Match.exhaustive)`
+- ✓ `byType<LoomWeft>()({ HeadingWeft: …, ArrowWeft: …, … })`, which fails to compile while a tag has no case
 
-> Is union dispatch a single `Match` closed by `Match.exhaustive` (or `Match.orElse`), so a new case breaks the build rather than slipping through?
+> Is every dispatch on a union written once, in a table or a `Match` the compiler closes, so a new case breaks the build rather than slipping through?
+
+## A node is told apart by a table
+
+Most dispatch in Loom asks one question: which kind of node is this? A matcher answers it by trying its cases in turn. A matcher of nine cases takes about 130 ns to answer, and running matchers once took a fifth of every keystroke. A table answers by reading one property: its cases are a record keyed by the tag, and a call takes the case under the node's own tag, in about 20 ns.
+
+So wherever every case names only a node's `type`, the cases are a table, built once at module scope with `byType`, from `LoomNode`: `const modeAfter: (weft: LoomWeft) => Mode = byType<LoomWeft>()({ HeadingWeft: () => "preamble", ArrowWeft: () => "code", … })`. The compiler demands a case for every tag of the union, refuses a tag the union does not hold, and hands each case the node of its own tag. `byType` is to a node what `$match` is to a tagged enum.
+
+Three things complete the form.
+
+- **Some tags share a default.** `byTypeOr` takes the cases that differ and a default for the rest: `byTypeOr<LoomWeft, [inBox: boolean]>()({ PreambleWeft: …, ProseWeft: … }, (weft) => weft)`.
+- **A case needs more than the node.** The second type argument names the further arguments, and a call passes them after the node: `byType<Part, [within: Within]>()({ Fragment: (fragment, { home }) => …, … })`, called as `inlinePart(part, { modules, home, … })`. A case names only the arguments it reads.
+- **The cases give different members of one union.** State the result after the first call, `byTypeOr<Probe, Line>()<LoomWeft>(…)`, or on the constant, since the compiler otherwise takes the first case's type for all of them.
+
+A node that may be absent is lifted first, and the table reads what is there: `Option.exists(Option.fromNullishOr(anchor.specifier), namesModuleKind)`.
+
+A value that is no union at all, such as an `unknown` that may be an array, a node, or neither, has nothing for the compiler to close. Guard clauses at the top of the function tell it apart, as the tree fold's `walked` does: `if (Array.isArray(value)) return walkedItems(value, cases)`, then `if (!isNode(value)) return value`.
+
+A `Match` stays for cases that read more than a node's tag: a pattern on another field, such as `{ type: "FenceWeft", side: "open" }`, a predicate, a literal, or a fact the selector worked out. The website builds on Effect alone and holds no node of the foundation, so a matcher built once tells its values apart.
+
+*The fault and its fix.*
+- ✗ `Match.type<LoomWeft>().pipe(Match.when({ type: "HeadingWeft" }, () => "preamble" as const), Match.when({ type: "ArrowWeft" }, () => "code" as const), …, Match.exhaustive)`
+- ✓ `byType<LoomWeft>()({ HeadingWeft: () => "preamble", ArrowWeft: () => "code", … })`
+
+> Does every case name only a node's `type`? Then are the cases a table built with `byType` or `byTypeOr`, and is a value that is no union told apart by guard clauses?
+
+## A matcher is built once
+
+A matcher is a value, and building one costs far more than running it. `Match.value(x).pipe(Match.when(…), …)` builds a matcher for the one value `x`, runs it, and throws it away, so a function written that way builds its matcher again on every call. With nine cases that is about 1,750 ns a call. The same matcher built once runs in about 120 ns. Matchers rebuilt on every call once took a sixth of a tangle of Loom's own book.
+
+So Loom does not use `Match.value`, or `Match.valueTags`, anywhere: not in a parser, not in a command, not in a test. One rule is easier to keep than a rule with an exception, and no reader has to judge how often a function runs. Every matcher is built once, at module scope, and called as a function. Which constructor builds it depends on what the cases read.
+
+- **The cases read the matched value alone.** `Match.type<T>()` matches its one argument. `const verdictOf = Match.type<ReturnType<Ignore["test"]>>().pipe(Match.when({ ignored: true }, () => Option.some(true)), Match.when({ unignored: true }, () => Option.some(false)), Match.orElse(() => Option.none<boolean>()))`.
+- **The cases read one or two other values.** `Match.fn(select)` builds a matcher over a function's arguments. Its selector picks the argument to match, and each case receives the matched value first and then every argument. Put the matched argument last, so a case names only the arguments it reads: `const nextFenced = Match.fn((_fenced: Option.Option<Fence>, weft: LoomWeft) => weft).pipe(Match.when({ type: "FenceWeft", side: "open" }, (open) => openingFence(open.source)), Match.when({ type: "FenceWeft", side: "close" }, () => Option.none<Fence>()), Match.orElse((_weft, fenced) => fenced))`.
+- **The cases read many values of the function they came from.** Hand those over as one record, the first argument, and a case takes from it what it reads: `const readingAt = Match.fn((_within: { readonly full: Path; readonly scope: Scope }, entry: { readonly opened: boolean; readonly closed: boolean; readonly kept: boolean }) => entry).pipe(Match.when({ opened: true }, (_entry, { full, scope }) => …), …)`, called as `readingAt({ full, scope }, { opened, closed, kept })`. A row of underscored arguments in every case is the sign that the record is wanted.
+- **The value is a `Data.TaggedEnum`.** Its own `$match` builds nothing, so it may stand anywhere, inside a function body too, and its cases close over whatever they like: `Place.$match(place, { Book: ({ book }) => bookSteps(Option.some(book)), … })`.
+
+Four things follow from building a matcher before any value exists.
+
+A pattern cannot read a value of the call. Where a case would test one, the selector works the facts out first and the patterns read the facts: `Match.fn((line: string, delims: AnchorDelims) => ({ blank: line.trim() === "", fixed: … })).pipe(Match.when({ blank: true }, () => "blank" as const), …)`.
+
+A matcher that calls itself states its own type, `const misfitsIn: (kind: string, issue: SchemaIssue.Issue, path: Path) => ReadonlyArray<Misfit> = Match.fn(…)`, because the compiler cannot infer a type from its own use. Any other matcher states what it returns with `Match.withReturnType<R>()` as its first step, which also types each case's result.
+
+`Match.tagsExhaustive` hands its cases no arguments beyond the matched value. A table that needs one, such as a Foldkit `update` that needs the model, gives a function of it from every case: `Match.type<Message>().pipe(Match.withReturnType<(model: Model) => Step>(), Match.tagsExhaustive({ Ticked: ({ delta }) => (model) => stepped(model, delta), … }))`, called as `stepFor(message)(model)`.
+
+A matcher over a record with nested patterns, such as `{ weft: { type: "FenceWeft" } }`, cannot be closed by `Match.exhaustive`. Match the union itself with `Match.fn` instead.
+
+A matcher whose every case names only a node's `type` is no matcher at all under the rule before this one. It is a table.
+
+*The fault and its fix.*
+- ✗ `const nextFenced = (fenced, weft) => Match.value(weft).pipe(Match.when({ type: "FenceWeft", side: "open" }, (open) => openingFence(open.source)), Match.orElse(() => fenced))`
+- ✓ `const nextFenced = Match.fn((_fenced: Option.Option<Fence>, weft: LoomWeft) => weft).pipe(Match.when({ type: "FenceWeft", side: "open" }, (open) => openingFence(open.source)), Match.orElse((_weft, fenced) => fenced))`
+
+> Is every matcher built once at module scope, with `Match.type` or `Match.fn`, or is the value a tagged enum read through its own `$match`? Is there a `Match.value` or a `Match.valueTags` anywhere? Does any matcher name only a node's `type` in every case?
 
 ## The second `?` wants a `Match`
 
 A single guard ternary is fine. `severity === "info" ? "ok" : severity` reads at a glance, and a flat guard clause at the top of a function body is fine too. The smell is one ternary nested inside another. `a ? x : b ? y : z` makes the reader track which branch they are in and where each `:` belongs, and it grows worse with every case added.
 
-When you reach for the second `?`, switch to `Match`. Match on the value with `Match.when` or `Match.tag`, and each case becomes one branch, read top to bottom, with exhaustiveness checked. The value you are branching on is usually already a tagged union, so the `Match` is a direct translation.
+When you reach for the second `?`, switch to a table or a `Match`. Each case becomes one branch, read top to bottom, with exhaustiveness checked. The value you are branching on is usually already a tagged union, so a table keyed by its tag is a direct translation, and a `Match` serves where a case reads more than the tag.
 
 *The fault and its fix.*
-- ✗ `probe.kind === "arrow" ? makeArrow() : probe.kind === "tilde" ? makeTilde() : makeDefault()`
-- ✓ `Match.value(probe).pipe(Match.when({ kind: "arrow" }, makeArrow), Match.when({ kind: "tilde" }, makeTilde), Match.orElse(makeDefault))`
+- ✗ `probe.type === "arrow" ? makeArrow() : probe.type === "tilde" ? makeTilde() : makeDefault()`
+- ✓ `byTypeOr<Probe>()({ arrow: makeArrow, tilde: makeTilde }, makeDefault)`, a table, since a probe is tagged by `type` and each case names only the tag
 
-> Any ternary nested inside another? A single guard is fine; the second `?` is the signal to switch to `Match`.
+> Any ternary nested inside another? A single guard is fine; the second `?` is the signal to switch to a table or a `Match`.
 
 ## Absence is an `Option`
 
-An absent value is an `Option<A>`, not an `A | undefined`. Lift a nullable to an `Option` at its source with `Option.fromNullishOr` — a `Map.get` result above all — then stay in `Option` with `Option.map`, `Option.flatMap`, `Option.match`, and `Option.getOrElse`. `LoomMemo.get` is the shape: `Option.match(Option.fromNullishOr(s.modules.get(path)), { onSome: (module) => …, onNone: () => … })`. To keep only the present members of a collection, map to `Option` and then `Array.getSomes`: `ProductBuilder` does `Array.getSomes(Array.map(block, pieceOf))`, where `pieceOf` returns an `Option<CodePiece>`. (In v4 `Array.filterMap` takes a `Result`-returning function, not an `Option`-returning one, so reach for `Array.map` then `Array.getSomes` when your step yields an `Option`.)
+An absent value is an `Option<A>`, not an `A | undefined`. Lift a nullable to an `Option` at its source with `Option.fromNullishOr` — a `Map.get` result above all — then stay in `Option` with `Option.map`, `Option.flatMap`, `Option.match`, and `Option.getOrElse`. `LoomMemo.get` is the shape: `Option.match(Option.fromNullishOr(s.modules.get(path)), { onSome: (module) => …, onNone: () => … })`. To keep only the present members of a collection, map to `Option` and then `Array.getSomes`: `ProductBuilder` does `Array.getSomes(block.map(pieceOf))`, where `pieceOf` returns an `Option<CodePiece>`. (In v4 `Array.filterMap` takes a `Result`-returning function, not an `Option`-returning one, so map and then reach for `Array.getSomes` when your step yields an `Option`.)
 
 The compound nullable ternary is the smell. `a !== undefined && b !== undefined ? f(a, b) : fallback` is `Option.all([Option.fromNullishOr(a), Option.fromNullishOr(b)]).pipe(Option.map(([a, b]) => f(a, b)), Option.getOrElse(() => fallback))`. A single flat guard clause in a function body is still fine; the compound `&&` over two nullables is the one to replace.
 
@@ -131,15 +200,39 @@ The compound nullable ternary is the smell. `a !== undefined && b !== undefined 
 
 ## No loop, no mutation
 
-There is no `for`, no `while`, no `let` accumulator. A transformation is a `pipe` of `Array.map`, `Array.filter`, `Array.getSomes`, and `Array.flatMap`; a fold is `Array.reduce`. These are Effect's `Array` module — its data-last, immutable combinators imported from `effect`, not the global `Array`. `LoomAstBuilder.build` is the shape: `Array.reduce(groupNodes(wefts), initialDocument, appendToDocument)` folds each grouped node into a growing document. Over a stream, the same shapes live on `Stream`.
+There is no `for`, no `while`, no `let` accumulator. A transformation is a chain of an array's own methods, `map`, `filter`, and `flatMap`, and a fold is its `reduce`. Where an array has no method for a step, Effect's `Array` module supplies one, such as `Array.getSomes`, `Array.dedupe`, or `Array.mapAccum`. The next rule says which to reach for. `LoomAstBuilder.build` is the shape: `groupNodes(wefts).reduce((doc, node) => appendToDocument(node, doc), initialDocument)` folds each grouped node into a growing document.
 
 Update without mutation. Extend a record by spreading it — `{ ...doc, sections: [...doc.sections, section] }` — and a map by copying it — `new Map(index).set(title, entry)`. The one `for` loop in the codebase, `lineOfOffset`, scans characters by code point for speed; it is a deliberate, isolated exception, and it is the only one.
 
 *The fault and its fix.*
 - ✗ `let out = []; for (const s of sections) { out.push(build(s)) } return out`
-- ✓ `pipe(sections, Array.map(build))`
+- ✓ `sections.map(build)`
 
-> Any `for`, `while`, or `let` accumulator that an `Array` combinator over `pipe` would express? Is each update a spread or a fresh `Map`, never a mutation in place?
+> Any `for`, `while`, or `let` accumulator that an array's method or an `Array` combinator would express? Is each update a spread or a fresh `Map`, never a mutation in place?
+
+## An array's own method, where it has one
+
+An array already knows how to map, filter, and fold itself. Where its own method does what a function of Effect's `Array` module does, call the method: `sections.map(build)`, `wefts.filter(isFence)`, `parts.flatMap(piecesOf)`, `healths.reduce(withHealth, okHealth)`, `names.some(isTaken)`, `lines.join("\n")`. Nine methods qualify: `map`, `filter`, `flatMap`, `reduce`, `some`, `every`, `join`, `forEach`, and `flat`, which does what `Array.flatten` does.
+
+Effect's function for each of the nine does the same work, behind a check of how it was called. Loom maps and filters small arrays for every token of every line, and those checks once took about 7% of a keystroke. The method is as pure as the function: neither changes the array it reads.
+
+A method hands its callback the item, the item's index, and the whole array. So a function passed by name takes the item alone, or names the further arguments on purpose.
+
+Effect's `Array` module keeps everything else. Three kinds of step remain its own.
+
+- **A step that gives an `Option`.** `Array.head`, `Array.last`, `Array.get`, `Array.findFirst`, and `Array.findFirstIndex` give an `Option`. The method `find` and an index give `undefined`, which the rule on absence forbids.
+- **A step no method does.** `Array.getSomes`, `Array.dedupe`, `Array.groupWith`, `Array.zip`, `Array.mapAccum`, `Array.partition`, `Array.range`, and `Array.fromIterable` have no method. `Array.sort`, `Array.sortWith`, and `Array.reverse` belong here too, because the methods `sort` and `reverse` change the array in place.
+- **A step whose type the method loses.** `Array.map` over an array that the type knows is not empty gives an array that is not empty either, and the method `map` forgets that. `Array.contains` compares by Effect's equality, where the method `includes` compares by identity.
+
+A `pipe` holds its first argument, so the steps that open a pipe are methods on that argument. A pipe whose every step is a method is no pipe at all: `pipe(wefts, Array.filter(isFence), Array.map(faultedFence))` is `wefts.filter(isFence).map(faultedFence)`. Where a step with no method follows, the methods before it move onto the first argument, `pipe(block.map(pieceOf), Array.getSomes, Array.dedupe)`, and a pipe left with one step is a plain call, `Array.getSomes(block.map(pieceOf))`.
+
+A step further along a pipe holds no array, only its place in the pipe. There the step is Effect's function of one argument: `pipe(declared.parts.filter(inBook), Array.sort(byPart), Array.map(toTocPart))`. The same holds wherever a function of an array is wanted and no array is at hand, as in `Effect.map(Array.flatten)`.
+
+*The fault and its fix.*
+- ✗ `Array.map(sections, build)`, or `pipe(wefts, Array.filter(isFence), Array.map(faultedFence))`
+- ✓ `sections.map(build)`, and `wefts.filter(isFence).map(faultedFence)`
+
+> Does an array's own method do the step? Then is it called on the array? Is Effect's `Array` kept for a step that gives an `Option`, a step no method does, a step whose type the method loses, and a step further along a pipe?
 
 ## A function's name is its return
 
@@ -172,13 +265,17 @@ Run every question over your diff, sentence by sentence and branch by branch, be
 - Does the program start from a runtime edge and stay one Effect until it? Is every `runSync`/`runPromise` at a true boundary, never mid-flow?
 - Is every component a `Context.Service` with an explicit `static readonly layer`? Did you reach for a `Context.Tag`, a plain object, or a stale `Effect.Service`/`.Default` because the service felt hard?
 - Is each dependency reached with `yield*` and wired through `Layer.provide` in the service's `.layer`? Is the graph assembled once at the entry point?
-- Is each structure a Schema model paired with an `XxxBuilder` service? Are nodes built through `.make`? Is the pass named for its model, not an agent verb?
+- Is each structure a Schema model paired with an `XxxBuilder` service? Is the pass named for its model, not an agent verb?
+- Is every node constructed with `nodeOf`, not through `.make` and not as a bare literal? Is a structure with no tag a literal in a typed position? Is a value decoded only at the edge, or where its fit is the question?
 - Could an illegal value even be constructed? Is untrusted input parsed once at the edge, not validated repeatedly downstream?
 - Is every failure a tagged value, raised with `Effect.fail` and recovered by tag? Did you `throw`, or read an error's string, instead?
-- Is union dispatch a single `Match` closed by `Match.exhaustive`, so a new case breaks the build rather than slipping through?
-- Any ternary nested inside another? The second `?` is the signal to switch to `Match`.
+- Is every dispatch on a union written once, in a table or a `Match` the compiler closes, so a new case breaks the build rather than slipping through?
+- Does every case name only a node's `type`? Then are the cases a table built with `byType` or `byTypeOr`, and is a value that is no union told apart by guard clauses?
+- Is every matcher built once at module scope, with `Match.type` or `Match.fn`, or is the value a tagged enum read through its own `$match`? Is there a `Match.value` or a `Match.valueTags` anywhere? Does any matcher name only a node's `type` in every case?
+- Any ternary nested inside another? The second `?` is the signal to switch to a table or a `Match`.
 - Is each absent value an `Option`, lifted at its source with `Option.fromNullishOr`? Any compound nullable ternary that `Option.all` and `Option.map` would express?
-- Any `for`, `while`, or `let` accumulator that an `Array` combinator would express? Is each update a spread or a fresh `Map`, not a mutation?
+- Any `for`, `while`, or `let` accumulator that an array's method or an `Array` combinator would express? Is each update a spread or a fresh `Map`, not a mutation?
+- Does an array's own method do the step? Then is it called on the array? Is Effect's `Array` kept for a step that gives an `Option`, a step no method does, a step whose type the method loses, and a step further along a pipe?
 - Does each function's name name its return? Is a recognizer one priority-ordered pass, first match winning?
 - Did you read a peer file first and match its idioms? Did you revise toward the shape rather than patch beside it? Did anything that worked before stop working?
 

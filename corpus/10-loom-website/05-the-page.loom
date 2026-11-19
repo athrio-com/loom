@@ -60,22 +60,22 @@ Every route is built. The landing runs the hero, the example, the vocabulary and
 
 =>
 
-const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
-  Match.value(model.route).pipe(
-    Match.when('home', () =>
-      marketingPage(
-        model,
-        [hero(model, h), example(model, h), vocabulary(), fromInitToEject(model, h)],
-        h,
-      ),
+const pageFor = Match.fn((model: Model, _h: HtmlBuilder<Message>) => model.route).pipe(
+  Match.withReturnType<Html>(),
+  Match.when('home', (_route, model, h) =>
+    marketingPage(
+      model,
+      [hero(model, h), example(model, h), vocabulary(), fromInitToEject(model, h)],
+      h,
     ),
-    Match.when('docs', () => woven(model, documentationPage(model, h), h)),
-    Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
-    Match.when('community', () => marketingPage(model, community(), h)),
-    Match.when('license', () => marketingPage(model, license(), h)),
-    Match.when('source', () => woven(model, sourcePage(model, h), h)),
-    Match.exhaustive,
-  )
+  ),
+  Match.when('docs', (_route, model, h) => woven(model, documentationPage(model, h), h)),
+  Match.when('why-loom', (_route, model, h) => marketingPage(model, whyLoom(), h)),
+  Match.when('community', (_route, model, h) => marketingPage(model, community(), h)),
+  Match.when('license', (_route, model, h) => marketingPage(model, license(), h)),
+  Match.when('source', (_route, model, h) => woven(model, sourcePage(model, h), h)),
+  Match.exhaustive,
+)
 
 ## What the tab says
 
@@ -83,16 +83,15 @@ A document needs a title, and the title should say which page it is rather than 
 
 =>
 
-const titleOf = (route: Route): string =>
-  Match.value(route).pipe(
-    Match.when('home', () => 'Loom — literate programming framework'),
-    Match.when('docs', () => 'Docs — Loom'),
-    Match.when('why-loom', () => 'Why Loom'),
-    Match.when('community', () => 'Community — Loom'),
-    Match.when('source', () => 'Source — Loom'),
-    Match.when('license', () => 'License — Loom'),
-    Match.exhaustive,
-  )
+const titleOf: (route: Route) => string = Match.type<Route>().pipe(
+  Match.when('home', () => 'Loom — literate programming framework'),
+  Match.when('docs', () => 'Docs — Loom'),
+  Match.when('why-loom', () => 'Why Loom'),
+  Match.when('community', () => 'Community — Loom'),
+  Match.when('source', () => 'Source — Loom'),
+  Match.when('license', () => 'License — Loom'),
+  Match.exhaustive,
+)
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: titleOf(model.route),

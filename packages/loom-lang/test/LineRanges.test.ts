@@ -1,12 +1,12 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
-import { Effect, Stream } from 'effect'
+import { Effect } from 'effect'
 import { LoomSourceRanges, MixedEOL, type LineRange } from '#ast/LineRanges'
 
 // =============================================================================
-// collect — helper that resolves the LoomSourceRanges service, opens a stream
-// over `text`, drains it, and returns the ranges as a plain readonly array.
+// collect — helper that resolves the LoomSourceRanges service and returns the
+// ranges of `text` as a plain readonly array.
 // Every test funnels through this so the Effect plumbing is written once and
 // the assertions stay focused on the range data.
 // =============================================================================
@@ -14,18 +14,16 @@ import { LoomSourceRanges, MixedEOL, type LineRange } from '#ast/LineRanges'
 const collect = (text: string) =>
   Effect.gen(function* () {
     const ss = yield* LoomSourceRanges
-    const stream = yield* ss.stream(text)
-    const chunk = yield* Stream.runCollect(stream)
-    return chunk
+    return yield* ss.rangesOf(text)
   })
 
 // =============================================================================
 // Range correctness — table-driven checks against precomputed offsets.
 //
-// These pin down the exact half-open [start, end) ranges the unfold emits for
+// These pin down the exact half-open [start, end) ranges the pass gives for
 // every EOL convention and every edge case (empty input, single line, trailing
-// terminator, consecutive blank lines, terminator-only). If anyone changes the
-// unfold's seed or the regex match handling, these fire immediately with the
+// terminator, consecutive blank lines, terminator-only). If anyone changes how
+// the terminators are matched, these fire immediately with the
 // offending offsets — much easier to debug than the structural invariants
 // further down.
 // =============================================================================
@@ -279,69 +277,4 @@ describe('StreamLineRanges — structural invariants', () => {
         }).pipe(Effect.provide(LoomSourceRanges.layer)),
     )
   }
-})
-
-// =============================================================================
-// Streaming behavior — proofs that the returned value is actually a Stream,
-// not an Array dressed up in an Effect.
-//
-//   laziness       — `Stream.take(2)` must not pull every range from the
-//                    underlying unfold. We count pulls via `Stream.tap` and
-//                    assert the counter stays bounded. If someone replaces the
-//                    unfold with an eager array, this fails loudly.
-//
-//   replayability  — the unfold closes over a RegExp with mutable `lastIndex`.
-//                    Running the same Stream value twice must yield identical
-//                    output; this is the regression test against accidental
-//                    state leakage between runs.
-//
-//   composability  — confirms operators like `Stream.map` chain through
-//                    without first collecting. If `stream()` ever regresses to
-//                    returning an array, the call sites break here.
-// =============================================================================
-
-describe('StreamLineRanges — streaming behavior', () => {
-  it.effect('laziness: Stream.take(n) does not pull the whole source', () =>
-    Effect.gen(function* () {
-      const ss = yield* LoomSourceRanges
-      const stream = yield* ss.stream('a\nb\nc\nd\ne')
-      let pulls = 0
-      yield* stream.pipe(
-        Stream.tap(() =>
-          Effect.sync(() => {
-            pulls++
-          }),
-        ),
-        Stream.take(2),
-        Stream.runDrain,
-      )
-      // 5 ranges total ([0,2],[2,4],[4,6],[6,8],[8,9]); take(2) must not pull
-      // all of them. We allow up to one over-pull to accommodate chunking.
-      expect(pulls).toBeLessThanOrEqual(3)
-    }).pipe(Effect.provide(LoomSourceRanges.layer)),
-  )
-
-  it.effect(
-    'replayability: running the same Stream twice yields identical ranges',
-    () =>
-      Effect.gen(function* () {
-        const ss = yield* LoomSourceRanges
-        const stream = yield* ss.stream('line1\nline2\nline3')
-        const a = yield* Stream.runCollect(stream)
-        const b = yield* Stream.runCollect(stream)
-        expect(a).toEqual(b)
-      }).pipe(Effect.provide(LoomSourceRanges.layer)),
-  )
-
-  it.effect('composability: operators chain through the Stream', () =>
-    Effect.gen(function* () {
-      const ss = yield* LoomSourceRanges
-      const stream = yield* ss.stream('a\nbb\nccc')
-      const lengths = yield* stream.pipe(
-        Stream.map(([s, e]: LineRange) => e - s),
-        Stream.runCollect,
-      )
-      expect(lengths).toEqual([2, 3, 3])
-    }).pipe(Effect.provide(LoomSourceRanges.layer)),
-  )
 })

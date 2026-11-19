@@ -27,16 +27,24 @@ const embedIndex = Effect.gen(function* () {
   const kept = keptFor(yield* readStore(fs), revision)
   const index = yield* indexOf(yield* readBook(fs), bodyOf)
   const keyed = pipe(
-    Array.map(index, (entry) => ({ entry, key: keyOf(entry) })),
+    index.map((entry) => ({ entry, key: keyOf(entry) })),
     Array.dedupeWith((one, other) => one.key === other.key),
   )
-  const missing = Array.filter(keyed, ({ key }) => !(key in kept.vectors))
-  const vectors = yield* embedAll(embeddings, Array.map(missing, ({ entry }) => passageOf(entry)))
-  const made = Object.fromEntries(Array.zip(Array.map(missing, ({ key }) => key), Array.map(vectors, encodeVector)))
+  const missing = keyed.filter(({ key }) => !(key in kept.vectors))
+  const vectors = yield* embedAll(
+    embeddings,
+    missing.map(({ entry }) => passageOf(entry)),
+  )
+  const made = Object.fromEntries(
+    Array.zip(
+      missing.map(({ key }) => key),
+      vectors.map(encodeVector),
+    ),
+  )
   const all = { ...kept.vectors, ...made }
   const store: Store = {
     revision,
-    vectors: Object.fromEntries(Array.map(keyed, ({ key }) => [key, all[key] ?? ''] as const)),
+    vectors: Object.fromEntries(keyed.map(({ key }) => [key, all[key] ?? ''] as const)),
   }
   yield* fs.makeDirectory(dirname(storePath), { recursive: true })
   yield* fs.writeFileString(storePath, JSON.stringify(store))

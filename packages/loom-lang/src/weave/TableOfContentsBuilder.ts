@@ -59,23 +59,22 @@ export const TableOfContentsSchema = Schema.Struct({
 export type TableOfContents = typeof TableOfContentsSchema.Type
 
 export const buildContents = (corpus: LoomCorpusAst, root?: Location): TableOfContents => {
-  const modules = Array.filter(
-    Array.fromIterable(corpus.modules.values()),
+  const modules = Array.fromIterable(corpus.modules.values()).filter(
     (module) => module.path !== root,
   )
   const declared: Declared = {
     modules,
-    parts: dedupeParts(Array.getSomes(Array.map(modules, partDeclOf))),
-    chapters: Array.getSomes(Array.map(modules, chapterDeclOf)),
-    backLooms: Array.getSomes(Array.map(modules, backLoomOf)),
+    parts: dedupeParts(Array.getSomes(modules.map(partDeclOf))),
+    chapters: Array.getSomes(modules.map(chapterDeclOf)),
+    backLooms: Array.getSomes(modules.map(backLoomOf)),
   }
   const defaultBook = contentsOf(declared, '')
-  return TableOfContentsSchema.make({
+  return {
     books: [
       ...(holdsAnything(defaultBook) ? [defaultBook] : []),
-      ...Array.map(bookNamesIn(modules), (name) => contentsOf(declared, name)),
+      ...bookNamesIn(modules).map((name) => contentsOf(declared, name)),
     ],
-  })
+  }
 }
 
 type Declared = {
@@ -86,7 +85,7 @@ type Declared = {
 }
 
 const contentsOf = (declared: Declared, book: string): TocBook =>
-  TocBookSchema.make({
+  ({
     name: book,
     path: Option.getOrElse(
       Option.map(
@@ -99,10 +98,10 @@ const contentsOf = (declared: Declared, book: string): TocBook =>
       () => '',
     ),
     parts: pipe(
-      Array.filter(declared.parts, (decl) => decl.book === book),
+      declared.parts.filter((decl) => decl.book === book),
       Array.sort(byPart),
-      Array.map((decl) =>
-        TocPartSchema.make({
+      Array.map((decl): TocPart =>
+        ({
           number: decl.number,
           name: decl.name,
           chapters: chaptersUnder(declared.chapters, decl),
@@ -110,26 +109,22 @@ const contentsOf = (declared: Declared, book: string): TocBook =>
       ),
     ),
     orphans: pipe(
-      Array.filter(
-        declared.chapters,
-        (chapter) => chapter.book === book && chapter.partId === undefined,
-      ),
+      declared.chapters.filter((chapter) => chapter.book === book && chapter.partId === undefined),
       Array.sort(byKind),
       Array.map(toTocChapter),
     ),
-    backMatter: TocBackMatterSchema.make({
+    backMatter: {
       looms: pipe(
-        Array.filter(declared.backLooms, (loom) => loom.book === book),
+        declared.backLooms.filter((loom) => loom.book === book),
         Array.sort(byBackLoom),
         Array.map(toTocBackLoom),
       ),
-    }),
+    },
   })
 
 const bookNamesIn = (modules: ReadonlyArray<LoomModule>): ReadonlyArray<string> =>
   pipe(
-    Array.map(modules, bookNameOf),
-    Array.filter((name) => name !== ''),
+    modules.map(bookNameOf).filter((name) => name !== ''),
     Array.dedupe,
     Array.sort(Order.String),
   )
@@ -196,7 +191,7 @@ const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
 }
 
 const toTocChapter = (chapter: Chapter): TocChapter =>
-  TocChapterSchema.make({
+  ({
     number: chapter.number,
     title: chapter.title,
     status: chapter.status,
@@ -217,12 +212,13 @@ const romanUnits: Record<string, number> = {
 }
 
 const romanValue = (roman: string): number => {
-  const units = Array.map(roman.toUpperCase().split(''), (letter) => romanUnits[letter] ?? 0)
-  return pipe(
-    units,
-    Array.map((unit, index) => (unit < (units[index + 1] ?? 0) ? -unit : unit)),
-    Array.reduce(0, (sum, unit) => sum + unit),
-  )
+  const units = roman
+    .toUpperCase()
+    .split('')
+    .map((letter) => romanUnits[letter] ?? 0)
+  return units
+    .map((unit, index) => (unit < (units[index + 1] ?? 0) ? -unit : unit))
+    .reduce((sum, unit) => sum + unit, 0)
 }
 
 const identityOf = (part: PartDecl): string => (part.number === '' ? part.name : part.number)
@@ -231,8 +227,9 @@ const samePart = (part: PartDecl, other: PartDecl): boolean =>
   part.book === other.book && identityOf(part) === identityOf(other)
 
 const dedupeParts = (decls: ReadonlyArray<PartDecl>): ReadonlyArray<PartDecl> =>
-  Array.reduce(decls, [] as ReadonlyArray<PartDecl>, (kept, decl) =>
-    Array.some(kept, (seen) => samePart(seen, decl)) ? kept : [...kept, decl],
+  decls.reduce(
+    (kept, decl) => (kept.some((seen) => samePart(seen, decl)) ? kept : [...kept, decl]),
+    [] as ReadonlyArray<PartDecl>,
   )
 
 const byPart: Order.Order<PartDecl> = Order.combineAll([
@@ -263,10 +260,7 @@ const chaptersUnder = (
   part: PartDecl,
 ): ReadonlyArray<TocChapter> =>
   pipe(
-    Array.filter(
-      chapters,
-      (chapter) => chapter.book === part.book && chapter.partId === identityOf(part),
-    ),
+    chapters.filter((chapter) => chapter.book === part.book && chapter.partId === identityOf(part)),
     Array.sort(byKind),
     Array.map(toTocChapter),
   )
@@ -314,7 +308,7 @@ const byBackLoom: Order.Order<BackLoom> = Order.combineAll([
 const placeOf = (part: PartDecl): string => (part.number === '' ? part.name : `Part ${part.number}`)
 
 const toTocBackLoom = (loom: BackLoom): TocBackLoom =>
-  TocBackLoomSchema.make({
+  ({
     kind: loom.kind,
     place: placeOf(loom.part),
     number: loom.number,

@@ -25,7 +25,7 @@ export const pageHead = (id: string, title: string, lead: string): Html =>
         [ih.Class('page-head-grid')],
         [
           ih.p([ih.Class('prose page-lead')], [lead]),
-          ih.div([ih.Class('page-places')], Array.map(places, placeCard)),
+          ih.div([ih.Class('page-places')], places.map(placeCard)),
         ],
       ),
     ],
@@ -103,11 +103,10 @@ export const pixels = (carpet: Carpet, className: string): Html =>
 
 ## What this module draws on
 
-Effect lends `Array` to map the cards. Foldkit lends the inert builder and the `Html` type. The components lend the carpet machinery and the Loom mark.
+Foldkit lends the inert builder and the `Html` type. The components lend the carpet machinery and the Loom mark.
 
 =>
 
-import { Array } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
 import { type Carpet, carpetStyle, fineSeam, loomMark } from './components'
 

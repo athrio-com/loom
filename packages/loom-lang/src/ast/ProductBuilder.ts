@@ -1,4 +1,5 @@
 import { Array, Context, Data, Effect, Layer, Match, Option, Order, pipe, Record, Result } from 'effect'
+import { memoize } from 'effect/Function'
 import type {
   LoomDocument,
   LoomFrontmatter,
@@ -6,14 +7,18 @@ import type {
   LoomSection,
 } from '@athrio/loom-ast/LoomAst'
 import {
+  nodeOf,
   okHealth,
   type Diagnostic,
   type Health,
   type Point,
   type Position,
+  byType,
+  byTypeOr,
 } from '@athrio/loom-ast/LoomNode'
 import {
   type Catalogue,
+  catalogueOf,
   conceptsCalled,
   type Location,
   type LoomModule,
@@ -57,7 +62,6 @@ import {
   NameRefSchema,
   type Part,
   type Product,
-  ProductSchema,
   type Provided,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
@@ -118,13 +122,11 @@ export const buildProduct = (
   const lang = documentLanguage(doc, packageLanguage)
   const index = nameIndex(doc.sections, lang, pkg)
   const first = firstHolders(doc.sections)
-  return pipe(
-    doc.sections,
-    Array.map(
+  return doc.sections
+    .map(
       buildSection(index, first, lang, modulePath, pkg, variables, isDiscussion(doc), isTrope(doc)),
-    ),
-    Array.reduce(emptyProduct, appendSection),
-  )
+    )
+    .reduce(appendSection, emptyProduct)
 }
 
 const documentPackage = (doc: LoomDocument): Option.Option<string> =>
@@ -141,13 +143,12 @@ const documentLanguage = (doc: LoomDocument, packageLanguage?: string): string =
     Option.getOrElse(() => 'plaintext'),
   )
 
-const emptyProduct: Product = ProductSchema.make({ code: [], files: [] })
+const emptyProduct: Product = { code: [], files: [] }
 
-const appendSection = (product: Product, built: Built): Product =>
-  ProductSchema.make({
-    code: [...product.code, built.code],
-    files: [...product.files, ...Option.toArray(built.file)],
-  })
+const appendSection = (product: Product, built: Built): Product => ({
+  code: [...product.code, built.code],
+  files: [...product.files, ...Option.toArray(built.file)],
+})
 
 type NameEntry = {
   readonly name: string
@@ -158,24 +159,26 @@ type NameEntry = {
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const kindLanguage = (
-  kind: string,
-  sink: Option.Option<SinkToken>,
-  defaultLang: string,
-  pkg: Option.Option<string>,
-): Option.Option<string> =>
-  Match.value(kind).pipe(
-    Match.when(tangleKind, () =>
-      Option.some(
-        Option.match(pkg, {
-          onNone: () => defaultLang,
-          onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
-        }),
-      ),
+const kindLanguage = Match.fn(
+  (
+    kind: string,
+    _sink: Option.Option<SinkToken>,
+    _defaultLang: string,
+    _pkg: Option.Option<string>,
+  ) => kind,
+).pipe(
+  Match.withReturnType<Option.Option<string>>(),
+  Match.when(tangleKind, (_matched, _kind, sink, defaultLang, pkg) =>
+    Option.some(
+      Option.match(pkg, {
+        onNone: () => defaultLang,
+        onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+      }),
     ),
-    Match.when(manifestKind, () => Option.some('json')),
-    Match.orElse(() => Option.none()),
-  )
+  ),
+  Match.when(manifestKind, () => Option.some('json')),
+  Match.orElse(() => Option.none()),
+)
 
 const unmarkedLanguage = (sink: Option.Option<SinkToken>, defaultLang: string): string =>
   Option.match(sink, {
@@ -207,8 +210,7 @@ const nameIndex = (
   pkg: Option.Option<string>,
 ): NameIndex =>
   pipe(
-    sections,
-    Array.map((s) =>
+    sections.map((s) =>
       Option.map(
         Option.fromNullishOr(s.heading.title),
         (title) =>
@@ -285,11 +287,10 @@ const interpolate = (
   text: text.replace(variablePattern, (whole, name: string) =>
     name in variables ? variables[name]! : whole,
   ),
-  missing: pipe(
-    Array.fromIterable(text.matchAll(variablePattern)),
-    Array.map((match) => match[1]!),
-    Array.filter((name) => !(name in variables)),
-    Array.head,
+  missing: Array.head(
+    Array.fromIterable(text.matchAll(variablePattern))
+      .map((match) => match[1]!)
+      .filter((name) => !(name in variables)),
   ),
 })
 
@@ -299,7 +300,7 @@ const valueWarps = (
 ): ReadonlyMap<string, ValueWarp> =>
   new Map(
     Array.getSomes(
-      Array.map(warps, (w) =>
+      warps.map((w) =>
         Option.map(Option.fromNullishOr(w.default), (def) => {
           const { text, missing } = interpolate(decodeLiteral(def.value), variables)
           return [
@@ -341,18 +342,14 @@ const buildSection =
     )
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
-    const health = Array.reduce(
-      [
-        duplicateHealth(first, section),
-        labelHealth(section, languageId),
-        fileHealth(section, pkg, discussion),
-        trope ? okHealth : manifestOutsideTrope(section),
-        codeInProse(section, languageId),
-        codeInCodeless(section),
-      ],
-      okHealth,
-      withHealth,
-    )
+    const health = [
+      duplicateHealth(first, section),
+      labelHealth(section, languageId),
+      fileHealth(section, pkg, discussion),
+      trope ? okHealth : manifestOutsideTrope(section),
+      codeInProse(section, languageId),
+      codeInCodeless(section),
+    ].reduce(withHealth, okHealth)
     const code = buildCode(section, values, index, origin, languageId, health)
     const file =
       discussion || writesNoFile(section) ? Option.none<File>() : tangleFile(section, pkg, code)
@@ -385,6 +382,21 @@ const isTangle = (section: LoomSection): boolean => section.kind === tangleKind
 const tangleMark = (section: LoomSection): Option.Option<ParametersToken> =>
   Option.filter(Option.fromNullishOr(section.heading.specifier), () => isTangle(section))
 
+const markedPath = Match.fn(
+  (
+    _within: {
+      readonly pkg: Option.Option<string>
+      readonly sink: Option.Option<SinkToken>
+    },
+    marks: { readonly tangle: boolean; readonly sunk: boolean },
+  ) => marks,
+).pipe(
+  Match.withReturnType<Option.Option<string>>(),
+  Match.when({ tangle: true, sunk: true }, (_marks, { pkg, sink }) => filePath(pkg, sink)),
+  Match.when({ tangle: true }, (_marks, { pkg }) => singleFile(pkg)),
+  Match.orElse(() => Option.none<string>()),
+)
+
 const tangleFile = (
   section: LoomSection,
   pkg: Option.Option<string>,
@@ -394,13 +406,9 @@ const tangleFile = (
   const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
     onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
     onSome: () =>
-      Match.value({ tangle: isTangle(section), sunk: Option.isSome(sink) }).pipe(
-        Match.when({ tangle: true, sunk: true }, () => filePath(pkg, sink)),
-        Match.when({ tangle: true }, () => singleFile(pkg)),
-        Match.orElse(() => Option.none<string>()),
-      ),
+      markedPath({ pkg, sink }, { tangle: isTangle(section), sunk: Option.isSome(sink) }),
   })
-  return Option.map(target, (path) => FileSchema.make({ path, code }))
+  return Option.map(target, (path) => nodeOf(FileSchema, { path, code, health: okHealth }))
 }
 
 const tangleHealth = (section: LoomSection, pkg: Option.Option<string>): Health =>
@@ -441,16 +449,18 @@ const fileWhereNone = (section: LoomSection, fault: LoomFault): Health =>
 const fileInDiscussion = (section: LoomSection): Health =>
   fileWhereNone(section, FileInDiscussion())
 
-const fileHealth = (
-  section: LoomSection,
-  pkg: Option.Option<string>,
-  discussion: boolean,
-): Health =>
-  Match.value({ discussion, codeless: writesNoFile(section) }).pipe(
-    Match.when({ discussion: true }, () => fileInDiscussion(section)),
-    Match.when({ codeless: true }, () => fileInCodeless(section)),
-    Match.orElse(() => tangleHealth(section, pkg)),
-  )
+const fileHealth = Match.fn(
+  (
+    section: LoomSection,
+    _pkg: Option.Option<string>,
+    discussion: boolean,
+  ) => ({ discussion, codeless: writesNoFile(section) }),
+).pipe(
+  Match.withReturnType<Health>(),
+  Match.when({ discussion: true }, (_facts, section) => fileInDiscussion(section)),
+  Match.when({ codeless: true }, (_facts, section) => fileInCodeless(section)),
+  Match.orElse((_facts, section, pkg) => tangleHealth(section, pkg)),
+)
 
 const removalOf = (specifier: ParametersToken, sink: SinkToken): Position =>
   Option.getOrElse(kindParameterSpan(specifier), () =>
@@ -500,13 +510,12 @@ const codeInCodeless = (section: LoomSection): Health =>
   Option.match(codelessKind(section), {
     onNone: () => okHealth,
     onSome: (codeless) =>
-      pipe(
-        Array.filter(section.code, isArrow),
-        Array.map((weft) =>
+      section.code
+        .filter(isArrow)
+        .map((weft) =>
           faulty(isConcept(codeless) ? CodeInConcept() : CodeInKind(codeless), weft.arrow.position),
-        ),
-        Array.reduce(okHealth, withHealth),
-      ),
+        )
+        .reduce(withHealth, okHealth),
   })
 
 const writesNoFile = (section: LoomSection): boolean =>
@@ -520,11 +529,10 @@ const fileInCodeless = (section: LoomSection): Health =>
 
 const codeInProse = (section: LoomSection, languageId: string): Health =>
   languageId === 'prose'
-    ? pipe(
-        Array.filter(section.code, isArrow),
-        Array.map((weft) => faulty(CodeInProse(), weft.arrow.position)),
-        Array.reduce(okHealth, withHealth),
-      )
+    ? section.code
+        .filter(isArrow)
+        .map((weft) => faulty(CodeInProse(), weft.arrow.position))
+        .reduce(withHealth, okHealth)
     : okHealth
 
 const buildCode = (
@@ -536,8 +544,8 @@ const buildCode = (
   health: Health,
 ): Code => {
   const bind = bindAnchor(index, values, languageId, origin.path)
-  const fragments = pipe(codeRuns(section.code), Array.flatMap(walkRun(bind)))
-  return CodeSchema.make({ origin, languageId, fragments, health })
+  const fragments = codeRuns(section.code).flatMap(walkRun(bind))
+  return nodeOf(CodeSchema, { origin, languageId, fragments, health })
 }
 
 interface CodePiece {
@@ -546,20 +554,22 @@ interface CodePiece {
   readonly anchors: ReadonlyArray<WarpAnchorToken>
 }
 
-const pieceOf = (w: SectionBodyWeft): Option.Option<CodePiece> =>
-  pipe(
-    Match.value(w),
-    Match.when({ type: 'CodeWeft' }, (c) =>
-      Option.some({ source: c.source, position: c.position, anchors: c.anchors }),
-    ),
-    Match.when({ type: 'ArrowWeft' }, (a) =>
-      Option.map(Option.fromNullishOr(a.code), (code) => ({
-        source: a.source.slice(code.position.start.offset - a.position.start.offset),
-        position: between(code.position.start, a.position.end),
-        anchors: a.anchors,
-      })),
-    ),
-    Match.orElse(() => Option.none<CodePiece>()),
+const pieceOf: (weft: SectionBodyWeft) => Option.Option<CodePiece> =
+  byTypeOr<SectionBodyWeft>()(
+    {
+      CodeWeft: (c) =>
+        Option.some<CodePiece>({ source: c.source, position: c.position, anchors: c.anchors }),
+      ArrowWeft: (a) =>
+        Option.map(
+          Option.fromNullishOr(a.code),
+          (code): CodePiece => ({
+            source: a.source.slice(code.position.start.offset - a.position.start.offset),
+            position: between(code.position.start, a.position.end),
+            anchors: a.anchors,
+          }),
+        ),
+    },
+    () => Option.none<CodePiece>(),
   )
 
 const isBlank = (p: CodePiece): boolean => p.source.trim().length === 0
@@ -585,15 +595,15 @@ const seamTrailing = (run: ReadonlyArray<CodePiece>): ReadonlyArray<CodePiece> =
 const sealRuns = (
   runs: ReadonlyArray<ReadonlyArray<CodePiece>>,
 ): ReadonlyArray<ReadonlyArray<CodePiece>> =>
-  Array.map(runs, (run, i) => (i === runs.length - 1 ? trimBlank(run) : seamTrailing(run)))
+  runs.map((run, i) => (i === runs.length - 1 ? trimBlank(run) : seamTrailing(run)))
 
 const codeRuns = (code: ReadonlyArray<SectionBodyWeft>): ReadonlyArray<ReadonlyArray<CodePiece>> =>
   Array.isReadonlyArrayNonEmpty(code)
     ? pipe(
         code,
         Array.groupWith((a, _b) => a.type !== 'ArrowWeft'),
-        Array.map((block) => Array.getSomes(Array.map(block, pieceOf))),
-        Array.filter((run) => Array.some(run, (p) => !isBlank(p))),
+        Array.map((block) => Array.getSomes(block.map(pieceOf))),
+        Array.filter((run) => run.some((p) => !isBlank(p))),
         sealRuns,
       )
     : []
@@ -607,12 +617,13 @@ const walkRun =
       text.slice(from.offset - start.offset, to.offset - start.offset)
     const fragment = (from: Point, to: Point): ReadonlyArray<Fragment> => {
       const lit = slice(from, to)
-      return lit.length === 0 ? [] : [FragmentSchema.make({ text: lit, origin: between(from, to) })]
+      return lit.length === 0
+        ? []
+        : [nodeOf(FragmentSchema, { text: lit, origin: between(from, to), health: okHealth })]
     }
-    const anchors = pipe(
-      pieces,
-      Array.flatMap((p) => p.anchors),
-      Array.sort(byStart),
+    const anchors = Array.sort(
+      pieces.flatMap((p) => p.anchors),
+      byStart,
     )
     const opensAt = (i: number): Point =>
       pipe(
@@ -620,7 +631,7 @@ const walkRun =
         Option.match({ onNone: () => start, onSome: (a) => a.position.end }),
       )
     return [
-      ...Array.flatMap(anchors, (anchor, i) => [
+      ...anchors.flatMap((anchor, i) => [
         ...fragment(opensAt(i), anchor.position.start),
         bind(anchor),
       ]),
@@ -652,14 +663,14 @@ const bindAnchor =
     const label = settleKindOf(anchor)
     const provides = providesOf(anchor)
     if (value !== undefined) {
-      return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
+      return nodeOf(FragmentSchema, { text: value.text, origin: at, health: value.health })
     }
     if (namesModule) return moduleRefOf(index, modulePath, anchor, label, provides)
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => openRef(name, at, label, provides),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
-          ? NameRefSchema.make({
+          ? nodeOf(NameRefSchema, {
               name,
               target: Option.some<SectionId>({
                 path: modulePath,
@@ -683,7 +694,7 @@ const moduleRefOf = (
 ): Part => {
   const name = anchor.name.value
   const refTo = (target: Option.Option<SectionId>): ModuleRef =>
-    ModuleRefSchema.make({
+    nodeOf(ModuleRefSchema, {
       name,
       target,
       file: Option.map(Option.fromNullishOr(anchor.target), (written) => ({
@@ -694,6 +705,7 @@ const moduleRefOf = (
       slot: between(anchor.close.position.end, anchor.close.position.end),
       toBeSettled: label,
       provides,
+      health: okHealth,
     })
   return Array.matchLeft(index.get(name) ?? [], {
     onEmpty: () => refTo(Option.none()),
@@ -714,38 +726,38 @@ const isKind =
 
 const isSettleKind = isKind(settleKind)
 
-const isModuleAnchor = (anchor: WarpAnchorToken): boolean =>
-  Match.value(anchor.specifier).pipe(
-    Match.when({ type: 'Specifier' }, (specifier) => isKind(moduleKind)(specifier.label.value)),
-    Match.when({ type: 'Parameters' }, (specifier) =>
-      Array.some(
-        specifier.parameters,
-        (parameter) =>
-          parameter.key.value === 'kind' &&
-          Array.some(parameter.values, (kind) => isKind(moduleKind)(kind.value)),
-      ),
+type Braces = NonNullable<WarpAnchorToken['specifier']>
+
+const namesModuleKind = byType<Braces>()<boolean>({
+  Specifier: (specifier) => isKind(moduleKind)(specifier.label.value),
+  Parameters: (specifier) =>
+    specifier.parameters.some(
+      (parameter) =>
+        parameter.key.value === 'kind' &&
+        parameter.values.some((kind) => isKind(moduleKind)(kind.value)),
     ),
-    Match.orElse(() => false),
-  )
+})
+
+const isModuleAnchor = (anchor: WarpAnchorToken): boolean =>
+  Option.exists(Option.fromNullishOr(anchor.specifier), namesModuleKind)
+
+const settleKindIn = byType<Braces>()<Option.Option<Position>>({
+  Specifier: (specifier) =>
+    Option.filter(Option.some(specifier.position), () => isSettleKind(specifier.label.value)),
+  Parameters: (specifier) =>
+    Option.map(
+      Array.findFirstWithIndex(specifier.parameters, isSettleParameter),
+      ([own, index]) => parameterSpanOf(specifier, own, index),
+    ),
+})
 
 const settleKindOf = (anchor: WarpAnchorToken): Option.Option<Position> =>
-  Match.value(anchor.specifier).pipe(
-    Match.when({ type: 'Specifier' }, (specifier) =>
-      Option.filter(Option.some(specifier.position), () => isSettleKind(specifier.label.value)),
-    ),
-    Match.when({ type: 'Parameters' }, (specifier) =>
-      Option.map(
-        Array.findFirstWithIndex(specifier.parameters, isSettleParameter),
-        ([own, index]) => parameterSpanOf(specifier, own, index),
-      ),
-    ),
-    Match.orElse(() => Option.none<Position>()),
-  )
+  Option.flatMap(Option.fromNullishOr(anchor.specifier), settleKindIn)
 
 const isSettleParameter = (parameter: ParameterToken): boolean =>
   parameter.key.value === 'kind' &&
   parameter.values.length === 1 &&
-  Array.some(parameter.values, (value) => isSettleKind(value.value))
+  parameter.values.some((value) => isSettleKind(value.value))
 
 const parameterSpanOf = (
   specifier: ParametersToken,
@@ -765,31 +777,37 @@ const parameterSpanOf = (
 
 const providesOf = (anchor: WarpAnchorToken): ReadonlyArray<Provided> =>
   anchor.specifier?.type === 'Parameters'
-    ? pipe(
-        anchor.specifier.parameters,
-        Array.filter((parameter) => parameter.key.value === 'provides'),
-        Array.flatMap((parameter) => parameter.values),
-        Array.map((value): Provided => ({ name: value.value, at: value.position })),
-      )
+    ? anchor.specifier.parameters
+        .filter((parameter) => parameter.key.value === 'provides')
+        .flatMap((parameter) => parameter.values)
+        .map((value): Provided => ({ name: value.value, at: value.position }))
     : []
 
-const localHealth = (
-  entry: NameEntry,
-  name: string,
-  at: Position,
-  host: string,
-  label: Option.Option<Position>,
-): Health =>
-  Match.value({
+const localHealth = Match.fn(
+  (
+    entry: NameEntry,
+    _name: string,
+    _at: Position,
+    host: string,
+    _label: Option.Option<Position>,
+  ) => ({
     codeless: Option.isSome(entry.codeless),
     written: entry.written,
     sameLanguage: entry.language === host,
-  }).pipe(
-    Match.when({ codeless: true }, () => faulty(withoutCode(name, entry.codeless), at)),
-    Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
-    Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, entry.language)),
-    Match.orElse(() => settledHealth(name, at, label)),
-  )
+  }),
+).pipe(
+  Match.withReturnType<Health>(),
+  Match.when({ codeless: true }, (_facts, entry, name, at) =>
+    faulty(withoutCode(name, entry.codeless), at),
+  ),
+  Match.when({ written: false }, (_facts, _entry, name, at) =>
+    faulty(UnsettledSection({ name, declared: true }), at),
+  ),
+  Match.when({ sameLanguage: false }, (_facts, entry, name, at, host) =>
+    crossLanguage(name, at, host, entry.language),
+  ),
+  Match.orElse((_facts, _entry, name, at, _host, label) => settledHealth(name, at, label)),
+)
 
 const settledHealth = (name: string, at: Position, label: Option.Option<Position>): Health =>
   Option.match(label, {
@@ -803,16 +821,17 @@ const openRef = (
   label: Option.Option<Position>,
   provides: ReadonlyArray<Provided>,
 ): NameRef =>
-  NameRefSchema.make({
+  nodeOf(NameRefSchema, {
     name: title,
     target: Option.none(),
     anchor: at,
     toBeSettled: label,
     provides,
+    health: okHealth,
   })
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
-  FragmentSchema.make({ text: '', origin: at, health })
+  nodeOf(FragmentSchema, { text: '', origin: at, health })
 
 const unresolved = (name: string, at: Position): Health => faulty(UnresolvedAnchor({ name }), at)
 
@@ -829,29 +848,38 @@ const crossLanguage = (name: string, at: Position, host: string, found: string):
 const stray = (target: WarpAnchorTargetToken): Health =>
   faulty(StrayTarget({ target: target.source, at: target.position }), target.position)
 
+const partFaults = byTypeOr<
+  Part,
+  [
+    within: {
+      readonly catalogue: Catalogue
+      readonly modules: ReadonlyMap<string, LoomModule>
+      readonly module: LoomModule
+      readonly landing: Landing
+      readonly host: Code
+    },
+  ]
+>()<ReadonlyArray<Diagnostic>>(
+  {
+    NameRef: (ref, { catalogue, modules, module, host }) =>
+      Option.isNone(ref.target)
+        ? nameHealth(catalogue, modules, module, host, ref).diagnostics
+        : [],
+    ModuleRef: (ref, { catalogue, modules, module, landing, host }) =>
+      moduleRefHealth(catalogue, modules, landing, module, host, ref).diagnostics,
+  },
+  (): ReadonlyArray<Diagnostic> => [],
+)
+
 export const crossFileFaults = (
   catalogue: Catalogue,
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
   landing: Landing,
 ): ReadonlyArray<Diagnostic> =>
-  pipe(
-    module.product.code,
-    Array.flatMap((host) =>
-      Array.flatMap(host.fragments, (part) =>
-        Match.value(part).pipe(
-          Match.when({ type: 'NameRef' }, (ref) =>
-            Option.isNone(ref.target)
-              ? nameHealth(catalogue, modules, module, host, ref).diagnostics
-              : [],
-          ),
-          Match.when(
-            { type: 'ModuleRef' },
-            (ref) => moduleRefHealth(catalogue, modules, landing, module, host, ref).diagnostics,
-          ),
-          Match.orElse((): ReadonlyArray<Diagnostic> => []),
-        ),
-      ),
+  module.product.code.flatMap((host) =>
+    host.fragments.flatMap((part) =>
+      partFaults(part, { catalogue, modules, module, landing, host }),
     ),
   )
 
@@ -945,32 +973,43 @@ const trailHealth = (
     },
   )
 
-const reachedHealth = (
-  name: string,
-  at: Position,
-  host: string,
-  code: Code,
-  codeless: Option.Option<Codeless>,
-  whole: boolean,
-  label: Option.Option<Position>,
-): Health =>
-  Match.value({
+const reachedHealth = Match.fn(
+  (
+    _name: string,
+    _at: Position,
+    host: string,
+    code: Code,
+    codeless: Option.Option<Codeless>,
+    whole: boolean,
+    _label: Option.Option<Position>,
+  ) => ({
     codeless: Option.isSome(codeless),
     written: Array.isReadonlyArrayNonEmpty(code.fragments),
     whole,
     sameLanguage: code.languageId === host,
-  }).pipe(
-    Match.when({ codeless: true }, () => faulty(withoutCode(name, codeless), at)),
-    Match.when({ written: false, whole: true }, () => faulty(ChapterWithoutCode({ name }), at)),
-    Match.when({ written: false }, () => faulty(UnsettledSection({ name, declared: true }), at)),
-    Match.when({ sameLanguage: false }, () => crossLanguage(name, at, host, code.languageId)),
-    Match.orElse(() => settledHealth(name, at, label)),
-  )
+  }),
+).pipe(
+  Match.withReturnType<Health>(),
+  Match.when({ codeless: true }, (_facts, name, at, _host, _code, codeless) =>
+    faulty(withoutCode(name, codeless), at),
+  ),
+  Match.when({ written: false, whole: true }, (_facts, name, at) =>
+    faulty(ChapterWithoutCode({ name }), at),
+  ),
+  Match.when({ written: false }, (_facts, name, at) =>
+    faulty(UnsettledSection({ name, declared: true }), at),
+  ),
+  Match.when({ sameLanguage: false }, (_facts, name, at, host, code) =>
+    crossLanguage(name, at, host, code.languageId),
+  ),
+  Match.orElse((_facts, name, at, _host, _code, _codeless, _whole, label) =>
+    settledHealth(name, at, label),
+  ),
+)
 
 const settleAt = (module: LoomModule, at: Position): Option.Option<Position> =>
   pipe(
-    module.doc.sections,
-    Array.flatMap((section) => Array.flatMap(section.code, (weft) => weft.anchors)),
+    module.doc.sections.flatMap((section) => section.code.flatMap((weft) => weft.anchors)),
     Array.findFirst((anchor) => anchor.name.position.start.offset === at.start.offset),
     Option.filter((anchor) => anchor.specifier === undefined),
     Option.map((anchor) => between(anchor.position.end, anchor.position.end)),
@@ -1106,30 +1145,30 @@ const referredNodeOf = (
     },
   })
 
-const nodeOfPlace = (place: Place, ref: ModuleRef): Result.Result<ModuleNode, ModuleFile> =>
-  Match.value(place).pipe(
-    Match.tag('Chapter', ({ chapter }) =>
-      Result.succeed(ModuleNode.Chapter({ module: chapter.module })),
+const nodeOfPlace = Match.fn((place: Place, _ref: ModuleRef) => place).pipe(
+  Match.withReturnType<Result.Result<ModuleNode, ModuleFile>>(),
+  Match.tag('Chapter', ({ chapter }) =>
+    Result.succeed(ModuleNode.Chapter({ module: chapter.module })),
+  ),
+  Match.tag('Section', ({ ref: reached }) =>
+    Result.succeed(
+      ModuleNode.Section({
+        id: { path: reached.module, name: sectionNameOf(reached.section) },
+      }),
     ),
-    Match.tag('Section', ({ ref: reached }) =>
-      Result.succeed(
-        ModuleNode.Section({
-          id: { path: reached.module, name: sectionNameOf(reached.section) },
-        }),
-      ),
-    ),
-    Match.tag('Box', () => Result.fail(ModuleFile.Unsettled({ declared: true }))),
-    Match.tag('Book', () =>
-      Result.fail(ModuleFile.Faulted({ health: unresolved(ref.name, ref.anchor) })),
-    ),
-    Match.tag('Part', () =>
-      Result.fail(ModuleFile.Faulted({ health: unresolved(ref.name, ref.anchor) })),
-    ),
-    Match.exhaustive,
-  )
+  ),
+  Match.tag('Box', () => Result.fail(ModuleFile.Unsettled({ declared: true }))),
+  Match.tag('Book', (_matched, _place, ref) =>
+    Result.fail(ModuleFile.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+  ),
+  Match.tag('Part', (_matched, _place, ref) =>
+    Result.fail(ModuleFile.Faulted({ health: unresolved(ref.name, ref.anchor) })),
+  ),
+  Match.exhaustive,
+)
 
 const filesOf = (module: LoomModule): ReadonlyArray<Landed> =>
-  Array.map(module.product.files, (file): Landed => ({ loom: module.path, file }))
+  module.product.files.map((file): Landed => ({ loom: module.path, file }))
 
 const isNamed = (path: string, written: string): boolean =>
   path === written || path.endsWith(`/${written}`)
@@ -1137,9 +1176,9 @@ const isNamed = (path: string, written: string): boolean =>
 const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1)
 
 const fileNames = (files: ReadonlyArray<Landed>): ReadonlyArray<string> => {
-  const bases = Array.map(files, (landed) => baseName(landed.file.path))
-  return Array.map(files, (landed, i) =>
-    Array.filter(bases, (base) => base === bases[i]).length > 1
+  const bases = files.map((landed) => baseName(landed.file.path))
+  return files.map((landed, i) =>
+    bases.filter((base) => base === bases[i]).length > 1
       ? landed.file.path
       : baseName(landed.file.path),
   )
@@ -1197,13 +1236,10 @@ const sectionFile = (
   ref: ModuleRef,
   id: SectionId,
 ): ModuleFile => {
-  const own = pipe(
-    Option.match(Option.fromNullishOr(modules.get(id.path)), {
-      onNone: (): ReadonlyArray<Landed> => [],
-      onSome: filesOf,
-    }),
-    Array.filter((landed) => landed.file.code.origin.name === id.name),
-  )
+  const own = Option.match(Option.fromNullishOr(modules.get(id.path)), {
+    onNone: (): ReadonlyArray<Landed> => [],
+    onSome: filesOf,
+  }).filter((landed) => landed.file.code.origin.name === id.name)
   if (Array.isReadonlyArrayNonEmpty(own)) return fileAmong(ref, own)
   return Option.match(ref.file, {
     onSome: (written) =>
@@ -1220,7 +1256,7 @@ const sectionFile = (
 const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId): ModuleFile => {
   const lands = landedIn(landing, id)
   const here = landedIn(landing, host.origin)
-  const inHere = (landed: Landed): boolean => Array.some(here, (one) => sameFile(one, landed))
+  const inHere = (landed: Landed): boolean => here.some((one) => sameFile(one, landed))
   const sole = lands.length === 1 ? Array.head(lands) : Option.none<Landed>()
   return Option.match(
     Option.filter(sole, (landed) => !inHere(landed)),
@@ -1241,12 +1277,12 @@ const landedFile = (landing: Landing, host: Code, ref: ModuleRef, id: SectionId)
   )
 }
 
-export const holdsModuleRefs = (modules: ReadonlyMap<string, LoomModule>): boolean =>
-  Array.some(Array.fromIterable(modules.values()), (module) =>
-    Array.some(module.product.code, (code) =>
-      Array.some(code.fragments, (part) => part.type === 'ModuleRef'),
+export const holdsModuleRefs: (modules: ReadonlyMap<string, LoomModule>) => boolean = memoize(
+  (modules: ReadonlyMap<string, LoomModule>) =>
+    Array.fromIterable(modules.values()).some((module) =>
+      module.product.code.some((code) => code.fragments.some((part) => part.type === 'ModuleRef')),
     ),
-  )
+)
 
 const codeAt = (modules: ReadonlyMap<string, LoomModule>, id: SectionId): Option.Option<Code> =>
   pipe(
@@ -1260,38 +1296,42 @@ const reachedFrom = (
   root: Code,
 ): ReadonlyArray<string> => {
   const walk = (seen: ReadonlySet<string>, code: Code): ReadonlySet<string> =>
-    Array.reduce(code.fragments, seen, (reached, part) =>
-      part.type !== 'NameRef'
-        ? reached
-        : pipe(
-            targetOf(catalogue, code.origin.path, part),
-            Option.filter((target) => !reached.has(keyOf(target))),
-            Option.flatMap((target) =>
-              Option.map(codeAt(modules, target), (next) =>
-                walk(new Set([...reached, keyOf(target)]), next),
+    code.fragments.reduce(
+      (reached, part) =>
+        part.type !== 'NameRef'
+          ? reached
+          : pipe(
+              targetOf(catalogue, code.origin.path, part),
+              Option.filter((target) => !reached.has(keyOf(target))),
+              Option.flatMap((target) =>
+                Option.map(codeAt(modules, target), (next) =>
+                  walk(new Set([...reached, keyOf(target)]), next),
+                ),
               ),
+              Option.getOrElse(() => reached),
             ),
-            Option.getOrElse(() => reached),
-          ),
+      seen,
     )
   return Array.fromIterable(walk(new Set([keyOf(root.origin)]), root))
 }
 
-export const landingOf = (
-  catalogue: Catalogue,
-  modules: ReadonlyMap<string, LoomModule>,
-): Landing =>
-  holdsModuleRefs(modules)
-    ? pipe(
-        Array.fromIterable(modules.values()),
-        Array.flatMap(filesOf),
-        Array.flatMap((landed) =>
-          Array.map(reachedFrom(catalogue, modules, landed.file.code), (key) => ({ key, landed })),
-        ),
-        Array.groupBy((entry) => entry.key),
-        Record.map((entries) => Array.map(entries, (entry) => entry.landed)),
-      )
-    : {}
+export const landingOf: (modules: ReadonlyMap<string, LoomModule>) => Landing = memoize(
+  (modules: ReadonlyMap<string, LoomModule>): Landing =>
+    holdsModuleRefs(modules)
+      ? pipe(
+          Array.fromIterable(modules.values())
+            .flatMap(filesOf)
+            .flatMap((landed) =>
+              reachedFrom(catalogueOf(modules), modules, landed.file.code).map((key) => ({
+                key,
+                landed,
+              })),
+            ),
+          Array.groupBy((entry) => entry.key),
+          Record.map((entries) => entries.map((entry) => entry.landed)),
+        )
+      : {},
+)
 
 type Walked = {
   readonly visited: ReadonlySet<string>
@@ -1300,7 +1340,7 @@ type Walked = {
 
 const composedTargetsOf = (catalogue: Catalogue, code: Code): ReadonlyArray<SectionId> =>
   Array.getSomes(
-    Array.map(code.fragments, (part) =>
+    code.fragments.map((part) =>
       part.type === 'NameRef' ? targetOf(catalogue, code.origin.path, part) : Option.none(),
     ),
   )
@@ -1330,10 +1370,12 @@ const pathBack = (
   const walk = (visited: ReadonlySet<string>, at: SectionId): Walked =>
     keyOf(at) === keyOf(goal)
       ? { visited, path: Option.some([at]) }
-      : Array.reduce(nextFrom(catalogue, modules, at), unwalked(visited), (walked, next) =>
-          Option.isSome(walked.path) || walked.visited.has(keyOf(next))
-            ? walked
-            : prefixed(at, walk(new Set([...walked.visited, keyOf(next)]), next)),
+      : nextFrom(catalogue, modules, at).reduce(
+          (walked, next) =>
+            Option.isSome(walked.path) || walked.visited.has(keyOf(next))
+              ? walked
+              : prefixed(at, walk(new Set([...walked.visited, keyOf(next)]), next)),
+          unwalked(visited),
         )
   return walk
 }
@@ -1367,14 +1409,14 @@ export const compositionCycles = (
   modules: ReadonlyMap<string, LoomModule>,
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> =>
-  Array.flatMap(module.product.code, (host) =>
-    Array.flatMap(host.fragments, (part) =>
+  module.product.code.flatMap((host) =>
+    host.fragments.flatMap((part) =>
       part.type === 'NameRef'
         ? Option.match(loopThrough(catalogue, modules, host, part), {
             onNone: (): ReadonlyArray<Diagnostic> => [],
             onSome: (loop) =>
               faulty(
-                CompositionCycle({ loop: Array.map(loop, (id) => titleAt(modules, id)) }),
+                CompositionCycle({ loop: loop.map((id) => titleAt(modules, id)) }),
                 part.anchor,
               ).diagnostics,
           })
@@ -1384,24 +1426,22 @@ export const compositionCycles = (
 
 export type Usage = { readonly writes: boolean; readonly used: ReadonlySet<string> }
 
-export const usedSections = (
-  catalogue: Catalogue,
-  modules: ReadonlyMap<string, LoomModule>,
-): Usage => {
-  const all = Array.fromIterable(modules.values())
-  const files = Array.flatMap(all, (module) => module.product.files)
-  return {
-    writes: Array.isReadonlyArrayNonEmpty(files),
-    used: new Set([
-      ...Array.map(files, (file) => keyOf(file.code.origin)),
-      ...Array.flatMap(all, (module) =>
-        Array.flatMap(module.product.code, (code) =>
-          Array.map(composedTargetsOf(catalogue, code), keyOf),
+export const usedSections: (modules: ReadonlyMap<string, LoomModule>) => Usage = memoize(
+  (modules: ReadonlyMap<string, LoomModule>): Usage => {
+    const catalogue = catalogueOf(modules)
+    const all = Array.fromIterable(modules.values())
+    const files = all.flatMap((module) => module.product.files)
+    return {
+      writes: Array.isReadonlyArrayNonEmpty(files),
+      used: new Set([
+        ...files.map((file) => keyOf(file.code.origin)),
+        ...all.flatMap((module) =>
+          module.product.code.flatMap((code) => composedTargetsOf(catalogue, code).map(keyOf)),
         ),
-      ),
-    ]),
-  }
-}
+      ]),
+    }
+  },
+)
 
 const unfinished = (module: LoomModule): boolean =>
   Option.exists(
@@ -1410,37 +1450,31 @@ const unfinished = (module: LoomModule): boolean =>
   )
 
 const holdsCode = (code: Code): boolean =>
-  Array.some(code.fragments, (part) => part.type !== 'Fragment' || part.text.trim() !== '')
+  code.fragments.some((part) => part.type !== 'Fragment' || part.text.trim() !== '')
 
 const isProse = (code: Code): boolean => code.languageId === 'prose'
 
 export const unusedSections = (usage: Usage, module: LoomModule): ReadonlyArray<Diagnostic> =>
   !usage.writes || module.doc.frontmatter?.discussion !== undefined || unfinished(module)
     ? []
-    : pipe(
-        module.product.code,
-        Array.filter(
-          (code) => holdsCode(code) && !isProse(code) && !usage.used.has(keyOf(code.origin)),
-        ),
-        Array.flatMap((code) =>
+    : module.product.code
+        .filter((code) => holdsCode(code) && !isProse(code) && !usage.used.has(keyOf(code.origin)))
+        .flatMap((code) =>
           Option.toArray(
             Array.findFirst(
               module.doc.sections,
               (section) => sectionNameOf(section) === code.origin.name,
             ),
           ),
-        ),
-        Array.filter(
-          (section) => !isManifest(section),
-        ),
-        Array.flatMap((section) =>
+        )
+        .filter((section) => !isManifest(section))
+        .flatMap((section) =>
           Option.match(Option.fromNullishOr(section.heading.title), {
             onNone: (): ReadonlyArray<Diagnostic> => [],
             onSome: (title) =>
               faulty(UnusedSection({ name: title.source }), title.position).diagnostics,
           }),
-        ),
-      )
+        )
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')
@@ -1459,11 +1493,10 @@ const identityOf = (section: LoomSection): string => sectionNameOf(section).toLo
 
 const firstHolders = (sections: ReadonlyArray<LoomSection>): ReadonlyMap<string, LoomSection> =>
   new Map(
-    pipe(
-      sections,
-      Array.filter((section) => section.heading.title !== undefined),
-      Array.map((section) => [identityOf(section), section] as const),
-      Array.reverse,
+    Array.reverse(
+      sections
+        .filter((section) => section.heading.title !== undefined)
+        .map((section) => [identityOf(section), section] as const),
     ),
   )
 
@@ -1490,7 +1523,7 @@ const duplicateHealth = (first: ReadonlyMap<string, LoomSection>, section: LoomS
   )
 
 const labelsOf = (section: LoomSection): ReadonlyArray<FenceLabelToken> =>
-  Array.flatMap(section.code, (weft) =>
+  section.code.flatMap((weft) =>
     weft.type === 'FenceWeft' && weft.label !== undefined ? [weft.label] : [],
   )
 

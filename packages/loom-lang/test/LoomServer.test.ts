@@ -15,7 +15,7 @@ import {
   type TextEdit,
   type WorkspaceEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
+import { Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
@@ -151,15 +151,12 @@ const editorAt = async (folder: string, experimental?: unknown) => {
       options: { tabSize: 2, insertSpaces: true },
     })) ?? []
   const diagnostics = async (path: string): Promise<ReadonlyArray<string>> =>
-    Array.map(
-      (
-        await connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
-          'textDocument/diagnostic',
-          { textDocument: { uri: pathToFileURL(path).href } },
-        )
-      ).items,
-      (diagnostic) => diagnostic.message,
-    )
+    (
+      await connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
+        'textDocument/diagnostic',
+        { textDocument: { uri: pathToFileURL(path).href } },
+      )
+    ).items.map((diagnostic) => diagnostic.message)
   const fixes = async (path: string, line: number): Promise<ReadonlyArray<CodeAction>> =>
     (await connection.sendRequest<CodeAction[] | null>('textDocument/codeAction', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -169,13 +166,12 @@ const editorAt = async (folder: string, experimental?: unknown) => {
   const hints = async (
     path: string,
   ): Promise<ReadonlyArray<{ readonly position: unknown; readonly label: unknown }>> =>
-    Array.map(
+    (
       (await connection.sendRequest<InlayHint[] | null>('textDocument/inlayHint', {
         textDocument: { uri: pathToFileURL(path).href },
         range: { start: { line: 0, character: 0 }, end: { line: 10_000, character: 0 } },
-      })) ?? [],
-      (hint) => ({ position: hint.position, label: hint.label }),
-    )
+      })) ?? []
+    ).map((hint) => ({ position: hint.position, label: hint.label }))
   const folds = async (path: string): Promise<ReadonlyArray<FoldingRange>> =>
     (await connection.sendRequest<FoldingRange[] | null>('textDocument/foldingRange', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -185,15 +181,12 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     line: number,
     character: number,
   ): Promise<ReadonlyArray<{ readonly label: unknown; readonly textEdit: unknown }>> =>
-    Array.map(
-      (
-        (await connection.sendRequest<CompletionList | null>('textDocument/completion', {
-          textDocument: { uri: pathToFileURL(path).href },
-          position: { line, character },
-        })) ?? { items: [] }
-      ).items,
-      (item) => ({ label: item.label, textEdit: item.textEdit }),
-    )
+    (
+      (await connection.sendRequest<CompletionList | null>('textDocument/completion', {
+        textDocument: { uri: pathToFileURL(path).href },
+        position: { line, character },
+      })) ?? { items: [] }
+    ).items.map((item) => ({ label: item.label, textEdit: item.textEdit }))
   const definition = async (
     path: string,
     line: number,
@@ -203,15 +196,13 @@ const editorAt = async (folder: string, experimental?: unknown) => {
       'textDocument/definition',
       { textDocument: { uri: pathToFileURL(path).href }, position: { line, character } },
     )
-    return Array.map(
-      Option.match(Option.fromNullishOr(found), {
-        onNone: (): ReadonlyArray<Location | LocationLink> => [],
-        onSome: (one) => (globalThis.Array.isArray(one) ? one : [one]),
-      }),
-      (one) =>
-        'targetUri' in one
-          ? { uri: one.targetUri, line: one.targetSelectionRange.start.line }
-          : { uri: one.uri, line: one.range.start.line },
+    return Option.match(Option.fromNullishOr(found), {
+      onNone: (): ReadonlyArray<Location | LocationLink> => [],
+      onSome: (one) => (globalThis.Array.isArray(one) ? one : [one]),
+    }).map((one) =>
+      'targetUri' in one
+        ? { uri: one.targetUri, line: one.targetSelectionRange.start.line }
+        : { uri: one.uri, line: one.range.start.line },
     )
   }
   const rename = async (
@@ -227,15 +218,13 @@ const editorAt = async (folder: string, experimental?: unknown) => {
       position: { line, character },
       newName,
     })
-    const byDocument = Array.flatMap(edit?.documentChanges ?? [], (change) =>
-      'edits' in change
-        ? Array.map(change.edits, (one) => [change.textDocument.uri, one] as const)
-        : [],
+    const byDocument = (edit?.documentChanges ?? []).flatMap((change) =>
+      'edits' in change ? change.edits.map((one) => [change.textDocument.uri, one] as const) : [],
     )
-    const byChange = Array.flatMap(Object.entries(edit?.changes ?? {}), ([uri, edits]) =>
-      Array.map(edits, (one) => [uri, one] as const),
+    const byChange = Object.entries(edit?.changes ?? {}).flatMap(([uri, edits]) =>
+      edits.map((one) => [uri, one] as const),
     )
-    return Array.map([...byDocument, ...byChange], ([uri, one]) => ({
+    return [...byDocument, ...byChange].map(([uri, one]) => ({
       uri,
       line: one.range.start.line,
       newText: one.newText,
@@ -272,7 +261,7 @@ const editorAt = async (folder: string, experimental?: unknown) => {
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
-  Array.map(edits, (edit) => edit.newText)
+  edits.map((edit) => edit.newText)
 
 describe('LoomServer — a loom in a nested workspace', () => {
   it('is formatted by the services of its own workspace', async () => {
@@ -1333,7 +1322,7 @@ const projectOf = (
 
 const serverWith = (...open: ReadonlyArray<URI>): LanguageServer =>
   ({
-    documents: { all: () => Array.map(open, (uri) => ({ uri: uri.toString() })) },
+    documents: { all: () => open.map((uri) => ({ uri: uri.toString() })) },
   }) as unknown as LanguageServer
 
 const closedEditor = {

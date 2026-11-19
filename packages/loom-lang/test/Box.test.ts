@@ -17,11 +17,10 @@ const parse = (src: string): LoomDocument =>
 
 const wefts = (doc: LoomDocument): ReadonlyArray<LoomWeft> => [
   ...doc.preamble,
-  ...Array.flatMap(doc.sections, (section) => [...section.preamble, ...section.code]),
+  ...doc.sections.flatMap((section) => [...section.preamble, ...section.code]),
 ]
 
-const boxes = (doc: LoomDocument): ReadonlyArray<BoxToken> =>
-  Array.getSomes(Array.map(wefts(doc), boxOf))
+const boxes = (doc: LoomDocument): ReadonlyArray<BoxToken> => Array.getSomes(wefts(doc).map(boxOf))
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   if (node === null || typeof node !== 'object') return []
@@ -229,7 +228,7 @@ describe('colons that are no box line', () => {
         '# Next',
       ),
     )
-    const names = Array.flatMap(wefts(doc), (weft) =>
+    const names = wefts(doc).flatMap((weft) =>
       'anchors' in weft ? weft.anchors.map((found) => found.name.value) : [],
     )
     expect(names).toEqual(['Next', 'Next'])

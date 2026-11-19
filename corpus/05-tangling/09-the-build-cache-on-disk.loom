@@ -12,22 +12,33 @@ The build cache in memory lives only as long as the process that holds it. Every
 
 ## What makes a kept module valid
 
-A kept module is valid only if building the loom now would produce the same module. Building depends on the loom's path and text, on the settings the configuration gives it — the anchor delimiters, the primary language and the variables — on what the workspace's tropes declare, and on the Loom that does the building. `keyOf` hashes all of them into one key with SHA-256, and a kept module is used only when its key matches the key of the loom as it stands.
+A kept module is valid only if building the loom now would produce the same module. Building depends on the loom's path and text, on the settings the configuration gives it — the anchor delimiters, the primary language and the variables — on what the workspace's tropes declare, and on the Loom that does the building. `keyOf` hashes all of them but the declared kinds into one key with SHA-256, and a kept module is used only when its key matches the key of the loom as it stands.
+
+What tropes declare stays out of the key, because a process does not know it when it starts. The registry of declared kinds is read from the looms of the corpus, as the chapter "The compile layer" describes, so the compiler cannot say what a loom is to be built with until it has read the corpus. A key that covered the declared kinds could not be computed before that, and the cache would give nothing to the process that needs it most, the one that has just started. So the kept file records what its module was built with instead, as `builtAs`: the declared kinds written as text, which `declaredKey` writes. The cache gives a kept module as it is, with its `builtAs`, and the compiler decides whether the module was built with what the registry now holds. A `Built` is a module with its `builtAs`.
 
 The Loom that builds is named by `fingerprint`. A released Loom is fixed, so its version names it: `serviceVersion`, the same version a language service is checked against. A Loom running from its own source is not fixed, since its parser may have changed since the last run without a new version. So when the source folders of the compiler and of the corpus model can be read, `fingerprint` adds the newest modification time among their files, and an edited parser never reads a module an older parser built. A compiled executable carries no such folders, and its fingerprint is its version alone. `cacheFormat` names the layout of the kept file itself, and changes whenever that layout does.
 
 =>
 
-const cacheFormat = 1
+const cacheFormat = 2
+
+export const declaredKey = (declared: Declared): string => JSON.stringify(declared)
+
+export interface Built {
+  readonly module: LoomModule
+  readonly builtAs: string
+}
 
 const newestIn = (dir: string): number =>
   pipe(
     Option.liftThrowable(() => readdirSync(dir, { recursive: true, withFileTypes: true }))(),
     Option.map((entries) =>
-      Array.reduce(entries, 0, (newest, entry) =>
-        entry.isFile()
-          ? Math.max(newest, statSync(join(entry.parentPath, entry.name)).mtimeMs)
-          : newest,
+      entries.reduce(
+        (newest, entry) =>
+          entry.isFile()
+            ? Math.max(newest, statSync(join(entry.parentPath, entry.name)).mtimeMs)
+            : newest,
+        0,
       ),
     ),
     Option.getOrElse(() => 0),
@@ -42,15 +53,9 @@ const sourceDirs = (): ReadonlyArray<string> =>
   ])
 
 const fingerprintNow = (): string =>
-  `${serviceVersion}:${Math.max(0, ...Array.map(sourceDirs(), newestIn))}`
+  `${serviceVersion}:${Math.max(0, ...sourceDirs().map(newestIn))}`
 
-const keyOf = (
-  fingerprint: string,
-  path: Location,
-  text: string,
-  settings: BuildSettings,
-  declared: Declared,
-): string =>
+const keyOf = (fingerprint: string, path: Location, text: string, settings: BuildSettings): string =>
   createHash('sha256')
     .update(
       JSON.stringify([
@@ -60,7 +65,6 @@ const keyOf = (
         settings.delims,
         settings.primaryLanguage ?? null,
         settings.variables,
-        declared,
         text,
       ]),
     )
@@ -68,15 +72,16 @@ const keyOf = (
 
 ## Where a module is kept
 
-Each workspace keeps its modules in `.loom/cache/modules/`, one file for each loom, named by a hash of the loom's path. A loom always lands in the same file, so a changed loom overwrites its old entry rather than adding a new one, and the folder never holds more files than the workspace has looms. The file holds the module beside the key it was built under.
+Each workspace keeps its modules in `.loom/cache/modules/`, one file for each loom, named by a hash of the loom's path. A loom always lands in the same file, so a changed loom overwrites its old entry rather than adding a new one, and the folder never holds more files than the workspace has looms. The file holds the module beside the key it was built under and the declared kinds it was built with.
+
+The key comes first in the file, so a reader can tell whose module the file holds before it parses the module. `openingOf` gives the text a file kept under a key opens with.
 
 The folder is the cache's own, and nothing in it belongs in version control. So when the cache creates `.loom/cache/`, it writes a `.gitignore` there that ignores everything. Every workspace keeps the cache out of Git that way, whether or not its own ignore rules mention it.
 
 =>
 
-interface KeptModule {
+interface KeptModule extends Built {
   readonly key: string
-  readonly module: LoomModule
 }
 
 const cacheDirOf = (workspace: string): string => join(workspace, '.loom', 'cache')
@@ -88,6 +93,8 @@ const keptFileOf = (workspace: string, path: Location): string =>
     `${createHash('sha256').update(path).digest('hex').slice(0, 16)}.json`,
   )
 
+const openingOf = (key: string): string => `{"key":${JSON.stringify(key)},`
+
 ## Reading a module back
 
 JSON keeps a module almost exactly. Fields whose value is `undefined` disappear, and every reader already treats a missing field the same way. The one value JSON cannot keep is an Effect `Option`: it comes back as a plain object, with none of the behaviour of an `Option`. A module holds an `Option` in the edges of a product's code alone. Each `NameRef` names its target section as an `Option`, empty when the anchor resolved to nothing, and its `{To be settled}` label as another. A `ModuleRef` holds the same two, and the file it names in parentheses as a third.
@@ -95,6 +102,8 @@ JSON keeps a module almost exactly. Fields whose value is `undefined` disappear,
 So `revived` walks the product and turns each of those fields back into an `Option`, through `optionOf`. Converting only those fields costs a third of what a reviver run over every value in the file would. A test builds modules from real chapters, keeps them, reads them back and compares the two whole. If the model ever gains another value that JSON cannot keep, that comparison fails, rather than the cache quietly serving a broken module.
 
 `recall` reads a loom's kept file. It returns the module only when the file parses, its key matches, and the module it holds names the same path and text. Anything else, from a missing file to one half written by a crashed process, returns nothing, and the loom is built as if no cache existed.
+
+The file's opening settles most misses before anything is parsed. Parsing the kept module of a long chapter takes tens of milliseconds, and the editor asks for a loom on every keystroke, with a text no kept file was built from. So `recall` compares how the file opens with `openingOf` the key it wants, and parses the file only when the two agree.
 
 =>
 
@@ -106,86 +115,90 @@ interface KeptOption<A> {
 const optionOf = <A>(kept: KeptOption<A>): Option.Option<A> =>
   kept._tag === 'Some' && kept.value !== undefined ? Option.some(kept.value) : Option.none()
 
-const revivedPart = (part: Part): Part =>
-  Match.value(part).pipe(
-    Match.when({ type: 'NameRef' }, (ref): Part => ({
-      ...ref,
-      target: optionOf(ref.target as unknown as KeptOption<SectionId>),
-      toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
-    })),
-    Match.when({ type: 'ModuleRef' }, (ref): Part => ({
-      ...ref,
-      target: optionOf(ref.target as unknown as KeptOption<SectionId>),
-      file: optionOf(ref.file as unknown as KeptOption<WrittenFile>),
-      toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
-    })),
-    Match.when({ type: 'Fragment' }, (fragment): Part => fragment),
-    Match.exhaustive,
-  )
+const revivedPart: (part: Part) => Part = byType<Part>()({
+  NameRef: (ref): Part => ({
+    ...ref,
+    target: optionOf(ref.target as unknown as KeptOption<SectionId>),
+    toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
+  }),
+  ModuleRef: (ref): Part => ({
+    ...ref,
+    target: optionOf(ref.target as unknown as KeptOption<SectionId>),
+    file: optionOf(ref.file as unknown as KeptOption<WrittenFile>),
+    toBeSettled: optionOf(ref.toBeSettled as unknown as KeptOption<Position>),
+  }),
+  Fragment: (fragment): Part => fragment,
+})
 
 const revivedCode = (code: Code): Code => ({
   ...code,
-  fragments: Array.map(code.fragments, revivedPart),
+  fragments: code.fragments.map(revivedPart),
 })
 
 const revived = (module: LoomModule): LoomModule => ({
   ...module,
   product: {
-    code: Array.map(module.product.code, revivedCode),
-    files: Array.map(module.product.files, (file) => ({ ...file, code: revivedCode(file.code) })),
+    code: module.product.code.map(revivedCode),
+    files: module.product.files.map((file) => ({ ...file, code: revivedCode(file.code) })),
   },
 })
 
-const recall = (file: string, key: string, path: Location, text: string): Option.Option<LoomModule> =>
+const recall = (file: string, key: string, path: Location, text: string): Option.Option<Built> =>
   pipe(
-    Option.liftThrowable(() => JSON.parse(readFileSync(file, 'utf8')) as KeptModule)(),
+    Option.liftThrowable(() => readFileSync(file, 'utf8'))(),
+    Option.filter((kept) => kept.startsWith(openingOf(key))),
+    Option.flatMap((kept) => Option.liftThrowable(() => JSON.parse(kept) as KeptModule)()),
     Option.filter(
       (kept) => kept.key === key && kept.module.path === path && kept.module.text === text,
     ),
-    Option.map((kept) => revived(kept.module)),
+    Option.map((kept): Built => ({ module: revived(kept.module), builtAs: kept.builtAs })),
   )
 
 ## Keeping a module
 
-A module is kept only when it was built from the loom as it is saved. The editor builds a loom it has open from the text in its buffer, which may hold changes that were never saved. Keeping such a module would write a file on every keystroke, for a text no later process will ever read. So `keep` reads the loom through `saved`, the source that gives each loom's saved text, and writes only when the text the module was built from matches it. The compiler passes its `DocumentSource` service as `saved`, so the check reads the text the service holds, or the disk for a loom it does not hold.
+A module is kept only when it was built from the loom as it is saved. The editor builds a loom it has open from the text in its buffer, which may hold changes that were never saved. Keeping such a module would write a file on every keystroke, for a text no later process will ever read. So `keepSaved` reads the loom through `saved`, the source that gives each loom's saved text, and writes only when the text the module was built from matches it. The compiler passes its `DocumentSource` service as `saved`, so the check reads the text the service holds, or the disk for a loom it does not hold.
 
-`write` writes the kept file beside its final name and then renames it into place. A rename replaces the old file in one step, so a language server and a tangle working in the same workspace never read each other's half-written file. Keeping is a convenience, and a failure to write, such as a read-only checkout, is ignored: the module was built, and the next process simply builds it again.
+`write` writes the kept file beside its final name and then renames it into place. It writes the key before the module, which is the opening `recall` looks for. A rename replaces the old file in one step, so a language server and a tangle working in the same workspace never read each other's half-written file. Keeping is a convenience, and a failure to write, such as a read-only checkout, is ignored: the module was built, and the next process simply builds it again.
 
 =>
 
-const write = (workspace: string, file: string, key: string, module: LoomModule): void =>
+const write = (workspace: string, file: string, key: string, built: Built): void =>
   void Option.liftThrowable(() => {
     const cacheDir = cacheDirOf(workspace)
     mkdirSync(dirname(file), { recursive: true })
     if (!existsSync(join(cacheDir, '.gitignore'))) writeFileSync(join(cacheDir, '.gitignore'), '*\n')
     const draft = `${file}.${process.pid}.tmp`
-    writeFileSync(draft, JSON.stringify({ key, module } satisfies KeptModule))
+    writeFileSync(draft, JSON.stringify({ key, ...built } satisfies KeptModule))
     renameSync(draft, file)
   })()
 
-const keep = (
+const keepSaved = (
   saved: Source,
   workspace: string,
   file: string,
   key: string,
-  module: LoomModule,
+  built: Built,
 ): Effect.Effect<void> =>
-  saved.read(module.path).pipe(
+  saved.read(built.module.path).pipe(
     Effect.option,
     Effect.flatMap((text) =>
-      Option.contains(text, module.text)
-        ? Effect.sync(() => write(workspace, file, key, module))
+      Option.contains(text, built.module.text)
+        ? Effect.sync(() => write(workspace, file, key, built))
         : Effect.void,
     ),
   )
 
 ## The cache as a service
 
-`LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. It takes the loom's source, the `saved` source that `keep` checks against, the loom's path and settings, what tropes declare for the build to read, and the `build` that would produce its module. It returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
+`LoomDiskCache` is the cache as a service, with a method for each direction. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time.
 
-The cache is kept in a folder, so it reads the folder it keeps a loom's module in, the loom's workspace, from the `LoomConfig` service. The build settings carry no folders. A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
+`recalled` gives the module an earlier process kept for a loom, when that module is still valid. It takes the loom's source, its path and its settings. It reads the loom through the same source a build would read, so the key is computed from exactly the text the module would be built from, the open buffer included. A loom whose source cannot be read recalls nothing, and the build that follows reports the error as it always did.
 
-The compiler does not build this cache itself. The environment provides it, so the service has two layers. Its `layer` keeps modules on the disk, as this chapter describes, and the file system's environment provides it. Its `none` layer keeps nothing: its `through` runs every `build` directly. Remote storage's environment provides `none`, because a workspace kept away from a disk has no folder to keep modules in, and a server beside the storage builds the corpus again when it starts.
+`keep` keeps a module the compiler has just built. It takes the `saved` source that `keepSaved` checks against, the settings the module was built with, and the module with its `builtAs`.
+
+The cache is kept in a folder, so it reads the folder it keeps a loom's module in, the loom's workspace, from the `LoomConfig` service, which `workspaceOf` asks. The build settings carry no folders. A loom in no workspace has nowhere to keep a module, so the cache recalls nothing for it and keeps nothing.
+
+The compiler does not build this cache itself. The environment provides it, so the service has two layers. Its `layer` keeps modules on the disk, as this chapter describes, and the file system's environment provides it. Its `none` layer recalls nothing and keeps nothing. Remote storage's environment provides `none`, because a workspace kept away from a disk has no folder to keep modules in, and a server beside the storage builds the corpus again when it starts.
 
 =>
 
@@ -193,37 +206,50 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
   make: Effect.gen(function* () {
     const fingerprint = yield* Effect.sync(fingerprintNow)
     const config = yield* LoomConfig
+
+    const workspaceOf = (path: Location): Effect.Effect<Option.Option<string>> =>
+      config
+        .resolve(path)
+        .pipe(Effect.map(({ workspaceRoot }) => Option.fromNullishOr(workspaceRoot)))
+
     return {
-      through: (
+      recalled: (
         source: Source,
-        saved: Source,
         path: Location,
         settings: BuildSettings,
-        declared: Declared,
-        build: Effect.Effect<LoomModule>,
-      ): Effect.Effect<LoomModule> =>
-        config.resolve(path).pipe(
-          Effect.flatMap(({ workspaceRoot }) =>
-            Option.match(Option.fromNullishOr(workspaceRoot), {
-              onNone: () => build,
+      ): Effect.Effect<Option.Option<Built>> =>
+        workspaceOf(path).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.succeed(Option.none<Built>()),
               onSome: (workspace) =>
                 source.read(path).pipe(
-                  Effect.flatMap((text) => {
-                    const key = keyOf(fingerprint, path, text, settings, declared)
-                    const file = keptFileOf(workspace, path)
-                    return Effect.sync(() => recall(file, key, path, text)).pipe(
-                      Effect.flatMap(
-                        Option.match({
-                          onSome: (module) => Effect.succeed(module),
-                          onNone: () =>
-                            build.pipe(
-                              Effect.tap((module) => keep(saved, workspace, file, key, module)),
-                            ),
-                        }),
-                      ),
-                    )
-                  }),
-                  Effect.catchTag('ReadError', () => build),
+                  Effect.map((text) =>
+                    recall(
+                      keptFileOf(workspace, path),
+                      keyOf(fingerprint, path, text, settings),
+                      path,
+                      text,
+                    ),
+                  ),
+                  Effect.catchTag('ReadError', () => Effect.succeed(Option.none<Built>())),
+                ),
+            }),
+          ),
+        ),
+
+      keep: (saved: Source, settings: BuildSettings, built: Built): Effect.Effect<void> =>
+        workspaceOf(built.module.path).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.void,
+              onSome: (workspace) =>
+                keepSaved(
+                  saved,
+                  workspace,
+                  keptFileOf(workspace, built.module.path),
+                  keyOf(fingerprint, built.module.path, built.module.text, settings),
+                  built,
                 ),
             }),
           ),
@@ -234,24 +260,23 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
   static readonly layer = Layer.effect(this, this.make)
 
   static readonly none = Layer.succeed(this, {
-    through: (
+    recalled: (
       _source: Source,
-      _saved: Source,
       _path: Location,
       _settings: BuildSettings,
-      _declared: Declared,
-      build: Effect.Effect<LoomModule>,
-    ): Effect.Effect<LoomModule> => build,
+    ): Effect.Effect<Option.Option<Built>> => Effect.succeed(Option.none<Built>()),
+    keep: (_saved: Source, _settings: BuildSettings, _built: Built): Effect.Effect<void> =>
+      Effect.void,
   })
 }
 
 ## What the module draws on
 
-Effect supplies the service, its layer, `Array`, `Option` and `pipe` for the steps, and `Match` to tell one kind of edge from another. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Location`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, with the `WrittenFile` a module anchor names, and the `Position` of a label. `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to.
+Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. `byType`, from the node foundation, tells one kind of edge from another. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Location`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, with the `WrittenFile` a module anchor names, and the `Position` of a label. `Source` is the seam the builder reads a loom through, and the seam `keepSaved` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom, and `LoomConfig` finds the workspace a loom belongs to. The row of small passes gives `Declared`, what a build is handed of the kinds tropes declare.
 
 =>
 
-import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -271,7 +296,7 @@ import {
   type SectionId,
   type WrittenFile,
 } from '@athrio/loom-ast/ProductAst'
-import { type Position } from '@athrio/loom-ast/LoomNode'
+import { byType, type Position } from '@athrio/loom-ast/LoomNode'
 import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type Source } from '#ast/LoomCorpusAstBuilder'

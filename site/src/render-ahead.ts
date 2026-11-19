@@ -20,7 +20,7 @@ type Page = { readonly address: string; readonly place: Place }
 
 const pagesOf = (book: Option.Option<Corpus>): ReadonlyArray<Page> =>
   Array.getSomes(
-    Array.map(everyAddress(book), (address) =>
+    everyAddress(book).map((address) =>
       Option.map(placeOf(book, address), (place): Page => ({ address, place })),
     ),
   )

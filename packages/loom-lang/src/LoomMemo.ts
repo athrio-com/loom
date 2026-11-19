@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Option, SynchronizedRef, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, SynchronizedRef } from 'effect'
 import { type LoomModule, type Location } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface MemoStats {
@@ -46,8 +46,7 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
         SynchronizedRef.update(state, (s) => ({
           ...s,
           modules: new Map(
-            Array.map(
-              Array.fromIterable(s.modules),
+            Array.fromIterable(s.modules).map(
               ([path, kept]) => [path, produced.get(path) ?? kept] as const,
             ),
           ),
@@ -57,12 +56,7 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
         const drop = new Set(paths)
         return SynchronizedRef.update(state, (s) => ({
           ...s,
-          modules: new Map(
-            pipe(
-              Array.fromIterable(s.modules),
-              Array.filter(([path]) => !drop.has(path)),
-            ),
-          ),
+          modules: new Map(Array.fromIterable(s.modules).filter(([path]) => !drop.has(path))),
         }))
       },
 

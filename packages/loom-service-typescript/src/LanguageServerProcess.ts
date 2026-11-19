@@ -110,10 +110,10 @@ export const spawnLanguageServer = (
   const crashHeader = /^(panic:|fatal error:|SIG[A-Z]+:|(?:[A-Z][A-Za-z]*)?[Ee]rror: )/
   const runtimeBanner = /^(Node\.js|Bun) v\d/
   const linesOf = (text: string): ReadonlyArray<string> =>
-    Array.filter(
-      Array.map(text.split('\n'), (line) => line.trim()),
-      (line) => line !== '',
-    )
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
 
   child.stderr.on('data', (chunk) => {
     const lines = (state.partial + String(chunk)).split('\n')
@@ -188,10 +188,10 @@ export const spawnLanguageServer = (
     void ready.then((connection) => connection.sendNotification(method, params)).catch(() => undefined)
 
   const keepOpen = (files: ReadonlyArray<OpenFile>): void => {
-    const wanted = new Set(Array.map(files, (file) => file.path))
-    const closing = Array.filter(Array.fromIterable(opened.keys()), (path) => !wanted.has(path))
-    const opening = Array.filter(files, (file) => !opened.has(file.path))
-    const changing = Array.filter(files, (file) =>
+    const wanted = new Set(files.map((file) => file.path))
+    const closing = Array.fromIterable(opened.keys()).filter((path) => !wanted.has(path))
+    const opening = files.filter((file) => !opened.has(file.path))
+    const changing = files.filter((file) =>
       Option.match(Option.fromNullishOr(opened.get(file.path)), {
         onNone: () => false,
         onSome: (held) => held.text !== file.text,

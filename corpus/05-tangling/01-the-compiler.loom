@@ -13,13 +13,13 @@ Loom compiles a `.loom` file from its own syntax into code. The **Loom syntax** 
 
 `LoomCompiler` is the higher-order service that runs the chain. It composes the passes rather than re-implementing them, and hands each consumer a finished projection through a verb.
 
-Its spine is one step. `buildCorpus` runs `parse |> product`: it loads each module through `LoomCorpusAstBuilder` — which parses the file and composes its product in the same pass — keeps it in `LoomMemo`, and discovers the rest of the corpus beside it. The corpus is the through-line every projection reads.
+Its spine is one step. `buildCorpus` runs `parse |> product`: it loads each module through `LoomCorpusAstBuilder`, which parses the file and then composes its product, keeps the module in `LoomMemo`, and discovers the rest of the corpus beside it. The corpus is the through-line every projection reads.
 
-A module this process has never built may still be waiting on disk. `loadOne` hands each build to `LoomDiskCache`, which returns the module an earlier process kept for the same loom and settings, and builds and keeps it otherwise. So a fresh language server or tangle reads most of the corpus back rather than parsing it again.
+A module this process has never built may still be waiting on disk. Before the compiler builds a loom, it asks `LoomDiskCache` for the module an earlier process kept for the same loom and settings, and it hands the cache every module it builds. So a fresh language server or tangle reads most of the corpus back rather than parsing it again.
 
 The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's product as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the edited file alone, so the next projection rebuilds only what changed. A file that draws in the edited one keeps its build, because a cross-file anchor is inlined when a file is projected, not when it is built.
 
-The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `approve` approves the relations of a loom that its caller chose, as their sections stand now, and keeps their fingerprints in the workspace, as the chapter "Fingerprints on relations" describes. It gives back what it kept for them. `relations` gives the relations of a loom, each with its status, so a review can tell what has drifted. `approvals` gives the editor an approval for each reference within a range that is not in step: its title, and the file that keeps relations with the text it holds once the reference is approved. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `hover` gives the card of the concept a link or a heading under the cursor names. A plain word that the loom's vocabulary recognises as a concept answers these three like a link to the concept, as the chapter "The scope of a concept" describes, and the references of a concept take in every word that recognises it. `links` offers, for a word that two concepts claim, a link to each of them, written with the workspace's anchor delimiters, and `moves` gives the scopes a concept may move up to from its heading. `symbols` gives the concepts of a workspace whose names hold a query, for the editor's symbol search. It takes no loom, so it builds the corpus that the source lists from a place in the workspace. `rename` gathers the title and anchors a rename rewrites together, and for a concept the edit that keeps its old name as a form, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it parses both, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. `completions` gives the labels an anchor takes while the cursor stands between its braces, each with the span it replaces, so the editor completes a label as the author types it. The labels are the core's kinds of anchor and the kinds tropes declare, and a declared kind that keeps to prose or to code is offered only where the anchor stands there. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `approve` approves the relations of a loom that its caller chose, as their sections stand now, and keeps their fingerprints in the workspace, as the chapter "Fingerprints on relations" describes. It gives back what it kept for them. `relations` gives the relations of a loom, each with its status, so a review can tell what has drifted. `approvals` gives the editor an approval for each reference within a range that is not in step: its title, and the file that keeps relations with the text it holds once the reference is approved. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `hover` gives the card of the concept a link or a heading under the cursor names. A plain word that the loom's vocabulary recognises as a concept answers these three like a link to the concept, as the chapter "The scope of a concept" describes, and the references of a concept take in every word that recognises it. `links` offers, for a word that two concepts claim, a link to each of them, written with the workspace's anchor delimiters, and `moves` gives the scopes a concept may move up to from its heading. `symbols` gives the concepts of a workspace whose names hold a query, for the editor's symbol search. It takes no loom, so it builds the corpus that the source lists from a place in the workspace. `rename` gathers the title and anchors a rename rewrites together, and for a concept the edit that keeps its old name as a form, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it parses both, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. `completions` gives the labels an anchor takes while the cursor stands between its braces, each with the span it replaces, so the editor completes a label as the author types it. The labels are the core's kinds of anchor and the kinds tropes declare, and a declared kind that keeps to prose or to code is offered only where the anchor stands there. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. Such a file may be new, though, and a new loom changes what its corpus lists. So `invalidate` then forgets the corpora the compiler kept, and the next verb lists the corpus again. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
 
 Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `hover`, `links`, `moves`, `symbols`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `completions`, `reach`, `weave`, and `summaries` read the parse and the corpus graph, since Loom health, navigation, colour, completion, placement, the woven page, and the summaries that boxes copy need no product. `contracts` reads the product too, since a contract binds the anchor's edge to the section it reaches, and so does `promised`, since a promise rides on the edges a root's composition follows. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
 
@@ -35,11 +35,25 @@ A loom says which languages its code is written in, and its workspace may hold n
 
 A book's own tropes declare kinds too, and a declared kind of section changes how a loom is read: the label `{Option}` names a kind once a trope declares it, and a language until then. So a loom's build reads the registry, and the registry is read from looms. Loom breaks the circle by reading the declarations first. The registry comes from the chapters of tropes alone, each read with core Loom, and every loom is then built with the kinds the registry holds.
 
-`corpusOf` runs those steps and gives a `Corpus`: the modules, and the registry they were built with. `loadCorpus` loads every loom of the corpus. `registryOf` then picks out the chapters of tropes, each trope's root and its members, which `inTrope` tells, and gathers the registry from them. `coreChapterOf` gives such a chapter as core Loom reads it. While the corpus was built with nothing declared, that is the module the corpus already holds. Once a trope declares anything, `coreChapterOf` builds the chapter again with nothing declared, and keeps that build in `coreChapters`. The registry then composes each manifest against the chapters of its own trope alone, as the chapter "The kinds tropes declare" describes. So an anchor in a manifest composes a section of the manifest's own trope, and no other.
+`corpusOf` runs those steps and gives a `Corpus`: the modules, and the registry they were built with. It works in three steps, so that a loom is parsed once and finished once, however much of the corpus is new to the process.
 
-`declaredFor` keeps, for each loom, what its module was built with, as the `Declared` the row of small passes reads, and `declaredOf` reads it for one loom. `staleIn` finds the looms of a corpus that were built with something other than the registry now holds. For those looms, `corpusOf` notes what the registry holds now, evicts the modules, and loads the corpus once more. The registry does not depend on what the corpus was built with, so the second load is the last. `buildCorpus` gives the modules alone, for the many verbs that read no registry. `evict` drops a loom's module and its core reading together.
+First it finds what is already built. `waitingAmong` goes through the listing of the corpus. A loom the memo holds needs nothing. For every other loom it asks the disk cache, and a module the cache recalls enters the memo through `remembered`, which also notes in `builtAs` what the module was built with. A loom that neither of them holds is parsed and no more, through the builder's `parse`. It waits for the registry as a `Waiting`: the parsed loom, with the settings its build takes. `heldAmong` then gives the modules the memo holds for the listing, in the listing's order.
 
-Every build passes through `LoomDiskCache`, which may keep the module on disk for the next process. The compiler's layer provides its passes and the cache in memory, but not this one. The environment provides it, as the chapter "Where a workspace is kept" describes, so a workspace on a disk keeps its modules there, and a workspace in remote storage keeps none. The cache must never keep a module built from text that was not saved, so `loadOne` hands it `DocumentSource` beside the source the build reads. The cache checks the module against the saved text that `DocumentSource` gives.
+Then it reads the registry. `registryOf` picks out the chapters of tropes, each trope's root and its members, and gathers the registry from them. A chapter names its trope in its frontmatter, which the parser has already read, so `registryOf` finds the chapters of tropes among the waiting looms as well as among the modules: `inTrope` tells a module, and `tropeIn` reads a parsed tree. `coreChapterOf` gives a chapter that has a module as core Loom reads it. When the module was built with nothing declared, as `builtAs` tells, that is the module itself. Otherwise `coreChapterOf` builds the chapter again with nothing declared. `coreChapterFrom` gives a waiting chapter as core Loom reads it, by finishing its parsed tree with nothing declared. Both keep what they give in `coreChapters`, through `keptCore`. The registry then composes each manifest against the chapters of its own trope alone, as the chapter "The kinds tropes declare" describes. So an anchor in a manifest composes a section of the manifest's own trope, and no other.
+
+`declaredFor` keeps, for each loom, what its module is to be built with, as the `Declared` the row of small passes reads, and `declaredOf` reads it for one loom. When a process starts it holds nothing, since nobody has read the registry yet. `builtAs` keeps, for each loom, what its module turned out to be built with, in the cache's own words.
+
+Last it finishes what waits. `registered` has `settle` note the registry in `declaredFor` for every loom of the listing, so a loom edited later is built with it at once. `finished` then takes each waiting loom through the builder's `finish` with the registry, and hands the module to the disk cache. So a process that starts over a corpus nobody has built parses every loom once and finishes it once. Only a chapter of a trope is finished twice, once as core Loom reads it and once with the registry.
+
+A module the disk cache recalled may have been built with a registry that no longer holds, when a trope has changed what it declares since an earlier process kept the module. `staleIn` finds the modules built with something other than the registry now holds, and `registered` evicts those and has `loadOne` build each again. A process that starts over a corpus it has built before finds every module in the disk cache, built with the registry that still holds, and builds nothing. `buildCorpus` gives the modules alone, for the many verbs that read no registry. `evict` drops a loom's module and its core reading together.
+
+`loadOne` loads one loom apart from its corpus, for `rebuild` and `symbols`, the verbs that ask for looms one at a time. It gives the module the memo holds. Failing that, it gives the module the disk cache recalls, when that module was built with what `declaredFor` holds for the loom, which `wasBuiltWith` tells. Otherwise it parses the loom and finishes it. For a loom `declaredFor` holds nothing for, any kept module will do, and a build reads the loom with core Loom alone.
+
+Every verb asks for the corpus, and most of the time nothing has changed since the last one asked. A tangle of a book asks once for every loom, and the editor asks several times for every keystroke. So `corpusOf` keeps the corpus it gave and gives the same one again while the corpus stands. The memo's map of modules is replaced whenever a module is built or evicted, and the tropes a workspace installs are kept as one value until one of them changes. `keptCorpora` therefore keeps, for each entry, the corpus it was given with the memo's map and the installed kinds as they stood, a `KeptCorpus`. While both are the same objects, `corpusOf` answers from `keptCorpora` and reads no file.
+
+Giving the same corpus matters beyond the time it saves here. What is computed from a state of the corpus, such as the catalogue of the chapter "The multi-file AST", is kept by the identity of the map of modules. A new map with the same modules in it would be a new state to all of those, and each would compute its answer again. So when `corpusOf` does build and no loom waits, `builtCorpus` first looks among the kept corpora for one that holds the very same modules in the same order, which `sameModules` tells, and gives that corpus rather than a copy of it. Two looms of one book thus read one corpus, whichever of them asked first. `kept` notes a corpus for its entry and drops the notes of an earlier state.
+
+Every module the compiler builds is handed to `LoomDiskCache`, which may keep it on disk for the next process. The compiler's layer provides its passes and the cache in memory, but not this one. The environment provides it, as the chapter "Where a workspace is kept" describes, so a workspace on a disk keeps its modules there, and a workspace in remote storage keeps none. The cache must never keep a module built from text that was not saved, so `finished` hands it `DocumentSource` beside the module. The cache checks the module against the saved text that `DocumentSource` gives.
 
 =>
 
@@ -57,6 +71,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const tropes = yield* Effect.serviceOption(TropePackages)
     const coreChapters = yield* Ref.make<Modules>(new Map())
     const declaredFor = yield* Ref.make<ReadonlyMap<Location, Declared>>(new Map())
+    const builtAs = yield* Ref.make<ReadonlyMap<Location, string>>(new Map())
+    const keptCorpora = yield* Ref.make<ReadonlyMap<Location, KeptCorpus>>(new Map())
 
     const installedKinds = (loom: Location): Effect.Effect<Declarations> =>
       Option.match(tropes, {
@@ -125,7 +141,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     ): Effect.Effect<ReadonlyMap<string, Specifiers>> => {
       if (!holdsModuleRefs(modules)) return Effect.succeed(new Map())
       const catalogue = catalogueOf(modules)
-      const landing = landingOf(catalogue, modules)
+      const landing = landingOf(modules)
       return Effect.forEach(entry.product.code, (root) =>
         fileOfRoot(entry, root).pipe(
           Effect.flatMap((from) => writtenFor(modules, catalogue, landing, root, from)),
@@ -141,28 +157,49 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
       )
 
+    const remembered = (path: Location, load: Effect.Effect<Built>): Effect.Effect<LoomModule> =>
+      memo.get(
+        path,
+        load.pipe(
+          Effect.tap((built) =>
+            Ref.update(builtAs, (was) => new Map(was).set(path, built.builtAs)),
+          ),
+          Effect.map((built) => built.module),
+        ),
+      )
+
+    const finished =
+      (settings: BuildSettings, declared: Declared) =>
+      (loom: ParsedLoom): Effect.Effect<Built> =>
+        builder.finish(loom, settings.primaryLanguage, settings.variables, declared).pipe(
+          Effect.map((module): Built => ({ module, builtAs: declaredKey(declared) })),
+          Effect.tap((built) => disk.keep(documents, settings, built)),
+        )
+
     const loadOne = (source: Source, path: Location): Effect.Effect<LoomModule> =>
-      Effect.all([config.resolve(path), declaredOf(path)]).pipe(
-        Effect.flatMap(([settings, declared]) =>
-          memo.get(
+      Effect.all([config.resolve(path), Ref.get(declaredFor)]).pipe(
+        Effect.flatMap(([settings, settled]) => {
+          const wanted = Option.fromNullishOr(settled.get(path))
+          return remembered(
             path,
-            disk.through(
-              source,
-              documents,
-              path,
-              settings,
-              declared,
-              builder.build(
-                source,
-                path,
-                settings.delims,
-                settings.primaryLanguage,
-                settings.variables,
-                declared,
+            disk.recalled(source, path, settings).pipe(
+              Effect.map(Option.filter(wasBuiltWith(wanted))),
+              Effect.flatMap(
+                Option.match({
+                  onSome: (kept) => Effect.succeed(kept),
+                  onNone: () =>
+                    builder
+                      .parse(source, path, settings.delims)
+                      .pipe(
+                        Effect.flatMap(
+                          finished(settings, Option.getOrElse(wanted, () => nothingDeclared)),
+                        ),
+                      ),
+                }),
               ),
             ),
-          ),
-        ),
+          )
+        }),
       )
 
     const evict = (paths: ReadonlyArray<Location>): Effect.Effect<void> =>
@@ -171,7 +208,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const corpusPaths = (source: Source, entry: Location): Effect.Effect<ReadonlyArray<Location>> =>
       Option.match(source.list, {
         onNone: () => Effect.succeed<ReadonlyArray<Location>>([entry]),
-        onSome: (list) => list(entry).pipe(Effect.map((found) => Array.dedupe([entry, ...found]))),
+        onSome: (list) =>
+          list(entry).pipe(
+            Effect.map((found) =>
+              Array.dedupe(Array.contains(found, entry) ? found : [entry, ...found]),
+            ),
+          ),
       })
 
     const matchEntry = (source: Source, path: Location): Effect.Effect<void> =>
@@ -185,27 +227,65 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
       )
 
-    const loadCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
-      corpusPaths(source, entry).pipe(
-        Effect.flatMap((paths) =>
-          Effect.forEach(paths, (path) =>
-            loadOne(source, path).pipe(Effect.map((m) => [path, m] as const)),
+    const waitingAmong = (
+      source: Source,
+      paths: ReadonlyArray<Location>,
+    ): Effect.Effect<ReadonlyArray<Waiting>> =>
+      memo.entries.pipe(
+        Effect.flatMap((held) =>
+          Effect.forEach(
+            paths.filter((path) => !held.has(path)),
+            (path) =>
+              config.resolve(path).pipe(
+                Effect.flatMap((settings) =>
+                  disk.recalled(source, path, settings).pipe(
+                    Effect.flatMap(
+                      Option.match({
+                        onSome: (kept) =>
+                          remembered(path, Effect.succeed(kept)).pipe(
+                            Effect.as(Option.none<Waiting>()),
+                          ),
+                        onNone: () =>
+                          builder
+                            .parse(source, path, settings.delims)
+                            .pipe(Effect.map((loom) => Option.some<Waiting>({ loom, settings }))),
+                      }),
+                    ),
+                  ),
+                ),
+              ),
           ),
         ),
-        Effect.map((pairs) => new Map(pairs)),
+        Effect.map(Array.getSomes),
       )
 
+    const heldAmong = (paths: ReadonlyArray<Location>): Effect.Effect<Modules> =>
+      memo.entries.pipe(
+        Effect.map(
+          (held): Modules =>
+            new Map(
+              Array.getSomes(
+                paths.map((path) =>
+                  Option.map(
+                    Option.fromNullishOr(held.get(path)),
+                    (module) => [path, module] as const,
+                  ),
+                ),
+              ),
+            ),
+        ),
+      )
+
+    const keptCore = (core: LoomModule): Effect.Effect<void> =>
+      Ref.update(coreChapters, (was) => new Map(was).set(core.path, core))
+
     const coreChapterOf = (source: Source, chapter: LoomModule): Effect.Effect<LoomModule> =>
-      Effect.all([
-        Ref.get(coreChapters),
-        declaredOf(chapter.path),
-        config.resolve(chapter.path),
-      ]).pipe(
-        Effect.flatMap(([kept, declared, settings]) =>
-          Option.match(Option.fromNullishOr(kept.get(chapter.path)), {
+      Effect.all([Ref.get(coreChapters), Ref.get(builtAs), config.resolve(chapter.path)]).pipe(
+        Effect.flatMap(([cores, built, settings]) =>
+          Option.match(Option.fromNullishOr(cores.get(chapter.path)), {
             onSome: (core) => Effect.succeed(core),
             onNone: () =>
-              (sameDeclared(declared, nothingDeclared)
+              (built.get(chapter.path) === declaredKey(nothingDeclared)
                 ? Effect.succeed(chapter)
                 : builder.build(
                     source,
@@ -214,29 +294,35 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     settings.primaryLanguage,
                     settings.variables,
                   )
-              ).pipe(
-                Effect.tap((core) =>
-                  Ref.update(coreChapters, (was) => new Map(was).set(chapter.path, core)),
-                ),
-              ),
+              ).pipe(Effect.tap(keptCore)),
           }),
         ),
       )
 
+    const coreChapterFrom = ({ loom, settings }: Waiting): Effect.Effect<LoomModule> =>
+      builder
+        .finish(loom, settings.primaryLanguage, settings.variables)
+        .pipe(Effect.tap(keptCore))
+
     const registryOf = (
       source: Source,
       modules: Modules,
+      waiting: ReadonlyArray<Waiting>,
       entry: Location,
     ): Effect.Effect<DeclaredKinds> =>
       Effect.all([
-        Effect.forEach(Array.filter(Array.fromIterable(modules.values()), inTrope), (chapter) =>
+        Effect.forEach(Array.fromIterable(modules.values()).filter(inTrope), (chapter) =>
           coreChapterOf(source, chapter),
+        ),
+        Effect.forEach(
+          waiting.filter(({ loom }) => Option.isSome(tropeIn(loom.tree))),
+          coreChapterFrom,
         ),
         installedKinds(entry),
       ]).pipe(
-        Effect.map(([chapters, installed]) => {
+        Effect.map(([built, parsed, installed]) => {
           const core: Modules = new Map(
-            Array.map(chapters, (chapter) => [chapter.path, chapter] as const),
+            [...built, ...parsed].map((chapter) => [chapter.path, chapter] as const),
           )
           return declaredKindsOf(core, installed)
         }),
@@ -246,44 +332,103 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       modules: Modules,
       declared: Declared,
     ): Effect.Effect<ReadonlyArray<Location>> =>
-      Ref.get(declaredFor).pipe(
-        Effect.map((kept) =>
-          Array.filter(
-            Array.fromIterable(modules.keys()),
-            (path) =>
-              !sameDeclared(
-                Option.getOrElse(Option.fromNullishOr(kept.get(path)), () => nothingDeclared),
-                declared,
-              ),
+      Ref.get(builtAs).pipe(
+        Effect.map((built) => {
+          const now = declaredKey(declared)
+          return Array.fromIterable(modules.keys()).filter((path) => built.get(path) !== now)
+        }),
+      )
+
+    const settle = (paths: ReadonlyArray<Location>, declared: Declared): Effect.Effect<void> =>
+      Ref.update(
+        declaredFor,
+        (was) => new Map([...was, ...paths.map((path) => [path, declared] as const)]),
+      )
+
+    const registered = (
+      source: Source,
+      entry: Location,
+      paths: ReadonlyArray<Location>,
+      modules: Modules,
+      waiting: ReadonlyArray<Waiting>,
+    ): Effect.Effect<Corpus> =>
+      registryOf(source, modules, waiting, entry).pipe(
+        Effect.flatMap((kinds) => {
+          const declared = declaredIn(kinds)
+          return settle(paths, declared).pipe(
+            Effect.andThen(staleIn(modules, declared)),
+            Effect.flatMap((stale) =>
+              Array.isReadonlyArrayEmpty(stale) && Array.isReadonlyArrayEmpty(waiting)
+                ? Effect.succeed<Corpus>({ modules, kinds })
+                : memo.evict(stale).pipe(
+                    Effect.andThen(Effect.forEach(stale, (path) => loadOne(source, path))),
+                    Effect.andThen(
+                      Effect.forEach(waiting, ({ loom, settings }) =>
+                        remembered(loom.path, finished(settings, declared)(loom)),
+                      ),
+                    ),
+                    Effect.andThen(heldAmong(paths)),
+                    Effect.map((built): Corpus => ({ modules: built, kinds })),
+                  ),
+            ),
+          )
+        }),
+      )
+
+    const builtCorpus = (
+      source: Source,
+      entry: Location,
+      installed: Declarations,
+    ): Effect.Effect<Corpus> =>
+      Effect.gen(function* () {
+        const paths = yield* corpusPaths(source, entry)
+        const waiting = yield* waitingAmong(source, paths)
+        const modules = yield* heldAmong(paths)
+        const notes = yield* Ref.get(keptCorpora)
+        return yield* Option.match(
+          Array.findFirst(
+            Array.fromIterable(notes.values()),
+            (note) =>
+              Array.isReadonlyArrayEmpty(waiting) &&
+              note.installed === installed &&
+              sameModules(note.corpus.modules, modules),
+          ),
+          {
+            onSome: (note) => Effect.succeed(note.corpus),
+            onNone: () => registered(source, entry, paths, modules, waiting),
+          },
+        )
+      })
+
+    const kept = (entry: Location, installed: Declarations, corpus: Corpus): Effect.Effect<void> =>
+      memo.entries.pipe(
+        Effect.flatMap((held) =>
+          Ref.update(
+            keptCorpora,
+            (notes) =>
+              new Map([
+                ...Array.fromIterable(notes).filter(([, note]) => note.held === held),
+                [entry, { held, installed, corpus }] as const,
+              ]),
           ),
         ),
       )
 
     const corpusOf = (source: Source, entry: Location): Effect.Effect<Corpus> =>
-      loadCorpus(source, entry).pipe(
-        Effect.flatMap((modules) =>
-          registryOf(source, modules, entry).pipe(
-            Effect.flatMap((kinds) => {
-              const declared = declaredIn(kinds)
-              return staleIn(modules, declared).pipe(
-                Effect.flatMap((stale) =>
-                  Array.isReadonlyArrayEmpty(stale)
-                    ? Effect.succeed<Corpus>({ modules, kinds })
-                    : Ref.update(
-                        declaredFor,
-                        (kept) =>
-                          new Map([
-                            ...kept,
-                            ...Array.map(stale, (path) => [path, declared] as const),
-                          ]),
-                      ).pipe(
-                        Effect.andThen(memo.evict(stale)),
-                        Effect.andThen(loadCorpus(source, entry)),
-                        Effect.map((rebuilt): Corpus => ({ modules: rebuilt, kinds })),
-                      ),
+      Effect.all([memo.entries, installedKinds(entry), Ref.get(keptCorpora)]).pipe(
+        Effect.flatMap(([held, installed, notes]) =>
+          Option.match(
+            Option.filter(
+              Option.fromNullishOr(notes.get(entry)),
+              (note) => note.held === held && note.installed === installed,
+            ),
+            {
+              onSome: (note) => Effect.succeed(note.corpus),
+              onNone: () =>
+                builtCorpus(source, entry, installed).pipe(
+                  Effect.tap((corpus) => kept(entry, installed, corpus)),
                 ),
-              )
-            }),
+            },
           ),
         ),
       )
@@ -315,13 +460,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       tangle: (path: Location): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
         corpusOf(documents, path).pipe(
-          Effect.flatMap(({ modules, kinds }) => {
+          Effect.flatMap((corpus) => {
+            const { modules } = corpus
             const scoped = scopedTo(modules, reachable(modules, path))
             const failures = [
-              ...corpusErrors(
-                { modules: scoped },
-                corpusDiagnostics(modules, kinds, [], Option.none()),
-              ),
+              ...corpusErrors({ modules: scoped }, tangleFaults(corpus)),
               ...unsettledFailures(modules, path),
             ]
             return failures.length > 0
@@ -389,7 +532,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             return Effect.all([parsedAs(before), parsedAs(after)]).pipe(
               Effect.map(([was, now]) =>
                 Array.getSomes(
-                  Array.map(syncedSummaries({ modules }, was, now), (edit) =>
+                  syncedSummaries({ modules }, was, now).map((edit) =>
                     Option.map(
                       Option.fromNullishOr(modules.get(edit.path)),
                       (target): SummaryEdit => ({
@@ -497,12 +640,9 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(
-                Option.getOrElse(conceptReferencesAt(vocabulariesIn(modules), path, offset), () =>
-                  referencesAt({ modules }, path, offset),
-                ),
-                (loc) => frameLocationOf(modules, loc),
-              ),
+              Option.getOrElse(conceptReferencesAt(vocabulariesIn(modules), path, offset), () =>
+                referencesAt({ modules }, path, offset),
+              ).map((loc) => frameLocationOf(modules, loc)),
             ),
           ),
         ),
@@ -510,7 +650,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       links: (path: Location, start: number, end: number): Effect.Effect<ReadonlyArray<FrameFix>> =>
         Effect.all([config.resolve(path), buildCorpus(documents, path)]).pipe(
           Effect.map(([settings, modules]) =>
-            Array.map(linksAt(vocabulariesIn(modules), path, start, end, settings.delims), (fix) =>
+            linksAt(vocabulariesIn(modules), path, start, end, settings.delims).map((fix) =>
               frameFixOf(modules, fix),
             ),
           ),
@@ -519,9 +659,9 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       moves: (path: Location, offset: number): Effect.Effect<ReadonlyArray<FrameMove>> =>
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
-            Array.map(movesAt(vocabulariesIn(modules), path, offset), (move): FrameMove => ({
+            movesAt(vocabulariesIn(modules), path, offset).map((move): FrameMove => ({
               concept: move.concept,
-              targets: Array.map(move.targets, (fix) => frameFixOf(modules, fix)),
+              targets: move.targets.map((fix) => frameFixOf(modules, fix)),
             })),
           ),
         ),
@@ -539,7 +679,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.map((pairs): Modules => new Map(pairs)),
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(conceptSymbolsIn({ modules }, query), (symbol) =>
+              conceptSymbolsIn({ modules }, query).map((symbol) =>
                 Option.map(frameLocationOf(modules, symbol.location), (location): FrameSymbol => ({
                   name: symbol.name,
                   container: symbol.container,
@@ -572,9 +712,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) => [
             ...Array.getSomes(
-              Array.map(renameAt({ modules }, path, offset), (loc) =>
-                frameLocationOf(modules, loc),
-              ),
+              renameAt({ modules }, path, offset).map((loc) => frameLocationOf(modules, loc)),
             ),
             ...Option.toArray(
               Option.flatMap(conceptRenameAt({ modules }, path, offset), (rename) =>
@@ -621,7 +759,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                 onNone: () => [],
                 onSome: (module) =>
                   Array.getSomes(
-                    Array.map(symbolsOf(module.doc), (symbol) =>
+                    symbolsOf(module.doc).map((symbol) =>
                       Option.flatMap(profileOf(symbol.kind).semantic, (token) =>
                         Option.map(
                           frameLocationOf(modules, {
@@ -647,7 +785,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             Option.match(Option.fromNullishOr(modules.get(path)), {
               onNone: (): ReadonlyArray<FrameBox> => [],
               onSome: (module) =>
-                Array.map(openedBoxesOf(module.doc), (opened): FrameBox => ({
+                openedBoxesOf(module.doc).map((opened): FrameBox => ({
                   startLine: lineCharAt(module.text, opened.opener.position.start.offset).line,
                   endLine: lineCharAt(module.text, lastLineOf(opened).position.start.offset).line,
                   caption: captionOf(opened),
@@ -662,7 +800,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             Option.match(Option.fromNullishOr(modules.get(path)), {
               onNone: (): ReadonlyArray<FrameHint> => [],
               onSome: (module) =>
-                Array.map(hintsAt({ modules }, path), (hint): FrameHint => ({
+                hintsAt({ modules }, path).map((hint): FrameHint => ({
                   position: lineCharAt(module.text, hint.offset),
                   label: hint.label,
                 })),
@@ -684,8 +822,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               {
                 onNone: (): ReadonlyArray<FrameCompletion> => [],
                 onSome: ([module, slot]) =>
-                  Array.map(
-                    anchorLabels(kinds, standingAt({ modules }, path, offset)),
+                  anchorLabels(kinds, standingAt({ modules }, path, offset)).map(
                     (label): FrameCompletion => ({
                       label,
                       range: {
@@ -704,7 +841,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.map((modules) =>
             Array.getSomes(
-              Array.map(contractsIn(modules, path), (contract) =>
+              contractsIn(modules, path).map((contract) =>
                 Option.map(
                   Option.fromNullishOr(modules.get(contract.target)),
                   (target): FrameContract => ({
@@ -716,7 +853,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                       },
                     },
                     language: contract.language,
-                    expected: Array.map(contract.provides, (provided) => ({
+                    expected: contract.provides.map((provided) => ({
                       name: provided.name,
                       diagnostic: faultAt(
                         MissingSymbol({
@@ -744,7 +881,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       reach: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>
         buildCorpus(documents, path).pipe(
-          Effect.map((modules) => Array.filter(reachable(modules, path), (p) => p !== path)),
+          Effect.map((modules) => reachable(modules, path).filter((p) => p !== path)),
         ),
 
       invalidate: (path: Location): Effect.Effect<ReadonlyArray<Location>> =>
@@ -752,14 +889,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           Effect.flatMap((modules) =>
             modules.has(path)
               ? evict([path]).pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
-              : Effect.succeed<ReadonlyArray<Location>>([]),
+              : Ref.set(keptCorpora, new Map()).pipe(Effect.as<ReadonlyArray<Location>>([])),
           ),
         ),
 
       invalidateWithin: (dir: Location): Effect.Effect<ReadonlyArray<Location>> =>
         memo.entries.pipe(
           Effect.map((modules) =>
-            Array.filter(Array.fromIterable(modules.keys()), (path) => within(dir, path)),
+            Array.fromIterable(modules.keys()).filter((path) => within(dir, path)),
           ),
           Effect.tap((paths) => evict(paths)),
         ),
@@ -786,7 +923,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
 A file's corpus is the looms around it that belong to its project, discovered from disk rather than named in imports. `buildCorpus` lists the file's corpus directory through the source and builds each loom the listing returns. So a book reaches the chapters it places and an anchor reaches the section it names, with nothing imported by hand. A source that lists nothing — a single document held in memory — yields a corpus of one.
 
-Which looms share a file's corpus depends on where the looms are kept, so the compiler leaves the answer to the source. `corpusPaths` asks the source's `list` for the looms around the entry, and puts the entry first whether or not the listing names it. `DocumentSource` asks the `WorkspaceSource` service's `corpusOf` method. On the file system, that method applies the one rule every walk over a workspace follows, the rule the chapter on the looms in a project sets out, as the chapter "Where a workspace is kept" describes. So the corpus the editor composes is the corpus `tangle` writes and `orphans` counts.
+Which looms share a file's corpus depends on where the looms are kept, so the compiler leaves the answer to the source. `corpusPaths` asks the source's `list` for the looms around the entry. It keeps the order the listing gives, so every loom of a corpus sees the corpus in one order, and it puts the entry first only when the listing does not name it. `DocumentSource` asks the `WorkspaceSource` service's `corpusOf` method. On the file system, that method applies the one rule every walk over a workspace follows, the rule the chapter on the looms in a project sets out, as the chapter "Where a workspace is kept" describes. So the corpus the editor composes is the corpus `tangle` writes and `orphans` counts.
 
 The whole corpus is what navigation resolves against, so a name reaches a section wherever in the corpus it lives. The tangle and the diagnose narrow it: each scopes to the entry and the sections it composes across files, through `reachable`, so tangling one file never reaches a sibling it should not, and a broken sibling never fails a neighbour's build.
 
@@ -798,36 +935,56 @@ type Modules = ReadonlyMap<Location, LoomModule>
 
 const scopedTo = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
   const keep = new Set(paths)
-  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
+  return new Map(Array.fromIterable(modules).filter(([p]) => keep.has(p)))
 }
 
 ~
 
-A `Corpus` pairs the modules with the registry they were built with, as `corpusOf` gives them. `without` drops the modules a set of paths names. `inTrope` tells a chapter of a trope, a root or a member, by the trope its frontmatter names. `anchorLabels` lists the labels an anchor may take where it stands: the core's kinds, then each declared kind that stands there, or anywhere. `declaredIn` reads from a registry what a build is handed: each kind of section, of anchor, and of box as a name with its parameters, with the rule a kind of section or of anchor follows, each kind of loom with what its trope says of its looms, and the keys any heading may carry as one table. `sameDeclared` tells whether two builds were handed the same.
+A `Corpus` pairs the modules with the registry they were built with, as `corpusOf` gives them. A `KeptCorpus` is a corpus the compiler gave, with what it held when it gave it: the memo's map of modules and the kinds the workspace installs. `sameModules` tells whether two maps hold the very same modules in the same order. `without` drops the modules a set of paths names. `inTrope` tells a chapter of a trope, a root or a member, by the trope its frontmatter names. A `Waiting` is a loom that waits for the registry: the builder's parse of it, with the settings its build takes. `wasBuiltWith` tells whether a module the disk cache kept was built with what its caller wants, and any kept module suits a caller that wants nothing in particular. `anchorLabels` lists the labels an anchor may take where it stands: the core's kinds, then each declared kind that stands there, or anywhere. `declaredIn` reads from a registry what a build is handed: each kind of section, of anchor, and of box as a name with its parameters, with the rule a kind of section or of anchor follows, each kind of loom with what its trope says of its looms, and the keys any heading may carry as one table.
 
 =>
 
 type Corpus = { readonly modules: Modules; readonly kinds: DeclaredKinds }
 
+type KeptCorpus = {
+  readonly held: Modules
+  readonly installed: Declarations
+  readonly corpus: Corpus
+}
+
+const sameModules = (one: Modules, other: Modules): boolean =>
+  one.size === other.size &&
+  Array.zip(Array.fromIterable(one), Array.fromIterable(other)).every(
+    ([[path, module], [otherPath, otherModule]]) => path === otherPath && module === otherModule,
+  )
+
 const without = (modules: Modules, paths: ReadonlyArray<Location>): Modules => {
   const drop = new Set(paths)
-  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => !drop.has(p)))
+  return new Map(Array.fromIterable(modules).filter(([p]) => !drop.has(p)))
 }
 
 const inTrope = (module: LoomModule): boolean => Option.isSome(tropeOf(module))
+
+type Waiting = { readonly loom: ParsedLoom; readonly settings: BuildSettings }
+
+const wasBuiltWith =
+  (wanted: Option.Option<Declared>) =>
+  (kept: Built): boolean =>
+    Option.match(wanted, {
+      onNone: () => true,
+      onSome: (declared) => kept.builtAs === declaredKey(declared),
+    })
 
 const anchorLabels = (
   kinds: DeclaredKinds,
   standing: Option.Option<Standing>,
 ): ReadonlyArray<string> => [
   ...anchorKinds,
-  ...Array.map(
-    Array.filter(
-      kinds.anchor,
+  ...kinds.anchor
+    .filter(
       (declared) => !Option.exists(declared.standsIn, (place) => !Option.contains(standing, place)),
-    ),
-    (declared) => declared.kind,
-  ),
+    )
+    .map((declared) => declared.kind),
 ]
 
 const keyedKind = (declared: {
@@ -836,21 +993,18 @@ const keyedKind = (declared: {
 }): KeyedKind => ({ kind: declared.kind, parameters: declared.parameters })
 
 const declaredIn = (kinds: DeclaredKinds): Declared => ({
-  section: Array.map(kinds.section, (each) => ({ ...keyedKind(each), codeless: each.codeless })),
-  anchor: Array.map(kinds.anchor, (each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
-  box: Array.map(kinds.box, keyedKind),
-  loom: Array.map(kinds.loom, (each) => ({
+  section: kinds.section.map((each) => ({ ...keyedKind(each), codeless: each.codeless })),
+  anchor: kinds.anchor.map((each) => ({ ...keyedKind(each), standsIn: each.standsIn })),
+  box: kinds.box.map(keyedKind),
+  loom: kinds.loom.map((each) => ({
     kind: each.kind,
     numbered: each.numbered,
     zone: each.zone,
     codeless: each.codeless,
     holds: each.holds,
   })),
-  headings: Object.fromEntries(Array.map(kinds.headings, (each) => [each.key, each.type] as const)),
+  headings: Object.fromEntries(kinds.headings.map((each) => [each.key, each.type] as const)),
 })
-
-const sameDeclared = (one: Declared, other: Declared): boolean =>
-  JSON.stringify(one) === JSON.stringify(other)
 
 ## Resolving the entry
 
@@ -897,14 +1051,14 @@ const namesakeFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray
         DuplicateName({
           name: title.source,
           sibling: 'chapter',
-          where: Array.join(Array.map(looms, loomName), ', '),
+          where: looms.map(loomName).join(', '),
         }),
         title.position,
       ).diagnostics,
   })
 
 const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  Array.flatMap(linksOf(module), (link) => {
+  linksOf(module).flatMap((link) => {
     const trails = anchorTrails(catalogue, module.path, link)
     return Array.match(trails, {
       onEmpty: () =>
@@ -924,10 +1078,9 @@ const linkFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
   })
 
 const referenceFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> =>
-  pipe(
-    referencesOf(module),
-    Array.filter((held) => !isTropeEntry(held)),
-    Array.flatMap((held) =>
+  referencesOf(module)
+    .filter((held) => !isTropeEntry(held))
+    .flatMap((held) =>
       Array.match(referenceTrails(catalogue, module.path, held), {
         onEmpty: () =>
           faulty(
@@ -946,8 +1099,7 @@ const referenceFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArra
                 held.value.position,
               ).diagnostics,
       }),
-    ),
-  )
+    )
 
 const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Diagnostic> => [
   ...Option.match(bookTwinsOf(catalogue, module), {
@@ -957,7 +1109,7 @@ const bookFaults = (catalogue: Catalogue, module: LoomModule): ReadonlyArray<Dia
         DuplicateName({
           name: title.source,
           sibling: 'book',
-          where: Array.join(Array.map(looms, loomName), ', '),
+          where: looms.map(loomName).join(', '),
         }),
         title.position,
       ).diagnostics,
@@ -1001,7 +1153,7 @@ const namedLanguages = (module: LoomModule): ReadonlyArray<NamedLanguage> =>
       Option.flatMap(Option.fromNullishOr(module.doc.frontmatter?.package), (named) =>
         Option.map(singleFile(Option.some(named.value)), () => fileLanguage(named)),
       ),
-      ...Array.map(module.doc.sections, sectionLanguageAt),
+      ...module.doc.sections.map(sectionLanguageAt),
     ],
     Array.getSomes,
     Array.dedupeWith((one, other) => one.language === other.language),
@@ -1015,13 +1167,11 @@ const languageFaults = (
     onNone: (): ReadonlyArray<Diagnostic> => [],
     onSome: (languages) => {
       const servedHere = [...ownLanguages, ...languages]
-      return pipe(
-        namedLanguages(module),
-        Array.filter(({ language }) => !Array.contains(servedHere, language)),
-        Array.flatMap(
+      return namedLanguages(module)
+        .filter(({ language }) => !Array.contains(servedHere, language))
+        .flatMap(
           ({ language, position }) => faulty(UnservedLanguage({ language }), position).diagnostics,
-        ),
-      )
+        )
     },
   })
 
@@ -1048,9 +1198,9 @@ const corpusDiagnostics = (
   served: Option.Option<ReadonlyArray<string>>,
 ) => {
   const catalogue = catalogueOf(modules)
-  const landing = landingOf(catalogue, modules)
+  const landing = landingOf(modules)
   const boundaries = boundariesOf(modules, catalogue, tropesOf(modules))
-  const used = usedSections(catalogue, modules)
+  const used = usedSections(modules)
   return (module: LoomModule): ReadonlyArray<Diagnostic> => [
     ...moduleDiagnostics(module),
     ...crossFileFaults(catalogue, modules, module, landing),
@@ -1064,10 +1214,7 @@ const corpusDiagnostics = (
     ...driftFaults(catalogue, module, relations),
     ...languageFaults(served, module),
     ...boundaryFaults(boundaries, catalogue, modules, module),
-    ...Array.flatMap(
-      boxNoticesIn({ modules }, module),
-      (notice) => boxNoticeHealth(notice).diagnostics,
-    ),
+    ...boxNoticesIn({ modules }, module).flatMap((notice) => boxNoticeHealth(notice).diagnostics),
   ]
 }
 
@@ -1081,9 +1228,15 @@ const corpusDiagnostics = (
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. Neither does a module anchor whose path its package could not write, which fails the tangle after the files are composed. The failure is loud, and names every file and line.
 
+A tangle of a book asks about one loom once for every entry that reaches it. So the judgement of each module is kept for a state of the corpus. `tangleFaults` gives, for a `Corpus`, the function that judges one of its modules, and `memoize` keeps both that function and each answer it gives. A loom is then judged once in a tangle of the whole book, however many entries reach it.
+
 A tangle also refuses a file whose composition reaches a section to be settled, a section that holds no code yet or one an anchor labels `{To be settled}` before anyone declares it. The editor treats such a section as a note, since nothing is wrong while the author writes, but a file that composed one would ship without the code its anchor names. `unsettledFailures` walks the composition of each file the entry tangles through `unsettledIn`, and turns each unsettled reference into the `UnsettledSection` note, grouped by the loom that holds it. A chapter named whole whose opening section holds no code is refused the same way, and so is a module anchor that names a module nobody has written yet, with the `UnsettledModule` note. The refusal counts problems rather than errors, since a note is no error.
 
 =>
+
+const tangleFaults: (corpus: Corpus) => (module: LoomModule) => ReadonlyArray<Diagnostic> = memoize(
+  (corpus: Corpus) => memoize(corpusDiagnostics(corpus.modules, corpus.kinds, [], Option.none())),
+)
 
 export interface TangledFile {
   readonly section: string
@@ -1108,7 +1261,7 @@ const resolveSinks = (
       onNone: () => Effect.succeed<Resolved>({ files: [], unwritten: [] }),
       onSome: (module) => {
         const catalogue = catalogueOf(modules)
-        const landing = landingOf(catalogue, modules)
+        const landing = landingOf(modules)
         return Effect.forEach(module.product.files, (file) =>
           placeOf(entry, file.path).pipe(
             Effect.flatMap((path) =>
@@ -1126,8 +1279,8 @@ const resolveSinks = (
           ),
         ).pipe(
           Effect.map((each) => ({
-            files: Array.map(each, (one) => one.file),
-            unwritten: Array.flatMap(each, (one) => one.unwritten),
+            files: each.map((one) => one.file),
+            unwritten: each.flatMap((one) => one.unwritten),
           })),
         )
       },
@@ -1144,7 +1297,7 @@ const unsettledFailures = (
     Option.match({
       onNone: (): ReadonlyArray<Unsettled> => [],
       onSome: (module) =>
-        Array.flatMap(module.product.files, (file) => unsettledIn(modules, file.code, catalogue)),
+        module.product.files.flatMap((file) => unsettledIn(modules, file.code, catalogue)),
     }),
     Array.dedupeWith(
       (one, other) =>
@@ -1154,8 +1307,7 @@ const unsettledFailures = (
     Record.toEntries,
     Array.map(([path, unsettled]) => ({
       path,
-      diagnostics: Array.flatMap(
-        unsettled,
+      diagnostics: unsettled.flatMap(
         (one) =>
           faulty(
             one.moduleAnchor
@@ -1251,7 +1403,7 @@ const byLoom = (
     unwritten,
     Array.groupBy((one) => one.path),
     Record.toEntries,
-    Array.map(([path, each]) => ({ path, diagnostics: Array.map(each, (one) => one.diagnostic) })),
+    Array.map(([path, each]) => ({ path, diagnostics: each.map((one) => one.diagnostic) })),
   )
 
 ## Locating a source span
@@ -1303,7 +1455,7 @@ const frameLocationOf = (
 const frameFixOf = (modules: Modules, fix: ConceptFix): FrameFix => ({
   title: fix.title,
   edits: Array.getSomes(
-    Array.map(fix.edits, (edit) =>
+    fix.edits.map((edit) =>
       Option.map(
         frameLocationOf(modules, { path: edit.path, position: edit.at }),
         (location): FrameEdit => ({ ...location, text: edit.text }),
@@ -1353,54 +1505,45 @@ const kindFaceOf = (frontmatter: LoomFrontmatter): { readonly value: string } | 
     })),
   )
 
-const partFaceOf = (part: Part): string =>
-  Match.value(part).pipe(
-    Match.when({ type: 'Fragment' }, (fragment) => fragment.text),
-    Match.when({ type: 'NameRef' }, (ref) =>
-      Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
-    ),
-    Match.when(
-      { type: 'ModuleRef' },
-      (ref) =>
-        `module ${Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf })} ${Option.match(
-          ref.file,
-          { onNone: () => '', onSome: (file) => file.name },
-        )}`,
-    ),
-    Match.exhaustive,
-  )
+const partFaceOf: (part: Part) => string = byType<Part>()({
+  Fragment: (fragment) => fragment.text,
+  NameRef: (ref) =>
+    Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf }),
+  ModuleRef: (ref) =>
+    `module ${Option.match(ref.target, { onNone: () => ref.name, onSome: keyOf })} ${Option.match(
+      ref.file,
+      { onNone: () => '', onSome: (file) => file.name },
+    )}`,
+})
 
 const faceOf = (module: LoomModule): string =>
   JSON.stringify({
     frontmatter: Option.match(Option.fromNullishOr(module.doc.frontmatter), {
       onNone: () => [],
       onSome: (frontmatter) =>
-        Array.map(
-          [
-            frontmatter.part,
-            frontmatter.partName,
-            frontmatter.chapter,
-            frontmatter.discussion,
-            kindFaceOf(frontmatter),
-            frontmatter.title,
-            frontmatter.package,
-            frontmatter.language,
-          ],
-          tokenValue,
-        ),
+        [
+          frontmatter.part,
+          frontmatter.partName,
+          frontmatter.chapter,
+          frontmatter.discussion,
+          kindFaceOf(frontmatter),
+          frontmatter.title,
+          frontmatter.package,
+          frontmatter.language,
+        ].map(tokenValue),
     }),
-    titles: Array.map(module.doc.sections, (section) =>
+    titles: module.doc.sections.map((section) =>
       Option.getOrElse(
         Option.map(Option.fromNullishOr(section.heading.title), (title) => title.source),
         () => '',
       ),
     ),
-    code: Array.map(module.product.code, (code) => [
+    code: module.product.code.map((code) => [
       code.origin.name,
       code.languageId,
-      Array.map(code.fragments, partFaceOf),
+      code.fragments.map(partFaceOf),
     ]),
-    files: Array.map(module.product.files, (file) => [file.path, file.code.origin.name]),
+    files: module.product.files.map((file) => [file.path, file.code.origin.name]),
   })
 
 ## Composing only what changed
@@ -1451,8 +1594,7 @@ const samePlaces = (
 ): boolean =>
   Option.match(Option.all([Option.fromNullishOr(before), Option.fromNullishOr(after)]), {
     onNone: () => before === after,
-    onSome: ([was, now]) =>
-      was.length === now.length && Array.every(was, (path, i) => path === now[i]),
+    onSome: ([was, now]) => was.length === now.length && was.every((path, i) => path === now[i]),
   })
 
 const changedSince = (
@@ -1460,8 +1602,7 @@ const changedSince = (
   modules: Modules,
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): ReadonlyArray<Location> =>
-  Array.filter(
-    Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
+  Array.dedupe([...previous.modules.keys(), ...modules.keys()]).filter(
     (path) =>
       previous.modules.get(path) !== modules.get(path) ||
       !samePlaces(previous.placed.get(path), placed.get(path)),
@@ -1491,7 +1632,7 @@ const recompose = (
   const stale = staleSince(previous, modules, placed)
   if (stale.size === 0) return Effect.succeed({ ...previous, modules, placed })
   const catalogue = catalogueOf(modules)
-  const landing = landingOf(catalogue, modules)
+  const landing = landingOf(modules)
   return Effect.forEach(Array.fromIterable(modules.values()), (module) =>
     pipe(
       Option.fromNullishOr(previous.files.get(module.path)),
@@ -1513,7 +1654,7 @@ const recompose = (
 }
 
 const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
-  Array.flatten(Array.fromIterable(composition.files.values()))
+  Array.fromIterable(composition.files.values()).flat()
 
 ## The names a root is promised
 
@@ -1536,17 +1677,14 @@ const promisedNamesIn = (
     Option.match({
       onNone: (): ReadonlyArray<PromisedName> => [],
       onSome: (root) =>
-        pipe(
-          unsettledIn(modules, root),
-          Array.flatMap((unsettled) =>
-            Array.map(unsettled.provides, (provided): PromisedName => ({
+        Array.dedupeWith(
+          unsettledIn(modules, root).flatMap((unsettled) =>
+            unsettled.provides.map((provided): PromisedName => ({
               name: provided.name,
               section: unsettled.name,
             })),
           ),
-          Array.dedupeWith(
-            (one, other) => one.name === other.name && one.section === other.section,
-          ),
+          (one, other) => one.name === other.name && one.section === other.section,
         ),
     }),
   )
@@ -1562,13 +1700,13 @@ const namesAt = (modules: Modules, path: Location): ReadonlyArray<string> =>
     Option.fromNullishOr(modules.get(path)),
     Option.match({
       onNone: () => [],
-      onSome: (module) => Array.map(module.product.code, (c) => c.origin.name),
+      onSome: (module) => module.product.code.map((c) => c.origin.name),
     }),
   )
 
 const rootsAt = (modules: Modules, path: Location): ReadonlyArray<string> => {
   const roots = rootNamesAt(modules, path)
-  return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
+  return namesAt(modules, path).filter((name) => roots.has(name.toLowerCase()))
 }
 
 const projectTree = (
@@ -1581,15 +1719,12 @@ const projectTree = (
     entry.text,
     [
       fromProse(modules, entry.path),
-      ...pipe(
-        rootsAt(modules, entry.path),
-        Array.map((name) =>
-          fromProduct(
-            modules,
-            { path: entry.path, name },
-            catalogue,
-            Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
-          ),
+      ...rootsAt(modules, entry.path).map((name) =>
+        fromProduct(
+          modules,
+          { path: entry.path, name },
+          catalogue,
+          Option.getOrElse(Option.fromNullishOr(specifiers.get(name)), () => noSpecifiers),
         ),
       ),
     ],
@@ -1619,19 +1754,20 @@ const productFeatures: CodeMapping['data'] = {
   structure: true,
 }
 
-const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
-  Match.value(kind).pipe(
-    Match.when('source', () => ({
-      verification: true,
-      format: true,
-      semantic: { shouldHighlight: () => false },
-      completion: true,
-      structure: true,
-    })),
-    Match.when('product', () => productFeatures),
-    Match.when(Match.defined, (symbol) => profileOf(symbol).features),
-    Match.orElse(() => productFeatures),
-  )
+const featuresOf: (kind: Mapping['kind']) => CodeMapping['data'] = Match.type<
+  Mapping['kind']
+>().pipe(
+  Match.when('source', () => ({
+    verification: true,
+    format: true,
+    semantic: { shouldHighlight: () => false },
+    completion: true,
+    structure: true,
+  })),
+  Match.when('product', () => productFeatures),
+  Match.when(Match.defined, (symbol) => profileOf(symbol).features),
+  Match.orElse(() => productFeatures),
+)
 
 const toCodeMapping = (m: Mapping): CodeMapping => ({
   sourceOffsets: [m.source.start.offset],
@@ -1645,8 +1781,8 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   id: vc.id,
   languageId: vc.languageId,
   snapshot: stringSnapshot(vc.code),
-  mappings: Array.map(vc.mappings, toCodeMapping),
-  embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
+  mappings: vc.mappings.map(toCodeMapping),
+  embeddedCodes: vc.embeddedCodes.map(toVolar),
 })
 
 ## The document source
@@ -1655,7 +1791,7 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 
 Its `hold` method keeps the text of each loom it is given, keyed by path, and replaces any text it held for those looms. The language server hands it every loom of the workspace that the `open` method of the `WorkspaceSource` service fetches, as the chapter "Where a workspace is kept" describes. Later the server hands it each loom that storage reports as changed. Its `forget` method drops a loom that storage no longer holds. A read of that loom then goes to the `WorkspaceSource` service and fails, as a read of a deleted file does. In short, the `WorkspaceSource` service fetches, and `DocumentSource` remembers.
 
-It also lists a loom's corpus. `list` asks the `WorkspaceSource` service's `corpusOf` method for the looms that share the loom's corpus, the siblings the compiler builds into one corpus. On the file system the method walks through `loomsIn`, as the tangler does, so every listing of a corpus follows the same rule.
+It also lists a loom's corpus. `list` asks the `WorkspaceSource` service's `corpusOf` method for the looms that share the loom's corpus, the siblings the compiler builds into one corpus. On the file system the method walks as `loomsIn` does for the tangler, so every listing of a corpus follows the same rule.
 
 =>
 
@@ -1676,7 +1812,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
       hold: (looms: ReadonlyMap<Location, string>): Effect.Effect<void> =>
         Ref.update(held, (texts) => new Map([...texts, ...looms])),
       forget: (loom: Location): Effect.Effect<void> =>
-        Ref.update(held, (texts) => new Map(Array.filter([...texts], ([path]) => path !== loom))),
+        Ref.update(held, (texts) => new Map([...texts].filter(([path]) => path !== loom))),
       list: Option.some((loom: Location): Effect.Effect<ReadonlyArray<Location>> => source.corpusOf(loom)),
     }
   }),
@@ -1686,7 +1822,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Catalogue` that a judgement and a projection resolve names through, with `catalogueOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `bookTwinsOf` and `unopenedBookOf`, which judge the book a `Book:` line names, `linksOf` and `anchorTrails`, which find the links in prose and resolve them, with `pathsTo`, which names each candidate of an ambiguous link, `referencesOf` and `referenceTrails`, which find the references that braces hold and the places each could name, with `isTropeEntry`, which tells a trope box's own, `hoverAt`, which gives a concept's card, `conceptSymbolsIn`, which gives the concepts a symbol search finds, and `conceptRenameAt`, which keeps a concept's old name as a form, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, `usedSections` and `unusedSections`, which find the code no file includes, `extensionLanguage`, which tells the language an extension belongs to, and `singleFile`, which tells a `Package` that names a file; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels, `headingLangToken`, which gives the token that names a heading's language, and the `Keys` a kind's parameters are; the fault catalog's `faulty`, with the `AmbiguousAnchor`, `DuplicateName`, `UnopenedBook`, `UnservedLanguage`, `UnresolvedLink`, `UnresolvedReference`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, as the `DeclaredKinds` a corpus is built with, and judge each module's boxes against them, with `Declarations` and `noDeclarations` for what a workspace installs, `tropeOf`, which reads the trope a chapter names, `tropesOf`, which gathers each trope's chapters, and, from the row of small passes, the `Declared` a build is handed, the `KeyedKind` it lists, and `nothingDeclared`, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. The scopes of concepts lend `vocabulariesIn`, which gives every vocabulary of a corpus, and the answers recognition gives the editor: `recognisedDefinitionAt`, `recognisedHoverAt`, `recognisedRangeAt`, and `conceptReferencesAt` for a recognised word, `linksAt` for a word two concepts claim, and `movesAt` for a concept that moves up, each offer a `ConceptFix`. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameEdit`, a range paired with the text a rename writes there when it is not the new name, `FrameHover`, a range paired with the card `hover` returns, `FrameSymbol`, a concept as `symbols` returns it, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, `FrameFix`, an offer the editor applies as it stands, which `links` returns, `FrameMove`, the targets of a concept's move, which `moves` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. `LoomSection` is a section of a loom, whose heading may name a language. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From Effect comes `memoize`, which keeps what is computed from a state of the corpus. From the node foundation comes `byType`, which tells the parts of a section's code apart. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam, `ReadError`, and the `ParsedLoom` its `parse` gives; the projection functions `fromCode`, `fromProduct`, `fromProse`, `unsettledIn` with the `Unsettled` reference it finds, `contractsIn`, which reads what each anchor says its section provides, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Catalogue` that a judgement and a projection resolve names through, with `catalogueOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, `bookTwinsOf` and `unopenedBookOf`, which judge the book a `Book:` line names, `linksOf` and `anchorTrails`, which find the links in prose and resolve them, with `pathsTo`, which names each candidate of an ambiguous link, `referencesOf` and `referenceTrails`, which find the references that braces hold and the places each could name, with `isTropeEntry`, which tells a trope box's own, `hoverAt`, which gives a concept's card, `conceptSymbolsIn`, which gives the concepts a symbol search finds, and `conceptRenameAt`, which keeps a concept's old name as a form, `boxNoticesIn` with the `BoxNotice` it gives, which says what each box of a loom that points to a loom needs, `openedBoxesOf` with the `OpenedBox` it gives and `captionOf`, which give each box of a loom and its caption, with the `LoomWeft` a box's lines are, `refreshedSummaries`, which brings every box back in step, and `syncedSummaries`, which carries an edit to a box or its loom across to the other, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for, and `labelSlotAt`, which finds the braces after an anchor that the cursor stands in; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus, `compositionCycles`, which faults a composing anchor that loops back to its own section, `usedSections` and `unusedSections`, which find the code no file includes, `extensionLanguage`, which tells the language an extension belongs to, and `singleFile`, which tells a `Package` that names a file; the `anchorKinds` from `LoomTokens`, the kinds an anchor takes, which the editor offers as labels, `headingLangToken`, which gives the token that names a heading's language, and the `Keys` a kind's parameters are; the fault catalog's `faulty`, with the `AmbiguousAnchor`, `DuplicateName`, `UnopenedBook`, `UnservedLanguage`, `UnresolvedLink`, `UnresolvedReference`, `UnsettledSection`, `UnwrittenLoom`, `UnsettledTrope`, and `StaleSummary` notes and faults the compiler raises itself, and `faultAt`, which gives the `MissingSymbol` diagnostic a contract hands the editor; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it, the `Built` it gives and `declaredKey`, which writes what a module was built with, beside the `BuildSettings` a loom's build takes. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. `declaredKindsOf` and `kindFaults` from the registry gather what tropes declare, as the `DeclaredKinds` a corpus is built with, and judge each module's boxes against them, with `Declarations` and `noDeclarations` for what a workspace installs, `tropeOf`, which reads the trope a chapter names, `tropeIn`, which reads it from a parsed tree, `tropesOf`, which gathers each trope's chapters, and, from the row of small passes, the `Declared` a build is handed, the `KeyedKind` it lists, and `nothingDeclared`, `TropePackages` reads the kinds of the tropes a workspace installs, and `boundariesOf` and `boundaryFaults` derive each trope's boundary and judge each module's reaches against them. The scopes of concepts lend `vocabulariesIn`, which gives every vocabulary of a corpus, and the answers recognition gives the editor: `recognisedDefinitionAt`, `recognisedHoverAt`, `recognisedRangeAt`, and `conceptReferencesAt` for a recognised word, `linksAt` for a word two concepts claim, and `movesAt` for a concept that moves up, each offer a `ConceptFix`. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameEdit`, a range paired with the text a rename writes there when it is not the new name, `FrameHover`, a range paired with the card `hover` returns, `FrameSymbol`, a concept as `symbols` returns it, `FrameToken`, a range paired with the colour `semanticTokens` returns, `FrameHint`, a position paired with the label `hints` returns, `FrameBox`, a box's lines paired with its caption, which `boxes` returns, `FrameCompletion`, a label paired with the range it replaces and the text it writes there, which `completions` returns, `FrameContract`, which `contracts` returns, `FrameFix`, an offer the editor applies as it stands, which `links` returns, `FrameMove`, the targets of a concept's move, which `moves` returns, and `PromisedName`, which `promised` returns. `Diagnostic` carries an error's message and place, and `Health` the diagnostics a judgement gives. `LoomSection` is a section of a loom, whose heading may name a language. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, `Record` for grouping the unsettled references of a tangle, and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 Module anchors add a few more. From the product pass comes what fits a module anchor to its file: `moduleFileOf`, the `ModuleFile` it answers, the `Landing` it reads, `landingOf`, which builds the landing, and `holdsModuleRefs`, which tells whether a corpus holds a module anchor at all. The projection gives `moduleRefsIn`, which gathers a root's module anchors as `HeldModuleRef`s, and the `Specifiers` the projection writes them with, `noSpecifiers` among them. The product model gives the `Code` of a root, and `Position` keys a specifier by its anchor's place. The fault catalog gives `UnsettledModule` and `SpecifierUnknown`, and the language-service contract gives the `SpecifierRequest` a package answers and the `ServiceError` it fails with. `LanguagePackages` is the service that asks the packages, which the environment may provide.
 
@@ -1694,12 +1830,18 @@ Module anchors add a few more. From the product pass comes what fits a module an
 
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
+import { memoize } from 'effect/Function'
 import { join, sep } from 'node:path'
 import type * as ts from 'typescript'
-import { type Diagnostic, type Health, type Position } from '@athrio/loom-ast/LoomNode'
+import { type Diagnostic, type Health, type Position, byType } from '@athrio/loom-ast/LoomNode'
 import type { LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
 import { type LoomWeft } from '@athrio/loom-ast/Weft'
-import { LoomCorpusAstBuilder, type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import {
+  LoomCorpusAstBuilder,
+  type ParsedLoom,
+  type ReadError,
+  type Source,
+} from '#ast/LoomCorpusAstBuilder'
 import {
   catalogueOf,
   type Catalogue,
@@ -1801,6 +1943,7 @@ import {
   declaredKindsOf,
   kindFaults,
   noDeclarations,
+  tropeIn,
   tropeOf,
   tropesOf,
 } from '#ast/DeclaredKinds'
@@ -1845,8 +1988,8 @@ import {
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
-import { LoomDiskCache } from './LoomDiskCache'
-import { WorkspaceSettings } from './WorkspaceSettings'
+import { type Built, declaredKey, LoomDiskCache } from './LoomDiskCache'
+import { type BuildSettings, WorkspaceSettings } from './WorkspaceSettings'
 import { type RelationsNotKept, WorkspaceSource } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
@@ -2122,11 +2265,11 @@ The `invalidate` verb evicts a loom from the cache and names what an edit to tha
 
 ~
 
-The memo keeps every module the compiler builds, so a second request rebuilds nothing. The first `reach` builds the book and the chapter, two misses that leave two modules in the memo. The second `reach` finds both modules there. The misses stay at two, and the hits grow.
+The memo keeps every module the compiler builds, so a second request rebuilds nothing. The first `reach` builds the book and the chapter, two misses that leave two modules in the memo. The second `reach` is answered from the corpus the compiler kept, so the memo is not asked at all and its counts stand as they were. A `reach` from the chapter is a request the compiler has not answered before. It lists the corpus again and finds both modules in the memo, so the misses stay at two.
 
 =>
 
-  it.effect('reuses built modules across requests (the memo)', () =>
+  it.effect('builds each module once, and keeps the corpus between requests', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const memo = yield* LoomMemo
@@ -2135,10 +2278,118 @@ The memo keeps every module the compiler builds, so a second request rebuilds no
       expect(first).toMatchObject({ misses: 2, size: 2 })
 
       yield* c.reach('/book.loom')
-      const second = yield* memo.stats
-      expect(second.misses).toBe(2)
-      expect(second.hits).toBeGreaterThan(first.hits)
+      expect(yield* memo.stats).toEqual(first)
+
+      yield* c.reach('/chapter.loom')
+      expect(yield* memo.stats).toMatchObject({ misses: 2, size: 2 })
     }).pipe(Effect.provide(layer)),
+  )
+})
+
+## A loom is parsed once and finished once
+
+A process that starts over a corpus nobody has built must not build that corpus twice. The registry is read from the chapters of tropes, and no loom can be finished until it is read. So the compiler parses each loom, reads the registry, and only then finishes each loom. This case counts the builder's steps, to hold the compiler to that order.
+
+`Steps` keeps three counts: how often the builder parsed a loom, finished one, and built one whole. `CountedBuilder` stands in front of the real builder and counts each call before it passes the call on. The compiler under test is made from `LoomCompiler.make` over that builder, so every step the compiler takes is counted. The case reads the counts from the very `Steps` the builder writes, since Effect builds a layer once.
+
+=>
+
+import { Context, Ref } from 'effect'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { WeaveBuilder } from '../src/weave/WeaveBuilder'
+
+type Step = 'parsed' | 'finished' | 'built'
+
+class Steps extends Context.Service<Steps>()('Steps', {
+  make: Effect.map(Ref.make<Record<Step, number>>({ parsed: 0, finished: 0, built: 0 }), (counts) => ({
+    counts,
+  })),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+const CountedBuilder = Layer.effect(
+  LoomCorpusAstBuilder,
+  Effect.gen(function* () {
+    const builder = yield* LoomCorpusAstBuilder
+    const { counts } = yield* Steps
+    const counted =
+      <Args extends ReadonlyArray<unknown>, A>(
+        step: Step,
+        run: (...args: Args) => Effect.Effect<A>,
+      ) =>
+      (...args: Args): Effect.Effect<A> =>
+        Ref.update(counts, (was) => ({ ...was, [step]: was[step] + 1 })).pipe(
+          Effect.andThen(run(...args)),
+        )
+    return {
+      parse: counted('parsed', builder.parse),
+      finish: counted('finished', builder.finish),
+      build: counted('built', builder.build),
+    }
+  }),
+).pipe(Layer.provide(Layer.merge(LoomCorpusAstBuilder.layer, Steps.layer)))
+
+~
+
+The corpus holds the book, the chapter, and a trope that declares a kind of box. The trope gives the registry something to say, so every loom must be finished with what it says. The stand-in source reads these three looms, and the layer puts the counted builder under the compiler.
+
+=>
+
+const withTrope: Record<string, string> = {
+  ...files,
+  '/mermaid.loom': lines(
+    '---',
+    'Trope Chapter: Mermaid',
+    '---',
+    '',
+    '# Mermaid',
+    '',
+    '## What it declares {Manifest}',
+    '',
+    '=>',
+    JSON.stringify({
+      contract: '1',
+      contributes: { kinds: { box: [{ kind: 'Mermaid', body: 'text' }] } },
+    }),
+  ),
+}
+
+const TropeDocs = Layer.succeed(DocumentSource, {
+  read: (path: string) => Effect.succeed(withTrope[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(withTrope))),
+  hold: () => Effect.void,
+  forget: () => Effect.void,
+})
+
+const countedLayer = Layer.provide(
+  Layer.merge(
+    Layer.effect(LoomCompiler, LoomCompiler.make).pipe(
+      Layer.provide(Layer.mergeAll(CountedBuilder, LoomMemo.layer, WeaveBuilder.layer)),
+    ),
+    Steps.layer,
+  ),
+  Layer.mergeAll(TropeDocs, TestConfig, FileSystemSource, LoomDiskCache.none),
+)
+
+~
+
+The first `reach` parses the three looms. It finishes the trope's chapter twice, once as core Loom reads it and once with the registry, and each of the other two once. It builds no loom whole, since no module was kept from an earlier process. The case then edits the chapter. The next `reach` parses the chapter and finishes it, and takes no step for the book or the trope.
+
+=>
+
+describe('LoomCompiler — a corpus nobody has built', () => {
+  it.effect('parses each loom once and finishes it once', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const { counts } = yield* Steps
+      yield* c.reach('/book.loom')
+      expect(yield* Ref.get(counts)).toEqual({ parsed: 3, finished: 4, built: 0 })
+
+      yield* c.invalidate('/chapter.loom')
+      yield* c.reach('/book.loom')
+      expect(yield* Ref.get(counts)).toEqual({ parsed: 4, finished: 5, built: 0 })
+    }).pipe(Effect.provide(countedLayer)),
   )
 })
 
@@ -2330,6 +2581,8 @@ The second case changes `c = 1` to `c = 2` in the chapter and invalidates the ch
 ::[Testing the chain over looms held in memory]
 
 ::[What a book reaches, and what the memo keeps]
+
+::[A loom is parsed once and finished once]
 
 ::[The composition as a filesystem]
 

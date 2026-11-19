@@ -83,7 +83,7 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
     [h.Class(hasChapters(model.route) ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
     [
       ...burger(model.route, h),
-      ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
+      ...Array.take(navPages, 2).map((page) => navLink(page, page.route === model.route, h)),
       h.a(
         [
           h.Class('nav-word'),
@@ -96,8 +96,11 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
         ],
       ),
-      ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
-      h.div([h.Class('nav-end')], [findButton('nav-find', 'Search Loom — press /', h), themeSwitch(h)]),
+      ...Array.drop(navPages, 2).map((page) => navLink(page, page.route === model.route, h)),
+      h.div(
+        [h.Class('nav-end')],
+        [findButton('nav-find', 'Search Loom — press /', h), themeSwitch(h)],
+      ),
     ],
   )
 
@@ -126,7 +129,7 @@ const THEME_FACES: ReadonlyArray<readonly [string, string, () => Html]> = [
 const themeSwitch = (h: HtmlBuilder<Message>): Html =>
   h.button(
     [h.Class('theme-switch'), h.Type('button'), h.DataAttribute('theme-toggle', ''), h.Title('Theme')],
-    Array.map(THEME_FACES, ([face, label, icon]) =>
+    THEME_FACES.map(([face, label, icon]) =>
       h.span([h.Class(`theme-face ${face}`)], [icon(), h.span([h.Class('hush')], [label])]),
     ),
   )
@@ -247,11 +250,11 @@ export type Focusable =
   | { readonly kind: 'hit'; readonly page: SearchPage; readonly hit: SearchHit }
 
 export const focusables = (groups: ReadonlyArray<SearchGroup>): ReadonlyArray<Focusable> =>
-  Array.flatMap(groups, (group) => {
+  groups.flatMap((group) => {
     const page = searchPageOf(group.route)
     return [
       { kind: 'page' as const, page },
-      ...Array.map(group.hits, (hit) => ({ kind: 'hit' as const, page, hit })),
+      ...group.hits.map((hit) => ({ kind: 'hit' as const, page, hit })),
     ]
   })
 
@@ -263,46 +266,58 @@ const LINE = 48
 const lineOf = (hit: SearchHit): string =>
   (hit.hit === '' ? hit.pre : `${hit.hit}${hit.post}`).replace(/^…|…$/g, '').slice(0, LINE).trim()
 
-const wordsOf = (hit: SearchHit): string =>
-  Match.value(hit).pipe(
-    Match.when({ meaning: true }, lineOf),
-    Match.when({ hit: '' }, (found) => found.heading),
-    Match.orElse((found) => found.hit),
-  )
+const wordsOf: (hit: SearchHit) => string = Match.type<SearchHit>().pipe(
+  Match.when({ meaning: true }, lineOf),
+  Match.when({ hit: '' }, (found) => found.heading),
+  Match.orElse((found) => found.hit),
+)
 
 const LEAD_IN = 24
 
 const beforeOf = (hit: SearchHit): string =>
   hit.meaning || hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
 
-const openedRow = (focusable: Focusable): Message =>
-  Match.value(focusable).pipe(
-    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '', area: false })),
-    Match.when({ kind: 'hit' }, (row) => openedHit(row.hit)),
-    Match.exhaustive,
-  )
+const openedRow: (focusable: Focusable) => Message = Match.type<Focusable>().pipe(
+  Match.when({ kind: 'page' }, (row) =>
+    OpenedHit({ href: row.page.path, words: '', before: '', area: false }),
+  ),
+  Match.when({ kind: 'hit' }, (row) => openedHit(row.hit)),
+  Match.exhaustive,
+)
 
 const openedHit = (hit: SearchHit): Message =>
   OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit), area: hit.meaning })
 
+const paletteMessage = Match.fn(
+  (
+    _within: {
+      readonly list: ReadonlyArray<Focusable>
+      readonly stay: Message
+      readonly model: Model
+    },
+    key: string,
+  ) => key,
+).pipe(
+  Match.withReturnType<Message>(),
+  Match.when('Escape', () => ClosedSearch()),
+  Match.when('ArrowDown', (_key, { list }) => MovedFocus({ delta: 1, count: list.length })),
+  Match.when('ArrowUp', (_key, { list }) => MovedFocus({ delta: -1, count: list.length })),
+  Match.when('Enter', (_key, { list, stay, model }) =>
+    pipe(
+      focusedIn(list, model.focus),
+      Option.match({
+        onNone: () => stay,
+        onSome: openedRow,
+      }),
+    ),
+  ),
+  Match.orElse((_key, { stay }) => stay),
+)
+
 const paletteKey = (key: string, model: Model): Message => {
   const list = focusables(model.found)
   const stay = MovedFocus({ delta: 0, count: list.length })
-  return Match.value(key).pipe(
-    Match.when('Escape', () => ClosedSearch()),
-    Match.when('ArrowDown', () => MovedFocus({ delta: 1, count: list.length })),
-    Match.when('ArrowUp', () => MovedFocus({ delta: -1, count: list.length })),
-    Match.when('Enter', () =>
-      pipe(
-        focusedIn(list, model.focus),
-        Option.match({
-          onNone: () => stay,
-          onSome: openedRow,
-        }),
-      ),
-    ),
-    Match.orElse(() => stay),
-  )
+  return paletteMessage({ list, stay, model }, key)
 }
 
 const caretMirror = (model: Model, h: HtmlBuilder<Message>): Html => {
@@ -348,14 +363,17 @@ type Pill = {
   readonly mark: Html
 }
 
+const pillLabel = Match.type<Route>().pipe(
+  Match.withReturnType<string>(),
+  Match.when('docs', () => 'Docs'),
+  Match.when('community', () => 'Community'),
+  Match.when('why-loom', () => 'Why Loom'),
+  Match.orElse(() => 'Source'),
+)
+
 const pills: ReadonlyArray<Pill> = [
-  ...Array.map(navPages, (page) => ({
-    label: Match.value(page.route).pipe(
-      Match.when('docs', () => 'Docs'),
-      Match.when('community', () => 'Community'),
-      Match.when('why-loom', () => 'Why Loom'),
-      Match.orElse(() => 'Source'),
-    ),
+  ...navPages.map((page) => ({
+    label: pillLabel(page.route),
     href: page.href,
     mark: carpetMark(page.carpet, '17px'),
   })),
@@ -365,7 +383,7 @@ const pills: ReadonlyArray<Pill> = [
 const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('palette-pills')],
-    Array.map(pills, (pill, index) =>
+    pills.map((pill, index) =>
       h.a(
         [
           h.Class(index === Math.min(focus, pills.length - 1) ? 'pill-link here' : 'pill-link'),
@@ -427,7 +445,7 @@ const groupBlock = (
       ),
       h.div(
         [h.Class('palette-kids')],
-        Array.map(group.hits, (hit, index) => hitRow(page, hit, focus === from + 1 + index, h)),
+        group.hits.map((hit, index) => hitRow(page, hit, focus === from + 1 + index, h)),
       ),
     ],
   )
@@ -442,21 +460,16 @@ const focusedPage = (model: Model): SearchPage =>
 
 const results = (model: Model, h: HtmlBuilder<Message>): Html => {
   const groups = model.found
-  const starts = pipe(
-    groups,
-    Array.map((group) => group.hits.length + 1),
-    Array.reduce([0] as ReadonlyArray<number>, (acc, size) => [
-      ...acc,
-      (acc[acc.length - 1] ?? 0) + size,
-    ]),
-  )
+  const starts = groups
+    .map((group) => group.hits.length + 1)
+    .reduce((acc, size) => [...acc, (acc[acc.length - 1] ?? 0) + size], [
+      0,
+    ] as ReadonlyArray<number>)
   return h.div(
     [h.Class('palette-body')],
     groups.length === 0
       ? [h.span([h.Class('palette-empty')], [`no match for “${model.query.trim()}”`])]
-      : Array.map(groups, (group, index) =>
-          groupBlock(group, model.focus, starts[index] ?? 0, h),
-        ),
+      : groups.map((group, index) => groupBlock(group, model.focus, starts[index] ?? 0, h)),
   )
 }
 
@@ -495,24 +508,26 @@ const hintBar = (model: Model, page: SearchPage, h: HtmlBuilder<Message>): Html 
       h.span([h.Class('palette-key')], ['⏎ open']),
       h.span(
         [h.Class('count')],
-        [countOf(Array.reduce(model.found, 0, (total, group) => total + group.hits.length))],
+        [countOf(model.found.reduce((total, group) => total + group.hits.length, 0))],
       ),
     ],
   )
 
-const paletteMiddle = (
-  model: Model,
-  page: SearchPage,
-  h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  Match.value({
+const paletteMiddle = Match.fn(
+  (
+    model: Model,
+    _page: SearchPage,
+    _h: HtmlBuilder<Message>,
+  ) => ({
     typed: model.query.trim() !== '',
     settling: model.searching && model.found.length === 0,
-  }).pipe(
-    Match.when({ typed: false }, () => [pillRow(model.focus, h)]),
-    Match.when({ settling: true }, () => [searching(page, h)]),
-    Match.orElse(() => [results(model, h), hintBar(model, page, h)]),
-  )
+  }),
+).pipe(
+  Match.withReturnType<ReadonlyArray<Html>>(),
+  Match.when({ typed: false }, (_facts, model, _page, h) => [pillRow(model.focus, h)]),
+  Match.when({ settling: true }, (_facts, _model, page, h) => [searching(page, h)]),
+  Match.orElse((_facts, model, page, h) => [results(model, h), hintBar(model, page, h)]),
+)
 
 export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
   const page = focusedPage(model)
@@ -586,7 +601,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
               ),
               h.div(
                 [h.Class('footer-chips')],
-                Array.map(footerLinks, (link) =>
+                footerLinks.map((link) =>
                   h.a(
                     [
                       h.Class('footer-chip'),

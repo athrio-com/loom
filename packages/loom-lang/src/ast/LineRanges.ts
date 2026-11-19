@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, Stream, Data, Schema } from 'effect'
+import { Array, Context, Effect, Layer, Option, Data, Schema } from 'effect'
 
 export type EolKind = 'lf' | 'crlf' | 'cr'
 
@@ -87,22 +87,18 @@ const NonNegativeInt = Schema.Number.check(
 
 export const LineRangeSchema = Schema.Tuple([NonNegativeInt, NonNegativeInt])
 
-const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
-  Stream.unfold(0, (from) =>
-    Effect.sync(() => {
-      if (from > text.length) return undefined
-      eol.pattern.lastIndex = from
-      const m = eol.pattern.exec(text)
-      if (!m) return [[from, text.length], text.length + 1] as const
-      return [[from, eol.pattern.lastIndex], eol.pattern.lastIndex] as const
-    }),
+const lineRanges = (text: string, eol: Eol): ReadonlyArray<LineRange> => {
+  const ends = [...text.matchAll(eol.pattern)].map(
+    (terminator) => terminator.index + terminator[0].length,
   )
+  return Array.zip([0, ...ends], [...ends, text.length])
+}
 
 export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()('LoomSourceRanges', {
   make: Effect.succeed({
-    stream: (text: string): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
+    rangesOf: (text: string): Effect.Effect<ReadonlyArray<LineRange>, MixedEOL> =>
       Option.match(detectEol(text), {
-        onNone: () => Effect.succeed(Stream.make([0, text.length] as const)),
+        onNone: () => Effect.succeed<ReadonlyArray<LineRange>>([[0, text.length]]),
         onSome: (eol) =>
           checkMixed(text, eol).pipe(Effect.map((validEol) => lineRanges(text, validEol))),
       }),

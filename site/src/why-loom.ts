@@ -128,7 +128,7 @@ const pairGroup = (group: PairGroup, from: number): Html =>
       ih.h3([ih.Class('why-group-title')], [group.title]),
       ih.div(
         [ih.Class('why-pair-set')],
-        Array.map(group.pairs, (pair, at) => pairCard(pair, from + at)),
+        group.pairs.map((pair, at) => pairCard(pair, from + at)),
       ),
     ],
   )
@@ -165,7 +165,7 @@ const whyHead = (): Html =>
 const motivationColumn = (paragraphs: ReadonlyArray<string>): Html =>
   ih.div(
     [ih.Class('why-column')],
-    Array.map(paragraphs, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),
+    paragraphs.map((paragraph) => ih.p([ih.Class('prose')], [paragraph])),
   )
 
 const whyMotivation = (): Html =>

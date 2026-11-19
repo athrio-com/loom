@@ -130,7 +130,7 @@ export const installLine = (model: Model, h: HtmlBuilder<Message>): Html =>
     [
       h.div(
         [h.Class('rt-tabs')],
-        Array.map(installs, (install) => runtimeTab(install, install.runtime === model.runtime, h)),
+        installs.map((install) => runtimeTab(install, install.runtime === model.runtime, h)),
       ),
       commandButton('install', commandFor(model.runtime), model.copied, h),
     ],

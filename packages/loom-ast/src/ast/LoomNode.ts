@@ -80,3 +80,39 @@ export const loomNode = <Tag extends string, Fields extends Schema.Struct.Fields
     unexpected: Schema.optional(Schema.Array(UnexpectedTokenSchema)),
     ...fields,
   })
+
+type Tagged = { readonly type: string }
+
+export type NodeSchema<Node extends Tagged> = {
+  readonly Type: Node
+  readonly fields: { readonly type: { readonly schema: { readonly literal: Node['type'] } } }
+}
+
+export const nodeOf = <Node extends Tagged>(
+  schema: NodeSchema<Node>,
+  fields: Omit<Node, 'type'>,
+): Node => ({ ...fields, type: schema.fields.type.schema.literal }) as Node
+
+export type Cases<Node extends Tagged, Args extends ReadonlyArray<unknown>, Result> = {
+  readonly [Tag in Node['type']]: (
+    node: Extract<Node, { readonly type: Tag }>,
+    ...args: Args
+  ) => Result
+}
+
+export const byType =
+  <Node extends Tagged, Args extends ReadonlyArray<unknown> = []>() =>
+  <Result>(cases: Cases<Node, Args, Result>) =>
+  (node: Node, ...args: Args): Result =>
+    (cases[node.type as Node['type']] as (node: Node, ...args: Args) => Result)(node, ...args)
+
+export const byTypeOr =
+  <Node extends Tagged, Args extends ReadonlyArray<unknown> = []>() =>
+  <Result>(
+    cases: Partial<Cases<Node, Args, Result>>,
+    otherwise: (node: Node, ...args: Args) => Result,
+  ) =>
+  (node: Node, ...args: Args): Result =>
+    (Object.prototype.hasOwnProperty.call(cases, node.type)
+      ? (cases[node.type as Node['type']] as (node: Node, ...args: Args) => Result)
+      : otherwise)(node, ...args)

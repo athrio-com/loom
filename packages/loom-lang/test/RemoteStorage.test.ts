@@ -9,7 +9,7 @@ import {
   StreamMessageWriter,
   type WorkspaceEdit,
 } from '@volar/language-server/node'
-import { Array, Effect, ManagedRuntime, Redacted } from 'effect'
+import { Effect, ManagedRuntime, Redacted } from 'effect'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { RemoteEnvironment, WorkspaceSource } from '../src/WorkspaceSource'
@@ -132,22 +132,19 @@ describe('LoomServer — a workspace kept in remote storage', () => {
         textDocument: { uri: hello, languageId: 'loom', version: 1, text: program },
       })
       const diagnostics = async (): Promise<ReadonlyArray<string>> =>
-        Array.map(
-          (
-            await editor.connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
-              'textDocument/diagnostic',
-              { textDocument: { uri: hello } },
-            )
-          ).items,
-          (diagnostic) => diagnostic.message,
-        )
+        (
+          await editor.connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
+            'textDocument/diagnostic',
+            { textDocument: { uri: hello } },
+          )
+        ).items.map((diagnostic) => diagnostic.message)
       expect(await diagnostics()).toEqual([])
       const position = { line: 4, character: 5 }
       const links = await editor.connection.sendRequest<ReadonlyArray<Location | LocationLink>>(
         'textDocument/definition',
         { textDocument: { uri: hello }, position },
       )
-      expect(Array.map(links, targetOf)).toEqual([greetingUri])
+      expect(links.map(targetOf)).toEqual([greetingUri])
       const edit = await editor.connection.sendRequest<WorkspaceEdit>('textDocument/rename', {
         textDocument: { uri: hello },
         position,

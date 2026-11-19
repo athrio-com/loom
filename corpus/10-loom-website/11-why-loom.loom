@@ -186,7 +186,7 @@ const pairGroup = (group: PairGroup, from: number): Html =>
       ih.h3([ih.Class('why-group-title')], [group.title]),
       ih.div(
         [ih.Class('why-pair-set')],
-        Array.map(group.pairs, (pair, at) => pairCard(pair, from + at)),
+        group.pairs.map((pair, at) => pairCard(pair, from + at)),
       ),
     ],
   )
@@ -224,7 +224,7 @@ Each column of the motivation is a stack of paragraphs. `motivationColumn` draws
 const motivationColumn = (paragraphs: ReadonlyArray<string>): Html =>
   ih.div(
     [ih.Class('why-column')],
-    Array.map(paragraphs, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),
+    paragraphs.map((paragraph) => ih.p([ih.Class('prose')], [paragraph])),
   )
 
 const whyMotivation = (): Html =>
@@ -253,7 +253,7 @@ export const whyLoom = (): ReadonlyArray<Html> => [whyHead(), whyMotivation()]
 
 ## What this module draws on
 
-Effect lends `Array` to map and number the pairs, and `Option` to pick each card's hue. Foldkit lends the inert builder and the `Html` type. The page head lends the head itself. The components lend the section's carpet mark, the carpet the nav already gives this page, and the bug and check icons.
+Effect lends `Array` to number the pairs, and `Option` to pick each card's hue. Foldkit lends the inert builder and the `Html` type. The page head lends the head itself. The components lend the section's carpet mark, the carpet the nav already gives this page, and the bug and check icons.
 
 =>
 

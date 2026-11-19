@@ -10,7 +10,15 @@ Language: TypeScript
 
 ## The classifier service
 
-The state opens before the first heading — the Document Preamble — and tracks whether a heading has been emitted, whether the line sits inside a frontmatter block, and whether it sits inside a fenced block. `classifyWefts` threads that state through the line-range stream with `Stream.mapAccum`, classifying each line and carrying the result forward. A `---` toggles the frontmatter flag: the first one opens the block, the next closes it. A fence in prose opens a quote. Inside it a person quotes a loom verbatim, so a `#`, `=>`, or `~` there reads as text, not as a mark. Only a fence that matches the opening one closes the quote: one at the same column, at least as long, with nothing after it. So the state keeps the open quote's `Fence`, not a flag, and a shorter run of backticks inside the quote stays text. A box is a third such region. A line of three colons opens it, a line of three colons alone closes it, and the body between the two stays inert, so a box never reads as loom structure. A box and a quote never open inside each other. The state keeps whether a box is open, because the same line of three colons alone opens a box outside one and closes the box inside one. It also keeps whether the loom is a discussion, which its identity line says, since a discussion reads its lines by rules of its own.
+The classifier reads a loom's lines in order, and carries a state from each line to the next. `classifyWefts` takes the range of every line and gives one weft for each. Effect's `Array.mapAccum` does the carrying. It hands `lineStep` the state and one range, and `lineStep` gives back the next state beside the line's weft. At the end `Array.mapAccum` gives the last state beside the wefts, and `classifyWefts` keeps the wefts. A loom's text is whole in memory before the classifier starts, so the pass is a plain fold over an array.
+
+The state opens before the first heading, in the document preamble. It keeps the weft of the line before, whether a heading has been emitted, and whether the line sits inside a frontmatter block. A `---` toggles the frontmatter flag: the first one opens the block, and the next closes it.
+
+A fence in prose opens a quote. Inside a quote a person shows a loom verbatim, so a `#`, `=>`, or `~` there reads as text, not as a mark. Only a fence that matches the opening one closes the quote: one at the same column, at least as long, with nothing after it. So the state keeps the open quote's `Fence`, not a flag, and a shorter run of backticks inside the quote stays text.
+
+A box is a third such region. A line of three colons opens it, and a line of three colons alone closes it. The body between the two stays inert, so a box never reads as loom structure. A box and a quote never open inside each other. The state keeps whether a box is open, because the same line of three colons alone opens a box outside one and closes the box inside one.
+
+The state also keeps whether the loom is a discussion, which its identity line says, since a discussion reads its lines by rules of its own.
 
 Fenced code keeps two more pieces of state. An arrow with nothing after it on its line leaves the classifier waiting for a fence, and blank lines keep it waiting. If the first line that is not blank opens a fence, that line opens fenced code, and the state holds its `Fence` until the line that closes it. While fenced code is open, every line is code that no heading can close, so a Markdown file or a commented script keeps its `#` lines. Any other line ends the wait, and the block is plain code.
 
@@ -38,31 +46,33 @@ const initialState: ClassifierState = {
   awaitingFence: false,
 }
 
+const lineStep =
+  (text: string) =>
+  (state: ClassifierState, range: LineRange): readonly [ClassifierState, LoomWeft] => {
+    const lineText = text.slice(range[0], range[1])
+    const weft = boxed(probeWeft(lineText, range, state), state)
+    const frontmatterFence = weft.type === 'FrontmatterWeft' && weft.fence !== undefined
+    return [
+      {
+        prev: Option.some(weft),
+        seenHeading: state.seenHeading || weft.type === 'HeadingWeft',
+        inFrontmatter: state.inFrontmatter !== frontmatterFence,
+        quote: nextQuote(state.quote, state.inBox, weft),
+        inBox: nextBox(state.inBox, weft),
+        discussion: state.discussion || (state.inFrontmatter && namesDiscussion(lineText)),
+        fenced: nextFenced(state.fenced, weft),
+        awaitingFence: nextAwaiting(weft, state.awaitingFence),
+      },
+      weft,
+    ]
+  }
+
 export class WeftClassifier extends Context.Service<WeftClassifier>()('WeftClassifier', {
   make: Effect.succeed({
     classifyWefts:
       (text: string) =>
-      (source: Stream.Stream<LineRange>): Stream.Stream<LoomWeft> =>
-        Stream.mapAccum(
-          source,
-          () => initialState,
-          (state, range) => {
-            const lineText = text.slice(range[0], range[1])
-            const weft = boxed(probeWeft(lineText, range, state), state)
-            const frontmatterFence = weft.type === 'FrontmatterWeft' && weft.fence !== undefined
-            const next: ClassifierState = {
-              prev: Option.some(weft),
-              seenHeading: state.seenHeading || weft.type === 'HeadingWeft',
-              inFrontmatter: state.inFrontmatter !== frontmatterFence,
-              quote: nextQuote(state.quote, state.inBox, weft),
-              inBox: nextBox(state.inBox, weft),
-              discussion: state.discussion || (state.inFrontmatter && namesDiscussion(lineText)),
-              fenced: nextFenced(state.fenced, weft),
-              awaitingFence: nextAwaiting(state.awaitingFence, weft),
-            }
-            return [next, [weft]]
-          },
-        ),
+      (ranges: ReadonlyArray<LineRange>): ReadonlyArray<LoomWeft> =>
+        Array.mapAccum(ranges, initialState, lineStep(text))[1],
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
@@ -105,41 +115,52 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
 
   const probe = probeOf(lineText)
 
-  if (probe.kind === 'heading') return makeHeadingWeft(lineText, line, range, probe.m)
+  if (probe.type === 'heading') return makeHeadingWeft(lineText, line, range, probe.m)
 
   if (!state.seenHeading) return makePreambleWeft(lineText, line, range)
 
   if (isDivider(lineText)) return makeDividerWeft(lineText, line, range)
 
-  if (state.discussion) return discussionWeftOf(lineText, line, range, probe, state.prev)
+  if (state.discussion) return discussionWeftOf(probe, lineText, line, range, state.prev)
 
-  return pipe(
-    Match.value(modeOf(state.prev)),
-    Match.when('preamble', () =>
-      pipe(
-        Match.value(probe),
-        Match.when({ kind: 'arrow' }, (p) => makeArrowWeft(lineText, line, range, p.m)),
-        Match.when({ kind: 'tilde' }, (p) => makeTildeWeft(lineText, line, range, p.m)),
-        Match.orElse(() => makePreambleWeft(lineText, line, range)),
-      ),
-    ),
-    Match.when('code', () =>
-      pipe(
-        Match.value(probe),
-        Match.when({ kind: 'tilde' }, (p) => makeTildeWeft(lineText, line, range, p.m)),
-        Match.orElse(() => makeCodeWeft(lineText, line, range)),
-      ),
-    ),
-    Match.when('prose', () =>
-      pipe(
-        Match.value(probe),
-        Match.when({ kind: 'arrow' }, (p) => makeArrowWeft(lineText, line, range, p.m)),
-        Match.orElse(() => makeProseWeft(lineText, line, range)),
-      ),
-    ),
-    Match.exhaustive,
-  )
+  return readerIn(modeOf(state.prev))(probe, lineText, line, range)
 }
+
+~
+
+The last rows of the table belong to the three modes. `preambleLine`, `codeLine`, and `proseLine` each read a line by its probe, and `readerIn` gives the one a mode calls for. The classifier reads every line of every loom, so each reader is a table of cases keyed by the probe's tag, built once when the module loads. A probe is tagged by `type`, as a node is, so `byTypeOr` from the node foundation builds the table. A reader names the probes it treats in a way of their own, and every other probe takes the reader's default. Each case receives the probe and then the line's text, its number, and its range, which `Line` names together. The cases of one reader give wefts of different kinds, so each table states that it gives a `LoomWeft`. `readers` holds the three by mode.
+
+=>
+
+type Line = [lineText: string, line: number, range: LineRange]
+
+type LineReader = (probe: Probe, ...line: Line) => LoomWeft
+
+const preambleLine: LineReader = byTypeOr<Probe, Line>()<LoomWeft>(
+  {
+    arrow: (arrow, lineText, line, range) => makeArrowWeft(lineText, line, range, arrow.m),
+    tilde: (tilde, lineText, line, range) => makeTildeWeft(lineText, line, range, tilde.m),
+  },
+  (_probe, lineText, line, range) => makePreambleWeft(lineText, line, range),
+)
+
+const codeLine: LineReader = byTypeOr<Probe, Line>()<LoomWeft>(
+  { tilde: (tilde, lineText, line, range) => makeTildeWeft(lineText, line, range, tilde.m) },
+  (_probe, lineText, line, range) => makeCodeWeft(lineText, line, range),
+)
+
+const proseLine: LineReader = byTypeOr<Probe, Line>()<LoomWeft>(
+  { arrow: (arrow, lineText, line, range) => makeArrowWeft(lineText, line, range, arrow.m) },
+  (_probe, lineText, line, range) => makeProseWeft(lineText, line, range),
+)
+
+const readers: Readonly<Record<Mode, LineReader>> = {
+  preamble: preambleLine,
+  code: codeLine,
+  prose: proseLine,
+}
+
+const readerIn = (mode: Mode): LineReader => readers[mode]
 
 ## The lines of a discussion
 
@@ -151,21 +172,16 @@ const discussionLine = /^\s*(Part\s+[^,:]+,\s*)?Discussion(\s+[^:]*)?:/
 
 const namesDiscussion = (lineText: string): boolean => discussionLine.test(lineText)
 
-const discussionWeftOf = (
-  lineText: string,
-  line: number,
-  range: LineRange,
-  probe: Probe,
-  prev: Option.Option<LoomWeft>,
-): LoomWeft =>
-  Match.value(probe).pipe(
-    Match.when({ kind: 'tilde' }, (tilde) => makeTildeWeft(lineText, line, range, tilde.m)),
-    Match.orElse(() =>
-      modeOf(prev) === 'preamble'
-        ? makePreambleWeft(lineText, line, range)
-        : makeProseWeft(lineText, line, range),
-    ),
-  )
+const discussionWeftOf = byTypeOr<
+  Probe,
+  [...line: Line, prev: Option.Option<LoomWeft>]
+>()<LoomWeft>(
+  { tilde: (tilde, lineText, line, range) => makeTildeWeft(lineText, line, range, tilde.m) },
+  (_probe, lineText, line, range, prev) =>
+    modeOf(prev) === 'preamble'
+      ? makePreambleWeft(lineText, line, range)
+      : makeProseWeft(lineText, line, range),
+)
 
 ## Line positions
 
@@ -185,36 +201,32 @@ const span = (line: number, start: number, end: number): Position => ({
 
 ## Mode and probe
 
-Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type; a frontmatter weft reads as preamble, since it sits in no section body, and a divider reads as preamble, since the lines after it open its division as the lines after a heading open its section. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry. `isFrontmatterFence` tests one more marker: the `---` that opens or closes the frontmatter block. `isDivider` tests a line of dashes past it. `nextQuote` follows a quote. It opens one on a prose weft whose line opens a fence, which `isProseWeft` identifies, so a fence inside code is left to that code's own language, and it closes the quote on the line `closesFence` accepts. `nextQuote` refuses to open a quote while a box is open, and the section "Marking a box" refuses to open a box while a quote is open, so a box and a quote never nest. `nextFenced` follows fenced code: an opening fence weft sets it from its line, and a closing one clears it. A fence weft that closes fenced code hands the next line to prose, so `modeOf` reads it as prose. `nextAwaiting` keeps the wait for a fence: an arrow with no code on its line starts it, a blank code line keeps it, and any other line ends it.
+Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type, which `modeAfter` reads; a frontmatter weft reads as preamble, since it sits in no section body, and a divider reads as preamble, since the lines after it open its division as the lines after a heading open its section. Before the first weft the mode is preamble. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry. `isFrontmatterFence` tests one more marker: the `---` that opens or closes the frontmatter block. `isDivider` tests a line of dashes past it. `nextQuote` follows a quote. It opens one on a prose weft whose line opens a fence, which `isProseWeft` identifies, so a fence inside code is left to that code's own language, and it closes the quote on the line `closesFence` accepts. `nextQuote` refuses to open a quote while a box is open, and the section "Marking a box" refuses to open a box while a quote is open, so a box and a quote never nest. `nextFenced` follows fenced code: an opening fence weft sets it from its line, and a closing one clears it. A fence weft that closes fenced code hands the next line to prose, so `modeOf` reads it as prose. `nextAwaiting` keeps the wait for a fence: an arrow with no code on its line starts it, a blank code line keeps it, and any other line ends it.
 
 =>
 
 type Mode = 'preamble' | 'code' | 'prose'
 
+const modeAfter: (weft: LoomWeft) => Mode = byType<LoomWeft>()({
+  HeadingWeft: () => 'preamble' as const,
+  PreambleWeft: () => 'preamble' as const,
+  ArrowWeft: () => 'code' as const,
+  CodeWeft: () => 'code' as const,
+  FenceWeft: () => 'prose' as const,
+  TildeWeft: () => 'prose' as const,
+  ProseWeft: () => 'prose' as const,
+  FrontmatterWeft: () => 'preamble' as const,
+  DividerWeft: () => 'preamble' as const,
+})
+
 const modeOf = (prev: Option.Option<LoomWeft>): Mode =>
-  Option.match(prev, {
-    onNone: () => 'preamble' as const,
-    onSome: (w) =>
-      pipe(
-        Match.value(w),
-        Match.when({ type: 'HeadingWeft' }, () => 'preamble' as const),
-        Match.when({ type: 'PreambleWeft' }, () => 'preamble' as const),
-        Match.when({ type: 'ArrowWeft' }, () => 'code' as const),
-        Match.when({ type: 'CodeWeft' }, () => 'code' as const),
-        Match.when({ type: 'FenceWeft' }, () => 'prose' as const),
-        Match.when({ type: 'TildeWeft' }, () => 'prose' as const),
-        Match.when({ type: 'ProseWeft' }, () => 'prose' as const),
-        Match.when({ type: 'FrontmatterWeft' }, () => 'preamble' as const),
-        Match.when({ type: 'DividerWeft' }, () => 'preamble' as const),
-        Match.exhaustive,
-      ),
-  })
+  Option.match(prev, { onNone: () => 'preamble' as const, onSome: modeAfter })
 
 type Probe =
-  | { readonly kind: 'heading'; readonly m: RegExpMatchArray }
-  | { readonly kind: 'arrow'; readonly m: RegExpMatchArray }
-  | { readonly kind: 'tilde'; readonly m: RegExpMatchArray }
-  | { readonly kind: 'plain' }
+  | { readonly type: 'heading'; readonly m: RegExpMatchArray }
+  | { readonly type: 'arrow'; readonly m: RegExpMatchArray }
+  | { readonly type: 'tilde'; readonly m: RegExpMatchArray }
+  | { readonly type: 'plain' }
 
 const headingProbe = Option.getOrThrow(getProbe(HeadingStartTokenSchema))
 const arrowProbe = Option.getOrThrow(getProbe(ArrowTokenSchema))
@@ -240,33 +252,33 @@ const nextQuote = (
     onNone: () => (!inBox && isProseWeft(weft) ? openingFence(weft.source) : Option.none<Fence>()),
   })
 
-const nextFenced = (fenced: Option.Option<Fence>, weft: LoomWeft): Option.Option<Fence> =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'FenceWeft', side: 'open' }, (open) => openingFence(open.source)),
-    Match.when({ type: 'FenceWeft', side: 'close' }, () => Option.none<Fence>()),
-    Match.orElse(() => fenced),
-  )
+const nextFenced = Match.fn((_fenced: Option.Option<Fence>, weft: LoomWeft) => weft).pipe(
+  Match.when({ type: 'FenceWeft', side: 'open' }, (open) => openingFence(open.source)),
+  Match.when({ type: 'FenceWeft', side: 'close' }, () => Option.none<Fence>()),
+  Match.orElse((_weft, fenced) => fenced),
+)
 
-const nextAwaiting = (awaiting: boolean, weft: LoomWeft): boolean =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'ArrowWeft' }, (arrow) => arrow.source.trim() === arrow.arrow.source),
-    Match.when({ type: 'CodeWeft' }, (code) => awaiting && code.source.trim() === ''),
-    Match.orElse(() => false),
-  )
+const nextAwaiting = byTypeOr<LoomWeft, [awaiting: boolean]>()(
+  {
+    ArrowWeft: (arrow) => arrow.source.trim() === arrow.arrow.source,
+    CodeWeft: (code, awaiting) => awaiting && code.source.trim() === '',
+  },
+  () => false,
+)
 
 const probeOf = (lineText: string): Probe => {
   const h = headingProbe.exec(lineText)
-  if (h) return { kind: 'heading', m: h }
+  if (h) return { type: 'heading', m: h }
   const a = arrowProbe.exec(lineText)
-  if (a) return { kind: 'arrow', m: a }
+  if (a) return { type: 'arrow', m: a }
   const t = tildeProbe.exec(lineText)
-  if (t) return { kind: 'tilde', m: t }
-  return { kind: 'plain' }
+  if (t) return { type: 'tilde', m: t }
+  return { type: 'plain' }
 }
 
 ## Marking a box
 
-A line in prose that starts with a run of colons is a box line, and `boxed` gives its weft the line's `Box` token. Only a preamble weft or a prose weft can be a box line, so a run of colons in code stays code, and a run of colons inside a quote stays quoted. `boxLineOf` finds the run through the `BoxFence` probe and records it as the box's fence. It leaves the name and the braces after the run to the tokeniser.
+A line in prose that starts with a run of colons is a box line, and `boxed` gives its weft the line's `Box` token. Only a preamble weft or a prose weft can be a box line, which `boxedLine` tells, so a run of colons in code stays code, and a run of colons inside a quote stays quoted. `boxLineOf` finds the run through the `BoxFence` probe and records it as the box's fence. It leaves the name and the braces after the run to the tokeniser.
 
 `sideOf` decides what the line does, from the length of the run and whether a box is open. A run of four or more colons is a stray wherever it stands. Outside a box, three colons open one, whatever follows them. Inside a box, three colons alone close it. Three colons followed by a name or braces would open a box inside the open one, so that line is a stray too. `nextBox`, which the chapter "Wefts" defines beside `boxOf`, then keeps the state's flag: an opening line sets it, a closing line clears it, and a stray leaves it as it was.
 
@@ -274,14 +286,16 @@ A line in prose that starts with a run of colons is a box line, and `boxed` give
 
 const boxFenceProbe = Option.getOrThrow(getProbe(BoxFenceTokenSchema))
 
+const boxedLine = byTypeOr<LoomWeft, [inBox: boolean]>()(
+  {
+    PreambleWeft: (line, inBox) => withBox(line, inBox),
+    ProseWeft: (line, inBox) => withBox(line, inBox),
+  },
+  (weft): LoomWeft => weft,
+)
+
 const boxed = (weft: LoomWeft, state: ClassifierState): LoomWeft =>
-  Option.isSome(state.quote)
-    ? weft
-    : Match.value(weft).pipe(
-        Match.when({ type: 'PreambleWeft' }, (line) => withBox(line, state.inBox)),
-        Match.when({ type: 'ProseWeft' }, (line) => withBox(line, state.inBox)),
-        Match.orElse(() => weft),
-      )
+  Option.isSome(state.quote) ? weft : boxedLine(weft, state.inBox)
 
 const withBox = <Line extends PreambleWeft | ProseWeft>(line: Line, inBox: boolean): Line =>
   Option.match(boxLineOf(line, inBox), {
@@ -300,12 +314,12 @@ const boxLineOf = (line: PreambleWeft | ProseWeft, inBox: boolean): Option.Optio
         line.position.start.offset + from,
         line.position.start.offset + to,
       )
-    return BoxTokenSchema.make({
+    return nodeOf(BoxTokenSchema, {
       position: at(column, content.length),
       source: content.slice(column),
       health: incompleteHealth,
       side: sideOf(colons.length, inBox, content.slice(match[0].length).trim() === ''),
-      fence: BoxFenceTokenSchema.make({
+      fence: nodeOf(BoxFenceTokenSchema, {
         position: at(column, match[0].length),
         source: colons,
         health: okHealth,
@@ -313,13 +327,16 @@ const boxLineOf = (line: PreambleWeft | ProseWeft, inBox: boolean): Option.Optio
     })
   })
 
-const sideOf = (colons: number, inBox: boolean, bare: boolean): BoxToken['side'] =>
-  Match.value({ three: colons === 3, inBox, bare }).pipe(
-    Match.when({ three: false }, () => 'stray' as const),
-    Match.when({ inBox: false }, () => 'open' as const),
-    Match.when({ bare: true }, () => 'close' as const),
-    Match.orElse(() => 'stray' as const),
-  )
+const sideOf = Match.fn((colons: number, inBox: boolean, bare: boolean) => ({
+  three: colons === 3,
+  inBox,
+  bare,
+})).pipe(
+  Match.when({ three: false }, () => 'stray' as const),
+  Match.when({ inBox: false }, () => 'open' as const),
+  Match.when({ bare: true }, () => 'close' as const),
+  Match.orElse(() => 'stray' as const),
+)
 
 ## Building the wefts
 
@@ -333,11 +350,11 @@ const makeHeadingWeft = (
   range: LineRange,
   m: RegExpMatchArray,
 ): HeadingWeft =>
-  HeadingWeftSchema.make({
+  nodeOf(HeadingWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
-    headingStart: HeadingStartTokenSchema.make({
+    headingStart: nodeOf(HeadingStartTokenSchema, {
       position: span(line, range[0], range[0] + m[0].length),
       source: m[0],
       health: okHealth,
@@ -352,11 +369,11 @@ const makeArrowWeft = (
 ): ArrowWeft => {
   const start = range[0] + m[0].length - 2
   const end = range[0] + m[0].length
-  return ArrowWeftSchema.make({
+  return nodeOf(ArrowWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
-    arrow: ArrowTokenSchema.make({
+    arrow: nodeOf(ArrowTokenSchema, {
       position: span(line, start, end),
       source: m[0].slice(-2),
       health: okHealth,
@@ -374,11 +391,11 @@ const makeTildeWeft = (
   const run = /~+$/.exec(m[0])![0]
   const start = range[0] + m[0].length - run.length
   const end = range[0] + m[0].length
-  return TildeWeftSchema.make({
+  return nodeOf(TildeWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
-    tilde: TildeTokenSchema.make({
+    tilde: nodeOf(TildeTokenSchema, {
       position: span(line, start, end),
       source: run,
       health: okHealth,
@@ -395,12 +412,12 @@ const makeFenceWeft = (
 ): FenceWeft => {
   const fence = Option.getOrElse(openingFence(lineText), () => ({ length: 0, column: 0 }))
   const start = range[0] + fence.column
-  return FenceWeftSchema.make({
+  return nodeOf(FenceWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
     side,
-    fence: CodeFenceTokenSchema.make({
+    fence: nodeOf(CodeFenceTokenSchema, {
       position: span(line, start, start + fence.length),
       source: lineText.slice(fence.column, fence.column + fence.length),
       health: okHealth,
@@ -416,7 +433,7 @@ A plain line bears no marker, so its constructor takes none. `makePreambleWeft`,
 =>
 
 const makePreambleWeft = (lineText: string, line: number, range: LineRange): PreambleWeft =>
-  PreambleWeftSchema.make({
+  nodeOf(PreambleWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
@@ -425,7 +442,7 @@ const makePreambleWeft = (lineText: string, line: number, range: LineRange): Pre
   })
 
 const makeCodeWeft = (lineText: string, line: number, range: LineRange): CodeWeft =>
-  CodeWeftSchema.make({
+  nodeOf(CodeWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
@@ -433,7 +450,7 @@ const makeCodeWeft = (lineText: string, line: number, range: LineRange): CodeWef
   })
 
 const makeProseWeft = (lineText: string, line: number, range: LineRange): ProseWeft =>
-  ProseWeftSchema.make({
+  nodeOf(ProseWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
@@ -447,11 +464,11 @@ A frontmatter line splits two ways. `makeFrontmatterFence` builds a `---`, alrea
 =>
 
 const makeFrontmatterFence = (lineText: string, line: number, range: LineRange): FrontmatterWeft =>
-  FrontmatterWeftSchema.make({
+  nodeOf(FrontmatterWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: okHealth,
-    fence: FrontmatterFenceTokenSchema.make({
+    fence: nodeOf(FrontmatterFenceTokenSchema, {
       position: span(line, range[0], range[0] + 3),
       source: '---',
       health: okHealth,
@@ -459,18 +476,18 @@ const makeFrontmatterFence = (lineText: string, line: number, range: LineRange):
   })
 
 const makeFrontmatterField = (lineText: string, line: number, range: LineRange): FrontmatterWeft =>
-  FrontmatterWeftSchema.make({
+  nodeOf(FrontmatterWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,
   })
 
 const makeDividerWeft = (lineText: string, line: number, range: LineRange): DividerWeft =>
-  DividerWeftSchema.make({
+  nodeOf(DividerWeftSchema, {
     position: linePos(line, range),
     source: lineText,
     health: okHealth,
-    dashes: DividerTokenSchema.make({
+    dashes: nodeOf(DividerTokenSchema, {
       position: span(line, range[0], range[0] + lineText.trimEnd().length),
       source: lineText.trimEnd(),
       health: okHealth,
@@ -479,13 +496,20 @@ const makeDividerWeft = (lineText: string, line: number, range: LineRange): Divi
 
 ## What this module draws on
 
-Effect supplies `Stream` for the accumulating scan and `Match` for the dispatch. The `LineRange` type comes from the line scanner, the marker probes and schemas from `LoomTokens`, the weft schemas and `nextBox` from `Weft`, and `incompleteHealth`, `okHealth`, and `Position` from the foundation.
+Effect supplies `Array.mapAccum` for the fold that carries the state, and `Match` for the choices that weigh more than a tag. `byType` and `byTypeOr`, from the node foundation, build the tables keyed by a weft's tag and by a probe's. The `LineRange` type comes from the line scanner, the marker probes and schemas from `LoomTokens`, the weft schemas and `nextBox` from `Weft`, and `incompleteHealth`, `okHealth`, `Position`, and `nodeOf`, which constructs each weft, from the foundation.
 
 =>
 
-import { Context, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option } from 'effect'
 import type { LineRange } from './LineRanges'
-import { incompleteHealth, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
+import {
+  incompleteHealth,
+  nodeOf,
+  okHealth,
+  type Position,
+  byType,
+  byTypeOr,
+} from '@athrio/loom-ast/LoomNode'
 import {
   ArrowTokenSchema,
   BoxFenceTokenSchema,

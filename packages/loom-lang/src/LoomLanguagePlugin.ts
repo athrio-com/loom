@@ -96,7 +96,7 @@ const isolateRoots = (code: VirtualCode): VirtualCode => ({
   snapshot: tsLanguages.has(code.languageId)
     ? stringSnapshot(code.snapshot.getText(0, code.snapshot.getLength()) + moduleMarker)
     : code.snapshot,
-  embeddedCodes: Array.map(code.embeddedCodes ?? [], (child) => isolateRoots(child)),
+  embeddedCodes: (code.embeddedCodes ?? []).map((child) => isolateRoots(child)),
 })
 
 const dedupeByName = (
@@ -182,10 +182,9 @@ const frameQueryOver = (
       LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.completions(path, offset))),
     ),
   contracts: (path) =>
-    Array.filter(
-      runtime.runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.contracts(path)))),
-      (contract) => Array.some(languages, (language) => language.id === contract.language),
-    ),
+    runtime
+      .runSync(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.contracts(path))))
+      .filter((contract) => languages.some((language) => language.id === contract.language)),
   format: (path, text) =>
     runtime.runPromise(
       LoomFormatter.pipe(Effect.flatMap((formatter) => formatter.format(path, text, languages))),

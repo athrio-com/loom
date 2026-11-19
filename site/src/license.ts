@@ -1,4 +1,4 @@
-import { Array, Option, pipe } from 'effect'
+import { Array, Option } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
 import { broadSeam, type Carpet, carpetMark, loomMark } from './components'
 import licenseFile from '../../LICENSE?raw'
@@ -12,17 +12,16 @@ type LicenseParts = {
 }
 
 const licenseParts = (text: string): LicenseParts => {
-  const paragraphs = pipe(
-    text.split(/\n\s*\n/),
-    Array.map((paragraph) =>
-      pipe(
-        paragraph.split('\n'),
-        Array.map((line) => line.trim()),
-        Array.join(' '),
-      ).trim(),
-    ),
-    Array.filter((paragraph) => paragraph !== ''),
-  )
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((paragraph) =>
+      paragraph
+        .split('\n')
+        .map((line) => line.trim())
+        .join(' ')
+        .trim(),
+    )
+    .filter((paragraph) => paragraph !== '')
   return {
     title: Option.getOrElse(Array.get(paragraphs, 0), () => 'License'),
     notice: Option.getOrElse(Array.get(paragraphs, 1), () => ''),
@@ -57,7 +56,7 @@ const licenseText = (): Html => {
             [ih.Class('license-body')],
             [
               ih.p([ih.Class('prose license-notice')], [parts.notice]),
-              ...Array.map(parts.terms, (term) => ih.p([ih.Class('prose')], [term])),
+              ...parts.terms.map((term) => ih.p([ih.Class('prose')], [term])),
             ],
           ),
         ],
@@ -78,7 +77,7 @@ const licenseHead = (): Html =>
           ih.div([ih.Class('page-title')], [loomMark('page', 0.8), ih.h1([], ['License'])]),
           ih.div(
             [ih.Class('license-plain')],
-            Array.map(plainly, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),
+            plainly.map((paragraph) => ih.p([ih.Class('prose')], [paragraph])),
           ),
         ],
       ),

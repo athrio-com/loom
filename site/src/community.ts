@@ -1,4 +1,3 @@
-import { Array } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
 import { broadSeam, carpetMark, communityCarpet } from './components'
 import { pageHead } from './page-head'
@@ -90,7 +89,7 @@ const communityChannels = (): Html =>
           ),
         ],
       ),
-      ih.div([ih.Class('channel-set')], Array.map(channels, channelCard)),
+      ih.div([ih.Class('channel-set')], channels.map(channelCard)),
     ],
   )
 

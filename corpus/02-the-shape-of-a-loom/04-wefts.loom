@@ -116,7 +116,7 @@ export type DividerWeft = typeof DividerWeftSchema.Type
 
 ## The weft unions
 
-`LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, fence, tilde, and prose, in the forward-only order the classifier enforces.
+`LoomWeft` is the union of every weft kind. The classifier and the tokeniser each give a list of them, one weft for each line. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, fence, tilde, and prose, in the forward-only order the classifier enforces.
 
 =>
 
@@ -144,16 +144,17 @@ export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
 
 ~
 
-`boxOf` reads the `Box` token a weft carries. Only a preamble weft or a prose weft can carry one, so every other weft has none.
+`boxOf` reads the `Box` token a weft carries. Only a preamble weft or a prose weft can carry one, so every other weft has none. `boxOf` runs for every line of every loom, so its match is built once, when the module loads, and `boxOf` is the function that match gives.
 
 =>
 
-export const boxOf = (weft: LoomWeft): Option.Option<BoxToken> =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'PreambleWeft' }, (line) => Option.fromNullishOr(line.box)),
-    Match.when({ type: 'ProseWeft' }, (line) => Option.fromNullishOr(line.box)),
-    Match.orElse(() => Option.none<BoxToken>()),
-  )
+export const boxOf: (weft: LoomWeft) => Option.Option<BoxToken> = byTypeOr<LoomWeft>()(
+  {
+    PreambleWeft: (line) => Option.fromNullishOr(line.box),
+    ProseWeft: (line) => Option.fromNullishOr(line.box),
+  },
+  () => Option.none<BoxToken>(),
+)
 
 ~
 
@@ -161,43 +162,42 @@ An anchor stands in prose, where it is a link a reader follows, or in code, wher
 
 =>
 
-export const standingOf = (weft: PreambleWeft | SectionBodyWeft): Standing =>
-  Match.value(weft).pipe(
-    Match.when({ type: 'PreambleWeft' }, (): Standing => 'prose'),
-    Match.when({ type: 'TildeWeft' }, (): Standing => 'prose'),
-    Match.when({ type: 'ProseWeft' }, (): Standing => 'prose'),
-    Match.when({ type: 'ArrowWeft' }, (): Standing => 'code'),
-    Match.when({ type: 'CodeWeft' }, (): Standing => 'code'),
-    Match.when({ type: 'FenceWeft' }, (): Standing => 'code'),
-    Match.exhaustive,
-  )
+export const standingOf: (weft: PreambleWeft | SectionBodyWeft) => Standing = byType<PreambleWeft | SectionBodyWeft>()({
+  PreambleWeft: (): Standing => 'prose',
+  TildeWeft: (): Standing => 'prose',
+  ProseWeft: (): Standing => 'prose',
+  ArrowWeft: (): Standing => 'code',
+  CodeWeft: (): Standing => 'code',
+  FenceWeft: (): Standing => 'code',
+})
 
 ~
 
-A box spans many lines, so a pass that reads wefts one at a time keeps a flag that says whether a box is open, and `nextBox` moves the flag past one weft. A line that opens a box sets it, a line that closes the box clears it, and a stray leaves it as it was, since a stray opens and closes nothing. So does a weft that carries no box. The classifier keeps the flag to mark the lines that close a box, and the tokeniser keeps it because no quote opens inside a box.
+A box spans many lines, so a pass that reads wefts one at a time keeps a flag that says whether a box is open, and `nextBox` moves the flag past one weft. A line that opens a box sets it, a line that closes the box clears it, and a stray leaves it as it was, since a stray opens and closes nothing. So does a weft that carries no box. The classifier keeps the flag to mark the lines that close a box, and the tokeniser keeps it because no quote opens inside a box. `openAfter` reads the flag after a box line, by the side the line stands on.
 
 =>
+
+const openAfter = Match.fn((_inBox: boolean, side: BoxToken['side']) => side).pipe(
+  Match.when('open', () => true),
+  Match.when('close', () => false),
+  Match.when('stray', (_side, inBox) => inBox),
+  Match.exhaustive,
+)
 
 export const nextBox = (inBox: boolean, weft: LoomWeft): boolean =>
   Option.match(boxOf(weft), {
     onNone: () => inBox,
-    onSome: (box) =>
-      Match.value(box.side).pipe(
-        Match.when('open', () => true),
-        Match.when('close', () => false),
-        Match.when('stray', () => inBox),
-        Match.exhaustive,
-      ),
+    onSome: (box) => openAfter(inBox, box.side),
   })
 
 ## What this module draws on
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, divider, specifier, sink, warp, and anchor schemas from `LoomTokens`. `Match` and `Option` read the box a weft carries and follow whether a box is open.
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, fence, box, divider, specifier, sink, warp, and anchor schemas from `LoomTokens`. `byType` and `byTypeOr` from the foundation read the box a weft carries and where a weft stands, and `Match` and `Option` follow whether a box is open.
 
 =>
 
 import { Match, Option, Schema } from 'effect'
-import { loomNode } from '#ast/LoomNode'
+import { byType, byTypeOr, loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   type BoxToken,

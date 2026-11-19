@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
@@ -89,6 +96,73 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(await read(loose.loom)).toBe('# Loose\n')
     await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.forget(book))))
     expect(await read(book)).toBe('# Rewritten\n')
+  })
+})
+
+describe('FileSystemSource — a walk kept while its folders stand', () => {
+  const listed = async (loom: string) =>
+    [...(await runtime.runPromise(WorkspaceSource.pipe(Effect.flatMap((s) => s.corpusOf(loom)))))].sort()
+
+  const stamped = (time: Date, paths: ReadonlyArray<string>) =>
+    paths.forEach((path) => utimesSync(path, time, time))
+
+  const longAgo = new Date(Date.now() - 60_000)
+
+  const aged = (...paths: ReadonlyArray<string>) => stamped(longAgo, paths)
+
+  const settledWorkspace = () => {
+    const made = workspace()
+    const corpus = join(made.root, 'corpus')
+    const part = join(corpus, 'part')
+    aged(corpus, part)
+    return { ...made, corpus, part }
+  }
+
+  it('gives the kept list while every folder shows the time it showed', async () => {
+    const { book, chapter, corpus } = settledWorkspace()
+    expect(await listed(chapter)).toEqual([book, chapter].sort())
+    writeFileSync(join(corpus, 'unseen.loom'), '# Unseen\n')
+    aged(corpus)
+    expect(await listed(chapter)).toEqual([book, chapter].sort())
+  })
+
+  it('walks again when a loom joins a folder it listed', async () => {
+    const { book, chapter, part } = settledWorkspace()
+    await listed(chapter)
+    const added = join(part, 'added.loom')
+    writeFileSync(added, '# Added\n')
+    expect(await listed(chapter)).toEqual([added, book, chapter].sort())
+  })
+
+  it('walks again when a loom joins a folder that held none', async () => {
+    const { book, chapter, corpus } = settledWorkspace()
+    const empty = join(corpus, 'empty')
+    mkdirSync(empty)
+    aged(corpus, empty)
+    await listed(chapter)
+    const first = join(empty, 'first.loom')
+    writeFileSync(first, '# First\n')
+    expect(await listed(chapter)).toEqual([book, chapter, first].sort())
+  })
+
+  it('walks again when a folder below becomes a workspace of its own', async () => {
+    const { book, chapter, part } = settledWorkspace()
+    mkdirSync(join(part, '.loom'))
+    aged(part)
+    expect(await listed(book)).toEqual([book, chapter].sort())
+    writeFileSync(join(part, '.loom', 'config.yaml'), 'corpus: corpus\n')
+    expect(await listed(book)).toEqual([book])
+  })
+
+  it('keeps no walk of a folder whose time is not settled', async () => {
+    const { book, chapter, corpus } = settledWorkspace()
+    const ahead = new Date(Date.now() + 60_000)
+    stamped(ahead, [corpus])
+    expect(await listed(chapter)).toEqual([book, chapter].sort())
+    const added = join(corpus, 'added.loom')
+    writeFileSync(added, '# Added\n')
+    stamped(ahead, [corpus])
+    expect(await listed(chapter)).toEqual([added, book, chapter].sort())
   })
 })
 

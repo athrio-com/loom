@@ -171,13 +171,13 @@ export const createProductProgram = (
     others: ReadonlyArray<ProductFile> = [],
   ): void => {
     const files = [...listed, ...others]
-    const present = new Set(Array.map(files, (file) => file.path))
-    const stale = Array.filter(Array.fromIterable(roots.keys()), (path) => !present.has(path))
-    const fresh = Array.filter(files, (file) => !unchanged(file.path, file.text))
-    const listing = new Set(Array.map(listed, (file) => file.path))
+    const present = new Set(files.map((file) => file.path))
+    const stale = Array.fromIterable(roots.keys()).filter((path) => !present.has(path))
+    const fresh = files.filter((file) => !unchanged(file.path, file.text))
+    const listing = new Set(listed.map((file) => file.path))
     const relisted =
       listing.size !== fileNames.size ||
-      Array.some(Array.fromIterable(listing), (path) => !fileNames.has(path))
+      Array.fromIterable(listing).some((path) => !fileNames.has(path))
     if (stale.length === 0 && fresh.length === 0 && !relisted) return
     stale.forEach((path) => {
       roots.delete(path)

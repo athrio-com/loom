@@ -1,4 +1,4 @@
-import { Array, Effect, Option, pipe, Schema } from 'effect'
+import { Array, Effect, Option, Schema } from 'effect'
 import type {
   ClientCapabilities,
   CodeAction,
@@ -63,9 +63,8 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
         frame,
         loom,
       )
-      return pipe(
-        [...frame.diagnostics(loom), ...missing],
-        Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
+      return [...frame.diagnostics(loom), ...missing].map((diagnostic) =>
+        toLspDiagnostic(at, diagnostic),
       )
     },
   }),
@@ -86,7 +85,7 @@ const outermostWithin =
   (symbol: DocumentSymbol): ReadonlyArray<string> =>
     inside(symbol.selectionRange, range)
       ? [symbol.name]
-      : Array.flatMap(symbol.children ?? [], outermostWithin(range))
+      : (symbol.children ?? []).flatMap(outermostWithin(range))
 
 const missingSymbols = async (
   symbolsAt: (uri: URI) => Promise<ReadonlyArray<DocumentSymbol> | undefined>,
@@ -96,24 +95,20 @@ const missingSymbols = async (
   const contracts = frame.contracts(loom)
   const symbols = new Map(
     await Promise.all(
-      Array.map(
-        Array.dedupe(Array.map(contracts, (contract) => contract.target.path)),
+      Array.dedupe(contracts.map((contract) => contract.target.path)).map(
         async (path) => [path, (await symbolsAt(frame.uriOf(path))) ?? []] as const,
       ),
     ),
   )
-  return Array.flatMap(contracts, (contract) => {
+  return contracts.flatMap((contract) => {
     const declared = new Set(
-      Array.flatMap(
-        Option.getOrElse(Option.fromNullishOr(symbols.get(contract.target.path)), () => []),
+      Option.getOrElse(Option.fromNullishOr(symbols.get(contract.target.path)), () => []).flatMap(
         outermostWithin(contract.target.range),
       ),
     )
-    return pipe(
-      contract.expected,
-      Array.filter((expected) => !declared.has(expected.name)),
-      Array.map((expected) => expected.diagnostic),
-    )
+    return contract.expected
+      .filter((expected) => !declared.has(expected.name))
+      .map((expected) => expected.diagnostic)
   })
 }
 
@@ -145,7 +140,7 @@ const fixActions =
   ) =>
   (diagnostic: Diagnostic): ReadonlyArray<CodeAction> => {
     const repaired = toLspDiagnostic(at, diagnostic)
-    return Array.map(diagnostic.fixes ?? [], (fix): CodeAction => ({
+    return (diagnostic.fixes ?? []).map((fix): CodeAction => ({
       title: fix.title,
       kind: 'quickfix',
       diagnostics: [repaired],
@@ -178,17 +173,16 @@ const loomFixes = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const loom = frame.locationOf(decoded[0])
       const start = document.offsetAt(range.start)
       const end = document.offsetAt(range.end)
-      return pipe(
-        frame.diagnostics(loom),
-        Array.filter((diagnostic) => meets(diagnostic, start, end)),
-        Array.flatMap(
+      return frame
+        .diagnostics(loom)
+        .filter((diagnostic) => meets(diagnostic, start, end))
+        .flatMap(
           fixActions(
             frame.uriOf(loom).toString(),
             (file) => frame.uriOf(file).toString(),
             (offset) => document.positionAt(offset),
           ),
-        ),
-      )
+        )
     },
   }),
 })
@@ -228,13 +222,12 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideReferences: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return pipe(
-        frame.references(frame.locationOf(decoded[0]), document.offsetAt(position)),
-        Array.map((location) => ({
+      return frame
+        .references(frame.locationOf(decoded[0]), document.offsetAt(position))
+        .map((location) => ({
           uri: frame.uriOf(location.path).toString(),
           range: location.range,
-        })),
-      )
+        }))
     },
   }),
 })
@@ -298,18 +291,17 @@ const loomLinks = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideCodeActions: (document, range) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(
-        frame.links(
+      return frame
+        .links(
           frame.locationOf(decoded[0]),
           document.offsetAt(range.start),
           document.offsetAt(range.end),
-        ),
-        (fix): CodeAction => ({
+        )
+        .map((fix): CodeAction => ({
           title: fix.title,
           kind: 'quickfix',
           edit: workspaceEditOf(frame, fix),
-        }),
-      )
+        }))
     },
   }),
 })
@@ -321,18 +313,17 @@ const loomApprovals = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideCodeActions: (document, range) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(
-        frame.approvals(
+      return frame
+        .approvals(
           frame.locationOf(decoded[0]),
           document.offsetAt(range.start),
           document.offsetAt(range.end),
-        ),
-        (approval): CodeAction => ({
+        )
+        .map((approval): CodeAction => ({
           title: approval.title,
           kind: 'quickfix',
           edit: writtenFile(frame.uriOf(approval.file).toString(), approval.text, true),
-        }),
-      )
+        }))
     },
   }),
 })
@@ -360,7 +351,7 @@ const moveActionsOf =
               title: `Move \`${move.concept}\` up`,
               command: moveCommand,
               arguments: [
-                Array.map(move.targets, (target) => ({
+                move.targets.map((target) => ({
                   title: target.title,
                   edit: workspaceEditOf(frame, target),
                 })),
@@ -383,10 +374,9 @@ const loomMoves = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideCodeActions: (document, range) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.flatMap(
-        frame.moves(frame.locationOf(decoded[0]), document.offsetAt(range.start)),
-        moveActionsOf(frame, picksTargets(context.env.clientCapabilities)),
-      )
+      return frame
+        .moves(frame.locationOf(decoded[0]), document.offsetAt(range.start))
+        .flatMap(moveActionsOf(frame, picksTargets(context.env.clientCapabilities)))
     },
   }),
 })
@@ -396,7 +386,7 @@ const loomSymbols = (frame: FrameQueryApi): LanguageServicePlugin => ({
   capabilities: { workspaceSymbolProvider: {} },
   create: () => ({
     provideWorkspaceSymbols: (query) =>
-      Array.map(frame.symbols(query), (symbol): WorkspaceSymbol => ({
+      frame.symbols(query).map((symbol): WorkspaceSymbol => ({
         name: symbol.name,
         kind: 14,
         containerName: symbol.container,
@@ -415,7 +405,7 @@ const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideInlayHints: (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(frame.hints(frame.locationOf(decoded[0])), (hint): InlayHint => ({
+      return frame.hints(frame.locationOf(decoded[0])).map((hint): InlayHint => ({
         position: hint.position,
         label: hint.label,
         paddingLeft: true,
@@ -433,14 +423,13 @@ const loomCompletions = (frame: FrameQueryApi): LanguageServicePlugin => ({
       if (!decoded || decoded[1] !== 'root') return undefined
       return {
         isIncomplete: false,
-        items: Array.map(
-          frame.completions(frame.locationOf(decoded[0]), document.offsetAt(position)),
-          (completion): CompletionItem => ({
+        items: frame
+          .completions(frame.locationOf(decoded[0]), document.offsetAt(position))
+          .map((completion): CompletionItem => ({
             label: completion.label,
             kind: 14,
             textEdit: { range: completion.range, newText: completion.text },
-          }),
-        ),
+          })),
       }
     },
   }),
@@ -458,13 +447,15 @@ const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideDocumentSemanticTokens: (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(frame.semanticTokens(frame.locationOf(decoded[0])), (span): SemanticToken => [
-        span.range.start.line,
-        span.range.start.character,
-        span.range.end.character - span.range.start.character,
-        semanticLegend.tokenTypes.indexOf(span.type),
-        0,
-      ])
+      return frame
+        .semanticTokens(frame.locationOf(decoded[0]))
+        .map((span): SemanticToken => [
+          span.range.start.line,
+          span.range.start.character,
+          span.range.end.character - span.range.start.character,
+          semanticLegend.tokenTypes.indexOf(span.type),
+          0,
+        ])
     },
   }),
 })
@@ -497,7 +488,7 @@ const loomFolding = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideFoldingRanges: (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(frame.boxes(frame.locationOf(decoded[0])), (box): FoldingRange => ({
+      return frame.boxes(frame.locationOf(decoded[0])).map((box): FoldingRange => ({
         startLine: box.startLine,
         endLine: box.endLine,
         kind: 'region',

@@ -14,13 +14,15 @@ The `rewritten` function is that walk, written once. A pass hands it a tree and 
 
 A tree holds three sorts of value. A node is an object with a `type` tag, as every node that the `loomNode` helper builds is. An array holds values in order, as a document holds its sections. Everything else is a plain value: a string, a number, or an object without a tag, such as a position or a health. The fold takes a plain value whole and never looks inside it.
 
+`isNode` tells a node from a plain value. Any other walk over a tree can tell them apart through it, so every walk agrees on what a tree holds. The walk that gathers a tree's diagnostics, in the chapter "The multi-file AST", is one.
+
 =>
 
 export type Tagged = { readonly type: string }
 
-type Node = Tagged & Readonly<Record<string, unknown>>
+export type Node = Tagged & Readonly<Record<string, unknown>>
 
-const isNode = (value: unknown): value is Node =>
+export const isNode = (value: unknown): value is Node =>
   typeof value === 'object' && value !== null && 'type' in value && typeof value.type === 'string'
 
 ## A pass names its edits
@@ -74,7 +76,7 @@ type AnyCases = Readonly<Record<string, Case>>
 export const rewritten = <Tree, Edits>(
   tree: Tree,
   cases: Cases<Tree, Edits>,
-): Rewritten<Tree, Edits> => walked(tree, cases as AnyCases) as Rewritten<Tree, Edits>
+): Rewritten<Tree, Edits> => walked(cases as AnyCases, tree) as Rewritten<Tree, Edits>
 
 ~
 
@@ -87,45 +89,45 @@ The `walked` function meets one of four things:
 
 A case is found by its own key alone. The `Record.get` function reads only the keys a pass wrote, so a node tagged `constructor` never meets the method every object inherits under that name.
 
+The walk meets every value of a tree, and a value is no union the compiler could close. It may be anything a tree holds. So `walked` tells the sorts apart with two guard clauses. The first takes an array. The second returns whatever is no node, which is a plain value. What is left is a node, with a case or without one.
+
 =>
 
-const walked = (value: unknown, cases: AnyCases): unknown =>
-  Match.value(value).pipe(
-    Match.when(Array.isArray, (items) => walkedItems(items, cases)),
-    Match.when(isNode, (node) =>
-      Option.match(Record.get(cases, node.type), {
-        onSome: (edit) => edit(node),
-        onNone: () => walkedFields(node, cases),
-      }),
-    ),
-    Match.orElse((plain) => plain),
-  )
+const walked = (cases: AnyCases, value: unknown): unknown => {
+  if (Array.isArray(value)) return walkedItems(value, cases)
+  if (!isNode(value)) return value
+  return Option.match(Record.get(cases, value.type), {
+    onSome: (edit) => edit(value),
+    onNone: () => walkedFields(value, cases),
+  })
+}
 
 ~
 
-A walk copies nothing it leaves unchanged. The `walkedItems` function returns the array it was given when every item came back as the same object, and the `walkedFields` function does the same for a node. The part of a tree that a pass leaves alone stays the very objects the pass received. A row of passes over a large loom then allocates only what the passes write.
+A walk copies nothing it leaves unchanged. The `walkedItems` function returns the array it was given when every item came back as the same object, and the `walkedFields` function does the same for a node. It walks the node's fields in the order of the node's keys, and builds a new node from the keys and the walked fields only when some field came back changed. The part of a tree that a pass leaves alone stays the very objects the pass received. A row of passes over a large loom then allocates only what the passes write.
 
 =>
 
 const walkedItems = (items: ReadonlyArray<unknown>, cases: AnyCases): ReadonlyArray<unknown> => {
-  const next = Array.map(items, (item) => walked(item, cases))
-  return Array.every(next, (item, at) => item === items[at]) ? items : next
+  const next = items.map((item) => walked(cases, item))
+  return next.every((item, at) => item === items[at]) ? items : next
 }
 
 const walkedFields = (node: Node, cases: AnyCases): Node => {
-  const next = Record.map(node, (field) => walked(field, cases))
-  return Record.every(next, (field, key) => field === node[key])
+  const keys = Record.keys(node)
+  const next = keys.map((key) => walked(cases, node[key]))
+  return next.every((field, at) => field === node[keys[at]!])
     ? node
-    : { ...next, type: node.type }
+    : (Record.fromEntries(Array.zip(keys, next)) as Node)
 }
 
 ## What this module draws on
 
-The walk dispatches with Effect's `Match`, finds a case through `Option` and `Record`, and maps arrays with `Array`.
+The walk finds a case through Effect's `Option` and `Record`, and pairs a node's keys with its walked fields through `Array.zip`.
 
 =>
 
-import { Array, Match, Option, Record } from 'effect'
+import { Array, Option, Record } from 'effect'
 
 ## The module [src/ast/TreeFold.ts]
 

@@ -214,6 +214,7 @@ export const {
   ReachingInside,
   ConclusionOutsideTopic,
   SecondConclusion,
+  $match: matchFault,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -285,48 +286,41 @@ const copyWords: Record<CopiedFrom, string> = {
 }
 
 const loopLine = (loop: ReadonlyArray<string>): string =>
-  Array.join(
-    Array.map(loop, (title) => `\`${title}\``),
-    ' → ',
-  )
+  loop.map((title) => `\`${title}\``).join(' → ')
 
 const elsewhere = (loop: ReadonlyArray<string>): string =>
-  Array.join(
-    Array.map(Array.dropRight(Array.drop(loop, 1), 1), (title) => `\`${title}\``),
-    ' or ',
-  )
+  Array.dropRight(Array.drop(loop, 1), 1)
+    .map((title) => `\`${title}\``)
+    .join(' or ')
 
 const orList = (names: ReadonlyArray<string>): string =>
-  Array.join(
-    Array.map(names, (name) => `\`${name}\``),
-    ' or ',
-  )
+  names.map((name) => `\`${name}\``).join(' or ')
 
 const knownList = (known: ReadonlyArray<string>): string => {
-  const marked = Array.map(known, (each) => `\`${each}\``)
+  const marked = known.map((each) => `\`${each}\``)
   return marked.length > 2
-    ? `${Array.join(Array.dropRight(marked, 1), ', ')}, and ${marked[marked.length - 1]}`
-    : Array.join(marked, ' and ')
+    ? `${Array.dropRight(marked, 1).join(', ')}, and ${marked[marked.length - 1]}`
+    : marked.join(' and ')
 }
 
-const wrongValue = (key: string, value: string, unread: Unread): string =>
-  Match.value(unread).pipe(
-    Match.when(
-      { wanted: 'number' },
-      () =>
-        `\`${key}\` takes a number, and \`${value}\` is not one. Write a number, such as \`480\`.`,
+const wrongValue = Match.fn((_key: string, _value: string, unread: Unread) => unread).pipe(
+  Match.withReturnType<string>(),
+  Match.when(
+    { wanted: 'number' },
+    (_unread, key, value) =>
+      `\`${key}\` takes a number, and \`${value}\` is not one. Write a number, such as \`480\`.`,
     ),
-    Match.when(
-      { wanted: 'locale' },
-      () =>
-        `\`${key}\` takes a language tag, and \`${value}\` is not one. Write a tag such as \`et\` or \`pt-BR\`.`,
+  Match.when(
+    { wanted: 'locale' },
+    (_unread, key, value) =>
+      `\`${key}\` takes a language tag, and \`${value}\` is not one. Write a tag such as \`et\` or \`pt-BR\`.`,
     ),
-    Match.when(
-      { wanted: 'word' },
-      ({ words }) => `\`${key}\` takes no \`${value}\`. It takes ${knownList(words)}.`,
-    ),
-    Match.exhaustive,
-  )
+  Match.when(
+    { wanted: 'word' },
+    ({ words }, key, value) => `\`${key}\` takes no \`${value}\`. It takes ${knownList(words)}.`,
+  ),
+  Match.exhaustive,
+)
 
 const siblingPlace: Record<Sibling, (where: string) => string> = {
   section: (line) => `Another section of this loom, on line ${line},`,
@@ -338,17 +332,11 @@ const disambiguation = (paths: ReadonlyArray<string>): string =>
   Array.match(paths, {
     onEmpty: () => 'Rename one of them.',
     onNonEmpty: (all) =>
-      `Write the path to the one you mean: ${Array.join(
-        Array.map(all, (path) => `\`${path}\``),
-        ' or ',
-      )}.`,
+      `Write the path to the one you mean: ${all.map((path) => `\`${path}\``).join(' or ')}.`,
   })
 
 const fileList = (files: ReadonlyArray<string>): string =>
-  Array.join(
-    Array.map(files, (file) => `\`${file}\``),
-    ' and ',
-  )
+  files.map((file) => `\`${file}\``).join(' and ')
 
 const emitted = (files: ReadonlyArray<string>): string =>
   Array.isReadonlyArrayNonEmpty(files) ? `It emits ${fileList(files)}.` : 'It emits no file of its own.'
@@ -356,8 +344,34 @@ const emitted = (files: ReadonlyArray<string>): string =>
 const composeInstead =
   'Take `Module` off the anchor and move it out of the import, so it composes the section.'
 
+const withoutFileText = Match.fn(
+  (
+    _within: {
+      readonly name: string
+      readonly files: ReadonlyArray<string>
+    },
+    landed: { readonly here: boolean; readonly count: number },
+  ) => landed,
+).pipe(
+  Match.withReturnType<string>(),
+  Match.when(
+    { here: true },
+    (_landed, { name }) =>
+      `\`${name}\` lands in the file this anchor stands in, so no path can name it. ${composeInstead}`,
+  ),
+  Match.when(
+    { count: 0 },
+    (_landed, { name }) =>
+      `\`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
+  ),
+  Match.orElse(
+    (_landed, { name, files }) =>
+      `\`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
+  ),
+)
+
 export const describe = (fault: LoomFault): Note =>
-  Match.valueTags(fault, {
+  matchFault(fault, {
     UnclosedDelimiter: ({ expected }) =>
       error(`This is never closed. Add \`${expected}\` on the same line.`),
     EmptyLabel: ({ construct }) => error(empty[construct]),
@@ -449,22 +463,7 @@ export const describe = (fault: LoomFault): Note =>
       ),
     SectionWithoutFile: ({ name, files, here }) =>
       error(
-        Match.value({ here, count: files.length }).pipe(
-          Match.when(
-            { here: true },
-            () =>
-              `\`${name}\` lands in the file this anchor stands in, so no path can name it. ${composeInstead}`,
-          ),
-          Match.when(
-            { count: 0 },
-            () =>
-              `\`${name}\` has no sink and lands in no file, so no path can name it. ${composeInstead}`,
-          ),
-          Match.orElse(
-            () =>
-              `\`${name}\` has no sink and lands in ${fileList(files)}, so no one path names it. ${composeInstead}`,
-          ),
-        ),
+        withoutFileText({ name, files }, { here, count: files.length }),
       ),
     UnsettledModule: ({ name, declared }) =>
       information(
@@ -631,61 +630,60 @@ export const describe = (fault: LoomFault): Note =>
 
 const statusOf = (severity: Severity): Health['status'] => (severity === 'info' ? 'ok' : severity)
 
-export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
-  Match.value(fault).pipe(
-    Match.tag('AmbiguousAnchor', ({ paths }) =>
-      Array.map(paths, (path): Fix => ({ title: `Write the path \`${path}\``, text: path })),
+export const fixesOf: (fault: LoomFault) => ReadonlyArray<Fix> = Match.type<LoomFault>().pipe(
+  Match.tag('AmbiguousAnchor', ({ paths }) =>
+    paths.map((path): Fix => ({ title: `Write the path \`${path}\``, text: path })),
+  ),
+  Match.tag('UnresolvedAnchor', ({ name, declaration, settleAt }) => [
+    ...Option.toArray(
+      Option.map(Option.fromNullishOr(declaration), (declared): Fix => ({
+        title: `Declare the section \`${name}\``,
+        text: declared.text,
+        at: declared.at,
+      })),
     ),
-    Match.tag('UnresolvedAnchor', ({ name, declaration, settleAt }) => [
-      ...Option.toArray(
-        Option.map(Option.fromNullishOr(declaration), (declared): Fix => ({
-          title: `Declare the section \`${name}\``,
-          text: declared.text,
-          at: declared.at,
-        })),
-      ),
-      ...Option.toArray(
-        Option.map(Option.fromNullishOr(settleAt), (at): Fix => ({
-          title: `Mark \`${name}\` to be settled`,
-          text: `{${settleKind}}`,
-          at,
-        })),
-      ),
-    ]),
-    Match.tag('SettledLabel', ({ label }): ReadonlyArray<Fix> => [
-      { title: 'Remove the `{To be settled}` label', text: '', at: label },
-    ]),
-    Match.tag('LabelBesideParameter', ({ label, key }): ReadonlyArray<Fix> => [
-      { title: `Write \`${label}\` in full`, text: `${key}="${label}"` },
-    ]),
-    Match.tag('RenamedKind', ({ now }): ReadonlyArray<Fix> => [
-      { title: `Write \`${now}\``, text: now },
-    ]),
-    Match.tag('StrayTarget', ({ target, at }): ReadonlyArray<Fix> => [
-      { title: `Remove \`${target}\``, text: '', at },
-    ]),
-    Match.tag('NoSuchFile', ({ files, at }) =>
-      Array.map(files, (file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+    ...Option.toArray(
+      Option.map(Option.fromNullishOr(settleAt), (at): Fix => ({
+        title: `Mark \`${name}\` to be settled`,
+        text: `{${settleKind}}`,
+        at,
+      })),
     ),
-    Match.tag('SeveralFiles', ({ files, at }) =>
-      Array.map(files, (file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
-    ),
-    Match.tag('TangleBesideSink', ({ specifier }): ReadonlyArray<Fix> => [
-      { title: 'Remove `{Tangle}`', text: '', at: specifier },
-    ]),
-    Match.tag('ColonRun', (): ReadonlyArray<Fix> => [{ title: 'Write `:::`', text: ':::' }]),
-    Match.tag('UnwrittenLoom', ({ kind, name, opening }): ReadonlyArray<Fix> => [
-      {
-        title: `Open the ${kind.toLowerCase()} \`${name}\``,
-        text: opening.text,
-        file: opening.file,
-      },
-    ]),
-    Match.tag('StaleSummary', ({ of, name, summary, at }): ReadonlyArray<Fix> => [
-      { title: `Copy the ${copyWords[of]} of \`${name}\``, text: summary, at },
-    ]),
-    Match.orElse((): ReadonlyArray<Fix> => []),
-  )
+  ]),
+  Match.tag('SettledLabel', ({ label }): ReadonlyArray<Fix> => [
+    { title: 'Remove the `{To be settled}` label', text: '', at: label },
+  ]),
+  Match.tag('LabelBesideParameter', ({ label, key }): ReadonlyArray<Fix> => [
+    { title: `Write \`${label}\` in full`, text: `${key}="${label}"` },
+  ]),
+  Match.tag('RenamedKind', ({ now }): ReadonlyArray<Fix> => [
+    { title: `Write \`${now}\``, text: now },
+  ]),
+  Match.tag('StrayTarget', ({ target, at }): ReadonlyArray<Fix> => [
+    { title: `Remove \`${target}\``, text: '', at },
+  ]),
+  Match.tag('NoSuchFile', ({ files, at }) =>
+    files.map((file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+  ),
+  Match.tag('SeveralFiles', ({ files, at }) =>
+    files.map((file): Fix => ({ title: `Name \`${file}\``, text: `(${file})`, at })),
+  ),
+  Match.tag('TangleBesideSink', ({ specifier }): ReadonlyArray<Fix> => [
+    { title: 'Remove `{Tangle}`', text: '', at: specifier },
+  ]),
+  Match.tag('ColonRun', (): ReadonlyArray<Fix> => [{ title: 'Write `:::`', text: ':::' }]),
+  Match.tag('UnwrittenLoom', ({ kind, name, opening }): ReadonlyArray<Fix> => [
+    {
+      title: `Open the ${kind.toLowerCase()} \`${name}\``,
+      text: opening.text,
+      file: opening.file,
+    },
+  ]),
+  Match.tag('StaleSummary', ({ of, name, summary, at }): ReadonlyArray<Fix> => [
+    { title: `Copy the ${copyWords[of]} of \`${name}\``, text: summary, at },
+  ]),
+  Match.orElse((): ReadonlyArray<Fix> => []),
+)
 
 const diagnosticOf = (note: Note, position: Position, fixes: ReadonlyArray<Fix>): Diagnostic =>
   Array.isReadonlyArrayNonEmpty(fixes)

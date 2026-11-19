@@ -127,8 +127,7 @@ export const loadActive = (
   root: string,
 ): Effect.Effect<ReadonlyArray<LanguageService>> =>
   pipe(
-    ids,
-    Array.filter((id) => id !== LoomLanguage.id && id !== ProseLanguage.id),
+    ids.filter((id) => id !== LoomLanguage.id && id !== ProseLanguage.id),
     Array.dedupe,
     (rest) => Effect.forEach(rest, (id) => loadService(id, root)),
     Effect.map((loaded) => [LoomLanguage, ProseLanguage, ...Array.getSomes(loaded)]),

@@ -1,4 +1,4 @@
-import { Array, Match, Option, pipe } from 'effect'
+import { Array, Option, pipe } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
 
 const NAVY = '#14204A'
@@ -21,9 +21,9 @@ export const broadSeam: Seam = { bleed: 0.8, overlap: 0.2, inset: 1 }
 const pct = (value: number): string => `${Number(value.toFixed(4))}%`
 
 const rowStops = (row: string, threads: Record<string, string>, overlap: number): string =>
-  pipe(
-    row.split(''),
-    Array.map((glyph, cell) => {
+  row
+    .split('')
+    .map((glyph, cell) => {
       const colour = pipe(
         Option.fromNullishOr(threads[glyph]),
         Option.getOrElse(() => NAVY),
@@ -31,9 +31,8 @@ const rowStops = (row: string, threads: Record<string, string>, overlap: number)
       const from = (cell * 100) / row.length
       const upTo = Math.min(100, ((cell + 1) * 100) / row.length + overlap)
       return `${colour} ${pct(from)} ${pct(upTo)}`
-    }),
-    Array.join(', '),
-  )
+    })
+    .join(', ')
 
 const insetBox = (inset: number): Record<string, string> =>
   inset === 0
@@ -48,16 +47,12 @@ export const carpetStyle = (carpet: Carpet, seam: Seam): Record<string, string> 
   ...insetBox(seam.inset),
   backgroundRepeat: 'no-repeat',
   backgroundSize: `100% calc(100% / ${carpet.rows.length} + ${seam.bleed}px)`,
-  backgroundPosition: pipe(
-    carpet.rows,
-    Array.map((_, row) => `0 ${pct((row * 100) / (carpet.rows.length - 1))}`),
-    Array.join(', '),
-  ),
-  backgroundImage: pipe(
-    carpet.rows,
-    Array.map((row) => `linear-gradient(90deg, ${rowStops(row, carpet.threads, seam.overlap)})`),
-    Array.join(', '),
-  ),
+  backgroundPosition: carpet.rows
+    .map((_, row) => `0 ${pct((row * 100) / (carpet.rows.length - 1))}`)
+    .join(', '),
+  backgroundImage: carpet.rows
+    .map((row) => `linear-gradient(90deg, ${rowStops(row, carpet.threads, seam.overlap)})`)
+    .join(', '),
 })
 
 export const carpetMark = (carpet: Carpet, size: string, seam: Seam = fineSeam): Html =>
@@ -150,7 +145,7 @@ const threadAt = (place: number, step: number): string =>
   )
 
 const mirrored = (rows: ReadonlyArray<string>): ReadonlyArray<string> =>
-  Array.map(rows, (row) => row.split('').reverse().join(''))
+  rows.map((row) => row.split('').reverse().join(''))
 
 export const flowerFor = (place: number): Carpet => {
   const shape = pipe(
@@ -365,7 +360,7 @@ const cornerIcon = (corners: ReadonlyArray<string>): Html =>
       ih.StrokeLinecap('square'),
       ih.AriaHidden(true),
     ],
-    Array.map(corners, (points) => ih.polyline([ih.Points(points)], [])),
+    corners.map((points) => ih.polyline([ih.Points(points)], [])),
   )
 
 export const expandIcon = (): Html =>

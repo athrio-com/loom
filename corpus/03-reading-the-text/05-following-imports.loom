@@ -40,13 +40,25 @@ export class ReadError extends Data.TaggedError('ReadError')<{
 
 ## The chain of passes
 
-`build` runs one file through the whole chain, each pass consuming the one before it. `parsed` reads the file and parses it: `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `ParsedDocument`. `build` hands that tree to `LoomDocumentBuilder`, which runs the row of small passes and returns the `LoomDocument`, as the chapter "Small passes over the tree" describes. `build` then runs `ProductBuilder` over the document to compose its `product`, and stops there. The passes are peers here — no pass hides another behind a single call. Three settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, the primary language `ProductBuilder` falls back to, and the workspace variables it interpolates into a warp's value.
+`build` runs one file through the whole chain, each pass consuming the one before it. The chain has two halves, and the builder gives each half as a method of its own, because the compiler sometimes runs them apart.
+
+`parse` is the first half. It reads the file and parses it. `LoomSourceRanges` cuts the text into the range of every line, and fails when the file mixes line terminators. The three passes after it cannot fail, and each is a pure function over the whole list the pass before it gave. `WeftClassifier` turns the ranges into wefts, `WeftTokeniser` fills each weft's tokens, and `LoomAstBuilder` folds the wefts into a `ParsedDocument`. `parse` gives a `ParsedLoom`: the loom's path, the text it read, and that tree.
+
+`finish` is the second half, and it takes a `ParsedLoom` the rest of the way. It hands the tree to `LoomDocumentBuilder`, which runs the row of small passes and returns the `LoomDocument`, as the chapter "Small passes over the tree" describes. It then runs `ProductBuilder` over the document to compose its `product`, and stops there. `build` is `parse` followed by `finish`. The passes are peers here — no pass hides another behind a single call. Three settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, the primary language `ProductBuilder` falls back to, and the workspace variables it interpolates into a warp's value.
 
 One more thing rides in beside the settings: `declared`, what the workspace's tropes declare, as the `Declared` of the chapter "Small passes over the tree". The row of small passes reads every pair of braces against it. They come from the book and not from the file, so the caller gathers them first, as the chapter "The compile layer" describes. A build that is handed `nothingDeclared` reads the file with core Loom alone.
 
-The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parsed` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `build` runs the small passes and the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
+Only `finish` reads `declared`, and that is why the chain is cut where it is. Nothing in `parse` depends on the book. So a caller that does not know yet what the tropes declare parses each loom, learns the declared kinds from what it parsed, and then finishes each loom once.
+
+The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parse` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `finish` runs the small passes and the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
 
 =>
+
+export interface ParsedLoom {
+  readonly path: Location
+  readonly text: string
+  readonly tree: ParsedDocument
+}
 
 export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>()(
   'LoomCorpusAstBuilder',
@@ -59,18 +71,18 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
       const documents = yield* LoomDocumentBuilder
       const products = yield* ProductBuilder
 
-      const parsed = (
+      const parse = (
         source: Source,
         path: Location,
-        delims: AnchorDelims,
-      ): Effect.Effect<{ readonly text: string; readonly tree: ParsedDocument }> =>
+        delims: AnchorDelims = defaultAnchorDelims,
+      ): Effect.Effect<ParsedLoom> =>
         source.read(path).pipe(
           Effect.flatMap((text) => {
             const onBadDelims = (err: InvalidAnchorDelims) =>
               Effect.succeed(emptyDocument(text, err.message))
             return checkAnchorDelims(delims).pipe(
-              Effect.andThen(sourceRanges.stream(text)),
-              Effect.flatMap((ranges) =>
+              Effect.andThen(sourceRanges.rangesOf(text)),
+              Effect.map((ranges) =>
                 pipe(
                   ranges,
                   classify.classifyWefts(text),
@@ -85,13 +97,25 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                 WhitespaceAnchorDelims: onBadDelims,
                 ReservedAnchorDelims: onBadDelims,
               }),
-              Effect.map((tree) => ({ text, tree })),
+              Effect.map((tree): ParsedLoom => ({ path, text, tree })),
             )
           }),
           Effect.catchTag('ReadError', (err) =>
-            Effect.succeed({ text: '', tree: emptyDocument('', err.message) }),
+            Effect.succeed<ParsedLoom>({ path, text: '', tree: emptyDocument('', err.message) }),
           ),
         )
+
+      const finish = (
+        loom: ParsedLoom,
+        primaryLanguage?: string,
+        variables: Record<string, string> = {},
+        declared: Declared = nothingDeclared,
+      ): Effect.Effect<LoomModule> => {
+        const doc = documents.build(loom.tree, declared)
+        return products
+          .build(doc, loom.path, primaryLanguage, variables)
+          .pipe(Effect.map((product) => ({ path: loom.path, text: loom.text, doc, product })))
+      }
 
       const build = (
         source: Source,
@@ -101,14 +125,11 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         variables: Record<string, string> = {},
         declared: Declared = nothingDeclared,
       ): Effect.Effect<LoomModule> =>
-        Effect.gen(function* () {
-          const { text, tree } = yield* parsed(source, path, delims)
-          const doc = documents.build(tree, declared)
-          const product = yield* products.build(doc, path, primaryLanguage, variables)
-          return { path, text, doc, product }
-        })
+        parse(source, path, delims).pipe(
+          Effect.flatMap((loom) => finish(loom, primaryLanguage, variables, declared)),
+        )
 
-      return { build }
+      return { parse, finish, build }
     }),
   },
 ) {
@@ -128,7 +149,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
 ## What the builder draws on
 
-The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `LoomDocumentBuilder` for the row of small passes, with the `Declared` it reads and `nothingDeclared`, and `ProductBuilder` for the product pass. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `ParsedDocument`, `LoomModule`, and `Location` types name what `parsed` returns, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `LoomDocumentBuilder` for the row of small passes, with the `Declared` it reads and `nothingDeclared`, and `ProductBuilder` for the product pass. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `ParsedDocument`, `LoomModule`, and `Location` types name the tree `parse` gives, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
 
 =>
 

@@ -106,7 +106,7 @@ export interface LanguagePackagesApi {
 
 const servedBy = (service: LanguageService): ReadonlyArray<string> => [
   service.id,
-  ...Array.map(service.extensions, extensionLanguage),
+  ...service.extensions.map(extensionLanguage),
 ]
 
 type Question<A> = Effect.Effect<Option.Option<A>, ServiceError>
@@ -180,7 +180,7 @@ const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never,
       ask: (service: LanguageService) => Option.Option<Question<A>>,
     ): Effect.Effect<Option.Option<A>, ServiceError> =>
       packagesOf(loom).pipe(
-        Effect.flatMap((services) => Effect.all(Array.getSomes(Array.map(services, ask)))),
+        Effect.flatMap((services) => Effect.all(Array.getSomes(services.map(ask)))),
         Effect.map((answers) => Array.head(Array.getSomes(answers))),
       )
 
@@ -193,7 +193,7 @@ const packagesWith = (loads: boolean): Effect.Effect<LanguagePackagesApi, never,
       languagesFor: (loom) =>
         Effect.map(
           knownPackagesOf(loom),
-          Option.map((services) => Array.dedupe(Array.flatMap(services, servedBy))),
+          Option.map((services) => Array.dedupe(services.flatMap(servedBy))),
         ),
     }
   })
@@ -240,7 +240,7 @@ These cases build small corpora in memory and ask the compiler about them. `comp
 
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Array, Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import { dirname, relative } from 'node:path'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
@@ -341,7 +341,7 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
   )
 
 const messagesOf = (files: Record<string, string>, entry: string) =>
-  Effect.map(diagnosed(files, entry), (found) => Array.map(found, (one) => one.message))
+  Effect.map(diagnosed(files, entry), (found) => found.map((one) => one.message))
 
 ~
 
