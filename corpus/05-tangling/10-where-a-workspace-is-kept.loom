@@ -22,7 +22,7 @@ The `WorkspaceSource` service is how Loom reaches a workspace. It names each loo
 
 The first two fetch text. The `open` method hands over a whole `Workspace` value, which holds the settings, the text of every loom, and the relations kept for them. The `read` method hands over one loom's text again after that loom changes. Both may wait on a network, and both fail with the existing `ReadError`.
 
-The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink of a loom lands, the path the compiler records for the file the sink names. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
+The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placesOf` method says where the sinks of a set of looms land. It gives a `PlaceOf`, a function from one of those looms and a sink to the path the compiler records for the file the sink names. A source is asked once for the whole set, so it can work out what the looms share once, and each sink is then placed without asking again. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
 
 Two more methods keep what a workspace holds of its relations: the fingerprint an author approved for each relation, and the names the relation goes by as its labels, as the chapters "Fingerprints on relations" and "Kept by content, labelled by name" describe. The `keptRelationsOf` method hands over what is kept for the workspace a loom belongs to, and gives nothing when the workspace keeps nothing. The `keepRelations` method keeps what it is handed in place of what was kept before. It fails with `RelationsNotKept` when the workspace cannot take them. The `relationsFileOf` method gives the file that would keep the relations it is handed, and that file's text, as a `KeptFile`. An editor writes the file itself through it, as an edit the author sees and can undo. The method gives nothing for a workspace that keeps its relations in no file.
 
@@ -53,12 +53,14 @@ export interface KeptFile {
   readonly text: string
 }
 
+export type PlaceOf = (loom: Location, sink: string) => Location
+
 export interface WorkspaceSourceApi {
   readonly open: (workspace: Location) => Effect.Effect<Workspace, ReadError>
   readonly read: (loom: Location) => Effect.Effect<string, ReadError>
   readonly corpusOf: (loom: Location) => Effect.Effect<ReadonlyArray<Location>>
   readonly workspaceOf: (loom: Location) => Location
-  readonly placeOf: (loom: Location, sink: string) => Effect.Effect<Location>
+  readonly placesOf: (looms: ReadonlyArray<Location>) => Effect.Effect<PlaceOf>
   readonly locationOf: (uri: URI) => Location
   readonly uriOf: (loom: Location) => URI
   readonly keptRelationsOf: (loom: Location) => Effect.Effect<ReadonlyArray<KeptRelation>>
@@ -252,7 +254,9 @@ const corpusWalk = (
 
 ~
 
-A sink lands under the package root, the folder above the nearest corpus folder, or beside its loom when the loom sits in no corpus folder. The `outputPath` function resolves a sink against the package root it is given, or against the loom's own folder when it is given none. The `placeOf` method resolves a sink through it, against the package root that the `LoomConfig` service resolves for the loom. The formatter, which works only on the file system, resolves a sink through it too.
+A sink lands under the package root, the folder above the nearest corpus folder, or beside its loom when the loom sits in no corpus folder. The `outputPath` function resolves a sink against the package root it is given, or against the loom's own folder when it is given none. The formatter, which works only on the file system, resolves a sink through it too.
+
+The `placesOf` method resolves a sink through `outputPath`, against the package root that the `LoomConfig` service resolves for the sink's loom. Resolving asks the disk. It climbs from the loom's folder to the workspace, and checks the manifest there. The answer depends only on the folder a loom sits in, so `packageRoots` resolves one loom of each folder and keeps the package root by folder. A book of a hundred looms in a dozen folders then costs a dozen resolutions, not one for each of its sinks. The editor asks for the place of every sink of the corpus on nearly every request, so a person pays that cost on every keystroke.
 
 =>
 
@@ -261,6 +265,18 @@ export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink
     onNone: () => resolvePath(dirname(entry), sink),
     onSome: (root) => resolvePath(root, sink),
   })
+
+const packageRoots = (
+  config: LoomConfig['Service'],
+  looms: ReadonlyArray<Location>,
+): Effect.Effect<ReadonlyMap<string, Option.Option<string>>> =>
+  Effect.forEach(
+    Array.fromIterable(new Map(looms.map((loom) => [dirname(loom), loom] as const))),
+    ([folder, loom]) =>
+      config
+        .resolve(loom)
+        .pipe(Effect.map(({ packageRoot }) => [folder, Option.fromNullishOr(packageRoot)] as const)),
+  ).pipe(Effect.map((roots) => new Map(roots)))
 
 ~
 
@@ -318,14 +334,18 @@ export const FileSystemSource = Layer.effect(
       corpusOf: (loom) =>
         config.resolve(loom).pipe(Effect.flatMap((resolved) => corpusWalk(kept, resolved, loom))),
       workspaceOf,
-      placeOf: (loom, sink) =>
-        config
-          .resolve(loom)
-          .pipe(
-            Effect.map(({ packageRoot }) =>
-              outputPath(Option.fromNullishOr(packageRoot), loom, sink),
-            ),
+      placesOf: (looms) =>
+        packageRoots(config, looms).pipe(
+          Effect.map(
+            (roots): PlaceOf =>
+              (loom, sink) =>
+                outputPath(
+                  Option.flatten(Option.fromNullishOr(roots.get(dirname(loom)))),
+                  loom,
+                  sink,
+                ),
           ),
+        ),
       locationOf: locationOfUri,
       uriOf: uriOfLocation,
       keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
@@ -475,7 +495,7 @@ const workspaceFrom = (url: string, text: string): Effect.Effect<Workspace, Read
 
 The contract holds no write request. The server never saves a loom, so writing belongs to whoever edits the text. Permissions, conflicts, and history belong there too.
 
-The `RemoteSource` layer answers the other five methods without a request. One URL names one workspace, and one workspace holds one corpus, so the `corpusOf` method lists every loom of the workspace the `open` method fetched last. The `workspaceOf` method always names that URL. The `placeOf` method returns the sink unchanged, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back. The layer provides the `HttpClient` service it fetches through, Effect's own client over the platform's `fetch`.
+The `RemoteSource` layer answers the other five methods without a request. One URL names one workspace, and one workspace holds one corpus, so the `corpusOf` method lists every loom of the workspace the `open` method fetched last. The `workspaceOf` method always names that URL. The `placesOf` method places every sink at the sink itself, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back. The layer provides the `HttpClient` service it fetches through, Effect's own client over the platform's `fetch`.
 
 =>
 
@@ -498,7 +518,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
         read,
         corpusOf: () => Ref.get(listed),
         workspaceOf: () => address.url,
-        placeOf: (_loom, sink) => Effect.succeed(sink),
+        placesOf: () => Effect.succeed((_loom, sink) => sink),
         locationOf: (uri) => uri.toString(),
         uriOf: (loom) => URI.parse(loom),
         keptRelationsOf: () => Ref.get(kept),
@@ -580,7 +600,7 @@ Four rules about folders decide which looms belong, where a workspace begins, wh
 
 **Where a workspace begins.** The `LoomConfig` service climbs folders to find the `.loom/config.yaml` file, then works out the workspace root, the corpus folder, and the package root from folder names. The compiler's `BuildSettings` keep only what a manifest says: the anchor delimiters, the primary language, the variables, and the width. The parts of Loom that keep their folders read the folder facts from `LoomConfig` themselves: the file-system source, the build cache on disk, the tangler, and the formatter. A remote source has no folders to climb, so its settings come from the manifest its `open` method fetched.
 
-**Where a sink lands.** The `outputPath` function resolves a sink against the parent of the corpus folder, or against the loom's own folder when the loom sits outside any corpus folder, so a loom's folder decides where its output goes. The function lives in the file-system source, behind the `placeOf` method. The compiler asks `placeOf` for each sink's file, stores the answer in each `TangledFile` and `ComposedFile` value, and never reads it.
+**Where a sink lands.** The `outputPath` function resolves a sink against the parent of the corpus folder, or against the loom's own folder when the loom sits outside any corpus folder, so a loom's folder decides where its output goes. The function lives in the file-system source, behind the `placesOf` method. The compiler asks `placesOf` for the looms whose sinks it places, stores the answer in each `TangledFile` and `ComposedFile` value, and never reads it.
 
 **What the cache may keep.** The `LoomDiskCache` service writes to the `.loom/cache` folder, and checks the text the `DocumentSource` service holds, so it never keeps an unsaved edit. The environment provides the cache, not the compiler, so remote storage runs with a cache that keeps nothing, and a server beside the storage builds the corpus again at each start.
 
@@ -654,7 +674,7 @@ Every other test of the compiler and the server runs over the file system's envi
 
 The cases build a workspace in a temporary folder: a `.loom/config.yaml` file, a book at the root of the corpus folder, and a chapter in a part's folder beneath it. A loose folder beside the workspace holds one loom and no configuration.
 
-Opening the workspace hands over its manifest and both looms with their text. A loom names its workspace, and the loose loom names its own folder. A chapter shares its corpus with the book, and the loose loom's corpus holds the loose loom alone. A sink of the book lands in the workspace's folder, which is the package root, and a sink of the loose loom lands beside it. A file URI crosses to its path and back, and a `memory:` URI keeps its scheme both ways.
+Opening the workspace hands over its manifest and both looms with their text. A loom names its workspace, and the loose loom names its own folder. A chapter shares its corpus with the book, and the loose loom's corpus holds the loose loom alone. One question places the sinks of all three looms. A sink of the book or of the chapter lands in the workspace's folder, which is the package root, and a sink of the loose loom lands beside it. A file URI crosses to its path and back, and a `memory:` URI keeps its scheme both ways.
 
 `DocumentSource` answers a held loom from memory. The last case holds the opened workspace's looms and rewrites the book on the disk. A read of the book still returns the text that `DocumentSource` held, and a read of a loom it never held returns the text on the disk. Once `DocumentSource` forgets the book, a read of the book returns the rewritten text on the disk.
 
@@ -728,13 +748,14 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(await corpus(loose.loom)).toEqual([loose.loom])
   })
 
-  it('places a sink under the package root, or beside a loose loom', async () => {
-    const { root, book } = workspace()
+  it('places the sinks of several looms, under the package root or beside a loose loom', async () => {
+    const { root, book, chapter } = workspace()
     const loose = looseLoom()
     const s = await source()
-    const place = (loom: string, sink: string) => runtime.runPromise(s.placeOf(loom, sink))
-    expect(await place(book, 'src/book.ts')).toBe(join(root, 'src', 'book.ts'))
-    expect(await place(loose.loom, 'loose.ts')).toBe(join(loose.root, 'loose.ts'))
+    const placeOf = await runtime.runPromise(s.placesOf([book, chapter, loose.loom]))
+    expect(placeOf(book, 'src/book.ts')).toBe(join(root, 'src', 'book.ts'))
+    expect(placeOf(chapter, 'src/chapter.ts')).toBe(join(root, 'src', 'chapter.ts'))
+    expect(placeOf(loose.loom, 'loose.ts')).toBe(join(loose.root, 'loose.ts'))
   })
 
   it('crosses between locations and URIs without losing a scheme', async () => {
@@ -1085,7 +1106,7 @@ describe('RemoteSource — a workspace kept behind a URL', () => {
           expect(yield* source.read(hello)).toBe(program)
           expect(yield* source.corpusOf(hello)).toHaveLength(2)
           expect(source.workspaceOf(hello)).toBe(stub.url)
-          expect(yield* source.placeOf(hello, 'src/hello.ts')).toBe('src/hello.ts')
+          expect((yield* source.placesOf([hello]))(hello, 'src/hello.ts')).toBe('src/hello.ts')
           expect(source.locationOf(source.uriOf(hello))).toBe(hello)
           yield* settings.manifest(stub.url)
           expect((yield* settings.resolve(hello)).primaryLanguage).toBe('typescript')

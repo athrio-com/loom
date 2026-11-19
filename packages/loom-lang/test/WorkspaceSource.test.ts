@@ -66,13 +66,14 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(await corpus(loose.loom)).toEqual([loose.loom])
   })
 
-  it('places a sink under the package root, or beside a loose loom', async () => {
-    const { root, book } = workspace()
+  it('places the sinks of several looms, under the package root or beside a loose loom', async () => {
+    const { root, book, chapter } = workspace()
     const loose = looseLoom()
     const s = await source()
-    const place = (loom: string, sink: string) => runtime.runPromise(s.placeOf(loom, sink))
-    expect(await place(book, 'src/book.ts')).toBe(join(root, 'src', 'book.ts'))
-    expect(await place(loose.loom, 'loose.ts')).toBe(join(loose.root, 'loose.ts'))
+    const placeOf = await runtime.runPromise(s.placesOf([book, chapter, loose.loom]))
+    expect(placeOf(book, 'src/book.ts')).toBe(join(root, 'src', 'book.ts'))
+    expect(placeOf(chapter, 'src/chapter.ts')).toBe(join(root, 'src', 'chapter.ts'))
+    expect(placeOf(loose.loom, 'loose.ts')).toBe(join(loose.root, 'loose.ts'))
   })
 
   it('crosses between locations and URIs without losing a scheme', async () => {

@@ -58,7 +58,7 @@ describe('RemoteSource — a workspace kept behind a URL', () => {
           expect(yield* source.read(hello)).toBe(program)
           expect(yield* source.corpusOf(hello)).toHaveLength(2)
           expect(source.workspaceOf(hello)).toBe(stub.url)
-          expect(yield* source.placeOf(hello, 'src/hello.ts')).toBe('src/hello.ts')
+          expect((yield* source.placesOf([hello]))(hello, 'src/hello.ts')).toBe('src/hello.ts')
           expect(source.locationOf(source.uriOf(hello))).toBe(hello)
           yield* settings.manifest(stub.url)
           expect((yield* settings.resolve(hello)).primaryLanguage).toBe('typescript')

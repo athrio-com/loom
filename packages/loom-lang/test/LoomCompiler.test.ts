@@ -179,6 +179,24 @@ describe('LoomCompiler — a corpus nobody has built', () => {
       expect(yield* Ref.get(counts)).toEqual({ parsed: 4, finished: 5, built: 0 })
     }).pipe(Effect.provide(countedLayer)),
   )
+
+  it.effect('builds an edited loom once for a keystroke', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const { counts } = yield* Steps
+      yield* c.reach('/book.loom')
+      const before = withTrope['/chapter.loom']!
+      const after = `${before}export const d = 2\n`
+      const started = yield* Ref.get(counts)
+      yield* c.rebuild({ read: () => Effect.succeed(after), list: Option.none() }, '/chapter.loom')
+      yield* c.summaryEdits('/chapter.loom', before, after)
+      expect(yield* Ref.get(counts)).toEqual({
+        parsed: started.parsed + 1,
+        finished: started.finished + 1,
+        built: started.built,
+      })
+    }).pipe(Effect.provide(countedLayer)),
+  )
 })
 
 const crossImport: Record<string, string> = {

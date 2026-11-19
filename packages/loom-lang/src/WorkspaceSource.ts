@@ -67,12 +67,14 @@ export interface KeptFile {
   readonly text: string
 }
 
+export type PlaceOf = (loom: Location, sink: string) => Location
+
 export interface WorkspaceSourceApi {
   readonly open: (workspace: Location) => Effect.Effect<Workspace, ReadError>
   readonly read: (loom: Location) => Effect.Effect<string, ReadError>
   readonly corpusOf: (loom: Location) => Effect.Effect<ReadonlyArray<Location>>
   readonly workspaceOf: (loom: Location) => Location
-  readonly placeOf: (loom: Location, sink: string) => Effect.Effect<Location>
+  readonly placesOf: (looms: ReadonlyArray<Location>) => Effect.Effect<PlaceOf>
   readonly locationOf: (uri: URI) => Location
   readonly uriOf: (loom: Location) => URI
   readonly keptRelationsOf: (loom: Location) => Effect.Effect<ReadonlyArray<KeptRelation>>
@@ -216,6 +218,18 @@ export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink
     onSome: (root) => resolvePath(root, sink),
   })
 
+const packageRoots = (
+  config: LoomConfig['Service'],
+  looms: ReadonlyArray<Location>,
+): Effect.Effect<ReadonlyMap<string, Option.Option<string>>> =>
+  Effect.forEach(
+    Array.fromIterable(new Map(looms.map((loom) => [dirname(loom), loom] as const))),
+    ([folder, loom]) =>
+      config
+        .resolve(loom)
+        .pipe(Effect.map(({ packageRoot }) => [folder, Option.fromNullishOr(packageRoot)] as const)),
+  ).pipe(Effect.map((roots) => new Map(roots)))
+
 const folderOf = (location: Path): Path =>
   statSync(location, { throwIfNoEntry: false })?.isDirectory() === true
     ? location
@@ -260,14 +274,18 @@ export const FileSystemSource = Layer.effect(
       corpusOf: (loom) =>
         config.resolve(loom).pipe(Effect.flatMap((resolved) => corpusWalk(kept, resolved, loom))),
       workspaceOf,
-      placeOf: (loom, sink) =>
-        config
-          .resolve(loom)
-          .pipe(
-            Effect.map(({ packageRoot }) =>
-              outputPath(Option.fromNullishOr(packageRoot), loom, sink),
-            ),
+      placesOf: (looms) =>
+        packageRoots(config, looms).pipe(
+          Effect.map(
+            (roots): PlaceOf =>
+              (loom, sink) =>
+                outputPath(
+                  Option.flatten(Option.fromNullishOr(roots.get(dirname(loom)))),
+                  loom,
+                  sink,
+                ),
           ),
+        ),
       locationOf: locationOfUri,
       uriOf: uriOfLocation,
       keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
@@ -382,7 +400,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
         read,
         corpusOf: () => Ref.get(listed),
         workspaceOf: () => address.url,
-        placeOf: (_loom, sink) => Effect.succeed(sink),
+        placesOf: () => Effect.succeed((_loom, sink) => sink),
         locationOf: (uri) => uri.toString(),
         uriOf: (loom) => URI.parse(loom),
         keptRelationsOf: () => Ref.get(kept),
