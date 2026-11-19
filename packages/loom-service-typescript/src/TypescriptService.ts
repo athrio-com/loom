@@ -123,6 +123,13 @@ const tsExtension: ReadonlyMap<string, string> = new Map([
   ['jsx', '.jsx'],
 ])
 
+const typeScriptFile = /\.(ts|tsx|mts|cts)$/
+
+export const asShown = (file: ProductFile): ProductFile =>
+  file.loose === true && typeScriptFile.test(file.path)
+    ? { ...file, text: `${file.text}\n;export {}\n` }
+    : file
+
 export const productTarget = (
   decoded: readonly [URI, string] | undefined,
   languageId: string,
@@ -161,12 +168,13 @@ export const productTarget = (
   const program = programFor(
     reach === 'corpus' ? { ...project, key: `corpus of ${project.key}` } : project,
   )
-  const asFile = (file: ComposedFile): ProductFile => ({
-    path: file.path,
-    text: file === edited ? text : file.content,
-    loose: file === edited && Option.isNone(sink),
-    loom: file.loomPath,
-  })
+  const asFile = (file: ComposedFile): ProductFile =>
+    asShown({
+      path: file.path,
+      text: file === edited ? text : file.content,
+      loose: file === edited && Option.isNone(sink),
+      loom: file.loomPath,
+    })
   program.sync(roots.filter(listed).map(asFile), roots.filter((file) => !listed(file)).map(asFile))
   return { program, fileName: edited.path, roots }
 }

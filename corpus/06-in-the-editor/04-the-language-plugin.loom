@@ -8,13 +8,15 @@ Language: TypeScript
 
 This module is Loom's adapter to Volar, the editor toolkit the Loom language server is built on. It hands Volar two things for every `.loom` file: a language plugin and a set of service plugins.
 
-The language plugin projects a `.loom` file to a virtual-code tree — the source itself as the de dicto root, where Loom serves its own diagnostics and navigation, and the de re code sections beneath it, each embedded in its own language. Volar maps every diagnostic, hover, and definition back to where the author wrote it.
+The language plugin projects a `.loom` file to a virtual-code tree. The source itself is the root of the tree, where Loom serves its own diagnostics and navigation. The roots the loom composes sit beneath it, each embedded in its own language. Volar maps every diagnostic, hover, and definition back to where the author wrote it.
 
 The service plugins are the editor features themselves: diagnostics, hover, completion. The server resolves the project's active languages, runs each one's `plugins` Effect, and flattens the results into the single list Volar registers.
 
 ## The virtual-code plugin
 
-`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path and projects the file to a virtual-code tree. The de dicto root is the source itself, which Loom's own service checks and navigates; the product sections are embedded codes, which each language service checks against a program of its own. It projects through `LoomCompiler`, whose `compile` verb runs the file's composition — discovering the corpus and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `projectIsolated` runs that projection with the compiler and the document source it takes from the runtime, then marks each composition root as its own module. It names the file by the location the `WorkspaceSource` service's `locationOf` method gives its uri, never by the uri's `fsPath`, which would read `memory:/a.loom` and `file:///a.loom` as the same path.
+`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path and projects the file to a virtual-code tree. The root of the tree is the source itself, which Loom's own service checks and navigates. Beneath it sit the roots the loom composes, as embedded codes, and each language's service checks its roots against a program of its own. The plugin projects through `LoomCompiler`, whose `compile` verb runs the file's composition — discovering the corpus and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `virtualCodeOf` runs that projection with the compiler and the document source it takes from the runtime. It names the file by the location the `WorkspaceSource` service's `locationOf` method gives its uri, never by the uri's `fsPath`, which would read `memory:/a.loom` and `file:///a.loom` as the same path.
+
+An embedded code holds exactly the code its root composes, and the plugin adds nothing to it. A language's service receives that text as the root's document. For a root that tangles to a file, the compiler's `composition` verb gives the same text. A service may count on the two being equal. The TypeScript service does, as its chapter explains. A root whose text differed between the two would look changed to TypeScript each time the editor asked about another root. Each language's service decides how its compiler is shown a root, as a module or as a script. The plugin never does.
 
 The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over. It reads every other loom through the `DocumentSource` service, which answers from the text it holds for an opened workspace, and asks the `WorkspaceSource` service for any other loom. It lists the loom's corpus through the same service, which asks the `WorkspaceSource` service too. So the editor discovers exactly the corpus that `tangle` writes. The source never calls back into Volar, so running the composition cannot re-enter the projector.
 
@@ -52,7 +54,7 @@ const associate = (
     ),
   )
 
-const projectIsolated = (
+const virtualCodeOf = (
   uri: URI,
   snapshot: ts.IScriptSnapshot,
   ctx: CodegenContext<URI>,
@@ -64,7 +66,7 @@ const projectIsolated = (
     const shown = source.locationOf(uri)
     const tree = yield* compiler.compile(editorSource(documents, shown, snapshot), shown)
     yield* associate(compiler, source, ctx, shown)
-    return isolateRoots(tree)
+    return tree
   })
 
 export const loomLanguagePlugin = (
@@ -75,9 +77,9 @@ export const loomLanguagePlugin = (
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
-    languageId === 'loom' ? runtime.runSync(projectIsolated(uri, snapshot, ctx)) : undefined,
+    languageId === 'loom' ? runtime.runSync(virtualCodeOf(uri, snapshot, ctx)) : undefined,
   updateVirtualCode: (uri, _previous, snapshot, ctx) =>
-    runtime.runSync(projectIsolated(uri, snapshot, ctx)),
+    runtime.runSync(virtualCodeOf(uri, snapshot, ctx)),
   disposeVirtualCode: (uri) =>
     runtime.runSync(
       Effect.all([LoomCompiler, WorkspaceSource]).pipe(
@@ -86,24 +88,6 @@ export const loomLanguagePlugin = (
         ),
       ),
     ),
-})
-
-## Isolating the roots
-
-A product language service holds each composition root in a program of its own. A root with no import or export of its own is a global script, and two such roots would clash on a shared top-level name once a program holds them both. `isolateRoots` walks the projected tree and appends `moduleMarker`, an empty `export {}`, to every TypeScript-family root, turning each into a module with its own scope. `tsLanguages` names the TypeScript-family languages the marker applies to — every other language isolates itself or has no notion of a module. The marker carries no source mapping, so it stays invisible, and the plugin appends it once at projection, so a root's snapshot stays stable until its own source changes and Volar never re-parses it on a keystroke elsewhere.
-
-=>
-
-const tsLanguages: ReadonlySet<string> = new Set(['typescript', 'tsx', 'javascript', 'jsx'])
-
-const moduleMarker = '\nexport {}\n'
-
-const isolateRoots = (code: VirtualCode): VirtualCode => ({
-  ...code,
-  snapshot: tsLanguages.has(code.languageId)
-    ? stringSnapshot(code.snapshot.getText(0, code.snapshot.getLength()) + moduleMarker)
-    : code.snapshot,
-  embeddedCodes: (code.embeddedCodes ?? []).map((child) => isolateRoots(child)),
 })
 
 ## Collecting the service plugins
@@ -268,7 +252,7 @@ import type * as ts from 'typescript'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
-import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { DocumentSource, LoomCompiler } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -295,22 +279,22 @@ import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
 ::[The virtual-code plugin]
 
-::[Isolating the roots]
-
 ::[Collecting the service plugins]
 
 ## Testing the plugin
 
 Volar formats a loom through a temporary copy of it, a script at the loom's path with `.tmp` appended. It creates the copy with the loom's text, updates it with each pass's formatted text, and deletes it once the format is done. The next format creates the copy again, from the text the editor holds then.
 
-The case replays that order through Volar's own `createLanguage`, over a runtime built the way the server builds its own. It creates the copy with a loom as written, updates it to the formatted loom, deletes it, and creates it again with the loom as written. The new script's root must hold the text it was created with, not the formatted text the deleted copy held last. The copy sits in a folder of its own, so its build reads no other loom.
+The first case replays that order through Volar's own `createLanguage`, over a runtime built the way the server builds its own. It creates the copy with a loom as written, updates it to the formatted loom, deletes it, and creates it again with the loom as written. The new script's root must hold the text it was created with, not the formatted text the deleted copy held last. The copy sits in a folder of its own, so its build reads no other loom.
+
+The second case checks what a root's embedded code holds. It writes a loom whose one section tangles to a file, projects the loom, and asks the compiler for the composition. The embedded code of the root must hold exactly the text the composition gives the root's file, with nothing after it.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
 import { createLanguage, type VirtualCode } from '@volar/language-core'
-import { Layer, ManagedRuntime } from 'effect'
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { Effect, Layer, ManagedRuntime } from 'effect'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
@@ -350,6 +334,35 @@ describe('LoomLanguagePlugin — a script Volar deletes', () => {
     language.scripts.delete(copy)
     const again = language.scripts.set(copy, stringSnapshot(written), 'loom')
     expect(textOf(again?.generated?.root)).toBe(written)
+  })
+})
+
+describe('LoomLanguagePlugin — what a root is embedded as', () => {
+  it('embeds a root as exactly the text the composition gives it', () => {
+    const language = createLanguage<URI>([loomLanguagePlugin(runtime)], new Map(), () => {})
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-plugin-')))
+    const loom = join(folder, 'answer.loom')
+    const written = lines(
+      '---',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# Answer [answer.ts]',
+      '',
+      '=>',
+      '',
+      'const answer = 42',
+    )
+    writeFileSync(loom, written)
+    const script = language.scripts.set(URI.file(loom), stringSnapshot(written), 'loom')
+    const embedded = (script?.generated?.root.embeddedCodes ?? []).filter(
+      (code) => code.languageId === 'typescript',
+    )
+    const composed = runtime.runSync(
+      LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.composition(loom))),
+    )
+    expect(embedded.map(textOf)).toEqual(composed.map((file) => file.content))
+    expect(composed).toHaveLength(1)
   })
 })
 

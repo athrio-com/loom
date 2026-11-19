@@ -6,7 +6,7 @@ import type * as ts from 'typescript'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
-import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { DocumentSource, LoomCompiler } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
 import { WorkspaceSettings } from './WorkspaceSettings'
@@ -51,7 +51,7 @@ const associate = (
     ),
   )
 
-const projectIsolated = (
+const virtualCodeOf = (
   uri: URI,
   snapshot: ts.IScriptSnapshot,
   ctx: CodegenContext<URI>,
@@ -63,7 +63,7 @@ const projectIsolated = (
     const shown = source.locationOf(uri)
     const tree = yield* compiler.compile(editorSource(documents, shown, snapshot), shown)
     yield* associate(compiler, source, ctx, shown)
-    return isolateRoots(tree)
+    return tree
   })
 
 export const loomLanguagePlugin = (
@@ -74,9 +74,9 @@ export const loomLanguagePlugin = (
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
-    languageId === 'loom' ? runtime.runSync(projectIsolated(uri, snapshot, ctx)) : undefined,
+    languageId === 'loom' ? runtime.runSync(virtualCodeOf(uri, snapshot, ctx)) : undefined,
   updateVirtualCode: (uri, _previous, snapshot, ctx) =>
-    runtime.runSync(projectIsolated(uri, snapshot, ctx)),
+    runtime.runSync(virtualCodeOf(uri, snapshot, ctx)),
   disposeVirtualCode: (uri) =>
     runtime.runSync(
       Effect.all([LoomCompiler, WorkspaceSource]).pipe(
@@ -85,18 +85,6 @@ export const loomLanguagePlugin = (
         ),
       ),
     ),
-})
-
-const tsLanguages: ReadonlySet<string> = new Set(['typescript', 'tsx', 'javascript', 'jsx'])
-
-const moduleMarker = '\nexport {}\n'
-
-const isolateRoots = (code: VirtualCode): VirtualCode => ({
-  ...code,
-  snapshot: tsLanguages.has(code.languageId)
-    ? stringSnapshot(code.snapshot.getText(0, code.snapshot.getLength()) + moduleMarker)
-    : code.snapshot,
-  embeddedCodes: (code.embeddedCodes ?? []).map((child) => isolateRoots(child)),
 })
 
 const dedupeByName = (

@@ -12,7 +12,6 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import {
-  asOpened,
   compilerChoiceFor,
   createNativeProgram,
   createUnavailableProgram,
@@ -634,15 +633,6 @@ describe('createNativeProgram repeats why a server would not start', () => {
     expect(messages[messages.length - 1]).toContain('after 4 attempts')
     expect(messages[messages.length - 1]).toContain('cannot read tsconfig.json')
     program.dispose()
-  })
-})
-
-describe('asOpened sends a TypeScript loose root as a module', () => {
-  it('ends a TypeScript loose root with ;export {}, and leaves every other root as written', () => {
-    const loose = { path: '/w/chapter.loom.aside.ts', text: 'const a = 1', loose: true }
-    expect(asOpened(loose).text).toBe('const a = 1\n;export {}\n')
-    expect(asOpened({ ...loose, path: '/w/chapter.loom.aside.js' }).text).toBe('const a = 1')
-    expect(asOpened({ path: '/w/src/a.ts', text: 'const a = 1' }).text).toBe('const a = 1')
   })
 })
 

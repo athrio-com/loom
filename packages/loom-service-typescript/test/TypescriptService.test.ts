@@ -5,7 +5,7 @@ import { URI } from 'vscode-uri'
 import type { ComposedFile } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
 import type { LanguageServiceContext } from '@volar/language-service'
-import { knownEdit, productPlugin, productTarget } from '../src/TypescriptService'
+import { asShown, knownEdit, productPlugin, productTarget } from '../src/TypescriptService'
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -165,6 +165,40 @@ describe('productTarget routes a Product to its program', () => {
     const diagnostics = await target!.program.diagnostics(target!.fileName)
     program.dispose()
     expect(diagnostics.some((d) => /not assignable/.test(d.message))).toBe(true)
+  })
+
+  it('shows a loose root as a module, so it clashes with no script the project tangles', async () => {
+    const program = createProductProgram(ts, options)
+    const roots: ReadonlyArray<ComposedFile> = [
+      {
+        path: '/project/doc.ts',
+        content: 'const answer = 1\n',
+        loomPath,
+        rootId: 'main',
+        heading: headOf(loomPath),
+      },
+    ]
+    const target = productTarget(
+      decoded('fresh'),
+      'typescript',
+      'const answer = 2\n',
+      () => program,
+      () => roots,
+      noConfig,
+      'project',
+    )
+    const diagnostics = await target!.program.diagnostics(target!.fileName)
+    program.dispose()
+    expect(diagnostics.some((d) => /redeclare/.test(d.message))).toBe(false)
+  })
+})
+
+describe('asShown shows a TypeScript loose root as a module', () => {
+  it('ends a TypeScript loose root with ;export {}, and leaves every other root as written', () => {
+    const loose = { path: '/w/chapter.loom.aside.ts', text: 'const a = 1', loose: true }
+    expect(asShown(loose).text).toBe('const a = 1\n;export {}\n')
+    expect(asShown({ ...loose, path: '/w/chapter.loom.aside.js' }).text).toBe('const a = 1')
+    expect(asShown({ path: '/w/src/a.ts', text: 'const a = 1' }).text).toBe('const a = 1')
   })
 })
 

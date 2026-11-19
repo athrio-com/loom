@@ -91,6 +91,12 @@ A request arrives on an embedded document — one Product of a `.loom`, a compos
 
 A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, so the program knows the root belongs to its loom alone rather than to a file the project wrote. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
+A root that tangles to a file reaches the program exactly as it is composed, because the project's own compiler reads that file as it is written. A loose root is a file Loom makes up, not one the project wrote, so Loom chooses how TypeScript is shown it. Such roots are often fragments with no `import` and no `export`, which TypeScript takes as scripts, and the scripts of one program share a global scope. As a script, a loose root would see the top-level names of every script the project tangles, and clash with any script that declares one of the same names. So `asShown` makes every TypeScript loose root a module, by ending the text the program receives with `;export {}`. A module keeps its top-level names to itself. The semicolon closes whatever the person left open on the last line, such as `o.` typed a moment ago, so the ending never becomes part of the person's code. The ending comes after everything the person wrote, so no position in the root moves.
+
+A loose root is therefore checked as a module, and TypeScript reads a module differently from a script. A top-level name that nothing uses is reported as unused, as a faint hint by default and as a warning under `noUnusedLocals`. A `declare module` block in a fragment augments a module rather than declaring one, and fails when there is none to augment. A top-level `await` is allowed. These are TypeScript's own rules for a module, and Loom leaves them as TypeScript states them. A JavaScript loose root stays a script, because a fragment written for CommonJS, with `module.exports`, would lose `module` and `exports` as a module.
+
+The text a root reaches the program with never depends on which root the editor asks about. After each keystroke the editor asks about every root of a loom, one root after another, and each question hands the program the whole composition. The root a question is about comes with the text of its document, and every other root with the text the composition holds. For one root the two are the same text, since the language plugin embeds a root exactly as it is composed. Were they to differ, each question would change two roots in the program, the root asked about before and the root asked about now. TypeScript would then check every root again on every keystroke, although the person had changed none of them.
+
 `productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`. The key is the path of the `tsconfig.json` that governs the file the root tangles to, so every loom that tangles into one package shares that package's program. When no `tsconfig.json` governs the file, the key is the root's own `.loom`, and the loom keeps a program of its own. Nothing says that two looms outside every project belong together. A TypeScript 6 program checks the roots it lists as one, and two scripts checked as one share a global scope, so a top-level name declared in each would clash although each runs alone.
 
 A project also carries the `tsconfig.json` it found, if any, and the `.loom` the root came from, which locate the project on disk however its key is spelled. `projectOf` finds the project of a root from the path the root tangles to and its `.loom`, for every part of the service that groups roots by project.
@@ -131,6 +137,13 @@ const tsExtension: ReadonlyMap<string, string> = new Map([
   ['jsx', '.jsx'],
 ])
 
+const typeScriptFile = /\.(ts|tsx|mts|cts)$/
+
+export const asShown = (file: ProductFile): ProductFile =>
+  file.loose === true && typeScriptFile.test(file.path)
+    ? { ...file, text: `${file.text}\n;export {}\n` }
+    : file
+
 export const productTarget = (
   decoded: readonly [URI, string] | undefined,
   languageId: string,
@@ -169,12 +182,13 @@ export const productTarget = (
   const program = programFor(
     reach === 'corpus' ? { ...project, key: `corpus of ${project.key}` } : project,
   )
-  const asFile = (file: ComposedFile): ProductFile => ({
-    path: file.path,
-    text: file === edited ? text : file.content,
-    loose: file === edited && Option.isNone(sink),
-    loom: file.loomPath,
-  })
+  const asFile = (file: ComposedFile): ProductFile =>
+    asShown({
+      path: file.path,
+      text: file === edited ? text : file.content,
+      loose: file === edited && Option.isNone(sink),
+      loom: file.loomPath,
+    })
   program.sync(roots.filter(listed).map(asFile), roots.filter((file) => !listed(file)).map(asFile))
   return { program, fileName: edited.path, roots }
 }
@@ -889,7 +903,7 @@ import { URI } from 'vscode-uri'
 import type { ComposedFile } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
 import type { LanguageServiceContext } from '@volar/language-service'
-import { knownEdit, productPlugin, productTarget } from '../src/TypescriptService'
+import { asShown, knownEdit, productPlugin, productTarget } from '../src/TypescriptService'
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -912,7 +926,7 @@ const headOf = (path: string): ComposedFile['heading'] => ({
 
 ~
 
-A TypeScript Product is checked at the path it tangles to, with the live buffer as its text rather than what is on disk. An `import` from one root to another resolves against the other's composition, even when the other root belongs to another loom, and so to another project. The edited root's program holds that root without listing it. A `tsx` Product keeps its extension. A JSON document and a uri that names no embedded document are declined. A root that tangles nowhere is checked beside its `.loom` under a synthetic name.
+A TypeScript Product is checked at the path it tangles to, with the live buffer as its text rather than what is on disk. An `import` from one root to another resolves against the other's composition, even when the other root belongs to another loom, and so to another project. The edited root's program holds that root without listing it. A `tsx` Product keeps its extension. A JSON document and a uri that names no embedded document are declined. A root that tangles nowhere is checked beside its `.loom` under a synthetic name. It is shown to TypeScript as a module, so a top-level name it shares with a script the project tangles is no clash. `asShown` ends a TypeScript loose root with `;export {}`, and leaves a JavaScript loose root and a root with a sink as written.
 
 =>
 
@@ -1055,6 +1069,40 @@ describe('productTarget routes a Product to its program', () => {
     const diagnostics = await target!.program.diagnostics(target!.fileName)
     program.dispose()
     expect(diagnostics.some((d) => /not assignable/.test(d.message))).toBe(true)
+  })
+
+  it('shows a loose root as a module, so it clashes with no script the project tangles', async () => {
+    const program = createProductProgram(ts, options)
+    const roots: ReadonlyArray<ComposedFile> = [
+      {
+        path: '/project/doc.ts',
+        content: 'const answer = 1\n',
+        loomPath,
+        rootId: 'main',
+        heading: headOf(loomPath),
+      },
+    ]
+    const target = productTarget(
+      decoded('fresh'),
+      'typescript',
+      'const answer = 2\n',
+      () => program,
+      () => roots,
+      noConfig,
+      'project',
+    )
+    const diagnostics = await target!.program.diagnostics(target!.fileName)
+    program.dispose()
+    expect(diagnostics.some((d) => /redeclare/.test(d.message))).toBe(false)
+  })
+})
+
+describe('asShown shows a TypeScript loose root as a module', () => {
+  it('ends a TypeScript loose root with ;export {}, and leaves every other root as written', () => {
+    const loose = { path: '/w/chapter.loom.aside.ts', text: 'const a = 1', loose: true }
+    expect(asShown(loose).text).toBe('const a = 1\n;export {}\n')
+    expect(asShown({ ...loose, path: '/w/chapter.loom.aside.js' }).text).toBe('const a = 1')
+    expect(asShown({ path: '/w/src/a.ts', text: 'const a = 1' }).text).toBe('const a = 1')
   })
 })
 

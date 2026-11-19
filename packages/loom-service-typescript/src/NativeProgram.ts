@@ -208,13 +208,6 @@ export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
 
 export const inferredProject = 'the inferred project'
 
-const typeScriptFile = /\.(ts|tsx|mts|cts)$/
-
-export const asOpened = (file: ProductFile): ProductFile =>
-  file.loose === true && typeScriptFile.test(file.path)
-    ? { ...file, text: `${file.text}\n;export {}\n` }
-    : file
-
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
   composition: ReadonlyMap<string, ProductFile>,
@@ -386,7 +379,7 @@ export const createNativeProgram = (
           ]).values(),
         )
         makeFolders(files)
-        server.keepOpen(files.map(asOpened))
+        server.keepOpen(files)
       },
     })
 
