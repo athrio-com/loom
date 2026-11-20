@@ -1,0 +1,287 @@
+---
+Part V, Chapter 13: Slower than the build before
+Package: scripts/
+Language: TypeScript
+---
+
+# Slower than the build before
+
+The budgets of the chapter before stand four times above what a build takes, so that a slow machine never fails them. A change that makes every build half again as slow therefore passes every one of them. A comparison catches such a change: the same speed tests, run before the change and after it, on one machine, within the same few minutes.
+
+`compare-speed` is the tool that makes the comparison. It takes the base, which is the commit a change is measured from, and checks that commit out beside the working tree. It runs the speed tests in both, turn by turn, and each run records its measures in a file, as the chapter "How long a build takes" describes. The tool then holds the two records against each other, and it fails when the change takes more than half again as long as the base on any measure.
+
+## What the tool draws on
+
+Effect runs the tool and carries its failures, and Effect's `Schema` reads what the tests recorded. Bun starts the commands. Node's `fs`, `os` and `path` make the folder the base is checked out in and read the records. `workspace` is the repository's root, the folder above the tool's own.
+
+=>
+
+import { Array, Console, Data, Effect, Option, Order, Record, Schema } from 'effect'
+import { BunRuntime } from '@effect/platform-bun'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+## Three ways to fail
+
+The tool fails in three ways, and each is a value of its own. A `CommandFailed` names a command that could not start or that exited with an error. An `Unrecorded` says the change recorded no measure although the base did, so the speed tests no longer run or no longer record. A `Slower` holds every measure on which the change fell too far behind the base.
+
+=>
+
+class CommandFailed extends Data.TaggedError('CommandFailed')<{
+  readonly command: string
+}> {}
+
+class Unrecorded extends Data.TaggedError('Unrecorded')<{}> {}
+
+class Slower extends Data.TaggedError('Slower')<{
+  readonly behind: ReadonlyArray<Compared>
+}> {}
+
+## Running a command
+
+`ran` runs a command in a folder and waits for it to end. It shows what the command prints or drops it, as `shown` says, and it adds `env` to the environment the command starts with. A command that cannot start, or that exits with an error, fails with a `CommandFailed`.
+
+=>
+
+const ran = (
+  command: ReadonlyArray<string>,
+  folder: string,
+  shown: 'inherit' | 'ignore',
+  env: Readonly<Record<string, string>> = {},
+): Effect.Effect<void, CommandFailed> => {
+  const failed = new CommandFailed({ command: command.join(' ') })
+  return Effect.tryPromise({
+    try: () =>
+      Bun.spawn([...command], {
+        cwd: folder,
+        stdout: shown,
+        stderr: shown,
+        env: { ...process.env, ...env },
+      }).exited,
+    catch: () => failed,
+  }).pipe(Effect.flatMap((code) => (code === 0 ? Effect.void : Effect.fail(failed))))
+}
+
+## The base, checked out beside the change
+
+Git can check a commit out into a second folder, as a worktree. A worktree shares the repository's history and adds only the files of its commit. `Beside` names what the tool keeps outside the repository: a temporary folder, the worktree of the base inside it, and the two files the speed tests record in, one for the base and one for the change.
+
+`besideMade` makes the temporary folder and names the rest. `baseCheckedOut` adds the base to it as a worktree and installs the workspace's packages there, since the base may depend on other versions than the change does. `besideRemoved` takes the worktree and the folder away again, and it ignores a worktree that was never added.
+
+=>
+
+type Beside = {
+  readonly folder: string
+  readonly base: string
+  readonly baseRecord: string
+  readonly changeRecord: string
+}
+
+const besideMade: Effect.Effect<Beside> = Effect.sync(() => {
+  const folder = mkdtempSync(join(tmpdir(), 'loom-speed-'))
+  return {
+    folder,
+    base: join(folder, 'base'),
+    baseRecord: join(folder, 'base.jsonl'),
+    changeRecord: join(folder, 'change.jsonl'),
+  }
+})
+
+const baseCheckedOut = (beside: Beside, commit: string): Effect.Effect<void, CommandFailed> =>
+  ran(['git', 'worktree', 'add', '--detach', beside.base, commit], workspace, 'inherit').pipe(
+    Effect.andThen(ran(['bun', 'install', '--frozen-lockfile'], beside.base, 'ignore')),
+  )
+
+const besideRemoved = (beside: Beside): Effect.Effect<void> =>
+  Effect.ignore(
+    ran(['git', 'worktree', 'remove', '--force', beside.base], workspace, 'ignore'),
+  ).pipe(
+    Effect.andThen(Effect.sync(() => rmSync(beside.folder, { recursive: true, force: true }))),
+  )
+
+## Running the speed tests
+
+`speedsRecorded` runs the speed tests in one checkout and names the file they record in. It ignores how the run ends. A test that misses its budget has recorded its measure all the same, and whether the tests pass is the question of another task.
+
+One run says little, because a machine has slow moments. So `allRecorded` runs the tests three times in each checkout, and it takes turns, the base and then the change, so that a slow minute falls on both.
+
+=>
+
+const speedTests = ['bun', 'test', 'packages/loom-lang/test/Speed.test.ts']
+
+const rounds = 3
+
+const speedsRecorded = (checkout: string, record: string): Effect.Effect<void> =>
+  Effect.ignore(ran(speedTests, checkout, 'ignore', { LOOM_SPEED: record }))
+
+const allRecorded = (beside: Beside): Effect.Effect<void> =>
+  Effect.asVoid(
+    Effect.forEach(Array.range(1, rounds), () =>
+      speedsRecorded(beside.base, beside.baseRecord).pipe(
+        Effect.andThen(speedsRecorded(workspace, beside.changeRecord)),
+      ),
+    ),
+  )
+
+## What the runs recorded
+
+A record is a file of lines, and each line is one measure as JSON: its name and its value. `speedsIn` reads a record and keeps the lines that are measures. A record that was never written reads as empty, which is how a base older than the speed tests reads.
+
+`middles` gives each measure the middle of the values recorded for it, so one slow run of three does not decide the verdict.
+
+=>
+
+const SpeedSchema = Schema.Struct({ measure: Schema.String, value: Schema.Number })
+
+type Speed = typeof SpeedSchema.Type
+
+const speedOf = Schema.decodeUnknownOption(Schema.fromJsonString(SpeedSchema))
+
+const speedsIn = (record: string): ReadonlyArray<Speed> =>
+  Array.getSomes(
+    Option.getOrElse(Option.liftThrowable(() => readFileSync(record, 'utf8'))(), () => '')
+      .split('\n')
+      .map((line) => speedOf(line)),
+  )
+
+const middleOf = (values: Array.NonEmptyReadonlyArray<number>): number => {
+  const sorted = Array.sort(values, Order.Number)
+  return Option.getOrElse(Array.get(sorted, Math.floor(sorted.length / 2)), () =>
+    Array.headNonEmpty(sorted),
+  )
+}
+
+const middles = (speeds: ReadonlyArray<Speed>): ReadonlyMap<string, number> =>
+  new Map(
+    Record.toEntries(Array.groupBy(speeds, (speed) => speed.measure)).map(
+      ([measure, taken]) => [measure, middleOf(Array.map(taken, (speed) => speed.value))] as const,
+    ),
+  )
+
+## Holding the change against the base
+
+`compared` pairs each measure the base recorded with the same measure of the change. A measure only one of them recorded has no pair, since a change may add a speed test, and the base holds no time to set against it. `worded` writes a pair as a line a person reads: the measure, its value at the base and now, and how many times as long the change takes.
+
+The limit is one and a half. No measure wanders that far between two runs on one machine, and a build that takes twice as long cannot pass it.
+
+`judged` gives the verdict. A base that recorded nothing leaves nothing to compare, and the tool says so and passes. A change that recorded nothing beside a base that did fails as `Unrecorded`. Otherwise `judged` prints every pair, and fails as `Slower` with the pairs whose change is past the limit.
+
+=>
+
+type Compared = { readonly measure: string; readonly base: number; readonly change: number }
+
+const limit = 1.5
+
+const compared = (
+  base: ReadonlyMap<string, number>,
+  change: ReadonlyMap<string, number>,
+): ReadonlyArray<Compared> =>
+  Array.getSomes(
+    Array.fromIterable(base).map(([measure, was]) =>
+      Option.map(
+        Option.fromNullishOr(change.get(measure)),
+        (now): Compared => ({ measure, base: was, change: now }),
+      ),
+    ),
+  )
+
+const worded = ({ measure, base, change }: Compared): string =>
+  `${measure}: ${base.toFixed(1)} at the base, ${change.toFixed(1)} now, ${(change / base).toFixed(2)} times as long`
+
+const judged = (
+  base: ReadonlyMap<string, number>,
+  change: ReadonlyMap<string, number>,
+): Effect.Effect<void, Unrecorded | Slower> => {
+  if (base.size === 0)
+    return Console.log('compare-speed: the base records no speeds, so there is nothing to compare')
+  if (change.size === 0) return Effect.fail(new Unrecorded())
+  const pairs = compared(base, change)
+  const behind = pairs.filter((pair) => pair.change > pair.base * limit)
+  return Console.log(pairs.map(worded).join('\n')).pipe(
+    Effect.andThen(behind.length === 0 ? Effect.void : Effect.fail(new Slower({ behind }))),
+  )
+}
+
+## The comparison, from the base to the verdict
+
+The base is the commit named on the command line. Without one it is the commit the environment variable `MOON_BASE` names, which the workflow of Part XI sets for every check, and without that it is `main`. `namedBy` reads one of those places, and takes an empty name for no name.
+
+`comparison` makes the folder beside the repository, checks the base out, records the speeds of both, and reads the two records. It removes the folder and the worktree however that ends, and then judges what it read.
+
+=>
+
+const namedBy = (place: string | undefined): Option.Option<string> =>
+  Option.filter(Option.fromNullishOr(place), (commit) => commit !== '')
+
+const baseCommit = Option.getOrElse(
+  Option.orElse(namedBy(process.argv[2]), () => namedBy(process.env.MOON_BASE)),
+  () => 'main',
+)
+
+const comparison = Effect.acquireUseRelease(
+  besideMade,
+  (beside) =>
+    baseCheckedOut(beside, baseCommit).pipe(
+      Effect.andThen(allRecorded(beside)),
+      Effect.andThen(
+        Effect.sync(
+          () =>
+            [
+              middles(speedsIn(beside.baseRecord)),
+              middles(speedsIn(beside.changeRecord)),
+            ] as const,
+        ),
+      ),
+    ),
+  besideRemoved,
+).pipe(Effect.flatMap(([base, change]) => judged(base, change)))
+
+~
+
+A failure prints what went wrong and sets the exit code, so `moon` reports the task as failed.
+
+=>
+
+const failWith = (message: string): Effect.Effect<void> =>
+  Console.error(`compare-speed: ${message}`).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        process.exitCode = 1
+      }),
+    ),
+  )
+
+BunRuntime.runMain(
+  comparison.pipe(
+    Effect.catchTags({
+      CommandFailed: (error) => failWith(`command failed — ${error.command}`),
+      Unrecorded: () => failWith(`the change recorded no speeds, though ${baseCommit} did`),
+      Slower: (error) =>
+        failWith(`slower than ${baseCommit}\n${error.behind.map(worded).join('\n')}`),
+    }),
+  ),
+)
+
+## The tool assembled [compare-speed.ts]
+
+=>
+
+::[What the tool draws on]
+
+::[Three ways to fail]
+
+::[Running a command]
+
+::[The base, checked out beside the change]
+
+::[Running the speed tests]
+
+::[What the runs recorded]
+
+::[Holding the change against the base]
+
+::[The comparison, from the base to the verdict]

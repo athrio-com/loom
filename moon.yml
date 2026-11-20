@@ -22,3 +22,17 @@ tasks:
       - "bun.lock"
       - "mise.toml"
       - "moon.yml"
+
+  speed:
+    command: "bun scripts/compare-speed.ts"
+    deps: ["install"]
+    inputs:
+      - "corpus/**/*"
+      - "packages/**/*"
+      - "scripts/compare-speed.ts"
+      - "package.json"
+      - "bun.lock"
+      - "mise.toml"
+      - "moon.yml"
+    options:
+      cache: false

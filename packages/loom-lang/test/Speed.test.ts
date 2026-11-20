@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'bun:test'
-import { Array, Duration, Effect, Layer, ManagedRuntime, Order } from 'effect'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { Array, Duration, Effect, Layer, ManagedRuntime, Option, Order } from 'effect'
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { reach } from '@athrio/loom-ast/LoomCorpusAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
@@ -19,6 +27,12 @@ const millis = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<readonly [
   Effect.timed(work).pipe(
     Effect.map(([spent, result]) => [Duration.toMillis(spent), result] as const),
   )
+
+const recorded = (measure: string, value: number): void =>
+  Option.match(Option.fromNullishOr(process.env.LOOM_SPEED), {
+    onNone: () => undefined,
+    onSome: (file) => appendFileSync(file, `${JSON.stringify({ measure, value })}\n`),
+  })
 
 const root = resolve(import.meta.dir, '../../..')
 
@@ -46,6 +60,7 @@ describe('the book', () => {
     console.log(
       `speed: the book, ${looms} looms and ${Math.round(thousands)} thousand lines, was built from nothing in ${Math.round(spent)} ms, ${(spent / thousands).toFixed(1)} ms for each thousand lines`,
     )
+    recorded('the book, in milliseconds for each thousand lines', spent / thousands)
     expect(spent / thousands).toBeLessThan(65)
   }, 120_000)
 })
@@ -81,6 +96,7 @@ describe('a keystroke in the longest loom of the book', () => {
     const times = Array.sort(await bookCompiler.runPromise(keystrokes), Order.Number)
     const middle = times[2] ?? Infinity
     console.log(`speed: a keystroke was answered in ${Math.round(middle)} ms`)
+    recorded('a keystroke, in milliseconds', middle)
     expect(middle).toBeLessThan(180)
   }, 120_000)
 })
@@ -152,6 +168,40 @@ describe('a corpus eight times the size', () => {
     console.log(
       `speed: a loom took ${small.toFixed(1)} ms among 50 looms and ${large.toFixed(1)} ms among 400`,
     )
+    recorded('a loom among 400, in milliseconds', large)
     expect(large / small).toBeLessThan(1.5)
+  }, 120_000)
+})
+
+const moduleAt = (place: number): string => `/chain/module-${place}.loom`
+
+const chained = (length: number): ((module: string) => ReadonlyArray<string>) => {
+  const next = new Map(
+    Array.range(1, length - 1).map((place) => [moduleAt(place), [moduleAt(place + 1)]] as const),
+  )
+  return (module) => next.get(module) ?? []
+}
+
+const perLevel = (length: number): Promise<number> => {
+  const step = chained(length)
+  return Effect.runPromise(
+    Effect.forEach(Array.range(1, 7), () =>
+      millis(Effect.sync(() => reach([moduleAt(1)], step))),
+    ).pipe(
+      Effect.map((walks) => Array.sort(walks.map(([spent]) => spent), Order.Number)),
+      Effect.map((times) => (times[3] ?? Infinity) / length),
+    ),
+  )
+}
+
+describe('a chain eight times as long', () => {
+  it('costs no more for each level', async () => {
+    await perLevel(100)
+    const short = await perLevel(500)
+    const long = await perLevel(4000)
+    console.log(
+      `speed: a level of a chain took ${(short * 1000).toFixed(2)} µs among 500 levels and ${(long * 1000).toFixed(2)} µs among 4,000`,
+    )
+    expect(long / short).toBeLessThan(3)
   }, 120_000)
 })

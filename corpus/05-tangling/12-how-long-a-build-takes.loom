@@ -14,7 +14,7 @@ Time is hard to test, because a machine's speed is not Loom's doing. One build t
 - **Work that grows with the corpus.** A step that reads the whole corpus again for every loom costs little in a small book and most of the build in a large one. A ratio catches it. The ratio compares the time one loom takes in a small corpus with the time one takes in a large corpus, and both are measured in one run on one machine.
 - **Work that has grown heavy.** A budget catches it. A budget is a time the build must stay under, set about four times above what the build takes, so only a build several times slower fails.
 
-A budget that wide cannot see a build that takes twice as long as it did. So each test also prints what it measured, and the number stands in the log of every run, where two runs can be compared.
+A budget that wide cannot see a build that takes twice as long as it did. So each test also prints what it measured, and the number stands in the log of every run. Three of the tests record their measure in a file as well, when the environment asks for one. The next chapter, "Slower than the build before", runs the tests at two commits on one machine and compares what they recorded.
 
 ## A compiler that has built nothing
 
@@ -22,14 +22,24 @@ A measurement starts from a compiler that holds nothing. `fromNothing` is the co
 
 `millis` runs an effect and gives the milliseconds it took beside its result.
 
+`recorded` keeps one measure for a later comparison. When the environment variable `LOOM_SPEED` names a file, `recorded` adds the measure to the end of that file as a line of JSON: the name of the measure and its value. When the variable is not set, `recorded` does nothing.
+
 =>
 
 import { describe, expect, it } from 'bun:test'
-import { Array, Duration, Effect, Layer, ManagedRuntime, Order } from 'effect'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { Array, Duration, Effect, Layer, ManagedRuntime, Option, Order } from 'effect'
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { reach } from '@athrio/loom-ast/LoomCorpusAst'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
@@ -45,6 +55,12 @@ const millis = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<readonly [
   Effect.timed(work).pipe(
     Effect.map(([spent, result]) => [Duration.toMillis(spent), result] as const),
   )
+
+const recorded = (measure: string, value: number): void =>
+  Option.match(Option.fromNullishOr(process.env.LOOM_SPEED), {
+    onNone: () => undefined,
+    onSome: (file) => appendFileSync(file, `${JSON.stringify({ measure, value })}\n`),
+  })
 
 ## The book, built from nothing
 
@@ -82,6 +98,7 @@ describe('the book', () => {
     console.log(
       `speed: the book, ${looms} looms and ${Math.round(thousands)} thousand lines, was built from nothing in ${Math.round(spent)} ms, ${(spent / thousands).toFixed(1)} ms for each thousand lines`,
     )
+    recorded('the book, in milliseconds for each thousand lines', spent / thousands)
     expect(spent / thousands).toBeLessThan(65)
   }, 120_000)
 })
@@ -127,6 +144,7 @@ describe('a keystroke in the longest loom of the book', () => {
     const times = Array.sort(await bookCompiler.runPromise(keystrokes), Order.Number)
     const middle = times[2] ?? Infinity
     console.log(`speed: a keystroke was answered in ${Math.round(middle)} ms`)
+    recorded('a keystroke, in milliseconds', middle)
     expect(middle).toBeLessThan(180)
   }, 120_000)
 })
@@ -216,7 +234,51 @@ describe('a corpus eight times the size', () => {
     console.log(
       `speed: a loom took ${small.toFixed(1)} ms among 50 looms and ${large.toFixed(1)} ms among 400`,
     )
+    recorded('a loom among 400, in milliseconds', large)
     expect(large / small).toBeLessThan(1.5)
+  }, 120_000)
+})
+
+## A chain eight times as long
+
+The fourth test asks the same question of depth. A corpus may hold a chain: one loom composes a section of a second, the second composes a section of a third, and so on. The function `reach`, from the chapter "The multi-file AST", follows such a chain one level at a time. If it handled every module it had passed again at each level, a level deep in a long chain would cost far more than a level of a short one.
+
+`chained` gives the edges of a chain of as many modules as it is asked for, where each module reaches the next. `perLevel` walks a whole chain from its first module, seven times, and takes the middle time. It gives the milliseconds one level took.
+
+The test walks a chain of 500 modules and a chain of 4,000. A walk that passes over every module it has seen at each level takes eight times as long for a level of the longer chain. The test allows three times. It first walks a chain of 100 modules and discards the time, so both measured walks run on code the engine has already compiled.
+
+=>
+
+const moduleAt = (place: number): string => `/chain/module-${place}.loom`
+
+const chained = (length: number): ((module: string) => ReadonlyArray<string>) => {
+  const next = new Map(
+    Array.range(1, length - 1).map((place) => [moduleAt(place), [moduleAt(place + 1)]] as const),
+  )
+  return (module) => next.get(module) ?? []
+}
+
+const perLevel = (length: number): Promise<number> => {
+  const step = chained(length)
+  return Effect.runPromise(
+    Effect.forEach(Array.range(1, 7), () =>
+      millis(Effect.sync(() => reach([moduleAt(1)], step))),
+    ).pipe(
+      Effect.map((walks) => Array.sort(walks.map(([spent]) => spent), Order.Number)),
+      Effect.map((times) => (times[3] ?? Infinity) / length),
+    ),
+  )
+}
+
+describe('a chain eight times as long', () => {
+  it('costs no more for each level', async () => {
+    await perLevel(100)
+    const short = await perLevel(500)
+    const long = await perLevel(4000)
+    console.log(
+      `speed: a level of a chain took ${(short * 1000).toFixed(2)} µs among 500 levels and ${(long * 1000).toFixed(2)} µs among 4,000`,
+    )
+    expect(long / short).toBeLessThan(3)
   }, 120_000)
 })
 
@@ -231,3 +293,5 @@ describe('a corpus eight times the size', () => {
 ::[A keystroke]
 
 ::[A corpus eight times the size]
+
+::[A chain eight times as long]

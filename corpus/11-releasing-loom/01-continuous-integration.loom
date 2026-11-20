@@ -7,7 +7,7 @@ Language: YAML
 
 # Continuous integration
 
-Every push and every pull request runs the same gate: the code type-checks, the tests pass, the committed source matches the corpus it tangles from, and the standalone executable still runs. The release workflow waits on this one. It runs only after the gate passes on the default branch, so nothing publishes on a red build.
+Every push and every pull request runs the same gate: the code type-checks, the tests pass, the committed source matches the corpus it tangles from, the standalone executable still runs, and a build takes about as long as it did before the change. The release workflow waits on this one. It runs only after the gate passes on the default branch, so nothing publishes on a red build.
 
 A push runs only the checks its change can affect. The repository holds a book, eight packages and a website, and a change to one rarely touches the rest. So the checks run under moon, a task runner made for repositories that hold several projects. Each check names the files it reads, and moon runs a check only when one of those files changed. A fix to the website's stylesheet type-checks and tests the website and leaves the language server's four hundred tests alone. A change to the AST, which every package builds on, runs nearly everything.
 
@@ -88,6 +88,28 @@ Its inputs are as wide as its question. They are the corpus, every directory the
       - "bun.lock"
       - "mise.toml"
       - "moon.yml"
+
+~
+
+The book's second task asks whether the change made a build slower. It runs `compare-speed`, the tool of Part V, Chapter 13. The tool runs the speed tests at the commit the change is measured from and at the change itself, on this one machine, and fails when the change takes more than half again as long. The workflow names the commit to measure from in `MOON_BASE`.
+
+The task reads the corpus and the packages, because the speed tests build the book with them. It is never cached. What it measures is this machine during these minutes, and no file says anything about that.
+
+=>
+
+  speed:
+    command: "bun scripts/compare-speed.ts"
+    deps: ["install"]
+    inputs:
+      - "corpus/**/*"
+      - "packages/**/*"
+      - "scripts/compare-speed.ts"
+      - "package.json"
+      - "bun.lock"
+      - "mise.toml"
+      - "moon.yml"
+    options:
+      cache: false
 
 ## The packages
 
@@ -620,7 +642,7 @@ jobs:
 
 ## The gate, asked of the change
 
-The first job checks the repository out with its whole history, which moon needs to find what changed between the two commits, and fetches a file's contents only when something reads the file. It gets Bun and moon from mise, at the versions `mise.toml` pins. It then asks `moon ci` for the five checks, measured from the base it found, one at a time: run side by side on the runner, the type checks and the tests slow each other down until a test misses its time limit.
+The first job checks the repository out with its whole history, which moon needs to find what changed between the two commits, and fetches a file's contents only when something reads the file. It gets Bun and moon from mise, at the versions `mise.toml` pins. It then asks `moon ci` for the checks: the type checks, the tests, the tangle, the smoke check and the comparison of speed. Each is measured from the base the job found, and they run one at a time. Run side by side on the runner, the type checks and the tests slow each other down until a test misses its time limit, and a comparison of speed would measure its neighbours.
 
 =>
 
@@ -632,7 +654,7 @@ The first job checks the repository out with its whole history, which moon needs
         with:
           install_args: bun npm:@moonrepo/cli
       - name: The book's checks, asked of the change
-        run: moon ci --concurrency 1 :typecheck :test :tangle :smoke
+        run: moon ci --concurrency 1 :typecheck :test :tangle :smoke :speed
         env:
           MOON_BASE: ${{ steps.base.outputs.sha }}
           MOON_HEAD: ${{ github.sha }}
