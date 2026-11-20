@@ -7,6 +7,7 @@ import {
   type Diagnostic,
   FileChangeType,
   type FoldingRange,
+  type InitializeResult,
   type InlayHint,
   type Location,
   type LocationLink,
@@ -101,9 +102,10 @@ const serverEntry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
 
 const tsdk = dirname(createRequire(import.meta.url).resolve('typescript/lib/typescript.js'))
 
-const editorAt = async (folder: string, experimental?: unknown) => {
+const serverIn = (cwd: string) => {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'LOOM_HOME'))
   const child = spawn(process.execPath, [serverEntry, '--stdio'], {
+    cwd,
     env,
     stdio: ['pipe', 'pipe', 'ignore'],
   })
@@ -111,6 +113,11 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     new StreamMessageReader(child.stdout),
     new StreamMessageWriter(child.stdin),
   )
+  return { child, connection }
+}
+
+const editorAt = async (folder: string, experimental?: unknown) => {
+  const { child, connection } = serverIn(process.cwd())
   const asked: Array<ApplyWorkspaceEditParams> = []
   connection.onRequest((method, params) => {
     if (method === 'workspace/applyEdit') asked.push(params as ApplyWorkspaceEditParams)
@@ -296,6 +303,41 @@ describe('LoomServer — a loom in a nested workspace', () => {
       expect(texts(await editor.format(nestedLoom))).toEqual([loomOf('const answer = 42')])
     } finally {
       editor.close()
+    }
+  }, 30_000)
+})
+
+const hierarchyStandIn = lines(
+  `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+  'export default {',
+  "  id: 'typescript',",
+  "  displayName: 'TypeScript',",
+  "  extensions: ['.ts'],",
+  '  plugins: () =>',
+  '    Effect.succeed([',
+  "      { name: 'calls', capabilities: { callHierarchyProvider: true }, create: () => ({}) },",
+  '    ]),',
+  '}',
+)
+
+describe('LoomServer — an editor that names only a root', () => {
+  it('announces the capabilities of the workspace at that root', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    workspaceAt(root, hierarchyStandIn)
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const { child, connection } = serverIn(elsewhere)
+    connection.listen()
+    try {
+      const answer = await connection.sendRequest<InitializeResult>('initialize', {
+        processId: process.pid,
+        rootUri: pathToFileURL(root).href,
+        capabilities: {},
+        initializationOptions: { typescript: { tsdk } },
+      })
+      expect(answer.capabilities.callHierarchyProvider).toBe(true)
+    } finally {
+      connection.dispose()
+      child.kill()
     }
   }, 30_000)
 })

@@ -21,6 +21,7 @@ import {
   createServer,
   FileChangeType,
   type FileEvent,
+  type InitializeParams,
   type Language,
   type LanguageServer,
   type LanguageServerProject,
@@ -901,11 +902,16 @@ const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, ne
     Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
   )
 
-const homeOf = (folder: string | undefined): Effect.Effect<string, never, WorkspaceSource> =>
+const openedFolder = (params: InitializeParams): Option.Option<string> =>
+  Option.orElse(Option.fromNullishOr(params.workspaceFolders?.[0]?.uri), () =>
+    Option.fromNullishOr(params.rootUri),
+  )
+
+const homeOf = (folder: Option.Option<string>): Effect.Effect<string, never, WorkspaceSource> =>
   WorkspaceSource.pipe(
     Effect.map((source) =>
       source.workspaceOf(
-        Option.match(Option.fromNullishOr(folder), {
+        Option.match(folder, {
           onNone: () => process.cwd(),
           onSome: (uri) => source.locationOf(URI.parse(uri)),
         }),
@@ -918,7 +924,7 @@ export const startLanguageServer = (): void => {
   const server = createServer(connection)
 
   connection.onInitialize(async (params) => {
-    const home = await runtime.runPromise(homeOf(params.workspaceFolders?.[0]?.uri))
+    const home = await runtime.runPromise(homeOf(openedFolder(params)))
     const { workspace, services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
         const workspace = yield* openWorkspace(home)
