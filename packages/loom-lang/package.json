@@ -27,7 +27,8 @@
   },
   "scripts": {
     "build": "vite build",
-    "watch": "vite build --watch"
+    "watch": "vite build --watch",
+    "prepack": "bun run build"
   },
   "dependencies": {
     "@athrio/loom-config": "workspace:*",

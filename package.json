@@ -25,6 +25,8 @@
     "pack:vsix": "bun run --filter loom-vscode pack:vsix",
     "loom": "bun packages/loom/dist/main.js",
     "release": "bun scripts/release.ts",
+    "registry": "bun scripts/registry.ts",
+    "release-local": "bun scripts/release-local.ts",
     "test": "bun test",
     "test:watch": "bun test --watch"
   },

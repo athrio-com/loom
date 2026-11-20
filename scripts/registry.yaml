@@ -1,0 +1,22 @@
+storage: ./storage
+
+auth:
+  htpasswd:
+    file: ./htpasswd
+    max_users: 1
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+packages:
+  '@athrio/*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+  '**':
+    access: $all
+    proxy: npmjs
+
+log: { type: stdout, format: pretty, level: warn }

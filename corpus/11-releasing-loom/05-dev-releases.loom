@@ -1,0 +1,495 @@
+---
+Part XI, Chapter 5: Dev releases
+Package: scripts/
+Language: TypeScript
+---
+
+# Dev releases
+
+A public release waits for a milestone, and a milestone can take months. A project that builds on Loom's packages cannot always wait that long. It needs the work of last week, and it needs that work under a version it can pin, so that its own build gives the same result each time.
+
+A dev release supplies that version. It is a build of one commit, published under a number of its own to a registry that runs on the developer's machine and answers only that machine. No part of a dev release reaches npm or GitHub, so the last public release stays the public Loom until the next milestone.
+
+Two tools make a dev release. The `registry` tool runs the local registry, and `bun run registry` starts it. The `release-local` tool publishes a commit into that registry, and `bun run release-local` runs it.
+
+## Where the registry listens
+
+The local registry answers at one address, port 4873 on `localhost`, the name a machine gives itself. A request from another machine never reaches a server that listens on `localhost`, so the address alone keeps the registry private. Both tools read the address from the `registry` constant. The `registry` tool listens there, and the `release-local` tool publishes there.
+
+=>
+
+const registry = 'http://localhost:4873'
+
+## What the registry holds [registry.yaml]
+
+The registry is Verdaccio, a small npm registry made to run on one machine. Verdaccio reads its settings from a configuration file, and this section is that file.
+
+The `storage` setting names the folder where Verdaccio keeps each package it holds. The path is relative, and Verdaccio resolves it against the folder of the configuration file, so the packages land beside the configuration.
+
+The registry keeps one account. npm never publishes without signing in, and Verdaccio turns away a token it did not issue, so the `release-local` tool signs in before it publishes. Under `auth`, `max_users: 1` lets one account register and no second, and that one account is the tool's. Verdaccio keeps the account in the `htpasswd` file, beside the configuration.
+
+The `npmjs` uplink is the public registry. Verdaccio asks the uplink for the packages and the versions it does not hold itself, and keeps a copy of what the uplink sends back.
+
+The `packages` setting says who may do what, by package name. Any client may install a package in the `@athrio` scope, since its `access` is open to `$all`, Verdaccio's word for every client, signed in or not. Only a signed-in client may publish such a package or remove it again, and removing it is how a broken dev release is withdrawn. The scope is also proxied to the uplink. The registry therefore answers under one package name for the dev releases it holds and for the public releases npm holds.
+
+Every other package is read through from npm. Its rule names nobody who may publish, and Verdaccio then lets nobody, so nothing outside the `@athrio` scope can be published here.
+
+The `log` setting keeps Verdaccio's output to warnings and errors.
+
+=>
+
+storage: ./storage
+
+auth:
+  htpasswd:
+    file: ./htpasswd
+    max_users: 1
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+packages:
+  '@athrio/*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+  '**':
+    access: $all
+    proxy: npmjs
+
+log: { type: stdout, format: pretty, level: warn }
+
+## What the registry tool draws on
+
+The `registry` tool copies a file and starts a process, so it draws on Effect's filesystem service and on Bun's process spawning. Node's `os` names the home folder, and `path` and `url` find the configuration file beside the tool's own module.
+
+=>
+
+import { Console, Effect, FileSystem } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+## Starting the registry
+
+The registry keeps everything it owns in one folder, `~/.loom-dev/registry`: its configuration, and under `storage` every package it holds. The folder lies outside every repository, so a dev release outlives the checkout it was built from. Deleting the folder empties the registry.
+
+`configured` makes that folder and copies this chapter's configuration into it, and it does so at every start. The registry therefore always runs under the configuration the book gives, and a change to this chapter reaches the registry the next time it starts.
+
+`serving` runs Verdaccio in the foreground until someone stops it, the way a development server runs. Nothing installs Verdaccio beforehand. The `verdaccio` constant names one version. Bun's `bunx` command fetches that version the first time it is asked for, and keeps it for the starts that follow. Verdaccio runs in the registry's folder, under the copied configuration, and listens at the `registry` address. When Verdaccio exits, the tool exits with Verdaccio's exit code.
+
+=>
+
+const verdaccio = 'verdaccio@7.1.2'
+
+const home = join(homedir(), '.loom-dev', 'registry')
+
+const configured = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const config = join(home, 'config.yaml')
+  yield* fs.makeDirectory(home, { recursive: true })
+  yield* fs.copyFile(join(dirname(fileURLToPath(import.meta.url)), 'registry.yaml'), config)
+  return config
+})
+
+const serving = (config: string): Effect.Effect<void> =>
+  Effect.promise(
+    () =>
+      Bun.spawn(['bunx', verdaccio, '--config', config, '--listen', registry], {
+        cwd: home,
+        stdout: 'inherit',
+        stderr: 'inherit',
+      }).exited,
+  ).pipe(
+    Effect.flatMap((code) =>
+      Effect.sync(() => {
+        process.exitCode = code
+      }),
+    ),
+  )
+
+BunRuntime.runMain(
+  configured.pipe(
+    Effect.tap(() =>
+      Console.log(`the registry answers at ${registry} and keeps its packages in ${home}`),
+    ),
+    Effect.flatMap(serving),
+    Effect.provide(BunServices.layer),
+  ),
+)
+
+## The registry tool [registry.ts]
+
+=>
+
+::[What the registry tool draws on]
+
+::[Where the registry listens]
+
+::[Starting the registry]
+
+## What a dev release publishes
+
+A dev release publishes seven packages. Three are the ones a public release publishes: the command-line tool, the TypeScript service, and the tropes. The other four are the AST, the configuration, the contract of the language services, and the language. npm has never held those four, because a public release bundles them into the packages it does publish. A project that reads a loom in a program of its own imports them directly, so a dev release publishes them as packages.
+
+`devPackages` lists the seven in the order they depend on one another, so each package is published after every package it requires. The list names each package by its folder under `packages`, and the package's name on the registry is that folder's name in the `@athrio` scope.
+
+The `release-local` tool asks Git for a commit, asks the published `loom` command to set a version, and asks Bun and npm to pack and publish, so it spawns processes through Bun. It reads the workspace's configuration through `LoomConfig`, the service Part V describes. Effect's `Schema` reads the registry's answer, and `Option` carries a version that may not parse. Node's `fs` and `os` make the folder the release is built in, and `path` and `url` find the workspace around the tool's own module.
+
+=>
+
+import { Array, Console, Data, Effect, Option, Schema, pipe } from 'effect'
+import { BunRuntime } from '@effect/platform-bun'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+const devPackages: ReadonlyArray<string> = [
+  'loom-ast',
+  'loom-config',
+  'loom-lang-services',
+  'loom-lang',
+  'loom-service-typescript',
+  'loom-tropes',
+  'loom',
+]
+
+## Running a command
+
+`spawned` runs a command in a folder, and fails with a `CommandFailed` when the command cannot start or exits non-zero. `capture` gives back what the command printed, and `run` lets the command print to the terminal.
+
+A `CannotRelease` is the tool's other failure. It carries its reason as a sentence a person can act on.
+
+=>
+
+class CommandFailed extends Data.TaggedError('CommandFailed')<{
+  readonly command: string
+}> {}
+
+class CannotRelease extends Data.TaggedError('CannotRelease')<{
+  readonly reason: string
+}> {}
+
+const spawned = (
+  command: ReadonlyArray<string>,
+  folder: string,
+  stdout: 'pipe' | 'inherit',
+): Effect.Effect<string, CommandFailed> => {
+  const failed = new CommandFailed({ command: command.join(' ') })
+  return Effect.tryPromise({
+    try: async () => {
+      const child = Bun.spawn([...command], { cwd: folder, stdout, stderr: 'inherit' })
+      const text = stdout === 'pipe' ? await new Response(child.stdout).text() : ''
+      return { code: await child.exited, text: text.trim() }
+    },
+    catch: () => failed,
+  }).pipe(
+    Effect.flatMap(({ code, text }) => (code === 0 ? Effect.succeed(text) : Effect.fail(failed))),
+  )
+}
+
+const capture = (command: ReadonlyArray<string>, folder: string): Effect.Effect<string, CommandFailed> =>
+  spawned(command, folder, 'pipe')
+
+const run = (command: ReadonlyArray<string>, folder: string): Effect.Effect<void, CommandFailed> =>
+  Effect.asVoid(spawned(command, folder, 'inherit'))
+
+## The commit a release is built from
+
+A dev release is built from a commit, never from the files of the working tree. The commit is the one named on the command line, by a hash, a branch, or a tag, and it is `HEAD` when the command line names none. `commitOf` asks Git for the full hash behind a name, and fails when the name is no commit.
+
+Building from a commit keeps an unfinished edit out of every release. One case of that would surprise, though. A person who runs the tool over uncommitted changes most likely means to release them, and a release of `HEAD` would leave them out. So `committed` refuses to release `HEAD` while a tracked file holds an uncommitted change. A file Git does not track belongs to no commit, and it does not count.
+
+=>
+
+const named = Option.getOrElse(
+  Option.filter(Option.fromNullishOr(process.argv[2]), (name) => name !== ''),
+  () => 'HEAD',
+)
+
+const commitOf = (name: string): Effect.Effect<string, CommandFailed> =>
+  capture(['git', 'rev-parse', '--verify', `${name}^{commit}`], workspace)
+
+const committed = (commit: string): Effect.Effect<void, CommandFailed | CannotRelease> =>
+  Effect.all([
+    commitOf('HEAD'),
+    capture(['git', 'status', '--porcelain', '--untracked-files=no'], workspace),
+  ]).pipe(
+    Effect.flatMap(([head, changes]) =>
+      commit === head && changes !== ''
+        ? Effect.fail(
+            new CannotRelease({
+              reason:
+                'the working tree has uncommitted changes, and a release of HEAD would leave them out; commit them, or name the commit to release',
+            }),
+          )
+        : Effect.void,
+    ),
+  )
+
+## The number a dev release carries
+
+A dev release is a prerelease of the version that follows the one the book carries. While the book carries 0.0.20, its dev releases are `0.0.21-dev.1`, `0.0.21-dev.2`, and so on. Semantic versioning sorts each of them before 0.0.21 itself, so the public 0.0.21 supersedes every dev release that led to it. `nextPatch` gives the version that follows the book's, and fails when the book's version is not three numbers.
+
+The number after `dev` counts the dev releases of that version, and the registry keeps the count. `registryAnswer` sends the registry one request and gives back the JSON it answers with, or nothing when the registry refuses the request. A registry that does not answer at all is not running, and the tool fails with the command that starts it.
+
+`heldVersions` asks the registry for every version it holds of one package. The registry answers with a document whose `versions` object has a key for each version. A package the registry has never seen has no such document, and so no versions.
+
+`devNumber` reads the number out of one version, when that version is a dev release of the version asked about. `devVersion` gives the number one above the highest that any of the seven packages holds. Counting across all seven keeps a number from being used twice. A release that failed halfway has published its number for some packages, and the next release steps over that number for all of them.
+
+=>
+
+const nextPatch = (version: Option.Option<string>): Effect.Effect<string, CannotRelease> =>
+  pipe(
+    version,
+    Option.flatMap((text) => Option.fromNullishOr(/^(\d+)\.(\d+)\.(\d+)$/.exec(text))),
+    Option.map(([, major, minor, patch]) => `${major}.${minor}.${Number(patch) + 1}`),
+    Option.match({
+      onNone: () =>
+        Effect.fail(
+          new CannotRelease({ reason: 'the version variable is not a version of three numbers' }),
+        ),
+      onSome: Effect.succeed,
+    }),
+  )
+
+const HeldPackageSchema = Schema.Struct({
+  versions: Schema.Record(Schema.String, Schema.Unknown),
+})
+
+const heldPackage = Schema.decodeUnknownOption(HeldPackageSchema)
+
+const registryAnswer = (
+  path: string,
+  request?: RequestInit,
+): Effect.Effect<unknown, CannotRelease> =>
+  Effect.tryPromise({
+    try: (): Promise<unknown> =>
+      fetch(`${registry}${path}`, request).then((answer) =>
+        answer.ok ? answer.json() : undefined,
+      ),
+    catch: () =>
+      new CannotRelease({
+        reason: `no registry answers at ${registry}; start it with \`bun run registry\``,
+      }),
+  })
+
+const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
+  registryAnswer(`/@athrio%2f${folder}`).pipe(
+    Effect.map((answer) =>
+      Option.match(heldPackage(answer), {
+        onNone: () => [],
+        onSome: ({ versions }) => Object.keys(versions),
+      }),
+    ),
+  )
+
+const devNumber = (base: string, version: string): Option.Option<number> =>
+  pipe(
+    Option.fromNullishOr(/^(.+)-dev\.(\d+)$/.exec(version)),
+    Option.filter(([, of]) => of === base),
+    Option.map(([, , number]) => Number(number)),
+  )
+
+const devVersion = (base: string, held: ReadonlyArray<string>): string => {
+  const numbers = Array.getSomes(held.map((version) => devNumber(base, version)))
+  return `${base}-dev.${Math.max(0, ...numbers) + 1}`
+}
+
+## A checkout beside the workspace
+
+The tool builds the release in a checkout of its own, in a fresh folder under the system's temporary folder. `besideMade` makes that folder and names what goes into it: the checkout, the packed packages, and a settings file for npm. `checkedOut` adds the checkout as a Git worktree at the commit, detached from every branch, and installs its packages against the committed lockfile. `besideRemoved` removes the worktree and the folder when the release is done, whether it succeeded or failed.
+
+The checkout holds the commit's files, and those carry the last public version. `versioned` gives the checkout the dev release's version the way a public release gets its own. `loom set version` writes the version into the workspace's configuration and tangles the book again, and the `loom` it runs is the published command, the tangler of record. The version then stands in every manifest, and in the code that reads it too, such as the `serviceVersion` at which the command line installs its language services. So the command line of a dev release installs the services of that same dev release.
+
+Only the checkout changes. The working tree keeps the last public version in every manifest, and no commit records the number of a dev release.
+
+`versioned` then installs once more. The packages name one another as `workspace:*`, and Bun writes a real version in place of that as it packs a package. Bun reads the version from the lockfile, which still records the last public one. The second install brings the lockfile's record of the workspace's own packages up to the dev release's version.
+
+=>
+
+type Beside = {
+  readonly folder: string
+  readonly checkout: string
+  readonly packs: string
+  readonly settings: string
+}
+
+const besideMade: Effect.Effect<Beside> = Effect.sync(() => {
+  const folder = mkdtempSync(join(tmpdir(), 'loom-dev-release-'))
+  return {
+    folder,
+    checkout: join(folder, 'loom'),
+    packs: join(folder, 'packs'),
+    settings: join(folder, 'npmrc'),
+  }
+})
+
+const checkedOut = (beside: Beside, commit: string): Effect.Effect<void, CommandFailed> =>
+  run(['git', 'worktree', 'add', '--detach', beside.checkout, commit], workspace).pipe(
+    Effect.andThen(run(['bun', 'install', '--frozen-lockfile'], beside.checkout)),
+  )
+
+const besideRemoved = (beside: Beside): Effect.Effect<void> =>
+  Effect.ignore(run(['git', 'worktree', 'remove', '--force', beside.checkout], workspace)).pipe(
+    Effect.andThen(Effect.sync(() => rmSync(beside.folder, { recursive: true, force: true }))),
+  )
+
+const versioned = (beside: Beside, version: string): Effect.Effect<void, CommandFailed> =>
+  run(['loom', 'set', 'version', version], beside.checkout).pipe(
+    Effect.andThen(run(['bun', 'install'], beside.checkout)),
+  )
+
+## Publishing to the local registry alone
+
+`published` publishes one package in two steps. First Bun packs it. `bun pm pack` runs the package's `prepack` script, which builds whatever the package ships built. It then writes the version in place of each `workspace:*`, and leaves the packed file in the folder of packed packages. Then npm publishes that file.
+
+The publish must never reach npm's own registry. The person who runs the tool may well be signed in to npm, with the right to publish these very names. Three settings on npm's command line rule that out. `--registry` names the local registry. `--@athrio:registry` names it again for the scope, where npm would otherwise use a registry that a settings file gives the scope. `--userconfig` puts the file `settingsWritten` writes in place of the person's own settings file, so npm holds no token for any other registry while it publishes.
+
+That file holds one line, the token npm shows the local registry. `signedIn` gets the token by signing in to the registry's one account, and the request that signs in also registers the account the first time. The request carries the name and the password twice. Verdaccio registers a new account from the request's body, and signs an existing account in from the `authorization` header.
+
+The account's name and password stand in `account`, in plain sight. They guard nothing, since the registry answers only this machine, and whoever can run the tool there may publish with it. They exist because npm publishes only with a token, and Verdaccio honours only a token it issued.
+
+Every dev release goes out under the `dev` tag. npm tags a publish `latest` unless it is told otherwise, and `latest` is the version a plain install resolves to. Under the `dev` tag, a plain install of a package npm holds still gets its last public release through the local registry, and a project gets a dev release only by naming its version.
+
+The four packages npm has never held are the exception. The registry gives the first version of a package the `latest` tag, whatever tag the publish names, and later dev releases leave that tag where it is. So a plain install of one of the four gets its first dev release, and a project names the version for those four as well.
+
+=>
+
+const account = { name: 'loom-dev', password: 'loom-dev' }
+
+const SignedInSchema = Schema.Struct({ token: Schema.String })
+
+const signedInAnswer = Schema.decodeUnknownOption(SignedInSchema)
+
+const signedIn: Effect.Effect<string, CannotRelease> = registryAnswer(
+  `/-/user/org.couchdb.user:${account.name}`,
+  {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Basic ${btoa(`${account.name}:${account.password}`)}`,
+    },
+    body: JSON.stringify(account),
+  },
+).pipe(
+  Effect.flatMap((answer) =>
+    Option.match(signedInAnswer(answer), {
+      onNone: () =>
+        Effect.fail(
+          new CannotRelease({
+            reason: `the registry refused to sign in as ${account.name}; delete the htpasswd file in the registry's folder, start the registry again, and release again`,
+          }),
+        ),
+      onSome: ({ token }) => Effect.succeed(token),
+    }),
+  ),
+)
+
+const settingsWritten = (beside: Beside, token: string): Effect.Effect<void> =>
+  Effect.sync(() =>
+    writeFileSync(beside.settings, `${registry.replace('http:', '')}/:_authToken=${token}\n`),
+  )
+
+const published = (
+  beside: Beside,
+  folder: string,
+  version: string,
+): Effect.Effect<void, CommandFailed> =>
+  run(
+    ['bun', 'pm', 'pack', '--destination', beside.packs],
+    join(beside.checkout, 'packages', folder),
+  ).pipe(
+    Effect.andThen(
+      run(
+        [
+          'npm',
+          'publish',
+          join(beside.packs, `athrio-${folder}-${version}.tgz`),
+          '--tag=dev',
+          `--registry=${registry}`,
+          `--@athrio:registry=${registry}`,
+          `--userconfig=${beside.settings}`,
+          '--ignore-scripts',
+        ],
+        beside.folder,
+      ),
+    ),
+  )
+
+## The release
+
+The release runs from the commit to the registry in one pass. It resolves the commit and checks the working tree. It asks the registry what it holds and signs in before it builds anything, so a registry that is not running stops the release in a moment. Then it makes the checkout, reads the book's version there, and works out the dev release's number. It sets that version, writes npm's settings, and publishes the seven packages in order. It ends by printing the version a project pins.
+
+A failure at any step stops the release and names itself: a command that failed, or the reason the release cannot be made.
+
+=>
+
+const release = Effect.gen(function* () {
+  const config = yield* LoomConfig
+  const commit = yield* commitOf(named)
+  yield* committed(commit)
+  const held = yield* Effect.forEach(devPackages, heldVersions)
+  const token = yield* signedIn
+  return yield* Effect.acquireUseRelease(
+    besideMade,
+    (beside) =>
+      Effect.gen(function* () {
+        yield* checkedOut(beside, commit)
+        const { variables } = yield* config.resolve(beside.checkout)
+        const base = yield* nextPatch(Option.fromNullishOr(variables.version))
+        const version = devVersion(base, held.flat())
+        yield* Console.log(`releasing ${version} from ${commit}`)
+        yield* versioned(beside, version)
+        yield* settingsWritten(beside, token)
+        yield* Effect.forEach(devPackages, (folder) => published(beside, folder, version))
+        yield* Console.log(`published ${version} to ${registry}`)
+      }),
+    besideRemoved,
+  )
+}).pipe(Effect.provide(LoomConfig.layer))
+
+const failWith = (message: string): Effect.Effect<void> =>
+  Console.error(`release-local: ${message}`).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        process.exitCode = 1
+      }),
+    ),
+  )
+
+BunRuntime.runMain(
+  release.pipe(
+    Effect.catchTags({
+      CommandFailed: (error) => failWith(`command failed — ${error.command}`),
+      CannotRelease: (error) => failWith(error.reason),
+    }),
+  ),
+)
+
+## The dev release tool [release-local.ts]
+
+=>
+
+::[What a dev release publishes]
+
+::[Where the registry listens]
+
+::[Running a command]
+
+::[The commit a release is built from]
+
+::[The number a dev release carries]
+
+::[A checkout beside the workspace]
+
+::[Publishing to the local registry alone]
+
+::[The release]
