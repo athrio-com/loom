@@ -20,7 +20,7 @@ The Loom that builds is named by `fingerprint`. A released Loom is fixed, so its
 
 =>
 
-const cacheFormat = 2
+const cacheFormat = 3
 
 export const declaredKey = (declared: Declared): string => JSON.stringify(declared)
 
@@ -101,7 +101,7 @@ JSON keeps a module almost exactly. Fields whose value is `undefined` disappear,
 
 So `revived` walks the product and turns each of those fields back into an `Option`, through `optionOf`. Converting only those fields costs a third of what a reviver run over every value in the file would. A test builds modules from real chapters, keeps them, reads them back and compares the two whole. If the model ever gains another value that JSON cannot keep, that comparison fails, rather than the cache quietly serving a broken module.
 
-`recall` reads a loom's kept file. It returns the module only when the file parses, its key matches, and the module it holds names the same path and text. Anything else, from a missing file to one half written by a crashed process, returns nothing, and the loom is built as if no cache existed.
+`recall` reads a loom's kept file. The file is kept in ASCII, as the section "Keeping a module" describes, so `recall` reads each byte as one character. It returns the module only when the file parses, its key matches, and the module it holds names the same path and text. Anything else, from a missing file to one half written by a crashed process, returns nothing, and the loom is built as if no cache existed.
 
 The file's opening settles most misses before anything is parsed. Parsing the kept module of a long chapter takes tens of milliseconds, and the editor asks for a loom on every keystroke, with a text no kept file was built from. So `recall` compares how the file opens with `openingOf` the key it wants, and parses the file only when the two agree. It reads no more of the file than that opening to compare. The kept module of a long chapter runs to two megabytes, and reading it whole on every keystroke would cost several milliseconds for a file whose opening already says it is of no use. `opensWith` reads just as many bytes as the opening holds.
 
@@ -163,7 +163,7 @@ const recall = (file: string, key: string, path: Location, text: string): Option
     Option.some(file),
     Option.filter((kept) => opensWith(kept, openingOf(key))),
     Option.flatMap((kept) =>
-      Option.liftThrowable(() => JSON.parse(readFileSync(kept, 'utf8')) as KeptModule)(),
+      Option.liftThrowable(() => JSON.parse(readFileSync(kept, 'latin1')) as KeptModule)(),
     ),
     Option.filter(
       (kept) => kept.key === key && kept.module.path === path && kept.module.text === text,
@@ -177,7 +177,17 @@ A module is kept only when it was built from the loom as it is saved. The editor
 
 `write` writes the kept file beside its final name and then renames it into place. It writes the key before the module, which is the opening `recall` looks for. A rename replaces the old file in one step, so a language server and a tangle working in the same workspace never read each other's half-written file. Keeping is a convenience, and a failure to write, such as a read-only checkout, is ignored: the module was built, and the next process simply builds it again.
 
+`write` keeps the file in ASCII, the 128 characters that take one byte each. JSON may write any other character as an escape, such as `\u2014` for a long dash, and whoever parses the JSON takes the escape for the character. `asciiOf` writes every character beyond ASCII as its escape. A reader then takes each byte of the file as one character and has nothing to decode. Decoding is half of what reading the kept files costs. The kept modules of Loom's own book take about 100 milliseconds to read as UTF-8, and about 50 as single bytes.
+
 =>
+
+const beyondAscii = /[\u0080-\uffff]/g
+
+const asciiOf = (json: string): string =>
+  json.replace(
+    beyondAscii,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  )
 
 const write = (workspace: string, file: string, key: string, built: Built): void =>
   void Option.liftThrowable(() => {
@@ -185,7 +195,7 @@ const write = (workspace: string, file: string, key: string, built: Built): void
     mkdirSync(dirname(file), { recursive: true })
     if (!existsSync(join(cacheDir, '.gitignore'))) writeFileSync(join(cacheDir, '.gitignore'), '*\n')
     const draft = `${file}.${process.pid}.tmp`
-    writeFileSync(draft, JSON.stringify({ key, ...built } satisfies KeptModule))
+    writeFileSync(draft, asciiOf(JSON.stringify({ key, ...built } satisfies KeptModule)), 'latin1')
     renameSync(draft, file)
   })()
 

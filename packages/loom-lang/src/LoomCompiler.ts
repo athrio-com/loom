@@ -595,15 +595,33 @@ const lastLineOf = (opened: OpenedBox): LoomWeft =>
     () => opened.opener,
   )
 
+const lineStartsOf: (module: LoomModule) => ReadonlyArray<number> = memoize(
+  (module: LoomModule) => [
+    0,
+    ...[...module.text.matchAll(/\n/g)].map((newline) => newline.index + 1),
+  ],
+)
+
+const lineHolding = (
+  starts: ReadonlyArray<number>,
+  offset: number,
+  first: number,
+  last: number,
+): number => {
+  if (first >= last) return first
+  const middle = Math.ceil((first + last) / 2)
+  return (starts[middle] ?? Infinity) <= offset
+    ? lineHolding(starts, offset, middle, last)
+    : lineHolding(starts, offset, first, middle - 1)
+}
+
 const lineCharAt = (
-  text: string,
+  module: LoomModule,
   offset: number,
 ): { readonly line: number; readonly character: number } => {
-  const before = text.slice(0, offset)
-  return {
-    line: before.split('\n').length - 1,
-    character: offset - (before.lastIndexOf('\n') + 1),
-  }
+  const starts = lineStartsOf(module)
+  const line = lineHolding(starts, offset, 0, starts.length - 1)
+  return { line, character: offset - (starts[line] ?? 0) }
 }
 
 const approvalTitle = (relation: Relation): string =>
@@ -615,11 +633,11 @@ const frameLocationOf = (
   modules: Modules,
   location: CorpusLocation,
 ): Option.Option<FrameLocation> =>
-  Option.map(Option.fromNullishOr(modules.get(location.path)?.text), (text) => ({
+  Option.map(Option.fromNullishOr(modules.get(location.path)), (module) => ({
     path: location.path,
     range: {
-      start: lineCharAt(text, location.position.start.offset),
-      end: lineCharAt(text, location.position.end.offset),
+      start: lineCharAt(module, location.position.start.offset),
+      end: lineCharAt(module, location.position.end.offset),
     },
   }))
 
@@ -749,7 +767,10 @@ const changedSince = (
   modules: Modules,
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): ReadonlyArray<Location> =>
-  Array.dedupe([...previous.modules.keys(), ...modules.keys()]).filter(
+  [
+    ...previous.modules.keys(),
+    ...Array.fromIterable(modules.keys()).filter((path) => !previous.modules.has(path)),
+  ].filter(
     (path) =>
       previous.modules.get(path) !== modules.get(path) ||
       !samePlaces(previous.placed.get(path), placed.get(path)),
@@ -1460,8 +1481,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                       (target): SummaryEdit => ({
                         path: edit.path,
                         range: {
-                          start: lineCharAt(target.text, edit.at.start.offset),
-                          end: lineCharAt(target.text, edit.at.end.offset),
+                          start: lineCharAt(target, edit.at.start.offset),
+                          end: lineCharAt(target, edit.at.end.offset),
                         },
                         text: edit.text,
                       }),
@@ -1708,8 +1729,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               onNone: (): ReadonlyArray<FrameBox> => [],
               onSome: (module) =>
                 openedBoxesOf(module.doc).map((opened): FrameBox => ({
-                  startLine: lineCharAt(module.text, opened.opener.position.start.offset).line,
-                  endLine: lineCharAt(module.text, lastLineOf(opened).position.start.offset).line,
+                  startLine: lineCharAt(module, opened.opener.position.start.offset).line,
+                  endLine: lineCharAt(module, lastLineOf(opened).position.start.offset).line,
                   caption: captionOf(opened),
                 })),
             }),
@@ -1723,7 +1744,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               onNone: (): ReadonlyArray<FrameHint> => [],
               onSome: (module) =>
                 hintsAt({ modules }, path).map((hint): FrameHint => ({
-                  position: lineCharAt(module.text, hint.offset),
+                  position: lineCharAt(module, hint.offset),
                   label: hint.label,
                 })),
             }),
@@ -1748,8 +1769,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     (label): FrameCompletion => ({
                       label,
                       range: {
-                        start: lineCharAt(module.text, slot.start),
-                        end: lineCharAt(module.text, slot.end),
+                        start: lineCharAt(module, slot.start),
+                        end: lineCharAt(module, slot.end),
                       },
                       text: slot.closed ? label : `${label}}`,
                     }),
@@ -1770,8 +1791,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     target: {
                       path: contract.target,
                       range: {
-                        start: lineCharAt(target.text, contract.span.start.offset),
-                        end: lineCharAt(target.text, contract.span.end.offset),
+                        start: lineCharAt(target, contract.span.start.offset),
+                        end: lineCharAt(target, contract.span.end.offset),
                       },
                     },
                     language: contract.language,

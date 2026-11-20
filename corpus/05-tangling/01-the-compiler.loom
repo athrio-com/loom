@@ -584,8 +584,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                       (target): SummaryEdit => ({
                         path: edit.path,
                         range: {
-                          start: lineCharAt(target.text, edit.at.start.offset),
-                          end: lineCharAt(target.text, edit.at.end.offset),
+                          start: lineCharAt(target, edit.at.start.offset),
+                          end: lineCharAt(target, edit.at.end.offset),
                         },
                         text: edit.text,
                       }),
@@ -832,8 +832,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               onNone: (): ReadonlyArray<FrameBox> => [],
               onSome: (module) =>
                 openedBoxesOf(module.doc).map((opened): FrameBox => ({
-                  startLine: lineCharAt(module.text, opened.opener.position.start.offset).line,
-                  endLine: lineCharAt(module.text, lastLineOf(opened).position.start.offset).line,
+                  startLine: lineCharAt(module, opened.opener.position.start.offset).line,
+                  endLine: lineCharAt(module, lastLineOf(opened).position.start.offset).line,
                   caption: captionOf(opened),
                 })),
             }),
@@ -847,7 +847,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               onNone: (): ReadonlyArray<FrameHint> => [],
               onSome: (module) =>
                 hintsAt({ modules }, path).map((hint): FrameHint => ({
-                  position: lineCharAt(module.text, hint.offset),
+                  position: lineCharAt(module, hint.offset),
                   label: hint.label,
                 })),
             }),
@@ -872,8 +872,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     (label): FrameCompletion => ({
                       label,
                       range: {
-                        start: lineCharAt(module.text, slot.start),
-                        end: lineCharAt(module.text, slot.end),
+                        start: lineCharAt(module, slot.start),
+                        end: lineCharAt(module, slot.end),
                       },
                       text: slot.closed ? label : `${label}}`,
                     }),
@@ -894,8 +894,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                     target: {
                       path: contract.target,
                       range: {
-                        start: lineCharAt(target.text, contract.span.start.offset),
-                        end: lineCharAt(target.text, contract.span.end.offset),
+                        start: lineCharAt(target, contract.span.start.offset),
+                        end: lineCharAt(target, contract.span.end.offset),
                       },
                     },
                     language: contract.language,
@@ -1455,7 +1455,11 @@ const byLoom = (
 
 ## Locating a source span
 
-The navigation verbs answer in `FrameLocation`s — a path and a line-and-character range — so the editor places a result without re-reading the file. `definitionAt` and `referencesAt` give a `CorpusLocation` in the source's own offsets, since the corpus walks in offsets. `frameLocationOf` converts one to the other, reading the target module's text to turn each offset into a line and a character. `lineCharAt` counts the newlines before an offset for the line, and the distance from the last newline for the character — the zero-based pair the editor speaks. `frameFixOf` places each edit of an offer the same way, so a link the editor offers, or a concept it moves up, reaches the editor as a `FrameFix` it applies as it stands. `approvalTitle` words the approval the editor lists, by the relation's status: a drifted reference is approved as its section stands now, and an untracked one is tracked from now on. `headingLocationOf` finds a root's section by its name and gives the `FrameLocation` of its heading title, so the composition can point a cross-file `import` at the section that writes the file. A `SummaryEdit` is one edit that keeps a box and its chapter in step, placed the way the editor places it. `lastLineOf` finds the last line of a box, the line that closes it, or the last line of its body when nothing closes it, so the editor folds the box through that line.
+The navigation verbs answer in `FrameLocation`s — a path and a line-and-character range — so the editor places a result without re-reading the file. `definitionAt` and `referencesAt` give a `CorpusLocation` in the source's own offsets, since the corpus walks in offsets. `frameLocationOf` converts one to the other, turning each offset into a line and a character of the target module's text.
+
+One request places many offsets in one text, so the compiler finds where the lines of a text begin only once. `lineStartsOf` lists the offset at which each line of a module's text begins, and keeps the list for as long as the module stands. `lineCharAt` finds the line an offset stands in, which is the last line that begins at or before the offset. The distance from that line's beginning is the character. Both numbers count from zero, as the editor counts them. `lineHolding` finds the line by halving the lines it searches. It asks whether the middle line begins at or before the offset, and keeps the half that holds the answer.
+
+`frameFixOf` places each edit of an offer the same way, so a link the editor offers, or a concept it moves up, reaches the editor as a `FrameFix` it applies as it stands. `approvalTitle` words the approval the editor lists, by the relation's status: a drifted reference is approved as its section stands now, and an untracked one is tracked from now on. `headingLocationOf` finds a root's section by its name and gives the `FrameLocation` of its heading title, so the composition can point a cross-file `import` at the section that writes the file. A `SummaryEdit` is one edit that keeps a box and its chapter in step, placed the way the editor places it. `lastLineOf` finds the last line of a box, the line that closes it, or the last line of its body when nothing closes it, so the editor folds the box through that line.
 
 =>
 
@@ -1471,15 +1475,33 @@ const lastLineOf = (opened: OpenedBox): LoomWeft =>
     () => opened.opener,
   )
 
+const lineStartsOf: (module: LoomModule) => ReadonlyArray<number> = memoize(
+  (module: LoomModule) => [
+    0,
+    ...[...module.text.matchAll(/\n/g)].map((newline) => newline.index + 1),
+  ],
+)
+
+const lineHolding = (
+  starts: ReadonlyArray<number>,
+  offset: number,
+  first: number,
+  last: number,
+): number => {
+  if (first >= last) return first
+  const middle = Math.ceil((first + last) / 2)
+  return (starts[middle] ?? Infinity) <= offset
+    ? lineHolding(starts, offset, middle, last)
+    : lineHolding(starts, offset, first, middle - 1)
+}
+
 const lineCharAt = (
-  text: string,
+  module: LoomModule,
   offset: number,
 ): { readonly line: number; readonly character: number } => {
-  const before = text.slice(0, offset)
-  return {
-    line: before.split('\n').length - 1,
-    character: offset - (before.lastIndexOf('\n') + 1),
-  }
+  const starts = lineStartsOf(module)
+  const line = lineHolding(starts, offset, 0, starts.length - 1)
+  return { line, character: offset - (starts[line] ?? 0) }
 }
 
 const approvalTitle = (relation: Relation): string =>
@@ -1491,11 +1513,11 @@ const frameLocationOf = (
   modules: Modules,
   location: CorpusLocation,
 ): Option.Option<FrameLocation> =>
-  Option.map(Option.fromNullishOr(modules.get(location.path)?.text), (text) => ({
+  Option.map(Option.fromNullishOr(modules.get(location.path)), (module) => ({
     path: location.path,
     range: {
-      start: lineCharAt(text, location.position.start.offset),
-      end: lineCharAt(text, location.position.end.offset),
+      start: lineCharAt(module, location.position.start.offset),
+      end: lineCharAt(module, location.position.end.offset),
     },
   }))
 
@@ -1599,7 +1621,7 @@ The editor asks for the composition on nearly every request. The TypeScript serv
 
 A `Composition` holds what the last call composed. Its `modules` are the corpus that call built, its `placed` give each module the paths its files land at, in the order of its files, and its `files` hold the files each module composed. The compiler keeps one `Composition` for the whole session, starting from `noComposition`, which holds nothing.
 
-`changedSince` names the modules whose files may differ from last time. The memo hands back the very same module object until the module is rebuilt, so a module whose object differs from the kept one has changed. So has a module that was added or removed, or one whose files land somewhere new. `samePlaces` compares two lists of paths, place by place.
+`changedSince` names the modules whose files may differ from last time. It judges each module of the last corpus, and each module of the new corpus that the last one lacks. The memo hands back the very same module object until the module is rebuilt, so a module whose object differs from the kept one has changed. So has a module that was added or removed, or one whose files land somewhere new. `samePlaces` compares two lists of paths, place by place.
 
 A change also reaches the modules that anchor into the changed one, because their files inline its sections. `staleSince` adds them. It asks `dependentsOf` twice, once over the old corpus and once over the new. The old corpus finds a module that anchored a section the change removed. The new corpus finds a module whose anchor the change has just satisfied.
 
@@ -1649,7 +1671,10 @@ const changedSince = (
   modules: Modules,
   placed: ReadonlyMap<Location, ReadonlyArray<Location>>,
 ): ReadonlyArray<Location> =>
-  Array.dedupe([...previous.modules.keys(), ...modules.keys()]).filter(
+  [
+    ...previous.modules.keys(),
+    ...Array.fromIterable(modules.keys()).filter((path) => !previous.modules.has(path)),
+  ].filter(
     (path) =>
       previous.modules.get(path) !== modules.get(path) ||
       !samePlaces(previous.placed.get(path), placed.get(path)),

@@ -28,7 +28,7 @@ import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { type BuildSettings } from './WorkspaceSettings'
 import { type Declared } from '#ast/LoomDocumentBuilder'
 
-const cacheFormat = 2
+const cacheFormat = 3
 
 export const declaredKey = (declared: Declared): string => JSON.stringify(declared)
 
@@ -149,12 +149,20 @@ const recall = (file: string, key: string, path: Location, text: string): Option
     Option.some(file),
     Option.filter((kept) => opensWith(kept, openingOf(key))),
     Option.flatMap((kept) =>
-      Option.liftThrowable(() => JSON.parse(readFileSync(kept, 'utf8')) as KeptModule)(),
+      Option.liftThrowable(() => JSON.parse(readFileSync(kept, 'latin1')) as KeptModule)(),
     ),
     Option.filter(
       (kept) => kept.key === key && kept.module.path === path && kept.module.text === text,
     ),
     Option.map((kept): Built => ({ module: revived(kept.module), builtAs: kept.builtAs })),
+  )
+
+const beyondAscii = /[\u0080-\uffff]/g
+
+const asciiOf = (json: string): string =>
+  json.replace(
+    beyondAscii,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
   )
 
 const write = (workspace: string, file: string, key: string, built: Built): void =>
@@ -163,7 +171,7 @@ const write = (workspace: string, file: string, key: string, built: Built): void
     mkdirSync(dirname(file), { recursive: true })
     if (!existsSync(join(cacheDir, '.gitignore'))) writeFileSync(join(cacheDir, '.gitignore'), '*\n')
     const draft = `${file}.${process.pid}.tmp`
-    writeFileSync(draft, JSON.stringify({ key, ...built } satisfies KeptModule))
+    writeFileSync(draft, asciiOf(JSON.stringify({ key, ...built } satisfies KeptModule)), 'latin1')
     renameSync(draft, file)
   })()
 

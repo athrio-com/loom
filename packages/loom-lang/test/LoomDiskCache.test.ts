@@ -96,8 +96,9 @@ describe('LoomDiskCache — modules kept on disk between processes', () => {
     const entry = join(root, 'corpus', 'tangling', '06-the-build-cache.loom')
     modulesOf(freshProcess(), entry)
     const kept = join(root, '.loom', 'cache', 'modules', keptFiles(root)[0]!)
-    const file = JSON.parse(readFileSync(kept, 'utf8'))
-    writeFileSync(kept, JSON.stringify({ ...file, module: { ...file.module, marked: true } }))
+    const written = readFileSync(kept, 'latin1')
+    const file = JSON.parse(written)
+    writeFileSync(kept, written.replace('"module":{', '"module":{"marked":true,'), 'latin1')
 
     const recalled = modulesOf(freshProcess(), entry)
     expect(recalled.get(file.module.path)).toMatchObject({ marked: true })

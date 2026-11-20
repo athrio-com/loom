@@ -1202,15 +1202,36 @@ export const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<
     (concept) => concept.module === ref.module && concept.section === ref.section,
   )
 
+type Seen = ReadonlyArray<ReadonlySet<Location>>
+
+const seenIn = (seen: Seen, module: Location): boolean => seen.some((set) => set.has(module))
+
+const withLevel = (seen: Seen, level: ReadonlySet<Location>): Seen =>
+  Option.match(
+    Option.filter(Array.last(seen), (before) => before.size <= level.size),
+    {
+      onNone: () => [...seen, level],
+      onSome: (before) => withLevel(Array.dropRight(seen, 1), new Set([...before, ...level])),
+    },
+  )
+
 export const reach = (
   seeds: ReadonlyArray<Location>,
   step: (module: Location) => ReadonlyArray<Location>,
 ): ReadonlySet<Location> => {
-  const grow = (acc: ReadonlySet<Location>, frontier: ReadonlyArray<Location>): ReadonlySet<Location> => {
-    const next = Array.dedupe(frontier.flatMap(step).filter((p) => !acc.has(p)))
-    return next.length === 0 ? acc : grow(new Set([...acc, ...next]), next)
+  const grow = (seen: Seen, level: ReadonlySet<Location>): Seen => {
+    if (level.size === 0) return seen
+    const reached = withLevel(seen, level)
+    return grow(
+      reached,
+      new Set(
+        Array.fromIterable(level)
+          .flatMap(step)
+          .filter((module) => !seenIn(reached, module)),
+      ),
+    )
   }
-  return grow(new Set(seeds), seeds)
+  return new Set(grow([], new Set(seeds)).flatMap((set) => Array.fromIterable(set)))
 }
 
 const placeModuleOf: (place: Place) => Option.Option<Location> = Match.type<Place>().pipe(
