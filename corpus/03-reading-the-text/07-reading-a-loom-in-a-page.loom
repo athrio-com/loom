@@ -6,15 +6,19 @@ Language: TypeScript
 
 # Reading a loom in a page
 
-An editor that runs in a browser draws a loom while its author types: a heading set apart, an anchor as a link, a fault underlined. It has to learn where those things stand. It can learn it from a grammar of its own, or from Loom. A second grammar drifts from the first, as every copy does. So a page reads a loom with the passes of this part, the same passes the command line and the language server run, and it gets the document they get.
+An editor that runs in a browser draws a loom while its author types: a heading set apart, an anchor as a link, a fault underlined. It has to learn where those things stand. It can learn it from a grammar of its own, or from Loom. A second grammar drifts from the first, as every copy does. So a page reads a loom with the passes of this part, the same passes the command line and the language server run. Handed the same text and the same settings, it builds the module they build.
 
 A page can run them because reading a loom needs nothing a browser lacks. The passes take a text and give a tree. They open no file, start no process, and ask nothing of the operating system. The builder of the chapter "Building one module" reads through a `Source` its caller hands it, so a page hands it the text its author has typed.
 
 ## What a page may import
 
-The entry `browser` names what a page may import from this package. It gives the builder of one module, `LoomCorpusAstBuilder`, with the `Source` it reads through and the `ReadError` and `ParsedLoom` it speaks of. It also gives the passes that builder runs, one by one, for a page that wants a single step: the line ranges, the classifier, the tokeniser, the builder of the tree, and the row of small passes with `nothingDeclared`, what a workspace with no trope declares.
+The entry `browser` names what a page may import from this package. It gives the builder of one module, `LoomCorpusAstBuilder`, with the `Source` it reads through and the `ReadError` and `ParsedLoom` it speaks of. It also gives each pass that builder runs, for a page that wants a single step: the line ranges, the classifier, the tokeniser, the builder of the tree, the row of small passes, and the product pass.
 
-The rest of the package stays out of the entry. The compiler, the tangler and the language server reach for the file system, for child processes and for the hash functions of Node, and a page that imported one of them would fail when it called into it.
+The entry gives the types a page meets on the way as well, so a project that installs this package alone can name them. They are the `Location` a loom goes by, the `AnchorDelims` an anchor is written between, the `ParsedDocument` and the `LoomDocument` the passes give, and the `LoomModule` the builder returns.
+
+One setting a page cannot hand the builder yet is what the workspace's tropes declare. The compiler reads that from the looms of the corpus, with code the entry does not hold. A page hands the builder `nothingDeclared` in its place, the value for a workspace with no trope, so a kind that only a trope declares is unknown to the page.
+
+The rest of the package stays out of the entry. The compiler, the tangler and the language server read and write files, and they hash with Node's own functions. A browser has neither.
 
 =>
 
@@ -23,24 +27,27 @@ export { WeftClassifier } from '#ast/WeftClassifier'
 export { WeftTokeniser } from '#ast/WeftTokeniser'
 export { LoomAstBuilder } from '#ast/LoomAstBuilder'
 export { type Declared, LoomDocumentBuilder, nothingDeclared } from '#ast/LoomDocumentBuilder'
+export { ProductBuilder } from '#ast/ProductBuilder'
 export {
   LoomCorpusAstBuilder,
   type ParsedLoom,
   ReadError,
   type Source,
 } from '#ast/LoomCorpusAstBuilder'
+export type { AnchorDelims } from '@athrio/loom-ast/LoomTokens'
+export type { LoomDocument, ParsedDocument } from '@athrio/loom-ast/LoomAst'
+export type { Location, LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 
 ## The smallest page
 
-The tests need a page to bundle. This one is the smallest that reads a loom. It imports the entry, builds one module from a text held in memory, and gives the module back as a promise. A page is where a program in a browser starts, so the page is what runs the Effect.
+The tests need a page to bundle. This one is the smallest that reads a loom. It imports the entry by the name another project imports it by, `@athrio/loom-lang/browser`, so the tests fail when the package stops exporting it. It builds one module from a text held in memory, and gives the module back as a promise. A page is where a program in a browser starts, so the page is what runs the Effect.
 
-The function `moduleOfText` takes the path a loom goes by and the loom's text. Its source answers every read with that text and lists no other loom, so the builder sees a corpus of one.
+The function `moduleOfText` takes the path a loom goes by and the loom's text. Its source answers every read with that text. The builder builds that one loom and asks for no other, so the source lists none.
 
 =>
 
 import { Effect, Option } from 'effect'
-import type { LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import { LoomCorpusAstBuilder } from '../../src/browser'
+import { LoomCorpusAstBuilder, type LoomModule } from '@athrio/loom-lang/browser'
 
 export const moduleOfText = (path: string, text: string): Promise<LoomModule> =>
   Effect.runPromise(
@@ -52,107 +59,223 @@ export const moduleOfText = (path: string, text: string): Promise<LoomModule> =>
     ),
   )
 
-## Bundling it as a browser loads it
+## A page that leans on Node
 
-A browser has none of the modules built into Node. Bun's bundler does not refuse an import of one when it bundles for a browser. It puts an empty stand-in where the module would be, and the page fails later, at the first call into it. So a bundle that builds proves nothing, and the tests watch the imports themselves.
-
-The function `reachedBy` bundles a list of entries for a browser, and watches every import the bundler resolves on the way. An import whose name `builtIn` knows is one a browser cannot serve: a module built into Node or into Bun, by its bare name or behind `node:` or `bun:`. The bundler reports each import through a callback, so the watch gathers what it hears in a list of its own. Each one it gathers is a `Reached`: the built-in module, and the file that asked for it, written from the repository's root. The stand-in Bun puts in a built-in module's place imports other built-in modules of its own. The watch leaves those out, so the list names files of this repository alone.
-
-The function `bundleOf` bundles one entry with no watch, and gives the code a page loads. The two are apart because a watch changes the bundle. While a plugin stands in the way of its resolving, Bun's bundler drops less of the code nothing uses, and the bundle comes out nearly a third heavier than the one a server sends.
-
-The entries the tests bundle are two. One is the smallest page of the section before. The other is every module `@athrio/loom-ast` exports, read from that package's manifest, since a page draws its colours and its links from the model too, and a module added to the model is then watched from the day it is exported.
+A guard that has never failed may be unable to. So the tests keep a second page, which does what a page must not. It imports Node's file system by its bare name and Node's paths behind `node:`, the two ways a file names a built-in module. It also reads the working folder from `process`, a global that a browser does not have. Each guard of this chapter has a case that expects it to catch this page.
 
 =>
 
-import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { builtinModules } from 'node:module'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'fs'
+import { join } from 'node:path'
+
+export const textAt = (folder: string, name: string): string =>
+  readFileSync(join(folder, name), 'utf8')
+
+export const workingFolder = (): string => process.cwd()
+
+## Bundling it as a browser loads it
+
+A browser has none of the modules built into Node. Bun's bundler does not refuse most of them when it bundles for a browser. In place of the file system it puts a stand-in that holds nothing, and the page fails at the first call. In place of others, such as Node's hash functions, it puts a working copy, and the page carries nearly a megabyte it never asked for. So a bundle that builds proves nothing, and the tests read what the bundle imports.
+
+The function `bundled` bundles a list of entries for a browser, and asks the bundler for its account of the bundle: every file that went in, with every import that file makes. An import whose name `builtIn` knows is one a browser cannot serve. The account names a built-in module in two ways. Where the bundler put a working copy, it writes the module behind `node:`, whatever the file wrote. Where it put a stand-in, it keeps the name the file wrote, which may be bare, such as `fs`. So `builtIn` looks for the prefix, and then asks Node's own `isBuiltin` about a bare name. The function `reachedIn` reads the account and gives each such import as a `Reached`: the built-in module, and the file that asked for it, written from the repository's root. A stand-in may import other built-in modules of its own. Those are left out, so the list names files of this repository and of the packages it installs.
+
+Some modules the bundler refuses outright: those built into Bun, and those of Node it has neither a copy nor a stand-in for, such as `node:sqlite`. The bundle then fails as a `BundleFailed`, which carries what the bundler said, and a case that bundles such a page fails with those words.
+
+The manifest of `@athrio/loom-ast` names the modules that package exports, and `modelEntries` reads them from it, each as the file it points at.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Data, Effect, Option, Schema } from 'effect'
+import { readFileSync } from 'node:fs'
+import { isBuiltin } from 'node:module'
 import { join, relative, resolve } from 'node:path'
+import vm from 'node:vm'
 import { moduleOfText } from './browser/page'
+
+const it = effectify(it_)
 
 const root = resolve(import.meta.dir, '../../..')
 
 const page = join(import.meta.dir, 'browser', 'page.ts')
 
+const leaning = join(import.meta.dir, 'browser', 'leans-on-node.ts')
+
 const modelPackage = join(root, 'packages', 'loom-ast')
 
+const ManifestSchema = Schema.Struct({ exports: Schema.Record(Schema.String, Schema.String) })
+
 const modelEntries: ReadonlyArray<string> = Object.values(
-  (
-    JSON.parse(readFileSync(join(modelPackage, 'package.json'), 'utf8')) as {
-      readonly exports: Readonly<Record<string, string>>
-    }
+  Schema.decodeUnknownSync(Schema.fromJsonString(ManifestSchema))(
+    readFileSync(join(modelPackage, 'package.json'), 'utf8'),
   ).exports,
 ).map((file) => join(modelPackage, file))
 
 type Reached = { readonly module: string; readonly from: string }
 
-const builtIns = new Set(builtinModules)
+type Bundle = { readonly code: string; readonly reached: ReadonlyArray<Reached> }
+
+class BundleFailed extends Data.TaggedError('BundleFailed')<{
+  readonly said: ReadonlyArray<string>
+}> {}
 
 const builtIn = (name: string): boolean =>
-  name === 'bun' || name.startsWith('bun:') || name.startsWith('node:') || builtIns.has(name)
+  name.startsWith('node:') || name.startsWith('bun:') || isBuiltin(name)
 
-const reachedBy = async (entries: ReadonlyArray<string>): Promise<ReadonlyArray<Reached>> => {
-  const reached: Array<Reached> = []
-  await Bun.build({
-    entrypoints: [...entries],
-    target: 'browser',
-    format: 'esm',
-    plugins: [
-      {
-        name: 'the built-in modules a page reaches',
-        setup: (build) => {
-          build.onResolve({ filter: /.*/ }, ({ path, importer }) => {
-            if (builtIn(path) && importer.startsWith(root))
-              reached.push({ module: path, from: relative(root, importer) })
-            return undefined
-          })
-        },
-      },
-    ],
-  })
-  return reached
-}
+const reachedIn = (account: Bun.BuildMetafile): ReadonlyArray<Reached> =>
+  Object.entries(account.inputs)
+    .filter(([file]) => !builtIn(file))
+    .flatMap(([file, input]) =>
+      input.imports
+        .filter((found) => builtIn(found.path))
+        .map((found): Reached => ({ module: found.path, from: relative(root, resolve(file)) })),
+    )
 
-const bundleOf = async (entry: string, minify: boolean): Promise<string> => {
-  const built = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify })
-  const code = await Promise.all(built.outputs.map((output) => output.text()))
-  return code.join('\n')
-}
+const saidBy = (cause: unknown): ReadonlyArray<string> =>
+  cause instanceof AggregateError ? cause.errors.map(String) : [String(cause)]
 
-## A page reads what the command line reads
+const bundled = (
+  entries: ReadonlyArray<string>,
+  minify: boolean,
+): Effect.Effect<Bundle, BundleFailed> =>
+  Effect.tryPromise({
+    try: () =>
+      Bun.build({
+        entrypoints: [...entries],
+        target: 'browser',
+        format: 'esm',
+        minify,
+        metafile: true,
+      }),
+    catch: (cause) => new BundleFailed({ said: saidBy(cause) }),
+  }).pipe(
+    Effect.flatMap((built) =>
+      Effect.promise(() => Promise.all(built.outputs.map((output) => output.text()))).pipe(
+        Effect.map((code): Bundle => ({
+          code: code.join('\n'),
+          reached: Option.match(Option.fromNullishOr(built.metafile), {
+            onNone: () => [],
+            onSome: reachedIn,
+          }),
+        })),
+      ),
+    ),
+  )
 
-The first case bundles the page and the whole model, and expects the watch to have gathered nothing. When a pass the entry gives grows an import of the file system, this case fails and names the file that asked for it.
+## Where nothing of Node exists
 
-The second case loads the bundle and reads a loom with it: the chapter of this part on the classifier, which holds prose, code, anchors and a sink. It reads the same text again with the builder outside any bundle, as the command line runs it, and expects the two modules to be the same, written out whole.
+An import is not the only way to lean on Node. A pass may read `process`, `Buffer` or `Bun`, which are there with no import at all. Bun runs these tests, so in the tests they are always there, and a bundle that reads one of them would run as if nothing were wrong.
 
-A page loads the bundle before it can draw its first mark, so the last case weighs it: minified and compressed, as a server sends it. The bundle weighs about 65 kilobytes. Loom's own passes are a little over half of that, and Effect is the rest. The budget is 100, so the case fails when a new import brings a library with it, and it prints the weight on every run.
+So the tests load the bundle in a place that holds none of them. Node's `vm` module gives a script a set of globals of its own, and the function `loadedInPage` makes such a set with two things in it, `TextEncoder` and `TextDecoder`. Those are all the bundle asks of its surroundings, and every browser has both. The function loads the bundle there as a module and gives what the module exports. A bundle holds all it needs, so `noImport` refuses any import the module asks for.
 
 =>
 
+const noImport = (name: string): Promise<never> =>
+  Promise.reject(new Error(`the bundle asks to import ${name}, and a bundle holds all it needs`))
+
+const loadedInPage = (code: string): Effect.Effect<object> =>
+  Effect.gen(function* () {
+    const module = new vm.SourceTextModule(code, {
+      context: vm.createContext({ TextEncoder, TextDecoder }),
+    })
+    yield* Effect.promise(() => module.link(noImport))
+    yield* Effect.promise(() => module.evaluate())
+    return module.namespace
+  })
+
+## A page reads what the builder reads
+
+The first case bundles the smallest page with every module `@athrio/loom-ast` exports, and expects no built-in module among their imports. A page draws its colours and its links from the model too, so a module added to the model is watched from the day it is exported. The second case bundles the page that leans on Node, and expects the account to name both modules it imports, each with the file that asked for it. Without it, the first case would go on passing on the day the bundler stopped giving an account.
+
+The third case loads the smallest page where nothing of Node exists and reads a loom with it, one that holds prose, an anchor, code and a sink. It reads the same text with the same builder run from the source, outside any bundle, and expects the two modules to be the same, written out whole. The fourth case loads the page that leans on Node the same way, and expects its reach for `process` to fail.
+
+A page loads the bundle before it can draw its first mark, so the last case weighs it: minified and compressed, as a server sends it. The bundle weighs about 65 kilobytes. Loom's own passes are a little over half of that, and Effect is the rest. The budget is 80, so the case fails when the bundle grows by about a quarter, and it prints the weight on every run.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
 describe('a page that reads a loom', () => {
-  const chapter = join(root, 'corpus', '03-reading-the-text', '02-classifying-lines.loom')
+  const path = '/corpus/greeting.loom'
+  const loom = lines(
+    '---',
+    'Chapter 1: A greeting',
+    'Package: greeting.ts',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# A greeting',
+    '',
+    `The greeting composes ${anchor('The name')}.`,
+    '',
+    '## The name',
+    '',
+    '=>',
+    '',
+    "const name = 'world'",
+    '',
+    '## The greeting {Tangle}',
+    '',
+    '=>',
+    '',
+    anchor('The name'),
+    '',
+    'console.log(`hello ${name}`)',
+  )
 
-  it('reaches no module built into Node or into Bun', async () => {
-    expect(await reachedBy([page, ...modelEntries])).toEqual([])
-  })
+  it.effect('imports no module built into Node or into Bun', () =>
+    Effect.gen(function* () {
+      const { reached } = yield* bundled([page, ...modelEntries], false)
+      expect(reached).toEqual([])
+    }),
+  )
 
-  it('builds the module the command line builds', async () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'loom-page-')), 'page.js')
-    writeFileSync(file, await bundleOf(page, false))
-    const loaded = (await import(file)) as { readonly moduleOfText: typeof moduleOfText }
-    const text = readFileSync(chapter, 'utf8')
-    const inPage = await loaded.moduleOfText(chapter, text)
-    const outside = await moduleOfText(chapter, text)
-    expect(inPage.doc.sections.length).toBeGreaterThan(5)
-    expect(JSON.stringify(inPage)).toBe(JSON.stringify(outside))
-  })
+  it.effect('is caught when it imports one', () =>
+    Effect.gen(function* () {
+      const { reached } = yield* bundled([leaning], false)
+      const from = 'packages/loom-lang/test/browser/leans-on-node.ts'
+      expect(reached).toEqual([
+        { module: 'fs', from },
+        { module: 'node:path', from },
+      ])
+    }),
+  )
 
-  it('weighs less than a page should wait for', async () => {
-    const weight = Bun.gzipSync(Buffer.from(await bundleOf(page, true))).length
-    console.log(`size: a page that reads a loom loads ${Math.round(weight / 1024)} KB, compressed`)
-    expect(weight).toBeLessThan(100 * 1024)
-  })
+  it.effect('builds, where nothing of Node exists, the module the builder builds', () =>
+    Effect.gen(function* () {
+      const { code } = yield* bundled([page], false)
+      const loaded = (yield* loadedInPage(code)) as { readonly moduleOfText: typeof moduleOfText }
+      const inPage = yield* Effect.promise(() => loaded.moduleOfText(path, loom))
+      const outside = yield* Effect.promise(() => moduleOfText(path, loom))
+      expect(outside.product.files.map((file) => file.path)).toEqual(['greeting.ts'])
+      expect(JSON.stringify(inPage)).toBe(JSON.stringify(outside))
+    }),
+  )
+
+  it.effect('is caught there when it reads a global of Node', () =>
+    Effect.gen(function* () {
+      const { code } = yield* bundled([leaning], false)
+      const loaded = (yield* loadedInPage(code)) as { readonly workingFolder: () => string }
+      const failure = yield* Effect.flip(
+        Effect.try({ try: () => loaded.workingFolder(), catch: (cause) => String(cause) }),
+      )
+      expect(failure).toContain('process is not defined')
+    }),
+  )
+
+  it.effect('weighs less than a page should wait for', () =>
+    Effect.gen(function* () {
+      const { code } = yield* bundled([page], true)
+      const weight = Bun.gzipSync(Buffer.from(code)).length
+      console.log(
+        `size: a page that reads a loom loads ${(weight / 1000).toFixed(1)} kB, compressed`,
+      )
+      expect(weight).toBeLessThan(80_000)
+    }),
+  )
 })
 
 ## The entry [src/browser.ts]
@@ -167,10 +290,18 @@ describe('a page that reads a loom', () => {
 
 ::[The smallest page]
 
+## The page that leans [test/browser/leans-on-node.ts]
+
+=>
+
+::[A page that leans on Node]
+
 ## The test file [test/Browser.test.ts]
 
 =>
 
 ::[Bundling it as a browser loads it]
 
-::[A page reads what the command line reads]
+::[Where nothing of Node exists]
+
+::[A page reads what the builder reads]

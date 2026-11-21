@@ -1,6 +1,5 @@
 import { Effect, Option } from 'effect'
-import type { LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import { LoomCorpusAstBuilder } from '../../src/browser'
+import { LoomCorpusAstBuilder, type LoomModule } from '@athrio/loom-lang/browser'
 
 export const moduleOfText = (path: string, text: string): Promise<LoomModule> =>
   Effect.runPromise(

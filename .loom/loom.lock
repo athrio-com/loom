@@ -105,6 +105,7 @@
     "packages/loom-lang/test/TropeContract.test.ts",
     "packages/loom-lang/test/TropePackages.test.ts",
     "packages/loom-lang/test/WorkspaceSource.test.ts",
+    "packages/loom-lang/test/browser/leans-on-node.ts",
     "packages/loom-lang/test/browser/page.ts",
     "packages/loom-lang/test/storageStub.ts",
     "packages/loom-lang/tsconfig.json",

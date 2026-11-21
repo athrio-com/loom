@@ -1,80 +1,174 @@
-import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { builtinModules } from 'node:module'
-import { tmpdir } from 'node:os'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Data, Effect, Option, Schema } from 'effect'
+import { readFileSync } from 'node:fs'
+import { isBuiltin } from 'node:module'
 import { join, relative, resolve } from 'node:path'
+import vm from 'node:vm'
 import { moduleOfText } from './browser/page'
+
+const it = effectify(it_)
 
 const root = resolve(import.meta.dir, '../../..')
 
 const page = join(import.meta.dir, 'browser', 'page.ts')
 
+const leaning = join(import.meta.dir, 'browser', 'leans-on-node.ts')
+
 const modelPackage = join(root, 'packages', 'loom-ast')
 
+const ManifestSchema = Schema.Struct({ exports: Schema.Record(Schema.String, Schema.String) })
+
 const modelEntries: ReadonlyArray<string> = Object.values(
-  (
-    JSON.parse(readFileSync(join(modelPackage, 'package.json'), 'utf8')) as {
-      readonly exports: Readonly<Record<string, string>>
-    }
+  Schema.decodeUnknownSync(Schema.fromJsonString(ManifestSchema))(
+    readFileSync(join(modelPackage, 'package.json'), 'utf8'),
   ).exports,
 ).map((file) => join(modelPackage, file))
 
 type Reached = { readonly module: string; readonly from: string }
 
-const builtIns = new Set(builtinModules)
+type Bundle = { readonly code: string; readonly reached: ReadonlyArray<Reached> }
+
+class BundleFailed extends Data.TaggedError('BundleFailed')<{
+  readonly said: ReadonlyArray<string>
+}> {}
 
 const builtIn = (name: string): boolean =>
-  name === 'bun' || name.startsWith('bun:') || name.startsWith('node:') || builtIns.has(name)
+  name.startsWith('node:') || name.startsWith('bun:') || isBuiltin(name)
 
-const reachedBy = async (entries: ReadonlyArray<string>): Promise<ReadonlyArray<Reached>> => {
-  const reached: Array<Reached> = []
-  await Bun.build({
-    entrypoints: [...entries],
-    target: 'browser',
-    format: 'esm',
-    plugins: [
-      {
-        name: 'the built-in modules a page reaches',
-        setup: (build) => {
-          build.onResolve({ filter: /.*/ }, ({ path, importer }) => {
-            if (builtIn(path) && importer.startsWith(root))
-              reached.push({ module: path, from: relative(root, importer) })
-            return undefined
-          })
-        },
-      },
-    ],
+const reachedIn = (account: Bun.BuildMetafile): ReadonlyArray<Reached> =>
+  Object.entries(account.inputs)
+    .filter(([file]) => !builtIn(file))
+    .flatMap(([file, input]) =>
+      input.imports
+        .filter((found) => builtIn(found.path))
+        .map((found): Reached => ({ module: found.path, from: relative(root, resolve(file)) })),
+    )
+
+const saidBy = (cause: unknown): ReadonlyArray<string> =>
+  cause instanceof AggregateError ? cause.errors.map(String) : [String(cause)]
+
+const bundled = (
+  entries: ReadonlyArray<string>,
+  minify: boolean,
+): Effect.Effect<Bundle, BundleFailed> =>
+  Effect.tryPromise({
+    try: () =>
+      Bun.build({
+        entrypoints: [...entries],
+        target: 'browser',
+        format: 'esm',
+        minify,
+        metafile: true,
+      }),
+    catch: (cause) => new BundleFailed({ said: saidBy(cause) }),
+  }).pipe(
+    Effect.flatMap((built) =>
+      Effect.promise(() => Promise.all(built.outputs.map((output) => output.text()))).pipe(
+        Effect.map((code): Bundle => ({
+          code: code.join('\n'),
+          reached: Option.match(Option.fromNullishOr(built.metafile), {
+            onNone: () => [],
+            onSome: reachedIn,
+          }),
+        })),
+      ),
+    ),
+  )
+
+const noImport = (name: string): Promise<never> =>
+  Promise.reject(new Error(`the bundle asks to import ${name}, and a bundle holds all it needs`))
+
+const loadedInPage = (code: string): Effect.Effect<object> =>
+  Effect.gen(function* () {
+    const module = new vm.SourceTextModule(code, {
+      context: vm.createContext({ TextEncoder, TextDecoder }),
+    })
+    yield* Effect.promise(() => module.link(noImport))
+    yield* Effect.promise(() => module.evaluate())
+    return module.namespace
   })
-  return reached
-}
 
-const bundleOf = async (entry: string, minify: boolean): Promise<string> => {
-  const built = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify })
-  const code = await Promise.all(built.outputs.map((output) => output.text()))
-  return code.join('\n')
-}
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
 
 describe('a page that reads a loom', () => {
-  const chapter = join(root, 'corpus', '03-reading-the-text', '02-classifying-lines.loom')
+  const path = '/corpus/greeting.loom'
+  const loom = lines(
+    '---',
+    'Chapter 1: A greeting',
+    'Package: greeting.ts',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# A greeting',
+    '',
+    `The greeting composes ${anchor('The name')}.`,
+    '',
+    '## The name',
+    '',
+    '=>',
+    '',
+    "const name = 'world'",
+    '',
+    '## The greeting {Tangle}',
+    '',
+    '=>',
+    '',
+    anchor('The name'),
+    '',
+    'console.log(`hello ${name}`)',
+  )
 
-  it('reaches no module built into Node or into Bun', async () => {
-    expect(await reachedBy([page, ...modelEntries])).toEqual([])
-  })
+  it.effect('imports no module built into Node or into Bun', () =>
+    Effect.gen(function* () {
+      const { reached } = yield* bundled([page, ...modelEntries], false)
+      expect(reached).toEqual([])
+    }),
+  )
 
-  it('builds the module the command line builds', async () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'loom-page-')), 'page.js')
-    writeFileSync(file, await bundleOf(page, false))
-    const loaded = (await import(file)) as { readonly moduleOfText: typeof moduleOfText }
-    const text = readFileSync(chapter, 'utf8')
-    const inPage = await loaded.moduleOfText(chapter, text)
-    const outside = await moduleOfText(chapter, text)
-    expect(inPage.doc.sections.length).toBeGreaterThan(5)
-    expect(JSON.stringify(inPage)).toBe(JSON.stringify(outside))
-  })
+  it.effect('is caught when it imports one', () =>
+    Effect.gen(function* () {
+      const { reached } = yield* bundled([leaning], false)
+      const from = 'packages/loom-lang/test/browser/leans-on-node.ts'
+      expect(reached).toEqual([
+        { module: 'fs', from },
+        { module: 'node:path', from },
+      ])
+    }),
+  )
 
-  it('weighs less than a page should wait for', async () => {
-    const weight = Bun.gzipSync(Buffer.from(await bundleOf(page, true))).length
-    console.log(`size: a page that reads a loom loads ${Math.round(weight / 1024)} KB, compressed`)
-    expect(weight).toBeLessThan(100 * 1024)
-  })
+  it.effect('builds, where nothing of Node exists, the module the builder builds', () =>
+    Effect.gen(function* () {
+      const { code } = yield* bundled([page], false)
+      const loaded = (yield* loadedInPage(code)) as { readonly moduleOfText: typeof moduleOfText }
+      const inPage = yield* Effect.promise(() => loaded.moduleOfText(path, loom))
+      const outside = yield* Effect.promise(() => moduleOfText(path, loom))
+      expect(outside.product.files.map((file) => file.path)).toEqual(['greeting.ts'])
+      expect(JSON.stringify(inPage)).toBe(JSON.stringify(outside))
+    }),
+  )
+
+  it.effect('is caught there when it reads a global of Node', () =>
+    Effect.gen(function* () {
+      const { code } = yield* bundled([leaning], false)
+      const loaded = (yield* loadedInPage(code)) as { readonly workingFolder: () => string }
+      const failure = yield* Effect.flip(
+        Effect.try({ try: () => loaded.workingFolder(), catch: (cause) => String(cause) }),
+      )
+      expect(failure).toContain('process is not defined')
+    }),
+  )
+
+  it.effect('weighs less than a page should wait for', () =>
+    Effect.gen(function* () {
+      const { code } = yield* bundled([page], true)
+      const weight = Bun.gzipSync(Buffer.from(code)).length
+      console.log(
+        `size: a page that reads a loom loads ${(weight / 1000).toFixed(1)} kB, compressed`,
+      )
+      expect(weight).toBeLessThan(80_000)
+    }),
+  )
 })
