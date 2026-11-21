@@ -320,25 +320,50 @@ const hierarchyStandIn = lines(
   '}',
 )
 
-describe('LoomServer — an editor that names only a root', () => {
-  it('announces the capabilities of the workspace at that root', async () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
-    workspaceAt(root, hierarchyStandIn)
-    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
-    const { child, connection } = serverIn(elsewhere)
-    connection.listen()
-    try {
-      const answer = await connection.sendRequest<InitializeResult>('initialize', {
-        processId: process.pid,
-        rootUri: pathToFileURL(root).href,
-        capabilities: {},
-        initializationOptions: { typescript: { tsdk } },
-      })
-      expect(answer.capabilities.callHierarchyProvider).toBe(true)
-    } finally {
-      connection.dispose()
-      child.kill()
-    }
+const hierarchyWorkspace = (): string => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+  workspaceAt(root, hierarchyStandIn)
+  return root
+}
+
+const announced = async (
+  naming: Readonly<Record<string, unknown>>,
+): Promise<InitializeResult['capabilities']> => {
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+  const { child, connection } = serverIn(elsewhere)
+  connection.listen()
+  try {
+    const answer = await connection.sendRequest<InitializeResult>('initialize', {
+      processId: process.pid,
+      capabilities: {},
+      initializationOptions: { typescript: { tsdk } },
+      ...naming,
+    })
+    return answer.capabilities
+  } finally {
+    connection.dispose()
+    child.kill()
+  }
+}
+
+describe('LoomServer — how an editor names its folder', () => {
+  it('takes the workspace a root address names', async () => {
+    const claimed = await announced({ rootUri: pathToFileURL(hierarchyWorkspace()).href })
+    expect(claimed.callHierarchyProvider).toBe(true)
+  }, 30_000)
+
+  it('takes the workspace a root path names', async () => {
+    const claimed = await announced({ rootPath: hierarchyWorkspace() })
+    expect(claimed.callHierarchyProvider).toBe(true)
+  }, 30_000)
+
+  it('takes the first workspace folder before the root', async () => {
+    const empty = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const claimed = await announced({
+      workspaceFolders: [{ uri: pathToFileURL(hierarchyWorkspace()).href, name: 'first' }],
+      rootUri: pathToFileURL(empty).href,
+    })
+    expect(claimed.callHierarchyProvider).toBe(true)
   }, 30_000)
 })
 

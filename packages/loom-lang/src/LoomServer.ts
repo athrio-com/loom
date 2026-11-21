@@ -903,9 +903,11 @@ const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, ne
   )
 
 const openedFolder = (params: InitializeParams): Option.Option<string> =>
-  Option.orElse(Option.fromNullishOr(params.workspaceFolders?.[0]?.uri), () =>
+  Option.firstSomeOf([
+    Option.fromNullishOr(params.workspaceFolders?.[0]?.uri),
     Option.fromNullishOr(params.rootUri),
-  )
+    Option.map(Option.fromNullishOr(params.rootPath), (path) => URI.file(path).toString()),
+  ])
 
 const homeOf = (folder: Option.Option<string>): Effect.Effect<string, never, WorkspaceSource> =>
   WorkspaceSource.pipe(
