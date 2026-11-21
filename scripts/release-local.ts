@@ -1,8 +1,6 @@
-import { Array, Console, Data, Effect, Option, Schema, pipe } from 'effect'
-import { BunRuntime } from '@effect/platform-bun'
+import { Array, Console, Data, Effect, FileSystem, Option, Schema, pipe } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -35,8 +33,8 @@ const spawned = (
 ): Effect.Effect<string, CommandFailed> => {
   const failed = new CommandFailed({ command: command.join(' ') })
   return Effect.tryPromise({
-    try: async () => {
-      const child = Bun.spawn([...command], { cwd: folder, stdout, stderr: 'inherit' })
+    try: async (signal) => {
+      const child = Bun.spawn([...command], { cwd: folder, stdout, stderr: 'inherit', signal })
       const text = stdout === 'pipe' ? await new Response(child.stdout).text() : ''
       return { code: await child.exited, text: text.trim() }
     },
@@ -52,30 +50,26 @@ const capture = (command: ReadonlyArray<string>, folder: string): Effect.Effect<
 const run = (command: ReadonlyArray<string>, folder: string): Effect.Effect<void, CommandFailed> =>
   Effect.asVoid(spawned(command, folder, 'inherit'))
 
-const named = Option.getOrElse(
-  Option.filter(Option.fromNullishOr(process.argv[2]), (name) => name !== ''),
-  () => 'HEAD',
-)
+const named = Option.filter(Option.fromNullishOr(process.argv[2]), (name) => name !== '')
 
 const commitOf = (name: string): Effect.Effect<string, CommandFailed> =>
   capture(['git', 'rev-parse', '--verify', `${name}^{commit}`], workspace)
 
-const committed = (commit: string): Effect.Effect<void, CommandFailed | CannotRelease> =>
-  Effect.all([
-    commitOf('HEAD'),
-    capture(['git', 'status', '--porcelain', '--untracked-files=no'], workspace),
-  ]).pipe(
-    Effect.flatMap(([head, changes]) =>
-      commit === head && changes !== ''
-        ? Effect.fail(
-            new CannotRelease({
-              reason:
-                'the working tree has uncommitted changes, and a release of HEAD would leave them out; commit them, or name the commit to release',
-            }),
-          )
-        : Effect.void,
-    ),
-  )
+const committed: Effect.Effect<void, CommandFailed | CannotRelease> = capture(
+  ['git', 'status', '--porcelain', '--untracked-files=no'],
+  workspace,
+).pipe(
+  Effect.flatMap((changes) =>
+    Option.isNone(named) && changes !== ''
+      ? Effect.fail(
+          new CannotRelease({
+            reason:
+              'the working tree has uncommitted changes, and a release of HEAD would leave them out; commit them, or name the commit to release, as in `bun run release-local HEAD`',
+          }),
+        )
+      : Effect.void,
+  ),
+)
 
 const nextPatch = (version: Option.Option<string>): Effect.Effect<string, CannotRelease> =>
   pipe(
@@ -97,15 +91,21 @@ const HeldPackageSchema = Schema.Struct({
 
 const heldPackage = Schema.decodeUnknownOption(HeldPackageSchema)
 
+type RegistryAnswer = {
+  readonly status: number
+  readonly body: unknown
+}
+
 const registryAnswer = (
   path: string,
   request?: RequestInit,
-): Effect.Effect<unknown, CannotRelease> =>
+): Effect.Effect<RegistryAnswer, CannotRelease> =>
   Effect.tryPromise({
-    try: (): Promise<unknown> =>
-      fetch(`${registry}${path}`, request).then((answer) =>
-        answer.ok ? answer.json() : undefined,
-      ),
+    try: async (signal): Promise<RegistryAnswer> => {
+      const answer = await fetch(`${registry}${path}`, { ...request, signal })
+      const body: unknown = await answer.json().catch(() => undefined)
+      return { status: answer.status, body }
+    },
     catch: () =>
       new CannotRelease({
         reason: `no registry answers at ${registry}; start it with \`bun run registry\``,
@@ -114,11 +114,18 @@ const registryAnswer = (
 
 const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
   registryAnswer(`/@athrio%2f${folder}`).pipe(
-    Effect.map((answer) =>
-      Option.match(heldPackage(answer), {
-        onNone: () => [],
-        onSome: ({ versions }) => Object.keys(versions),
-      }),
+    Effect.flatMap(({ status, body }) =>
+      status === 404
+        ? Effect.succeed<ReadonlyArray<string>>([])
+        : Option.match(heldPackage(body), {
+            onNone: () =>
+              Effect.fail(
+                new CannotRelease({
+                  reason: `the registry answered ${status} when asked which versions of @athrio/${folder} it holds; its own output says why`,
+                }),
+              ),
+            onSome: ({ versions }) => Effect.succeed<ReadonlyArray<string>>(Object.keys(versions)),
+          }),
     ),
   )
 
@@ -141,24 +148,33 @@ type Beside = {
   readonly settings: string
 }
 
-const besideMade: Effect.Effect<Beside> = Effect.sync(() => {
-  const folder = mkdtempSync(join(tmpdir(), 'loom-dev-release-'))
-  return {
-    folder,
-    checkout: join(folder, 'loom'),
-    packs: join(folder, 'packs'),
-    settings: join(folder, 'npmrc'),
-  }
-})
+const besideMade: Effect.Effect<Beside, CannotRelease, FileSystem.FileSystem> =
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectory({ prefix: 'loom-dev-release-' })),
+    Effect.mapError(
+      () =>
+        new CannotRelease({ reason: "no folder could be made under the system's temporary folder" }),
+    ),
+    Effect.map((folder) => ({
+      folder,
+      checkout: join(folder, 'loom'),
+      packs: join(folder, 'packs'),
+      settings: join(folder, 'npmrc'),
+    })),
+  )
 
 const checkedOut = (beside: Beside, commit: string): Effect.Effect<void, CommandFailed> =>
   run(['git', 'worktree', 'add', '--detach', beside.checkout, commit], workspace).pipe(
     Effect.andThen(run(['bun', 'install', '--frozen-lockfile'], beside.checkout)),
   )
 
-const besideRemoved = (beside: Beside): Effect.Effect<void> =>
+const besideRemoved = (beside: Beside): Effect.Effect<void, never, FileSystem.FileSystem> =>
   Effect.ignore(run(['git', 'worktree', 'remove', '--force', beside.checkout], workspace)).pipe(
-    Effect.andThen(Effect.sync(() => rmSync(beside.folder, { recursive: true, force: true }))),
+    Effect.andThen(FileSystem.FileSystem),
+    Effect.flatMap((fs) =>
+      Effect.ignore(fs.remove(beside.folder, { recursive: true, force: true })),
+    ),
+    Effect.andThen(Effect.ignore(run(['git', 'worktree', 'prune'], workspace))),
   )
 
 const versioned = (beside: Beside, version: string): Effect.Effect<void, CommandFailed> =>
@@ -183,8 +199,8 @@ const signedIn: Effect.Effect<string, CannotRelease> = registryAnswer(
     body: JSON.stringify(account),
   },
 ).pipe(
-  Effect.flatMap((answer) =>
-    Option.match(signedInAnswer(answer), {
+  Effect.flatMap(({ body }) =>
+    Option.match(signedInAnswer(body), {
       onNone: () =>
         Effect.fail(
           new CannotRelease({
@@ -196,9 +212,26 @@ const signedIn: Effect.Effect<string, CannotRelease> = registryAnswer(
   ),
 )
 
-const settingsWritten = (beside: Beside, token: string): Effect.Effect<void> =>
-  Effect.sync(() =>
-    writeFileSync(beside.settings, `${registry.replace('http:', '')}/:_authToken=${token}\n`),
+const settingsWritten = (
+  beside: Beside,
+  token: string,
+): Effect.Effect<void, CannotRelease, FileSystem.FileSystem> =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.writeFileString(
+        beside.settings,
+        `${registry.replace('http:', '')}/:_authToken=${token}\n`,
+      ),
+    ),
+    Effect.mapError(
+      () => new CannotRelease({ reason: `npm's settings could not be written to ${beside.settings}` }),
+    ),
+  )
+
+const packed = (beside: Beside, folder: string): Effect.Effect<void, CommandFailed> =>
+  run(
+    ['bun', 'pm', 'pack', '--destination', beside.packs],
+    join(beside.checkout, 'packages', folder),
   )
 
 const published = (
@@ -207,30 +240,23 @@ const published = (
   version: string,
 ): Effect.Effect<void, CommandFailed> =>
   run(
-    ['bun', 'pm', 'pack', '--destination', beside.packs],
-    join(beside.checkout, 'packages', folder),
-  ).pipe(
-    Effect.andThen(
-      run(
-        [
-          'npm',
-          'publish',
-          join(beside.packs, `athrio-${folder}-${version}.tgz`),
-          '--tag=dev',
-          `--registry=${registry}`,
-          `--@athrio:registry=${registry}`,
-          `--userconfig=${beside.settings}`,
-          '--ignore-scripts',
-        ],
-        beside.folder,
-      ),
-    ),
+    [
+      'npm',
+      'publish',
+      join(beside.packs, `athrio-${folder}-${version}.tgz`),
+      '--tag=dev',
+      `--registry=${registry}`,
+      `--@athrio:registry=${registry}`,
+      `--userconfig=${beside.settings}`,
+      '--ignore-scripts',
+    ],
+    beside.folder,
   )
 
 const release = Effect.gen(function* () {
   const config = yield* LoomConfig
-  const commit = yield* commitOf(named)
-  yield* committed(commit)
+  yield* committed
+  const commit = yield* commitOf(Option.getOrElse(named, () => 'HEAD'))
   const held = yield* Effect.forEach(devPackages, heldVersions)
   const token = yield* signedIn
   return yield* Effect.acquireUseRelease(
@@ -243,13 +269,14 @@ const release = Effect.gen(function* () {
         const version = devVersion(base, held.flat())
         yield* Console.log(`releasing ${version} from ${commit}`)
         yield* versioned(beside, version)
+        yield* Effect.forEach(devPackages, (folder) => packed(beside, folder))
         yield* settingsWritten(beside, token)
         yield* Effect.forEach(devPackages, (folder) => published(beside, folder, version))
         yield* Console.log(`published ${version} to ${registry}`)
       }),
     besideRemoved,
   )
-}).pipe(Effect.provide(LoomConfig.layer))
+}).pipe(Effect.provide(LoomConfig.layer), Effect.provide(BunServices.layer))
 
 const failWith = (message: string): Effect.Effect<void> =>
   Console.error(`release-local: ${message}`).pipe(

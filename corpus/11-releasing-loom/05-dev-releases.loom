@@ -137,15 +137,13 @@ A dev release publishes seven packages. Three are the ones a public release publ
 
 `devPackages` lists the seven in the order they depend on one another, so each package is published after every package it requires. The list names each package by its folder under `packages`, and the package's name on the registry is that folder's name in the `@athrio` scope.
 
-The `release-local` tool asks Git for a commit, asks the published `loom` command to set a version, and asks Bun and npm to pack and publish, so it spawns processes through Bun. It reads the workspace's configuration through `LoomConfig`, the service Part V describes. Effect's `Schema` reads the registry's answer, and `Option` carries a version that may not parse. Node's `fs` and `os` make the folder the release is built in, and `path` and `url` find the workspace around the tool's own module.
+The `release-local` tool asks Git for a commit, asks the published `loom` command to set a version, and asks Bun and npm to pack and publish, so it spawns processes through Bun. It reads the workspace's configuration through `LoomConfig`, the service Part V describes. Effect's `Schema` reads the registry's answer, and `Option` carries a version that may not parse. Effect's filesystem service makes the folder the release is built in, and Node's `path` and `url` find the workspace around the tool's own module.
 
 =>
 
-import { Array, Console, Data, Effect, Option, Schema, pipe } from 'effect'
-import { BunRuntime } from '@effect/platform-bun'
+import { Array, Console, Data, Effect, FileSystem, Option, Schema, pipe } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -163,7 +161,7 @@ const devPackages: ReadonlyArray<string> = [
 
 ## Running a command
 
-`spawned` runs a command in a folder, and fails with a `CommandFailed` when the command cannot start or exits non-zero. `capture` gives back what the command printed, and `run` lets the command print to the terminal.
+`spawned` runs a command in a folder, and fails with a `CommandFailed` when the command cannot start or exits non-zero. When the tool itself is stopped, `spawned` stops the command it was waiting for, so no build runs on after the release that started it. `capture` gives back what the command printed, and `run` lets the command print to the terminal.
 
 A `CannotRelease` is the tool's other failure. It carries its reason as a sentence a person can act on.
 
@@ -184,8 +182,8 @@ const spawned = (
 ): Effect.Effect<string, CommandFailed> => {
   const failed = new CommandFailed({ command: command.join(' ') })
   return Effect.tryPromise({
-    try: async () => {
-      const child = Bun.spawn([...command], { cwd: folder, stdout, stderr: 'inherit' })
+    try: async (signal) => {
+      const child = Bun.spawn([...command], { cwd: folder, stdout, stderr: 'inherit', signal })
       const text = stdout === 'pipe' ? await new Response(child.stdout).text() : ''
       return { code: await child.exited, text: text.trim() }
     },
@@ -205,42 +203,38 @@ const run = (command: ReadonlyArray<string>, folder: string): Effect.Effect<void
 
 A dev release is built from a commit, never from the files of the working tree. The commit is the one named on the command line, by a hash, a branch, or a tag, and it is `HEAD` when the command line names none. `commitOf` asks Git for the full hash behind a name, and fails when the name is no commit.
 
-Building from a commit keeps an unfinished edit out of every release. One case of that would surprise, though. A person who runs the tool over uncommitted changes most likely means to release them, and a release of `HEAD` would leave them out. So `committed` refuses to release `HEAD` while a tracked file holds an uncommitted change. A file Git does not track belongs to no commit, and it does not count.
+Building from a commit keeps an unfinished edit out of every release. One case of that would surprise, though. A person who runs the tool over uncommitted changes and names no commit most likely means to release those changes, and a release of `HEAD` would leave them out. So `committed` refuses a release that names no commit while a tracked file holds an uncommitted change. A person who names a commit has chosen what to release, `HEAD` included, and the tool releases it whatever the working tree holds. A file Git does not track belongs to no commit, and it does not count.
 
 =>
 
-const named = Option.getOrElse(
-  Option.filter(Option.fromNullishOr(process.argv[2]), (name) => name !== ''),
-  () => 'HEAD',
-)
+const named = Option.filter(Option.fromNullishOr(process.argv[2]), (name) => name !== '')
 
 const commitOf = (name: string): Effect.Effect<string, CommandFailed> =>
   capture(['git', 'rev-parse', '--verify', `${name}^{commit}`], workspace)
 
-const committed = (commit: string): Effect.Effect<void, CommandFailed | CannotRelease> =>
-  Effect.all([
-    commitOf('HEAD'),
-    capture(['git', 'status', '--porcelain', '--untracked-files=no'], workspace),
-  ]).pipe(
-    Effect.flatMap(([head, changes]) =>
-      commit === head && changes !== ''
-        ? Effect.fail(
-            new CannotRelease({
-              reason:
-                'the working tree has uncommitted changes, and a release of HEAD would leave them out; commit them, or name the commit to release',
-            }),
-          )
-        : Effect.void,
-    ),
-  )
+const committed: Effect.Effect<void, CommandFailed | CannotRelease> = capture(
+  ['git', 'status', '--porcelain', '--untracked-files=no'],
+  workspace,
+).pipe(
+  Effect.flatMap((changes) =>
+    Option.isNone(named) && changes !== ''
+      ? Effect.fail(
+          new CannotRelease({
+            reason:
+              'the working tree has uncommitted changes, and a release of HEAD would leave them out; commit them, or name the commit to release, as in `bun run release-local HEAD`',
+          }),
+        )
+      : Effect.void,
+  ),
+)
 
 ## The number a dev release carries
 
 A dev release is a prerelease of the version that follows the one the book carries. While the book carries 0.0.20, its dev releases are `0.0.21-dev.1`, `0.0.21-dev.2`, and so on. Semantic versioning sorts each of them before 0.0.21 itself, so the public 0.0.21 supersedes every dev release that led to it. `nextPatch` gives the version that follows the book's, and fails when the book's version is not three numbers.
 
-The number after `dev` counts the dev releases of that version, and the registry keeps the count. `registryAnswer` sends the registry one request and gives back the JSON it answers with, or nothing when the registry refuses the request. A registry that does not answer at all is not running, and the tool fails with the command that starts it.
+The number after `dev` counts the dev releases of that version, and the registry keeps the count. `registryAnswer` sends the registry one request and gives back the status it answers with and the JSON beside it. A registry that does not answer at all is not running, and the tool fails with the command that starts it.
 
-`heldVersions` asks the registry for every version it holds of one package. The registry answers with a document whose `versions` object has a key for each version. A package the registry has never seen has no such document, and so no versions.
+`heldVersions` asks the registry for every version it holds of one package. The registry answers with a document whose `versions` object has a key for each version. A package the registry has never seen has no such document, the registry answers 404, and the package holds no versions. Any other answer without that document is a fault in the registry, and the tool fails with the status. Read as no versions, such a fault would restart the count at one, over numbers the registry already holds.
 
 `devNumber` reads the number out of one version, when that version is a dev release of the version asked about. `devVersion` gives the number one above the highest that any of the seven packages holds. Counting across all seven keeps a number from being used twice. A release that failed halfway has published its number for some packages, and the next release steps over that number for all of them.
 
@@ -266,15 +260,21 @@ const HeldPackageSchema = Schema.Struct({
 
 const heldPackage = Schema.decodeUnknownOption(HeldPackageSchema)
 
+type RegistryAnswer = {
+  readonly status: number
+  readonly body: unknown
+}
+
 const registryAnswer = (
   path: string,
   request?: RequestInit,
-): Effect.Effect<unknown, CannotRelease> =>
+): Effect.Effect<RegistryAnswer, CannotRelease> =>
   Effect.tryPromise({
-    try: (): Promise<unknown> =>
-      fetch(`${registry}${path}`, request).then((answer) =>
-        answer.ok ? answer.json() : undefined,
-      ),
+    try: async (signal): Promise<RegistryAnswer> => {
+      const answer = await fetch(`${registry}${path}`, { ...request, signal })
+      const body: unknown = await answer.json().catch(() => undefined)
+      return { status: answer.status, body }
+    },
     catch: () =>
       new CannotRelease({
         reason: `no registry answers at ${registry}; start it with \`bun run registry\``,
@@ -283,11 +283,18 @@ const registryAnswer = (
 
 const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
   registryAnswer(`/@athrio%2f${folder}`).pipe(
-    Effect.map((answer) =>
-      Option.match(heldPackage(answer), {
-        onNone: () => [],
-        onSome: ({ versions }) => Object.keys(versions),
-      }),
+    Effect.flatMap(({ status, body }) =>
+      status === 404
+        ? Effect.succeed<ReadonlyArray<string>>([])
+        : Option.match(heldPackage(body), {
+            onNone: () =>
+              Effect.fail(
+                new CannotRelease({
+                  reason: `the registry answered ${status} when asked which versions of @athrio/${folder} it holds; its own output says why`,
+                }),
+              ),
+            onSome: ({ versions }) => Effect.succeed<ReadonlyArray<string>>(Object.keys(versions)),
+          }),
     ),
   )
 
@@ -305,9 +312,11 @@ const devVersion = (base: string, held: ReadonlyArray<string>): string => {
 
 ## A checkout beside the workspace
 
-The tool builds the release in a checkout of its own, in a fresh folder under the system's temporary folder. `besideMade` makes that folder and names what goes into it: the checkout, the packed packages, and a settings file for npm. `checkedOut` adds the checkout as a Git worktree at the commit, detached from every branch, and installs its packages against the committed lockfile. `besideRemoved` removes the worktree and the folder when the release is done, whether it succeeded or failed.
+The tool builds the release in a checkout of its own, in a fresh folder under the system's temporary folder. `besideMade` makes that folder and names what goes into it: the checkout, the packed packages, and a settings file for npm. `checkedOut` adds the checkout as a Git worktree at the commit, detached from every branch, and installs its packages against the committed lockfile.
 
-The checkout holds the commit's files, and those carry the last public version. `versioned` gives the checkout the dev release's version the way a public release gets its own. `loom set version` writes the version into the workspace's configuration and tangles the book again, and the `loom` it runs is the published command, the tangler of record. The version then stands in every manifest, and in the code that reads it too, such as the `serviceVersion` at which the command line installs its language services. So the command line of a dev release installs the services of that same dev release.
+`besideRemoved` clears all of it away when the release is done, whether it succeeded or failed. It asks Git to remove the worktree and then removes the folder. A release stopped halfway can leave Git unable to remove the worktree, and the repository would then keep a record of a checkout whose folder is gone. So `besideRemoved` ends by asking Git to prune every such record. No step of the clearing stops the others, since each may find its work already done.
+
+The checkout holds the commit's files, and those carry the last public version. `versioned` gives the checkout the dev release's version the way a public release gets its own. `loom set version` writes the version into the workspace's configuration and tangles the book again, and the `loom` it runs is the published command, the tangler of record. The version then stands in every manifest, and in the code that reads it too, such as the `serviceVersion` at which the command line installs its language services. So the command line of a dev release asks for the services of that same dev release.
 
 Only the checkout changes. The working tree keeps the last public version in every manifest, and no commit records the number of a dev release.
 
@@ -322,24 +331,33 @@ type Beside = {
   readonly settings: string
 }
 
-const besideMade: Effect.Effect<Beside> = Effect.sync(() => {
-  const folder = mkdtempSync(join(tmpdir(), 'loom-dev-release-'))
-  return {
-    folder,
-    checkout: join(folder, 'loom'),
-    packs: join(folder, 'packs'),
-    settings: join(folder, 'npmrc'),
-  }
-})
+const besideMade: Effect.Effect<Beside, CannotRelease, FileSystem.FileSystem> =
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectory({ prefix: 'loom-dev-release-' })),
+    Effect.mapError(
+      () =>
+        new CannotRelease({ reason: "no folder could be made under the system's temporary folder" }),
+    ),
+    Effect.map((folder) => ({
+      folder,
+      checkout: join(folder, 'loom'),
+      packs: join(folder, 'packs'),
+      settings: join(folder, 'npmrc'),
+    })),
+  )
 
 const checkedOut = (beside: Beside, commit: string): Effect.Effect<void, CommandFailed> =>
   run(['git', 'worktree', 'add', '--detach', beside.checkout, commit], workspace).pipe(
     Effect.andThen(run(['bun', 'install', '--frozen-lockfile'], beside.checkout)),
   )
 
-const besideRemoved = (beside: Beside): Effect.Effect<void> =>
+const besideRemoved = (beside: Beside): Effect.Effect<void, never, FileSystem.FileSystem> =>
   Effect.ignore(run(['git', 'worktree', 'remove', '--force', beside.checkout], workspace)).pipe(
-    Effect.andThen(Effect.sync(() => rmSync(beside.folder, { recursive: true, force: true }))),
+    Effect.andThen(FileSystem.FileSystem),
+    Effect.flatMap((fs) =>
+      Effect.ignore(fs.remove(beside.folder, { recursive: true, force: true })),
+    ),
+    Effect.andThen(Effect.ignore(run(['git', 'worktree', 'prune'], workspace))),
   )
 
 const versioned = (beside: Beside, version: string): Effect.Effect<void, CommandFailed> =>
@@ -349,7 +367,11 @@ const versioned = (beside: Beside, version: string): Effect.Effect<void, Command
 
 ## Publishing to the local registry alone
 
-`published` publishes one package in two steps. First Bun packs it. `bun pm pack` runs the package's `prepack` script, which builds whatever the package ships built. It then writes the version in place of each `workspace:*`, and leaves the packed file in the folder of packed packages. Then npm publishes that file.
+A package reaches the registry in two steps, and the tool takes the first step for all seven packages before it takes the second for any.
+
+`packed` has Bun pack one package. `bun pm pack` runs the package's `prepack` script, which builds whatever the package ships built. It then writes the version in place of each `workspace:*`, and leaves the packed file in the folder of packed packages. A build is the step most likely to fail. Packing everything first means a failed build stops the release with nothing published, where publishing as it went would leave some packages at the new number and the rest behind it.
+
+`published` has npm publish one packed file.
 
 The publish must never reach npm's own registry. The person who runs the tool may well be signed in to npm, with the right to publish these very names. Three settings on npm's command line rule that out. `--registry` names the local registry. `--@athrio:registry` names it again for the scope, where npm would otherwise use a registry that a settings file gives the scope. `--userconfig` puts the file `settingsWritten` writes in place of the person's own settings file, so npm holds no token for any other registry while it publishes.
 
@@ -380,8 +402,8 @@ const signedIn: Effect.Effect<string, CannotRelease> = registryAnswer(
     body: JSON.stringify(account),
   },
 ).pipe(
-  Effect.flatMap((answer) =>
-    Option.match(signedInAnswer(answer), {
+  Effect.flatMap(({ body }) =>
+    Option.match(signedInAnswer(body), {
       onNone: () =>
         Effect.fail(
           new CannotRelease({
@@ -393,9 +415,26 @@ const signedIn: Effect.Effect<string, CannotRelease> = registryAnswer(
   ),
 )
 
-const settingsWritten = (beside: Beside, token: string): Effect.Effect<void> =>
-  Effect.sync(() =>
-    writeFileSync(beside.settings, `${registry.replace('http:', '')}/:_authToken=${token}\n`),
+const settingsWritten = (
+  beside: Beside,
+  token: string,
+): Effect.Effect<void, CannotRelease, FileSystem.FileSystem> =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.writeFileString(
+        beside.settings,
+        `${registry.replace('http:', '')}/:_authToken=${token}\n`,
+      ),
+    ),
+    Effect.mapError(
+      () => new CannotRelease({ reason: `npm's settings could not be written to ${beside.settings}` }),
+    ),
+  )
+
+const packed = (beside: Beside, folder: string): Effect.Effect<void, CommandFailed> =>
+  run(
+    ['bun', 'pm', 'pack', '--destination', beside.packs],
+    join(beside.checkout, 'packages', folder),
   )
 
 const published = (
@@ -404,29 +443,22 @@ const published = (
   version: string,
 ): Effect.Effect<void, CommandFailed> =>
   run(
-    ['bun', 'pm', 'pack', '--destination', beside.packs],
-    join(beside.checkout, 'packages', folder),
-  ).pipe(
-    Effect.andThen(
-      run(
-        [
-          'npm',
-          'publish',
-          join(beside.packs, `athrio-${folder}-${version}.tgz`),
-          '--tag=dev',
-          `--registry=${registry}`,
-          `--@athrio:registry=${registry}`,
-          `--userconfig=${beside.settings}`,
-          '--ignore-scripts',
-        ],
-        beside.folder,
-      ),
-    ),
+    [
+      'npm',
+      'publish',
+      join(beside.packs, `athrio-${folder}-${version}.tgz`),
+      '--tag=dev',
+      `--registry=${registry}`,
+      `--@athrio:registry=${registry}`,
+      `--userconfig=${beside.settings}`,
+      '--ignore-scripts',
+    ],
+    beside.folder,
   )
 
 ## The release
 
-The release runs from the commit to the registry in one pass. It resolves the commit and checks the working tree. It asks the registry what it holds and signs in before it builds anything, so a registry that is not running stops the release in a moment. Then it makes the checkout, reads the book's version there, and works out the dev release's number. It sets that version, writes npm's settings, and publishes the seven packages in order. It ends by printing the version a project pins.
+The release runs from the commit to the registry in one pass. It resolves the commit and checks the working tree. It asks the registry what it holds and signs in before it builds anything, so a registry that is not running stops the release in a moment. Then it makes the checkout, reads the book's version there, and works out the dev release's number. It sets that version and packs the seven packages. Only then does it write npm's settings and publish the seven, in order. It ends by printing the version a project pins.
 
 A failure at any step stops the release and names itself: a command that failed, or the reason the release cannot be made.
 
@@ -434,8 +466,8 @@ A failure at any step stops the release and names itself: a command that failed,
 
 const release = Effect.gen(function* () {
   const config = yield* LoomConfig
-  const commit = yield* commitOf(named)
-  yield* committed(commit)
+  yield* committed
+  const commit = yield* commitOf(Option.getOrElse(named, () => 'HEAD'))
   const held = yield* Effect.forEach(devPackages, heldVersions)
   const token = yield* signedIn
   return yield* Effect.acquireUseRelease(
@@ -448,13 +480,14 @@ const release = Effect.gen(function* () {
         const version = devVersion(base, held.flat())
         yield* Console.log(`releasing ${version} from ${commit}`)
         yield* versioned(beside, version)
+        yield* Effect.forEach(devPackages, (folder) => packed(beside, folder))
         yield* settingsWritten(beside, token)
         yield* Effect.forEach(devPackages, (folder) => published(beside, folder, version))
         yield* Console.log(`published ${version} to ${registry}`)
       }),
     besideRemoved,
   )
-}).pipe(Effect.provide(LoomConfig.layer))
+}).pipe(Effect.provide(LoomConfig.layer), Effect.provide(BunServices.layer))
 
 const failWith = (message: string): Effect.Effect<void> =>
   Console.error(`release-local: ${message}`).pipe(
@@ -473,6 +506,12 @@ BunRuntime.runMain(
     }),
   ),
 )
+
+## Pinning a dev release
+
+A project pins a dev release by its exact version, and tells its package manager where the registry is in one of two ways. It names the registry for one install, as `bun add @athrio/loom@0.0.21-dev.1 --registry http://localhost:4873` does. Or it gives the `@athrio` scope that registry in its own `.npmrc` or `bunfig.toml`, and then only the packages of the scope come from the local registry. Either way the registry must be running whenever an install has to fetch.
+
+The command line of a dev release needs the registry once more, when `loom add` installs a language service. The command line asks npm for the service at its own version, and it runs npm in the store's folder, where the project's `.npmrc` does not apply. So a person names the registry in the environment of that one command, as `npm_config_registry=http://localhost:4873 loom add typescript` does.
 
 ## The dev release tool [release-local.ts]
 
