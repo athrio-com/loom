@@ -960,6 +960,8 @@ it('quotes Loom marks as text rather than resolving them', () => {
 
 A chapter ends on the site's pager, which names the chapters either side of it. The first chapter has no previous card. On a narrow window the menu moves into a drawer, marked the same way, and the drawer and its scrim open by a class so both can animate. A chapter with no sections still draws its head, over an empty column. The case builds that chapter as a corpus of its own and draws it through `wovenPage`.
 
+A corpus may open on a page that no menu lists, the page of the loom its weave started from, and it names that page as its opening. The last case builds such a corpus and draws both of its pages, each from the slice of the corpus a source page is handed, which holds that one page alone. The opening page's pager leads on to the first chapter and has no previous card, and the first chapter's pager leads back to the opening page.
+
 =>
 
 it("ends a chapter on the site's pager, naming the chapters either side of it", () => {
@@ -1011,6 +1013,27 @@ it('draws a chapter with no sections as a head and an empty column', () => {
   expect(bare).toContain('<h1 id="only">Only</h1>')
   expect(bare).not.toContain('doc-section')
   expect(bare).toContain('class="menu-subs"></div>')
+})
+
+it('turns from the page a corpus opens on to its first chapter, and back', () => {
+  const titled = (slug: string, title: string) => ({
+    slug,
+    title,
+    blocks: [{ type: 'heading', level: 1, title, id: slug, unsettled: false }],
+  })
+  const opened: Corpus = {
+    nav: [{ name: 'Getting started', chapters: [{ number: '1', title: 'Only', slug: 'only' }] }],
+    opening: { number: '', title: 'A small book', slug: 'book' },
+    pages: [titled('book', 'A small book'), titled('only', 'Only')],
+  } as unknown as Corpus
+  const draw = (slug: string): string =>
+    renderHtml((h) =>
+      wovenPage(sliceOf(opened, slug), 'Docs', '/docs', docsOpening, at(slug), h),
+    )
+  expect(draw('book')).toContain('class="pager-card next" href="/docs/only"')
+  expect(draw('book')).not.toContain('>Previous<')
+  expect(draw('only')).toContain('class="pager-title">A small book<')
+  expect(draw('only')).not.toContain('>Next<')
 })
 
 ## The chrome around the docs
@@ -1070,6 +1093,7 @@ import {
   docsCorpus,
   firstSlugOf,
   docsOpening,
+  sliceOf,
   wovenPage,
 } from '../src/docs-page'
 import { type Corpus, type Model } from '../src/model'

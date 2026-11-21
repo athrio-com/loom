@@ -89,16 +89,16 @@ describe('the weave projection', () => {
     ])
   })
 
-  it('makes a page for the chapter, not for the book root', () => {
+  it('makes a page for the book root and one for the chapter, the root first', () => {
     const site = weave(buildCorpus(files))
-    expect(site.pages.map((p) => p.slug)).toEqual(['using/greeting'])
-    const page = site.pages[0]!
+    expect(site.pages.map((p) => p.slug)).toEqual(['corpus/book', 'using/greeting'])
+    const page = site.pages[1]!
     expect(page.title).toBe('A greeting')
     expect(page.part).toBe('Using Loom')
   })
 
   it('renders the sections as blocks in reading order', () => {
-    const page = weave(buildCorpus(files)).pages[0]!
+    const page = weave(buildCorpus(files)).pages[1]!
     // heading, intro prose, heading, code, heading, code
     expect(page.blocks.map((b) => b.type)).toEqual([
       'heading',
@@ -146,7 +146,7 @@ And prose again, with no tilde.
 `
     const page = weave(
       buildCorpus({ '/corpus/book.loom': book, '/corpus/using/greeting.loom': framed }),
-    ).pages[0]!
+    ).pages[1]!
     const codes = page.blocks.filter((b): b is CodeBlock => b.type === 'code')
     expect(codes.map(({ arrow, closed }) => ({ arrow, closed }))).toEqual([
       { arrow: '=>', closed: true },
@@ -158,7 +158,7 @@ And prose again, with no tilde.
   })
 
   it('anchors every block to the chapter and section it came from', () => {
-    const page = weave(buildCorpus(files)).pages[0]!
+    const page = weave(buildCorpus(files)).pages[1]!
     const opening = page.blocks[0] as HeadingBlock
     expect(opening.source).toEqual({ chapter: 'using/greeting', section: 'a-greeting' })
     const nameCode = page.blocks[3] as CodeBlock
@@ -166,7 +166,7 @@ And prose again, with no tilde.
   })
 
   it('turns a code anchor into a link at its place in the block', () => {
-    const page = weave(buildCorpus(files)).pages[0]!
+    const page = weave(buildCorpus(files)).pages[1]!
     const tangle = page.blocks[5] as CodeBlock
     expect(tangle.code.startsWith('::[The name]')).toBe(true)
     expect(tangle.links).toEqual([
@@ -217,7 +217,7 @@ describe('sections still to be settled', () => {
   it('marks the anchors that reach no code, and the headings of their sections', () => {
     const page = weave(
       buildCorpus({ '/corpus/book.loom': book, '/corpus/using/greeting.loom': unsettled }),
-    ).pages[0]!
+    ).pages[1]!
     const headings = page.blocks.filter((block): block is HeadingBlock => block.type === 'heading')
     expect(headings.map((heading) => [heading.title, heading.unsettled])).toEqual([
       ['A greeting', false],

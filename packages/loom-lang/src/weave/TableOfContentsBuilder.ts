@@ -1,5 +1,6 @@
 import { Array, Option, Order, pipe, Schema } from 'effect'
 import { discussionKind } from '@athrio/loom-ast/LoomTokens'
+import type { PreambleWeft } from '@athrio/loom-ast/Weft'
 import {
   bookOf,
   claimedKind,
@@ -132,6 +133,75 @@ const bookNamesIn = (modules: ReadonlyArray<LoomModule>): ReadonlyArray<string> 
 const holdsAnything = (book: TocBook): boolean =>
   book.parts.length > 0 || book.orphans.length > 0 || book.backMatter.looms.length > 0
 
+const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
+  pipe(
+    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
+    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
+    Option.map((title) => title.source),
+  )
+
+const fileNameOf = (path: Location): string =>
+  path.slice(path.lastIndexOf('/') + 1).replace(/\.loom$/, '')
+
+const wordsOf = (line: PreambleWeft): string =>
+  Array.reverse(line.anchors)
+    .reduce(
+      (text, anchor) =>
+        text.slice(0, anchor.position.start.offset - line.position.start.offset) +
+        anchor.name.value +
+        text.slice(anchor.position.end.offset - line.position.start.offset),
+      line.source,
+    )
+    .trim()
+
+const proseLinesOf = (module: LoomModule): ReadonlyArray<string> =>
+  [...module.doc.preamble, ...module.doc.sections.flatMap((section) => section.preamble)]
+    .filter((line) => line.box === undefined)
+    .map(wordsOf)
+
+const holdsWords = (line: string): boolean => /[\p{L}\p{N}]/u.test(line)
+
+const firstParagraphOf = (lines: ReadonlyArray<string>): string =>
+  pipe(
+    Array.dropWhile(lines, (line) => !holdsWords(line)),
+    Array.takeWhile((line) => line !== ''),
+    Array.join(' '),
+  )
+
+const sentenceEnd = /[.!?](?=\s|$)/
+
+const firstSentenceOf = (paragraph: string): string =>
+  Option.match(Option.fromNullishOr(sentenceEnd.exec(paragraph)), {
+    onNone: () => paragraph,
+    onSome: (found) => paragraph.slice(0, found.index + 1),
+  })
+
+const titleLength = 60
+
+const fitted = (sentence: string): string => {
+  if (sentence.length <= titleLength) return sentence
+  const held = sentence.slice(0, titleLength + 1)
+  const lastSpace = held.lastIndexOf(' ')
+  const words = lastSpace > 0 ? held.slice(0, lastSpace) : held.slice(0, titleLength)
+  return `${words.replace(/[\s,;:]+$/, '')}…`
+}
+
+export const openingWordsOf = (module: LoomModule): Option.Option<string> =>
+  pipe(
+    firstParagraphOf(proseLinesOf(module)),
+    Option.liftPredicate((paragraph) => paragraph !== ''),
+    Option.map((paragraph) => fitted(firstSentenceOf(paragraph).replace(/\.$/, ''))),
+  )
+
+export const titleOf = (module: LoomModule): string =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter?.title),
+    Option.map((title) => title.value),
+    Option.orElse(() => firstHeadingTitle(module)),
+    Option.orElse(() => openingWordsOf(module)),
+    Option.getOrElse(() => fileNameOf(module.path)),
+  )
+
 type PartDecl = { readonly book: string; readonly number: string; readonly name: string }
 
 type Chapter = {
@@ -160,34 +230,21 @@ const partDeclOf = (module: LoomModule): Option.Option<PartDecl> =>
     ),
   )
 
-const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
-  pipe(
-    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
-    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
-    Option.map((title) => title.source),
-  )
-
 const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
   const frontmatter = module.doc.frontmatter
   return zoneOf(module) === 'back' || isBookLoom(module)
     ? Option.none()
-    : Option.map(
-        Option.orElse(
-          Option.map(Option.fromNullishOr(frontmatter?.title), (title) => title.value),
-          () => firstHeadingTitle(module),
-        ),
-        (title) => ({
-          book: bookNameOf(module),
-          partId: frontmatter?.part?.value ?? frontmatter?.partName?.value,
-          number: Option.getOrElse(ordinalOf(module), () => ''),
-          title,
-          status: frontmatter?.status?.value,
-          priority: frontmatter?.priority?.value,
-          language: frontmatter?.language?.value,
-          kind: Option.getOrUndefined(Option.map(claimedKind(module), (named) => named.value)),
-          path: module.path,
-        }),
-      )
+    : Option.some({
+        book: bookNameOf(module),
+        partId: frontmatter?.part?.value ?? frontmatter?.partName?.value,
+        number: Option.getOrElse(ordinalOf(module), () => ''),
+        title: titleOf(module),
+        status: frontmatter?.status?.value,
+        priority: frontmatter?.priority?.value,
+        language: frontmatter?.language?.value,
+        kind: Option.getOrUndefined(Option.map(claimedKind(module), (named) => named.value)),
+        path: module.path,
+      })
 }
 
 const toTocChapter = (chapter: Chapter): TocChapter =>
@@ -282,20 +339,18 @@ const backLoomOf = (module: LoomModule): Option.Option<BackLoom> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
     Option.filter(() => zoneOf(module) === 'back'),
-    Option.flatMap((frontmatter) =>
-      Option.map(Option.fromNullishOr(frontmatter.title), (title) => ({
+    Option.map((frontmatter) => ({
+      book: bookNameOf(module),
+      part: {
         book: bookNameOf(module),
-        part: {
-          book: bookNameOf(module),
-          number: frontmatter.part?.value ?? '',
-          name: frontmatter.partName?.value ?? '',
-        },
-        kind: loomKindOf(module),
-        number: Option.getOrElse(ordinalOf(module), () => ''),
-        title: title.value,
-        path: module.path,
-      })),
-    ),
+        number: frontmatter.part?.value ?? '',
+        name: frontmatter.partName?.value ?? '',
+      },
+      kind: loomKindOf(module),
+      number: Option.getOrElse(ordinalOf(module), () => ''),
+      title: titleOf(module),
+      path: module.path,
+    })),
   )
 
 const byBackLoom: Order.Order<BackLoom> = Order.combineAll([

@@ -194,11 +194,14 @@ export type WovenBook = typeof WovenBookSchema.Type
 
 A `WovenCorpus` is the corpus as data: the `nav` of its default book, the named `books` with their own trees, and the `pages` a reader reads. A corpus of one book names no book, so its `books` list is empty and its menu reads as it always has.
 
+A corpus woven from a root also names its `opening`: the page a reader opens the corpus on, which is the page of the loom the weave started from. No menu lists that page, so the corpus gives its title and its slug as an entry of its own, the way a `WovenBook` gives the slug of the page its book opens on. A presentation that holds only some of the pages can still lead a reader back to the opening one.
+
 =>
 
 export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
   books: Schema.Array(WovenBookSchema),
+  opening: Schema.optional(WovenNavEntrySchema),
   pages: Schema.Array(WovenPageSchema),
 })
 export type WovenCorpus = typeof WovenCorpusSchema.Type

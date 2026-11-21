@@ -16,7 +16,7 @@ Not every chapter has a number. A part declared with a bare `Part: Work in progr
 
 A `TableOfContents` is the corpus's own structure: its `books`, the default book first and the named books after it by name. A `TocBook` carries its `name`, empty for the default book, and the `path` of the book loom that opens it, empty when no loom does. It then carries its three zones. Its body is its `parts` in order, followed by its `orphans`, the chapters that name no part. Its `backMatter` lists the looms that sit at the back: its discussions, and the looms of each kind a trope declares for the back, as Part XIII, Tropes, describes.
 
-A `TocPart` carries its `number`, empty when the part is numberless, its `name`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. A loom of a kind a trope declares for the body stands among its part's chapters, and its entry carries that `kind`, which a chapter's leaves out. Everything in it is read from frontmatter, or from a loom's first heading when its frontmatter names no title.
+A `TocPart` carries its `number`, empty when the part is numberless, its `name`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. A loom of a kind a trope declares for the body stands among its part's chapters, and its entry carries that `kind`, which a chapter's leaves out. Everything in it is read from frontmatter but the title, which the function `titleOf` finds for a loom whose frontmatter names none.
 
 A `TocBackMatter` carries a book's back `looms` in order. A `TocBackLoom` carries its `kind`, `Discussion` or the kind its trope declares, its `place`, its own `number` (empty when it has none), its `title`, and the `path` of its loom. The place names the loom's part: `Part I` when the part has a number, the part's name when it has none, and nothing when the loom names no part.
 
@@ -152,11 +152,92 @@ const bookNamesIn = (modules: ReadonlyArray<LoomModule>): ReadonlyArray<string> 
 const holdsAnything = (book: TocBook): boolean =>
   book.parts.length > 0 || book.orphans.length > 0 || book.backMatter.looms.length > 0
 
+## What a loom is called
+
+A reader meets a loom by its title: at the top of its page, in the menu, in an entry of the index. The function `titleOf` gives that title, and it finds one for every loom. A loom's frontmatter may name it, as `Chapter 11: The contents of a book` does. A loom whose frontmatter names no title takes the title of its first heading, which the function `firstHeadingTitle` reads.
+
+A loom with neither is prose with no name of its own, such as a short post. It goes by its opening words, the way a notes application lists a note nobody titled. A loom that holds no prose at all goes by the name of its file, which the function `fileNameOf` reads.
+
+The opening words are the first sentence of the loom's first paragraph, and the function `openingWordsOf` reads them. It starts from the lines of prose a loom holds before any code, which the function `proseLinesOf` lists, leaving out the lines of colons that open and close a box. Each line is read by the function `wordsOf`, which writes an anchor as the name the anchor holds, so a menu shows no `::` mark. The function `firstParagraphOf` skips the lines that hold no letter or digit, then joins the lines up to the next blank one. The function `firstSentenceOf` cuts that paragraph where its first sentence ends.
+
+A title carries no closing full stop, so the sentence loses its own. A sentence longer than sixty characters is too long for a menu, so the function `fitted` keeps the words of it that fit within sixty characters and closes them with an ellipsis.
+
+=>
+
+const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
+  pipe(
+    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
+    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
+    Option.map((title) => title.source),
+  )
+
+const fileNameOf = (path: Location): string =>
+  path.slice(path.lastIndexOf('/') + 1).replace(/\.loom$/, '')
+
+const wordsOf = (line: PreambleWeft): string =>
+  Array.reverse(line.anchors)
+    .reduce(
+      (text, anchor) =>
+        text.slice(0, anchor.position.start.offset - line.position.start.offset) +
+        anchor.name.value +
+        text.slice(anchor.position.end.offset - line.position.start.offset),
+      line.source,
+    )
+    .trim()
+
+const proseLinesOf = (module: LoomModule): ReadonlyArray<string> =>
+  [...module.doc.preamble, ...module.doc.sections.flatMap((section) => section.preamble)]
+    .filter((line) => line.box === undefined)
+    .map(wordsOf)
+
+const holdsWords = (line: string): boolean => /[\p{L}\p{N}]/u.test(line)
+
+const firstParagraphOf = (lines: ReadonlyArray<string>): string =>
+  pipe(
+    Array.dropWhile(lines, (line) => !holdsWords(line)),
+    Array.takeWhile((line) => line !== ''),
+    Array.join(' '),
+  )
+
+const sentenceEnd = /[.!?](?=\s|$)/
+
+const firstSentenceOf = (paragraph: string): string =>
+  Option.match(Option.fromNullishOr(sentenceEnd.exec(paragraph)), {
+    onNone: () => paragraph,
+    onSome: (found) => paragraph.slice(0, found.index + 1),
+  })
+
+const titleLength = 60
+
+const fitted = (sentence: string): string => {
+  if (sentence.length <= titleLength) return sentence
+  const held = sentence.slice(0, titleLength + 1)
+  const lastSpace = held.lastIndexOf(' ')
+  const words = lastSpace > 0 ? held.slice(0, lastSpace) : held.slice(0, titleLength)
+  return `${words.replace(/[\s,;:]+$/, '')}…`
+}
+
+export const openingWordsOf = (module: LoomModule): Option.Option<string> =>
+  pipe(
+    firstParagraphOf(proseLinesOf(module)),
+    Option.liftPredicate((paragraph) => paragraph !== ''),
+    Option.map((paragraph) => fitted(firstSentenceOf(paragraph).replace(/\.$/, ''))),
+  )
+
+export const titleOf = (module: LoomModule): string =>
+  pipe(
+    Option.fromNullishOr(module.doc.frontmatter?.title),
+    Option.map((title) => title.value),
+    Option.orElse(() => firstHeadingTitle(module)),
+    Option.orElse(() => openingWordsOf(module)),
+    Option.getOrElse(() => fileNameOf(module.path)),
+  )
+
 ## A chapter's place in the corpus
 
 Every declaration carries its book, and `bookNameOf` reads it: the name a loom's `Book:` line gives, or the empty name of the default book. A part is declared by any loom that names it: a numbered part in an opener's `Part R: name` line, a numberless part in a bare `Part: name`. `partDeclOf` reads that declaration: the part's book, its number, empty when there is none, and its name.
 
-A chapter is any loom with a title that sits in the body of its book and is no book loom, which opens its book rather than standing in it. A discussion sits at the back, and so does a loom of a kind a trope declares for the back, as `zoneOf` tells. `chapterDeclOf` reads a loom of the body: the book and the part it belongs to, its own number, its title, its status and priority, and its path. A loom of a kind a trope declares for the body stands among the chapters, with its `kind`. A loom whose frontmatter names no title takes the title of its first heading, as `firstHeadingTitle` reads it, so a loom with no frontmatter still has a place among the orphans. A chapter names its part by number when the part is numbered and by name when it is numberless, so `partId` is one or the other, and absent when the loom declares no part, which makes the chapter an orphan.
+A chapter is any loom that sits in the body of its book and is no book loom, which opens its book rather than standing in it. A discussion sits at the back, and so does a loom of a kind a trope declares for the back, as `zoneOf` tells. `chapterDeclOf` reads a loom of the body: the book and the part it belongs to, its own number, its title, its status and priority, and its path. A loom of a kind a trope declares for the body stands among the chapters, with its `kind`. Every loom has a title, as the section before describes, so a loom with no frontmatter still has a place among the orphans, and so does a post with no heading. A chapter names its part by number when the part is numbered and by name when it is numberless, so `partId` is one or the other, and absent when the loom declares no part, which makes the chapter an orphan.
 
 =>
 
@@ -188,34 +269,21 @@ const partDeclOf = (module: LoomModule): Option.Option<PartDecl> =>
     ),
   )
 
-const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
-  pipe(
-    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
-    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
-    Option.map((title) => title.source),
-  )
-
 const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> => {
   const frontmatter = module.doc.frontmatter
   return zoneOf(module) === 'back' || isBookLoom(module)
     ? Option.none()
-    : Option.map(
-        Option.orElse(
-          Option.map(Option.fromNullishOr(frontmatter?.title), (title) => title.value),
-          () => firstHeadingTitle(module),
-        ),
-        (title) => ({
-          book: bookNameOf(module),
-          partId: frontmatter?.part?.value ?? frontmatter?.partName?.value,
-          number: Option.getOrElse(ordinalOf(module), () => ''),
-          title,
-          status: frontmatter?.status?.value,
-          priority: frontmatter?.priority?.value,
-          language: frontmatter?.language?.value,
-          kind: Option.getOrUndefined(Option.map(claimedKind(module), (named) => named.value)),
-          path: module.path,
-        }),
-      )
+    : Option.some({
+        book: bookNameOf(module),
+        partId: frontmatter?.part?.value ?? frontmatter?.partName?.value,
+        number: Option.getOrElse(ordinalOf(module), () => ''),
+        title: titleOf(module),
+        status: frontmatter?.status?.value,
+        priority: frontmatter?.priority?.value,
+        language: frontmatter?.language?.value,
+        kind: Option.getOrUndefined(Option.map(claimedKind(module), (named) => named.value)),
+        path: module.path,
+      })
 }
 
 const toTocChapter = (chapter: Chapter): TocChapter =>
@@ -328,20 +396,18 @@ const backLoomOf = (module: LoomModule): Option.Option<BackLoom> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
     Option.filter(() => zoneOf(module) === 'back'),
-    Option.flatMap((frontmatter) =>
-      Option.map(Option.fromNullishOr(frontmatter.title), (title) => ({
+    Option.map((frontmatter) => ({
+      book: bookNameOf(module),
+      part: {
         book: bookNameOf(module),
-        part: {
-          book: bookNameOf(module),
-          number: frontmatter.part?.value ?? '',
-          name: frontmatter.partName?.value ?? '',
-        },
-        kind: loomKindOf(module),
-        number: Option.getOrElse(ordinalOf(module), () => ''),
-        title: title.value,
-        path: module.path,
-      })),
-    ),
+        number: frontmatter.part?.value ?? '',
+        name: frontmatter.partName?.value ?? '',
+      },
+      kind: loomKindOf(module),
+      number: Option.getOrElse(ordinalOf(module), () => ''),
+      title: titleOf(module),
+      path: module.path,
+    })),
   )
 
 const byBackLoom: Order.Order<BackLoom> = Order.combineAll([
@@ -364,12 +430,13 @@ const toTocBackLoom = (loom: BackLoom): TocBackLoom =>
 
 ## What the builder draws on
 
-The builder reads the Loom AST and writes the contents model, so it draws from both. From `effect` come the array and option combinators, `Order` for the sort, `pipe` for the spine, and `Schema` for the model. From the Loom side come the corpus, the module a chapter is, and the `Location` of the root, with `bookOf`, which reads the book a loom names, `isBookLoom`, which tells a loom that opens a book, and `zoneOf`, `loomKindOf`, `ordinalOf`, and `claimedKind`, which read where a loom sits, its kind, its number, and the kind a trope declares for it. The chapter "The leaf tokens" gives `discussionKind`.
+The builder reads the Loom AST and writes the contents model, so it draws from both. From `effect` come the array and option combinators, `Order` for the sort, `pipe` for the spine, and `Schema` for the model. From the Loom side come the corpus, the module a chapter is, and the `Location` of the root, with `bookOf`, which reads the book a loom names, `isBookLoom`, which tells a loom that opens a book, and `zoneOf`, `loomKindOf`, `ordinalOf`, and `claimedKind`, which read where a loom sits, its kind, its number, and the kind a trope declares for it. The chapter "The leaf tokens" gives `discussionKind`, and the chapter "Wefts" gives the type `PreambleWeft`, the line of prose a loom's opening words are read from.
 
 =>
 
 import { Array, Option, Order, pipe, Schema } from 'effect'
 import { discussionKind } from '@athrio/loom-ast/LoomTokens'
+import type { PreambleWeft } from '@athrio/loom-ast/Weft'
 import {
   bookOf,
   claimedKind,
@@ -391,6 +458,8 @@ import {
 ::[The shape of the contents]
 
 ::[The builder and its spine]
+
+::[What a loom is called]
 
 ::[A chapter's place in the corpus]
 

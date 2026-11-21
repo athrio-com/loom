@@ -73,6 +73,8 @@ A few lookups serve the whole chapter. One finds the page a slug names, one find
 
 A corpus of several books lists its named books beside the default book's parts. `booksOf` reads them, and none from a corpus woven before books. `partsOf` gathers every part of every book, so a page finds its part whichever book it stands in, and `bookAt` finds the book a page stands in, or opens. Reading order runs through the default book first, then through each named book, from the page that opens it to its last chapter.
 
+A corpus may open on a page that no menu lists: the page of the loom its weave started from, which the corpus names as its opening. The pager turns through that page too. The function `turningOrder` puts it ahead of the reading order, unless the reading order holds it already, as it does when the opening page is a named book's own, which `corpusOpening` tells. So the opening page's pager leads on to the first chapter, and the first chapter's leads back. The corpus names the opening page outside its pages, so the pager finds it on a source page too, where the corpus holds one page alone. The reading order itself leaves the opening page out, because a chapter's flower follows the chapter's place in that order.
+
 Where no chapter is named the shell opens the first one in the corpus, which is what a reader arriving at the documentation root expects.
 
 =>
@@ -113,6 +115,20 @@ const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
     ...openingOf(book),
     ...book.nav.flatMap((part) => part.chapters),
   ]),
+]
+
+const corpusOpening = (corpus: Corpus): ReadonlyArray<Chapter> =>
+  pipe(
+    Option.fromNullishOr(corpus.opening),
+    Option.filter(
+      (opening) => !readingOrder(corpus).some((chapter) => chapter.slug === opening.slug),
+    ),
+    Option.toArray,
+  )
+
+const turningOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
+  ...corpusOpening(corpus),
+  ...readingOrder(corpus),
 ]
 
 ## The address of a chapter
@@ -1337,7 +1353,7 @@ const chapterPager = (
   cardMark: (chapter: Chapter) => Html,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const order = readingOrder(corpus)
+  const order = turningOrder(corpus)
   const at = Array.findFirstIndex(order, (chapter) => chapter.slug === page.slug)
   const step = (by: number): Option.Option<Chapter> =>
     Option.flatMap(at, (index) => Array.get(order, index + by))

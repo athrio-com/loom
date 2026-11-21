@@ -128,6 +128,7 @@ export type WovenBook = typeof WovenBookSchema.Type
 export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
   books: Schema.Array(WovenBookSchema),
+  opening: Schema.optional(WovenNavEntrySchema),
   pages: Schema.Array(WovenPageSchema),
 })
 export type WovenCorpus = typeof WovenCorpusSchema.Type

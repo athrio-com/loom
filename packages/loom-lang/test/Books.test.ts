@@ -323,6 +323,7 @@ describe('weaving a corpus of books', () => {
     Effect.gen(function* () {
       const site = yield* woven(files, root)
       expect(site.pages.map((page) => [page.slug, page.book ?? ''])).toEqual([
+        ['corpus/book', ''],
         ['corpus/greetings', ''],
         ['corpus/notes', ''],
         ['the-game', 'The game'],

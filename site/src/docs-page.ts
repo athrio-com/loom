@@ -85,6 +85,20 @@ const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
   ]),
 ]
 
+const corpusOpening = (corpus: Corpus): ReadonlyArray<Chapter> =>
+  pipe(
+    Option.fromNullishOr(corpus.opening),
+    Option.filter(
+      (opening) => !readingOrder(corpus).some((chapter) => chapter.slug === opening.slug),
+    ),
+    Option.toArray,
+  )
+
+const turningOrder = (corpus: Corpus): ReadonlyArray<Chapter> => [
+  ...corpusOpening(corpus),
+  ...readingOrder(corpus),
+]
+
 const readable = (slug: string): string =>
   slug
     .split('/')
@@ -1102,7 +1116,7 @@ const chapterPager = (
   cardMark: (chapter: Chapter) => Html,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const order = readingOrder(corpus)
+  const order = turningOrder(corpus)
   const at = Array.findFirstIndex(order, (chapter) => chapter.slug === page.slug)
   const step = (by: number): Option.Option<Chapter> =>
     Option.flatMap(at, (index) => Array.get(order, index + by))

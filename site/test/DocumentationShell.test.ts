@@ -7,6 +7,7 @@ import {
   docsCorpus,
   firstSlugOf,
   docsOpening,
+  sliceOf,
   wovenPage,
 } from '../src/docs-page'
 import { type Corpus, type Model } from '../src/model'
@@ -263,6 +264,27 @@ describe('the documentation shell', () => {
     expect(bare).toContain('<h1 id="only">Only</h1>')
     expect(bare).not.toContain('doc-section')
     expect(bare).toContain('class="menu-subs"></div>')
+  })
+
+  it('turns from the page a corpus opens on to its first chapter, and back', () => {
+    const titled = (slug: string, title: string) => ({
+      slug,
+      title,
+      blocks: [{ type: 'heading', level: 1, title, id: slug, unsettled: false }],
+    })
+    const opened: Corpus = {
+      nav: [{ name: 'Getting started', chapters: [{ number: '1', title: 'Only', slug: 'only' }] }],
+      opening: { number: '', title: 'A small book', slug: 'book' },
+      pages: [titled('book', 'A small book'), titled('only', 'Only')],
+    } as unknown as Corpus
+    const draw = (slug: string): string =>
+      renderHtml((h) =>
+        wovenPage(sliceOf(opened, slug), 'Docs', '/docs', docsOpening, at(slug), h),
+      )
+    expect(draw('book')).toContain('class="pager-card next" href="/docs/only"')
+    expect(draw('book')).not.toContain('>Previous<')
+    expect(draw('only')).toContain('class="pager-title">A small book<')
+    expect(draw('only')).not.toContain('>Next<')
   })
 })
 

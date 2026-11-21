@@ -103,6 +103,7 @@ export type Page = typeof Page.Type
 export const Corpus = S.Struct({
   nav: S.Array(Part),
   books: S.optional(S.Array(Book)),
+  opening: S.optional(Chapter),
   pages: S.Array(Page),
 })
 export type Corpus = typeof Corpus.Type

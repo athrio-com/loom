@@ -418,7 +418,7 @@ describe("a book's name in the editor", () => {
 
 ## Weaving a corpus of books
 
-The weave starts from the corpus loom, which opens the corpus and yields no page of its own. The default book's contents become the menu, and its orphan chapters close the body under a part of their own. Each named book gets a menu of its own under its name, with the slug of the page its book loom opens. Every page names its book, and a named book's slugs start with the book's own, so the game's chapters stand apart from the default book's, and follow them in reading order.
+The weave starts from the corpus loom, which opens the corpus. Its page is the one a reader opens the corpus on, so it comes first, and no menu lists it. The default book's contents become the menu, and its orphan chapters close the body under a part of their own. Each named book gets a menu of its own under its name, with the slug of the page its book loom opens. Every page names its book, and a named book's slugs start with the book's own, so the game's chapters stand apart from the default book's, and follow them in reading order.
 
 `woven` weaves a corpus held in memory from its root. The corpus here adds the corpus loom and an orphan chapter, `Notes`, to the two books.
 
@@ -465,6 +465,7 @@ describe('weaving a corpus of books', () => {
     Effect.gen(function* () {
       const site = yield* woven(files, root)
       expect(site.pages.map((page) => [page.slug, page.book ?? ''])).toEqual([
+        ['corpus/book', ''],
         ['corpus/greetings', ''],
         ['corpus/notes', ''],
         ['the-game', 'The game'],

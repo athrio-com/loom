@@ -83,6 +83,7 @@
     "packages/loom-lang/test/Discussion.test.ts",
     "packages/loom-lang/test/DiscussionBox.test.ts",
     "packages/loom-lang/test/Divider.test.ts",
+    "packages/loom-lang/test/LeadingProse.test.ts",
     "packages/loom-lang/test/LoomCompiler.test.ts",
     "packages/loom-lang/test/LoomDocumentBuilder.test.ts",
     "packages/loom-lang/test/LoomFormatter.test.ts",
