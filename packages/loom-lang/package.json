@@ -25,6 +25,11 @@
     "./ast/WeftClassifier": "./src/ast/WeftClassifier.ts",
     "./ast/Relations": "./src/ast/Relations.ts"
   },
+  "files": [
+    "bin",
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "vite build",
     "watch": "vite build --watch",
@@ -43,11 +48,11 @@
     "volar-service-html": "^0.0.71",
     "volar-service-markdown": "^0.0.71",
     "vscode-html-languageservice": "^5.6.2",
+    "vscode-uri": "^3.1.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@athrio/loom-service-typescript": "workspace:*",
-    "@effect/platform-bun": "4.1.4",
-    "vscode-uri": "^3.1.0"
+    "@effect/platform-bun": "4.1.4"
   }
 }

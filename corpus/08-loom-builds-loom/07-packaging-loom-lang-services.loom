@@ -14,6 +14,8 @@ The `exports` field is the package's surface: the `LanguageService` contract, th
 
 `ProseLanguage` wraps `volar-service-markdown`, the one real dependency. The peers — `@athrio/loom-ast` for Loom's shared types, `effect`, `@volar/language-service`, and `vscode-uri` for decoding an embedded document's uri — are supplied by the host bundle. TypeScript is only a `devDependency`. The contract names TypeScript 6 by its types alone, for the compiler the `TypescriptSdk` capability lends, and nothing in the package loads it.
 
+The `files` field names what a packed package carries, and it names `src` alone, so the tests and the `tsconfig.json` stay behind.
+
 {{ version = ${version} }}
 {{ effect = ${effect} }}
 
@@ -34,6 +36,9 @@ The `exports` field is the package's surface: the `LanguageService` contract, th
     "./LoomLanguage": "./src/LoomLanguage.ts",
     "./ProseLanguage": "./src/ProseLanguage.ts"
   },
+  "files": [
+    "src"
+  ],
   "dependencies": {
     "volar-service-markdown": "^0.0.71"
   },

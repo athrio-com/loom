@@ -7,6 +7,9 @@
   "exports": {
     "./LoomConfig": "./src/LoomConfig.ts"
   },
+  "files": [
+    "src"
+  ],
   "peerDependencies": {
     "effect": "4.1.4"
   },

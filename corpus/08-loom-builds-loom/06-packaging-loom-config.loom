@@ -10,7 +10,7 @@ Language: JSON
 
 ## The manifest [package.json]
 
-The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI and the language server inline this source when they bundle; `effect` is a peer, supplied by the host bundle. The `yaml` parser, which reads the compiled configuration, is a real dependency, bundled along with the source.
+The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI and the language server inline this source when they bundle; `effect` is a peer, supplied by the host bundle. The `yaml` parser, which reads the compiled configuration, is a real dependency, bundled along with the source. The `files` field names what a packed package carries, and it names `src` alone, so the tests and the `tsconfig.json` stay behind.
 
 {{ version = ${version} }}
 {{ effect = ${effect} }}
@@ -26,6 +26,9 @@ The `exports` field is the package's surface — one entry, the `LoomConfig` mod
   "exports": {
     "./LoomConfig": "./src/LoomConfig.ts"
   },
+  "files": [
+    "src"
+  ],
   "peerDependencies": {
     "effect": "::[effect]"
   },

@@ -13,6 +13,9 @@
     "./LoomLanguage": "./src/LoomLanguage.ts",
     "./ProseLanguage": "./src/ProseLanguage.ts"
   },
+  "files": [
+    "src"
+  ],
   "dependencies": {
     "volar-service-markdown": "^0.0.71"
   },

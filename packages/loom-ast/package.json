@@ -18,6 +18,9 @@
     "./LoomTokens": "./src/ast/LoomTokens.ts",
     "./TreeFold": "./src/ast/TreeFold.ts"
   },
+  "files": [
+    "src"
+  ],
   "publishConfig": {
     "access": "public"
   },
