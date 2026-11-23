@@ -5,6 +5,7 @@ import { byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { WovenBlock } from '../src/weave/WovenCorpus'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { refusedBy } from '../src/LoomFailure'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
@@ -56,7 +57,7 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
 const refusal = (files: Record<string, string>, entry: string) =>
   asked(files, (compiler) => compiler.tangle(entry)).pipe(
     Effect.flip,
-    Effect.map((error) => error.message),
+    Effect.map((error) => refusedBy(error).join('\n')),
   )
 
 const billing = chapter(

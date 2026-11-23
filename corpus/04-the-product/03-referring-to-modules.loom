@@ -244,6 +244,7 @@ import { Effect, Layer, Option } from 'effect'
 import { dirname, relative } from 'node:path'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { refusedBy } from '../src/LoomFailure'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { LanguagePackages, type LanguagePackagesApi } from '../src/LanguagePackages'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
@@ -571,7 +572,7 @@ describe('a module anchor waits for a module nobody has written', () => {
         ['info', 'Nothing is called `Nowhere` yet, so this anchor names no module.'],
       ])
       const refusal = yield* Effect.flip(tangled(files, '/corpus/interior.loom'))
-      expect(refusal.message).toContain('Nothing is called `Nowhere` yet')
+      expect(refusedBy(refusal).join('\n')).toContain('Nothing is called `Nowhere` yet')
     }),
   )
 })

@@ -524,7 +524,7 @@ describe('loom cli — keeping a service current', () => {
       const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
       const { status, stderr } = loom(['update'], { cwd: dir })
       expect(status).toBe(1)
-      expect(stderr).toContain('usage: loom update')
+      expect(stderr).toContain('loom update --all')
       expect(stderr).toContain('loom upgrade')
       rmSync(dir, { recursive: true, force: true })
     },
@@ -869,7 +869,7 @@ describe('loom cli — fenced code', () => {
         ),
       )
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
-      expect(stderr).not.toContain('refusing')
+      expect(stderr).not.toContain('did not tangle')
       expect(status).toBe(0)
       const written = readFileSync(join(dir, 'SKILL.md'), 'utf8')
       expect(written).toContain('name: probe')
@@ -974,7 +974,7 @@ const orphanedProject = (): string => {
     'test/broken.fixture.loom': brokenLoom,
   })
   const { status, stderr } = loom(['tangle', '.'], { cwd: dir })
-  expect(stderr).not.toContain('refusing')
+  expect(stderr).not.toContain('did not tangle')
   expect(status).toBe(0)
   expect(lockOf(dir)).toEqual(['one.ts', 'two.ts'])
   rmSync(join(dir, 'corpus', 'two.loom'))
@@ -987,7 +987,7 @@ describe('loom cli — orphans', () => {
     () => {
       const dir = orphanedProject()
       const { status, stdout, stderr } = loom(['orphans'], { cwd: dir })
-      expect(stderr).not.toContain('refusing')
+      expect(stderr).not.toContain('did not tangle')
       expect(status).toBe(0)
       expect(stdout).toBe(`${join(dir, 'two.ts')}\n`)
       rmSync(dir, { recursive: true, force: true })
@@ -1017,7 +1017,7 @@ describe('loom cli — orphans', () => {
       const { status, stdout, stderr } = loom(['orphans'], { cwd: dir })
       expect(status).not.toBe(0)
       expect(stdout).toBe('')
-      expect(stderr).toContain('refusing')
+      expect(stderr).toContain('did not tangle')
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
@@ -1026,7 +1026,7 @@ describe('loom cli — orphans', () => {
 
 const cleanOrphans = (dir: string): void => {
   const { status, stderr } = loom(['orphans'], { cwd: dir })
-  expect(stderr).not.toContain('refusing')
+  expect(stderr).not.toContain('did not tangle')
   expect(status).toBe(0)
 }
 
@@ -1431,6 +1431,83 @@ describe('loom cli — nvim', () => {
       expect(readFileSync(join(site, 'plugin', 'loom.lua'), 'utf8')).toBe(lines("print('mine')"))
       expect(existsSync(join(site, 'parser', 'loom.so'))).toBe(false)
       rmSync(data, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+describe('loom cli — a failure told', () => {
+  it(
+    'tells a refused tangle, and lists each diagnostic beneath it',
+    () => {
+      const dir = workspace('corpus: corpus\nprimary: typescript\n')
+      mkdirSync(join(dir, 'corpus'))
+      writeFileSync(join(dir, 'corpus', 'broken.loom'), brokenLoom)
+      const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain(
+        [
+          `loom: Loom did not tangle ${join(dir, 'corpus', 'broken.loom')}.`,
+          '      Its looms hold one problem.',
+          `  ${join(dir, 'corpus', 'broken.loom')}:5: No section or chapter is called \`Nowhere\`.`,
+        ].join('\n'),
+      )
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'set refuses a name that is no variable name, and changes nothing',
+    () => {
+      const dir = workspace(handWritten)
+      const { status, stderr } = loom(['set', '2fast', '1'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain('loom: `2fast` is not a variable name.\n      A name holds')
+      expect(configText(dir)).toBe(handWritten)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'set refuses a value that opens on an equals sign',
+    () => {
+      const dir = workspace(handWritten)
+      const { status, stderr } = loom(['set', 'version', '=2'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain('loom: A value cannot begin with `=`.')
+      expect(configText(dir)).toBe(handWritten)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update refuses names together with --all',
+    () => {
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      const { status, stderr } = loom(['update', 'typescript', '--all'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain('loom: `loom update` takes names or `--all`, not both.')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update names the add for every name that is not on',
+    () => {
+      const dir = workspace('corpus: corpus\nlanguages: {}\nprimary: typescript\n')
+      const { status, stderr } = loom(['update', 'typescript', 'python'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain(
+        [
+          'loom: typescript and python are not activated.',
+          '      `loom add typescript` and `loom add python` turn them on.',
+        ].join('\n'),
+      )
+      rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
   )

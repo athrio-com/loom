@@ -1272,11 +1272,11 @@ const corpusDiagnostics = (
 
 `resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it resolves where the file lands, writes the paths the file's module anchors name from there through `writtenFor`, and flattens the composed code across the corpus with `fromCode`, over one `Catalogue` built for the whole entry. It starts from the sink's own `Code` rather than finding the section again by its name, so a namesake can never stand in for the sink. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. Where a file lands depends on where the looms are kept, so `resolveSinks` asks the `WorkspaceSource` service's `placesOf` method where the entry's sinks land. On the file system a sink lands under the package root, the folder above the corpus folder, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
-A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. Neither does a module anchor whose path its package could not write, which fails the tangle after the files are composed. The failure is loud, and names every file and line.
+A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So before it resolves a single sink, `tangle` runs `corpusErrors` over the modules the entry reaches, and fails with a `TangleError` when any of them carries an error. It reads each module through `corpusDiagnostics` over the whole corpus, not only the reached modules, so a name resolves through the same book in the build as in the editor. A malformed parse stops the build. So does an anchor whose name no section of the book carries, a name two places share, and an anchor whose path names a loom that lacks the section. None of them leaves a file with a silently dropped reference. Neither does a module anchor whose path its package could not write, which fails the tangle after the files are composed. The error holds the diagnostics of each loom that stopped the tangle, so the command line prints every one with its file and its line.
 
 A tangle of a book asks about one loom once for every entry that reaches it. So the judgement of each module is kept for a state of the corpus. `tangleFaults` gives, for a `Corpus`, the function that judges one of its modules, and `memoize` keeps both that function and each answer it gives. A loom is then judged once in a tangle of the whole book, however many entries reach it.
 
-A tangle also refuses a file whose composition reaches a section to be settled, a section that holds no code yet or one an anchor labels `{To be settled}` before anyone declares it. The editor treats such a section as a note, since nothing is wrong while the author writes, but a file that composed one would ship without the code its anchor names. `unsettledFailures` walks the composition of each file the entry tangles through `unsettledIn`, and turns each unsettled reference into the `UnsettledSection` note, grouped by the loom that holds it. A chapter named whole whose opening section holds no code is refused the same way, and so is a module anchor that names a module nobody has written yet, with the `UnsettledModule` note. The refusal counts problems rather than errors, since a note is no error.
+A tangle also refuses a file whose composition reaches a section to be settled, a section that holds no code yet or one an anchor labels `{To be settled}` before anyone declares it. The editor treats such a section as a note, since nothing is wrong while the author writes, but a file that composed one would ship without the code its anchor names. `unsettledFailures` walks the composition of each file the entry tangles through `unsettledIn`, and turns each unsettled reference into the `UnsettledSection` note, grouped by the loom that holds it. A chapter named whole whose opening section holds no code is refused the same way, and so is a module anchor that names a module nobody has written yet, with the `UnsettledModule` note. The error writes no words of its own. The chapter "The failure catalog" words the refusal, and counts problems rather than errors, since a note is no error.
 
 =>
 
@@ -1373,15 +1373,7 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     readonly path: Location
     readonly diagnostics: ReadonlyArray<Diagnostic>
   }>
-}> {
-  get message(): string {
-    const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
-    const lines = this.failures.flatMap((f) =>
-      f.diagnostics.map((d) => `  ${f.path}:${d.position.start.line}: ${d.message}`),
-    )
-    return `loom: refusing to tangle ${this.entry} — ${count} problem(s) across the corpus:\n${lines.join('\n')}`
-  }
-}
+}> {}
 
 ## Writing a module anchor's path
 
@@ -2692,6 +2684,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { refusedBy } from '../src/LoomFailure'
 import { LanguagePackages } from '../src/LanguagePackages'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
@@ -2736,7 +2729,7 @@ console.log(greet('world'))
 
 ~
 
-The `layerOf` function builds the compiler over a record of looms. Its stand-in source reads the record, and its stand-in configuration names TypeScript as the primary language. The `tangled` function tangles an entry over that layer. The `refusal` function expects the tangle to fail and gives back the message the failure carries.
+The `layerOf` function builds the compiler over a record of looms. Its stand-in source reads the record, and its stand-in configuration names TypeScript as the primary language. The `tangled` function tangles an entry over that layer. The `refusal` function expects the tangle to fail and gives back what refused it, one line for each diagnostic, as the failure catalog's function `refusedBy` lists them.
 
 =>
 
@@ -2774,7 +2767,7 @@ const tangled = (files: Record<string, string>, entry: string) =>
 const refusal = (files: Record<string, string>, entry: string) =>
   tangled(files, entry).pipe(
     Effect.flip,
-    Effect.map((error) => error.message),
+    Effect.map((error) => refusedBy(error).join('\n')),
   )
 
 ## A section from another loom, inlined or refused
@@ -3290,7 +3283,7 @@ describe('a fix declares a missing section', () => {
 
 ## Sections to be settled
 
-A section to be settled holds no code yet. The editor marks the anchor that composes it with a note, since nothing is wrong while the author writes, and the tangle refuses the file the anchor composes into. `settleDiagnose` gives the severity and message of each diagnostic, and `refusal` gives the message a refused tangle carries.
+A section to be settled holds no code yet. The editor marks the anchor that composes it with a note, since nothing is wrong while the author writes, and the tangle refuses the file the anchor composes into. `settleDiagnose` gives the severity and message of each diagnostic, and `refusal` gives the lines that say what refused a tangle.
 
 The first case declares `Greeting` below the program, with prose and no code. The anchor on line 6 composes it, so the note says the section holds no code yet, and the tangle refuses the program with that note.
 

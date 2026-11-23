@@ -2,6 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { refusedBy } from '../src/LoomFailure'
 import { LanguagePackages } from '../src/LanguagePackages'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
@@ -72,7 +73,7 @@ const tangled = (files: Record<string, string>, entry: string) =>
 const refusal = (files: Record<string, string>, entry: string) =>
   tangled(files, entry).pipe(
     Effect.flip,
-    Effect.map((error) => error.message),
+    Effect.map((error) => refusedBy(error).join('\n')),
   )
 
 describe('a code anchor composes a section from another loom', () => {

@@ -23,8 +23,12 @@ A file is only rewritten when its content would change. Prose edits therefore co
 Tangle checks the corpus before it writes anything, and it refuses the whole run rather than write half of it. An anchor that names a section which does not exist is the common case:
 
 ```
-loom: refusing to tangle — No section or chapter is called `the parser`. Write one, or label this anchor `{To be settled}`.
+loom: Loom did not tangle /work/calc/corpus/calc.loom.
+      Its looms hold one problem.
+  /work/calc/corpus/calc.loom:12: No section or chapter is called `the parser`. Write one, or label this anchor `{To be settled}`.
 ```
+
+The first line names the loom that did not tangle, and the second counts what stops it. Each line beneath names a loom, a line in it, and what is wrong there.
 
 Refusing wholesale is what keeps a corpus and its files from drifting apart. A partial write would leave the output in a state no document describes.
 

@@ -1,5 +1,6 @@
 import {
   Array,
+  Cause,
   Console,
   Data,
   Effect,
@@ -13,7 +14,7 @@ import {
   Stream,
   pipe,
 } from 'effect'
-import { Argument, Command, Flag, Prompt } from 'effect/cli'
+import { Argument, type CliError, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { createHash } from 'node:crypto'
@@ -34,12 +35,17 @@ import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import { DocumentSource, LoomCompiler, type TangledFile } from '@athrio/loom-lang/LoomCompiler'
 import {
-  DocumentSource,
-  LoomCompiler,
-  type TangledFile,
-  type TangleError,
-} from '@athrio/loom-lang/LoomCompiler'
+  broke,
+  failureWording,
+  type LoomFailure,
+  type Problem,
+  problem,
+  reasonOf,
+  refusedBy,
+  type Wording,
+} from '@athrio/loom-lang/LoomFailure'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { type Drift, driftsIn } from '@athrio/loom-lang/ast/Relations'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
@@ -63,7 +69,6 @@ import {
   removeService,
   removeTropes,
   PackageInstall,
-  type StoreError,
   servicePackage,
   serviceVersion,
   standalone,
@@ -102,11 +107,7 @@ const tangleOnce = (file: string) =>
     const tangler = yield* LoomTangler
     const written = yield* tangler.tangle(resolvePath(process.cwd(), file))
     yield* reportWritten(written)
-  }).pipe(
-    Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-  )
+  })
 
 const tangleWatch = (file: string) =>
   Effect.gen(function* () {
@@ -114,10 +115,7 @@ const tangleWatch = (file: string) =>
     yield* Console.log(`loom: watching ${file} — re-tangling on change`)
     yield* Stream.runForEach(
       tangler.watch(resolvePath(process.cwd(), file)),
-      Result.match({
-        onSuccess: reportWritten,
-        onFailure: (error: TangleError) => Console.error(error.message),
-      }),
+      Result.match({ onSuccess: reportWritten, onFailure: tell }),
     )
   })
 
@@ -135,11 +133,7 @@ const orphans = (prune: boolean) =>
       const found = yield* tangler.orphans(process.cwd())
       yield* Effect.forEach(found, (path) => Console.log(path))
     }
-  }).pipe(
-    Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-  )
+  })
 
 const weave = (file: string, out: string) =>
   Effect.gen(function* () {
@@ -241,8 +235,7 @@ const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
     const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
     const drifts = driftsIn(relations.flat().filter(onLine(line)))
     yield* Console.log(reviewText(drifts.map(reviewedFrom(cwd)), json))
-    if (check && Array.isReadonlyArrayNonEmpty(drifts))
-      yield* Effect.sync(() => void (process.exitCode = 1))
+    if (check && Array.isReadonlyArrayNonEmpty(drifts)) yield* exitNonZero
   })
 
 const format = (path: string, check: boolean) =>
@@ -267,7 +260,7 @@ const format = (path: string, check: boolean) =>
           (loom) => Console.log(`loom: ${check ? 'would format' : 'formatted'} ${loom}`),
           { discard: true },
         )
-    if (check && changed.length > 0) yield* Effect.sync(() => void (process.exitCode = 1))
+    if (check && changed.length > 0) yield* exitNonZero
   })
 
 const formatLanguages = (target: string) =>
@@ -413,9 +406,6 @@ const installNote = (packageName: string, change: PackageInstall): string =>
     Updated: ({ from }) => `updated ${packageName} from ${from} to ${serviceVersion}`,
   })
 
-const failedInstall = (error: StoreError) =>
-  refuse(`loom: could not install ${error.packageName} — ${String(error.cause)}`)
-
 const alreadyOn = (name: string, state: string, version: Option.Option<string>) =>
   Console.log(
     `\n   ${teal('✓')} ${name} is already ${state}\n` +
@@ -443,7 +433,7 @@ const addLanguage = (language: string) =>
         `   ${dim(installNote(servicePackage(language), change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
-  }).pipe(Effect.catchTag('StoreError', failedInstall))
+  })
 
 const addTrope = (trope: string) =>
   Effect.gen(function* () {
@@ -459,7 +449,7 @@ const addTrope = (trope: string) =>
         `   ${dim(installNote(tropesPackage, change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
-  }).pipe(Effect.catchTag('StoreError', failedInstall))
+  })
 
 const removeLanguage = (language: string) =>
   Effect.gen(function* () {
@@ -484,7 +474,13 @@ const add = (name: string) => (isLoomTrope(name) ? addTrope(name) : addLanguage(
 
 const remove = (name: string) => (isLoomTrope(name) ? removeTrope(name) : removeLanguage(name))
 
-const updateUsage = 'usage: loom update <language or trope>… | loom update --all'
+class NothingToUpdate extends Data.TaggedError('NothingToUpdate')<{}> {}
+
+class NamesWithAll extends Data.TaggedError('NamesWithAll')<{}> {}
+
+class NotActivated extends Data.TaggedError('NotActivated')<{
+  readonly names: ReadonlyArray<string>
+}> {}
 
 const installOf = (name: string, dir: string) =>
   isLoomTrope(name)
@@ -495,15 +491,8 @@ const installOf = (name: string, dir: string) =>
 
 const update = (names: ReadonlyArray<string>, all: boolean) =>
   Effect.gen(function* () {
-    if (names.length === 0 && !all)
-      return yield* refuse(
-        `loom: name the languages or tropes to update, or use --all — ${updateUsage}\n` +
-          '      To upgrade Loom itself, run `loom upgrade`.',
-      )
-    if (names.length > 0 && all)
-      return yield* refuse(
-        `loom: name languages or tropes, or use --all, not both — ${updateUsage}`,
-      )
+    if (names.length === 0 && !all) return yield* Effect.fail(new NothingToUpdate())
+    if (names.length > 0 && all) return yield* Effect.fail(new NamesWithAll())
     const config = yield* LoomConfig
     const dir = process.cwd()
     const on = [
@@ -511,12 +500,7 @@ const update = (names: ReadonlyArray<string>, all: boolean) =>
       ...(yield* activatedIn(config, dir, 'tropes')),
     ]
     const off = names.filter((id) => !on.includes(id))
-    if (off.length > 0)
-      return yield* Effect.forEach(
-        off,
-        (id) => refuse(`loom: ${id} is not activated; \`loom add ${id}\` turns it on`),
-        { discard: true },
-      )
+    if (off.length > 0) return yield* Effect.fail(new NotActivated({ names: off }))
     const ids = all ? on : names
     if (ids.length === 0)
       return yield* Console.log(`\n   ${dim('no languages or tropes are activated')}\n`)
@@ -527,7 +511,7 @@ const update = (names: ReadonlyArray<string>, all: boolean) =>
       ),
     )
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
-  }).pipe(Effect.catchTag('StoreError', failedInstall))
+  })
 
 type ProjectManager = 'npm' | 'bun' | 'pnpm' | 'yarn'
 
@@ -918,14 +902,9 @@ const upgradeStandalone = (channel: Channel) =>
     )
   })
 
-const unreachableFix = Channel.$match({
-  Public: () => '',
-  Dev: () => "\n      The dev registry answers while `bun run registry` runs in Loom's repository.",
-})
-
-const upgrade = (dev: boolean) => {
-  const channel = channelOf(dev)
-  return Effect.gen(function* () {
+const upgrade = (dev: boolean) =>
+  Effect.gen(function* () {
+    const channel = channelOf(dev)
     const command = installerUpgrade(thisInstallation, channel)
     if (Option.isNone(command)) return yield* upgradeStandalone(channel)
     yield* Console.log(
@@ -933,28 +912,7 @@ const upgrade = (dev: boolean) => {
         `   ${command.value}\n\n` +
         `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
     )
-  }).pipe(
-    Effect.catchTags({
-      ReleaseUnreachable: (error) =>
-        refuse(
-          `loom: could not reach the latest ${releaseKind(channel)} at ${error.url} — ${String(error.cause)}${unreachableFix(channel)}`,
-        ),
-      ReleaseLacksAsset: (error) =>
-        refuse(`loom: release ${error.version} carries no ${error.asset}`),
-      ChecksumMismatch: (error) =>
-        refuse(
-          `loom: the checksum of the downloaded ${error.asset} does not match the one its release lists, so Loom was left as it was`,
-        ),
-      UnpackFailed: (error) =>
-        refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
-      ReplaceFailed: (error) =>
-        refuse(
-          `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
-            '      Run the install script again, or move Loom somewhere you can write to.',
-        ),
-    }),
-  )
-}
+  })
 
 const noticeWait = '300 millis'
 
@@ -1217,37 +1175,29 @@ const doctor = Effect.gen(function* () {
   )
   if (problems === 0) return yield* Console.log(`   ${teal('✓')} no problems found\n`)
   yield* Console.log(`   ${problems === 1 ? '1 problem' : `${problems} problems`} found\n`)
-  yield* Effect.sync(() => void (process.exitCode = 1))
+  yield* exitNonZero
 })
+
+class NotAVariableName extends Data.TaggedError('NotAVariableName')<{
+  readonly name: string
+}> {}
+
+class ValueOpensOnEquals extends Data.TaggedError('ValueOpensOnEquals')<{}> {}
 
 const set = (name: string, value: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
-    const usage = 'usage: loom set <name> <value>'
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-      yield* Console.error(`loom: \`${name}\` is not a variable name — ${usage}`)
-      yield* Effect.sync(() => void (process.exitCode = 1))
-      return
-    }
-    if (value.startsWith('=')) {
-      yield* Console.error(
-        `loom: a value cannot begin with \`=\`; give the name and value with a space, no \`=\` — ${usage}`,
-      )
-      yield* Effect.sync(() => void (process.exitCode = 1))
-      return
-    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      return yield* Effect.fail(new NotAVariableName({ name }))
+    if (value.startsWith('=')) return yield* Effect.fail(new ValueOpensOnEquals())
     const current = yield* config.manifest(workspace)
     yield* config.edit(workspace, ['variables', name], value)
     const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
     const written = yield* tangler.tangle(corpus)
     yield* Console.log(`loom: set ${name} = ${value} (re-tangled ${written.length} files)`)
-  }).pipe(
-    Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-  )
+  })
 
 const embeddedGrammar: Effect.Effect<Option.Option<Readonly<Record<string, string>>>> =
   Effect.tryPromise(() => import('virtual:tree-sitter-loom')).pipe(
@@ -1353,15 +1303,6 @@ const buildGrammar = (grammar: string, library: string) =>
     onNone: () => compileGrammar(grammar, library),
   })
 
-const refuse = (message: string) =>
-  Console.error(message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1))))
-
-const cannotCompile = (error: GrammarCompileFailed) =>
-  refuse(
-    `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
-      '      Install a C compiler, or name one in the CC variable, then run this again.',
-  )
-
 const helixConfigDir = (): string =>
   process.platform === 'win32'
     ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
@@ -1425,18 +1366,7 @@ const helix = Effect.gen(function* () {
     `   ${teal('✓')} added Loom to ${languagesFile}\n` +
       `   ${dim('check it with `hx --health loom`')}\n`,
   )
-}).pipe(
-  Effect.scoped,
-  Effect.catchTags({
-    GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Helix.'),
-    GrammarCompileFailed: cannotCompile,
-    HelixConfigClash: (error) =>
-      refuse(
-        `loom: ${error.file} already sets up Loom.\n` +
-          '      Remove its Loom entries, then run this again to replace them with the managed block.',
-      ),
-  }),
-)
+}).pipe(Effect.scoped)
 
 const nvimSiteDir = (): string => {
   const name = process.env.NVIM_APPNAME ?? 'nvim'
@@ -1509,49 +1439,157 @@ const nvim = Effect.gen(function* () {
     `   ${teal('✓')} added Loom to ${pluginFile}\n` +
       `   ${dim('check it with `:checkhealth vim.treesitter` in Neovim')}\n`,
   )
-}).pipe(
-  Effect.scoped,
-  Effect.catchTags({
-    GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Neovim.'),
-    GrammarCompileFailed: cannotCompile,
-    NvimConfigClash: (error) =>
-      refuse(
-        `loom: ${error.file} was not written by \`loom nvim\`.\n` +
-          '      Move it aside, then run this again.',
-      ),
-  }),
+}).pipe(Effect.scoped)
+
+type CommandFailure =
+  | LoomFailure
+  | NothingToUpdate
+  | NamesWithAll
+  | NotActivated
+  | ReleaseUnreachable
+  | ReleaseLacksAsset
+  | ChecksumMismatch
+  | UnpackFailed
+  | ReplaceFailed
+  | NotAVariableName
+  | ValueOpensOnEquals
+  | GrammarMissing
+  | GrammarCompileFailed
+  | HelixConfigClash
+  | NvimConfigClash
+
+const startTheRegistry =
+  "The dev registry answers while `bun run registry` runs in Loom's repository."
+
+const inWords = new Intl.ListFormat('en', { type: 'conjunction' })
+
+const commandWording: Wording<CommandFailure> = {
+  ...failureWording,
+  NothingToUpdate: () =>
+    problem(
+      '`loom update` names no language or trope to update.',
+      'Name them, as in `loom update <language or trope>…`, or use `loom update --all`. To upgrade Loom itself, run `loom upgrade`.',
+    ),
+  NamesWithAll: () =>
+    problem(
+      '`loom update` takes names or `--all`, not both.',
+      'Name them, as in `loom update <language or trope>…`, or use `loom update --all` alone.',
+    ),
+  NotActivated: ({ names }) => {
+    const one = names.length === 1
+    return problem(
+      `${inWords.format(names)} ${one ? 'is' : 'are'} not activated.`,
+      `${inWords.format(names.map((name) => `\`loom add ${name}\``))} ${one ? 'turns it on' : 'turn them on'}.`,
+    )
+  },
+  ReleaseUnreachable: ({ url, cause }) =>
+    problem(
+      `Loom could not reach ${url}.`,
+      url.startsWith(devRegistry) ? `${reasonOf(cause)} ${startTheRegistry}` : reasonOf(cause),
+    ),
+  ReleaseLacksAsset: ({ version, asset }) => problem(`Release ${version} carries no ${asset}.`),
+  ChecksumMismatch: ({ asset }) =>
+    problem(
+      `The downloaded ${asset} does not match the checksum its release lists.`,
+      'Loom was left as it was.',
+    ),
+  UnpackFailed: ({ asset, cause }) => problem(`Loom could not unpack ${asset}.`, reasonOf(cause)),
+  ReplaceFailed: ({ path, cause }) =>
+    problem(
+      `Loom could not replace ${path}.`,
+      `${reasonOf(cause)} Run the install script again, or move Loom somewhere you can write to.`,
+    ),
+  NotAVariableName: ({ name }) =>
+    problem(
+      `\`${name}\` is not a variable name.`,
+      'A name holds letters, digits and underscores, and does not open on a digit. Write `loom set <name> <value>`.',
+    ),
+  ValueOpensOnEquals: () =>
+    problem(
+      'A value cannot begin with `=`.',
+      'Give the name and the value with a space between them, as in `loom set version 0.0.4`.',
+    ),
+  GrammarMissing: () => problem('This installation of Loom carries no grammar.'),
+  GrammarCompileFailed: ({ compiler }) =>
+    problem(
+      `Loom could not compile the grammar with \`${compiler}\`.`,
+      'Install a C compiler, or name one in the CC variable, then run this again.',
+    ),
+  HelixConfigClash: ({ file }) =>
+    problem(
+      `${file} already sets up Loom.`,
+      'Remove its Loom entries, then run this again to replace them with the managed block.',
+    ),
+  NvimConfigClash: ({ file }) =>
+    problem(`${file} was not written by \`loom nvim\`.`, 'Move it aside, then run this again.'),
+}
+
+const describe: (failure: CommandFailure) => Problem = Match.type<CommandFailure>().pipe(
+  Match.tagsExhaustive(commandWording),
 )
+
+const listedUnder: (failure: CommandFailure) => ReadonlyArray<string> =
+  Match.type<CommandFailure>().pipe(
+    Match.withReturnType<ReadonlyArray<string>>(),
+    Match.tag('TangleError', (refused) => refusedBy(refused).map((line) => `  ${line}`)),
+    Match.orElse(() => []),
+  )
+
+const shown = (failure: CommandFailure): string => {
+  const { summary, detail } = describe(failure)
+  return [
+    `loom: ${summary}`,
+    ...(detail === '' ? [] : [`      ${detail}`]),
+    ...listedUnder(failure),
+  ].join('\n')
+}
+
+const tell = (failure: CommandFailure): Effect.Effect<void> => Console.error(shown(failure))
+
+const exitNonZero = Effect.sync(() => void (process.exitCode = 1))
+
+const ended = <A, R>(command: Effect.Effect<A, CommandFailure, R>): Effect.Effect<void, never, R> =>
+  command.pipe(
+    Effect.asVoid,
+    Effect.catch((failure) => tell(failure).pipe(Effect.andThen(exitNonZero))),
+  )
+
+const crashed = <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
+  tell(broke('command', cause)).pipe(
+    Effect.andThen(Console.error(dim(Cause.pretty(cause)))),
+    Effect.andThen(exitNonZero),
+  )
 
 const tangleCommand = Command.make(
   'tangle',
   { path: Argument.String('path'), watch: Flag.Boolean('watch').pipe(Flag.withDefault(false)) },
-  ({ path, watch }) => tangle(path, watch),
+  ({ path, watch }) => ended(tangle(path, watch)),
 )
 
 const orphansCommand = Command.make(
   'orphans',
   { prune: Flag.Boolean('prune').pipe(Flag.withDefault(false)) },
-  ({ prune }) => orphans(prune),
+  ({ prune }) => ended(orphans(prune)),
 )
 
 const weaveCommand = Command.make(
   'weave',
   { path: Argument.String('path'), out: Argument.String('out') },
-  ({ path, out }) => weave(path, out),
+  ({ path, out }) => ended(weave(path, out)),
 )
 
 const formatCommand = Command.make(
   'format',
   { path: Argument.String('path'), check: Flag.Boolean('check').pipe(Flag.withDefault(false)) },
-  ({ path, check }) => format(path, check),
+  ({ path, check }) => ended(format(path, check)),
 )
 
 const refreshCommand = Command.make('refresh', { path: Argument.String('path') }, ({ path }) =>
-  refresh(path),
+  ended(refresh(path)),
 )
 
 const approveCommand = Command.make('approve', { path: Argument.String('path') }, ({ path }) =>
-  approve(path),
+  ended(approve(path)),
 )
 
 const reviewCommand = Command.make(
@@ -1561,19 +1599,21 @@ const reviewCommand = Command.make(
     json: Flag.Boolean('json').pipe(Flag.withDefault(false)),
     check: Flag.Boolean('check').pipe(Flag.withDefault(false)),
   },
-  ({ path, json, check }) => review(path, json, check),
+  ({ path, json, check }) => ended(review(path, json, check)),
 )
 
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.Directory('dir')) },
-  ({ dir }) => init(dir),
+  ({ dir }) => ended(init(dir)),
 )
 
-const addCommand = Command.make('add', { name: Argument.String('name') }, ({ name }) => add(name))
+const addCommand = Command.make('add', { name: Argument.String('name') }, ({ name }) =>
+  ended(add(name)),
+)
 
 const removeCommand = Command.make('remove', { name: Argument.String('name') }, ({ name }) =>
-  remove(name),
+  ended(remove(name)),
 )
 
 const updateCommand = Command.make(
@@ -1582,28 +1622,28 @@ const updateCommand = Command.make(
     names: Argument.String('name').pipe(Argument.variadic()),
     all: Flag.Boolean('all').pipe(Flag.withDefault(false)),
   },
-  ({ names, all }) => update(names, all),
+  ({ names, all }) => ended(update(names, all)),
 )
 
 const upgradeCommand = Command.make(
   'upgrade',
   { dev: Flag.Boolean('dev').pipe(Flag.withDefault(false)) },
-  ({ dev }) => upgrade(dev),
+  ({ dev }) => ended(upgrade(dev)),
 )
 
-const statusCommand = Command.make('status', {}, () => status)
+const statusCommand = Command.make('status', {}, () => ended(status))
 
-const doctorCommand = Command.make('doctor', {}, () => doctor)
+const doctorCommand = Command.make('doctor', {}, () => ended(doctor))
 
 const setCommand = Command.make(
   'set',
   { name: Argument.String('name'), value: Argument.String('value') },
-  ({ name, value }) => set(name, value),
+  ({ name, value }) => ended(set(name, value)),
 )
 
-const helixCommand = Command.make('helix', {}, () => helix)
+const helixCommand = Command.make('helix', {}, () => ended(helix))
 
-const nvimCommand = Command.make('nvim', {}, () => nvim)
+const nvimCommand = Command.make('nvim', {}, () => ended(nvim))
 
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
@@ -1627,9 +1667,11 @@ const loom = Command.make('loom').pipe(
   ]),
 )
 
-const program = Effect.zip(Command.run(loom, { version: loomVersion }), devCheck, {
-  concurrent: true,
-}).pipe(
+const program: Effect.Effect<void, CliError.CliError> = Effect.zip(
+  Command.run(loom, { version: loomVersion }),
+  devCheck,
+  { concurrent: true },
+).pipe(
   Effect.flatMap(([, newer]) => devNotice(newer)),
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
@@ -1642,6 +1684,7 @@ const program = Effect.zip(Command.run(loom, { version: loomVersion }), devCheck
   Effect.provide(FileSystemEnvironment),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),
+  Effect.catchCauseIf(Cause.hasDies, crashed),
 )
 
 if (process.argv[2] === 'lsp') {

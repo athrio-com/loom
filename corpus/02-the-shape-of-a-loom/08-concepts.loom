@@ -98,7 +98,7 @@ Nothing in the index is written by hand. Loom derives it again whenever the corp
 
 The cases compile small corpora held in memory and ask the compiler what a reader and an editor see. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted. `lines` joins them into the text a file holds, `anchor` writes an anchor without opening one here, and `chapter` writes a loom from its frontmatter lines and its body.
 
-`layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `asked` runs one use of the compiler over such a corpus, `diagnosed` gives the messages of the diagnostics one loom raises, and `refusal` expects a tangle to fail and gives back its message. The cases run on Bun's runner with `effectify`, so a case is an Effect.
+`layerOf` gives the compiler a corpus held in memory. Its `DocumentSource` reads each loom from a record of paths and texts, and its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters, TypeScript, and a width of a hundred. `asked` runs one use of the compiler over such a corpus, `diagnosed` gives the messages of the diagnostics one loom raises, and `refusal` expects a tangle to fail and gives back what refused it, one line for each diagnostic, as the failure catalog's function `refusedBy` lists them. The cases run on Bun's runner with `effectify`, so a case is an Effect.
 
 =>
 
@@ -109,6 +109,7 @@ import { byTypeOr } from '@athrio/loom-ast/LoomNode'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { WovenBlock } from '../src/weave/WovenCorpus'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { refusedBy } from '../src/LoomFailure'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
@@ -160,7 +161,7 @@ const diagnosed = (files: Record<string, string>, entry: string) =>
 const refusal = (files: Record<string, string>, entry: string) =>
   asked(files, (compiler) => compiler.tangle(entry)).pipe(
     Effect.flip,
-    Effect.map((error) => error.message),
+    Effect.map((error) => refusedBy(error).join('\n')),
   )
 
 ## A corpus with a concept

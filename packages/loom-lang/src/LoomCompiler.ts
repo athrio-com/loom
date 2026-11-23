@@ -513,15 +513,7 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     readonly path: Location
     readonly diagnostics: ReadonlyArray<Diagnostic>
   }>
-}> {
-  get message(): string {
-    const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
-    const lines = this.failures.flatMap((f) =>
-      f.diagnostics.map((d) => `  ${f.path}:${d.position.start.line}: ${d.message}`),
-    )
-    return `loom: refusing to tangle ${this.entry} — ${count} problem(s) across the corpus:\n${lines.join('\n')}`
-  }
-}
+}> {}
 
 interface Unwritten {
   readonly path: Location

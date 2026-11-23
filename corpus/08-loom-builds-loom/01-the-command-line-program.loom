@@ -34,9 +34,9 @@ const banner = Console.log(`\n${teal(wordmark)}\n   ${dim('a literate framework'
 
 The `tangle` command emits a file's source, once or on every change. It resolves the path against the working directory and hands it to the tangler, which walks the looms there, emits each output, and records what it wrote in the lock. `reportWritten` logs every path it produced, or a plain note when a loom has no `{path}` sink to emit.
 
-Without `--watch` the command runs once. `tangleOnce` tangles and reports, and when the tangler refuses a broken corpus — an unresolved `::[…]` anchor would otherwise drop silently from the output — it prints the error and exits non-zero, writing nothing.
+Without `--watch` the command runs once. The function `tangleOnce` tangles and reports. The tangler refuses a broken corpus, since an unresolved `::[…]` anchor would otherwise drop silently from the output. The command then fails with the tangler's error and writes nothing. The section "Telling a failure" prints that error and sets the exit code, as it does for every command.
 
-With `--watch` the command stays running. `tangleWatch` drains the tangler's watch stream, reports each pass the same way, and re-tangles as the looms change. A pass that fails prints its error and the watch goes on, since a syntax error mid-edit is ordinary and the next save recovers it — the exit that ends the one-shot run would end the session here.
+With `--watch` the command stays running. The function `tangleWatch` drains the tangler's watch stream, reports each pass the same way, and re-tangles as the looms change. A pass that fails is told with the function `tell`, which prints a failure and leaves the exit code alone, and the watch goes on. A syntax error mid-edit is ordinary and the next save recovers it, so the failure that ends the one-shot run must not end the session here.
 
 =>
 
@@ -52,11 +52,7 @@ const tangleOnce = (file: string) =>
     const tangler = yield* LoomTangler
     const written = yield* tangler.tangle(resolvePath(process.cwd(), file))
     yield* reportWritten(written)
-  }).pipe(
-    Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-  )
+  })
 
 const tangleWatch = (file: string) =>
   Effect.gen(function* () {
@@ -64,10 +60,7 @@ const tangleWatch = (file: string) =>
     yield* Console.log(`loom: watching ${file} — re-tangling on change`)
     yield* Stream.runForEach(
       tangler.watch(resolvePath(process.cwd(), file)),
-      Result.match({
-        onSuccess: reportWritten,
-        onFailure: (error: TangleError) => Console.error(error.message),
-      }),
+      Result.match({ onSuccess: reportWritten, onFailure: tell }),
     )
   })
 
@@ -75,7 +68,7 @@ const tangle = (file: string, watch: boolean) => (watch ? tangleWatch(file) : ta
 
 ## Listing orphans
 
-The `orphans` command lists the files that lost their host, one path per line and nothing else, so a shell can act on them — `loom orphans | xargs rm` removes every one. It takes no path: the lock covers the whole workspace, so the command does too, found from the working directory. It reads the lock, tangles every loom the project holds to see what is still produced, and prints the recorded paths the build no longer yields. With `--prune` it removes them itself and rewrites the lock, instead of leaving removal to a pipe. Either way a broken corpus prints its error to standard error, exits non-zero, and lists no path, so a pipe into `rm` deletes nothing when the build is not whole.
+The `orphans` command lists the files that lost their host, one path per line and nothing else, so a shell can act on them — `loom orphans | xargs rm` removes every one. It takes no path: the lock covers the whole workspace, so the command does too, found from the working directory. It reads the lock, tangles every loom the project holds to see what is still produced, and prints the recorded paths the build no longer yields. With `--prune` it removes them itself and rewrites the lock, instead of leaving removal to a pipe. Either way a broken corpus fails the command with the tangler's error. The command then lists no path, so a pipe into `rm` deletes nothing when the build is not whole.
 
 =>
 
@@ -91,11 +84,7 @@ const orphans = (prune: boolean) =>
       const found = yield* tangler.orphans(process.cwd())
       yield* Effect.forEach(found, (path) => Console.log(path))
     }
-  }).pipe(
-    Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-  )
+  })
 
 ## Weaving a corpus
 
@@ -233,8 +222,7 @@ const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
     const relations = yield* Effect.forEach(looms, (loom) => compiler.relations(loom))
     const drifts = driftsIn(relations.flat().filter(onLine(line)))
     yield* Console.log(reviewText(drifts.map(reviewedFrom(cwd)), json))
-    if (check && Array.isReadonlyArrayNonEmpty(drifts))
-      yield* Effect.sync(() => void (process.exitCode = 1))
+    if (check && Array.isReadonlyArrayNonEmpty(drifts)) yield* exitNonZero
   })
 
 ## Formatting looms
@@ -265,7 +253,7 @@ const format = (path: string, check: boolean) =>
           (loom) => Console.log(`loom: ${check ? 'would format' : 'formatted'} ${loom}`),
           { discard: true },
         )
-    if (check && changed.length > 0) yield* Effect.sync(() => void (process.exitCode = 1))
+    if (check && changed.length > 0) yield* exitNonZero
   })
 
 ~
@@ -441,7 +429,7 @@ const updateEntries = (
 
 ~
 
-A few small pieces serve `loom add` and `loom update`. `activatedIn` reads the ids one map of the configuration turns on. `installNote` says in one line what an install did to a package. `failedInstall` reports an install that failed and sets a non-zero exit. `alreadyOn` is what `loom add` says about a language or a trope that is on already, given the version of its package the store holds.
+A few small pieces serve `loom add` and `loom update`. `activatedIn` reads the ids one map of the configuration turns on. `installNote` says in one line what an install did to a package. `alreadyOn` is what `loom add` says about a language or a trope that is on already, given the version of its package the store holds.
 
 =>
 
@@ -460,9 +448,6 @@ const installNote = (packageName: string, change: PackageInstall): string =>
     Installed: () => `installed ${packageName} ${serviceVersion}`,
     Updated: ({ from }) => `updated ${packageName} from ${from} to ${serviceVersion}`,
   })
-
-const failedInstall = (error: StoreError) =>
-  refuse(`loom: could not install ${error.packageName} — ${String(error.cause)}`)
 
 const alreadyOn = (name: string, state: string, version: Option.Option<string>) =>
   Console.log(
@@ -497,7 +482,7 @@ const addLanguage = (language: string) =>
         `   ${dim(installNote(servicePackage(language), change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
-  }).pipe(Effect.catchTag('StoreError', failedInstall))
+  })
 
 const addTrope = (trope: string) =>
   Effect.gen(function* () {
@@ -513,7 +498,7 @@ const addTrope = (trope: string) =>
         `   ${dim(installNote(tropesPackage, change))}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
-  }).pipe(Effect.catchTag('StoreError', failedInstall))
+  })
 
 const removeLanguage = (language: string) =>
   Effect.gen(function* () {
@@ -542,13 +527,19 @@ const remove = (name: string) => (isLoomTrope(name) ? removeTrope(name) : remove
 
 `loom update <name>…` brings the packages of the named languages and tropes to this Loom's version, and `loom update --all` does the same for every activated language and every installed trope. After an upgrade of Loom, the store still holds the packages the older release installed, and this is the step that replaces them. Each name goes through `installService` or `installTropes`, as `installOf` chooses, so a current package stays as it is, one at another version is replaced, and a missing one is installed. A fresh clone is the common case of a missing package, since Git ignores the store. The command reports what it did for each name as it goes.
 
-The command never changes the configuration. A name it is asked to update must be on already, and one that is not is refused with the `loom add` that turns it on, so `update` never activates a language or installs a trope behind the reader's back. An install that fails stops the command with the reason and a non-zero exit, as it does for `loom add`.
+The command never changes the configuration. A name it is asked to update must be on already. The command fails with the error `NotActivated` for the names that are not, and the error's words name the `loom add` that turns each on. So `update` never activates a language or installs a trope behind the reader's back. An install that fails stops the command with the store's error, as it does for `loom add`.
 
-`loom update` alone names nothing, and a reader who types it may well mean Loom itself. So it prints the usage, points to `loom upgrade`, the command that upgrades Loom, and exits non-zero. Naming languages or tropes together with `--all` prints the usage too, since the two ask for different sets.
+The command `loom update` alone names nothing, and a reader who types it may well mean Loom itself. So the command fails with the error `NothingToUpdate`, whose words give the usage and point to `loom upgrade`, the command that upgrades Loom. Naming languages or tropes together with `--all` fails with the error `NamesWithAll`, since the two ask for different sets.
 
 =>
 
-const updateUsage = 'usage: loom update <language or trope>… | loom update --all'
+class NothingToUpdate extends Data.TaggedError('NothingToUpdate')<{}> {}
+
+class NamesWithAll extends Data.TaggedError('NamesWithAll')<{}> {}
+
+class NotActivated extends Data.TaggedError('NotActivated')<{
+  readonly names: ReadonlyArray<string>
+}> {}
 
 const installOf = (name: string, dir: string) =>
   isLoomTrope(name)
@@ -559,15 +550,8 @@ const installOf = (name: string, dir: string) =>
 
 const update = (names: ReadonlyArray<string>, all: boolean) =>
   Effect.gen(function* () {
-    if (names.length === 0 && !all)
-      return yield* refuse(
-        `loom: name the languages or tropes to update, or use --all — ${updateUsage}\n` +
-          '      To upgrade Loom itself, run `loom upgrade`.',
-      )
-    if (names.length > 0 && all)
-      return yield* refuse(
-        `loom: name languages or tropes, or use --all, not both — ${updateUsage}`,
-      )
+    if (names.length === 0 && !all) return yield* Effect.fail(new NothingToUpdate())
+    if (names.length > 0 && all) return yield* Effect.fail(new NamesWithAll())
     const config = yield* LoomConfig
     const dir = process.cwd()
     const on = [
@@ -575,12 +559,7 @@ const update = (names: ReadonlyArray<string>, all: boolean) =>
       ...(yield* activatedIn(config, dir, 'tropes')),
     ]
     const off = names.filter((id) => !on.includes(id))
-    if (off.length > 0)
-      return yield* Effect.forEach(
-        off,
-        (id) => refuse(`loom: ${id} is not activated; \`loom add ${id}\` turns it on`),
-        { discard: true },
-      )
+    if (off.length > 0) return yield* Effect.fail(new NotActivated({ names: off }))
     const ids = all ? on : names
     if (ids.length === 0)
       return yield* Console.log(`\n   ${dim('no languages or tropes are activated')}\n`)
@@ -591,7 +570,7 @@ const update = (names: ReadonlyArray<string>, all: boolean) =>
       ),
     )
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
-  }).pipe(Effect.catchTag('StoreError', failedInstall))
+  })
 
 ## Who installed Loom
 
@@ -1108,18 +1087,13 @@ const upgradeStandalone = (channel: Channel) =>
 
 The function `upgrade` takes the channel from the `--dev` flag and this Loom's own version, and then lets the installation choose. When `installerUpgrade` names a command, `upgrade` prints it, says who installed Loom, and names `loom update --all` as well, since an upgrade through an installer leaves the store just as behind. When it names none, the standalone executable replaces itself from its channel.
 
-Each failure prints what went wrong and exits non-zero. A dev registry that does not answer is most often one that nobody started, so on the dev channel that failure also names the command that starts it, as `unreachableFix` spells it.
+An upgrade that cannot go on fails with the error that stopped it: an address that did not answer, a release that lacks a file, a checksum that does not match, a download that does not unpack, or an executable that cannot be replaced. The section "Telling a failure" words each one.
 
 =>
 
-const unreachableFix = Channel.$match({
-  Public: () => '',
-  Dev: () => "\n      The dev registry answers while `bun run registry` runs in Loom's repository.",
-})
-
-const upgrade = (dev: boolean) => {
-  const channel = channelOf(dev)
-  return Effect.gen(function* () {
+const upgrade = (dev: boolean) =>
+  Effect.gen(function* () {
+    const channel = channelOf(dev)
     const command = installerUpgrade(thisInstallation, channel)
     if (Option.isNone(command)) return yield* upgradeStandalone(channel)
     yield* Console.log(
@@ -1127,28 +1101,7 @@ const upgrade = (dev: boolean) => {
         `   ${command.value}\n\n` +
         `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
     )
-  }).pipe(
-    Effect.catchTags({
-      ReleaseUnreachable: (error) =>
-        refuse(
-          `loom: could not reach the latest ${releaseKind(channel)} at ${error.url} — ${String(error.cause)}${unreachableFix(channel)}`,
-        ),
-      ReleaseLacksAsset: (error) =>
-        refuse(`loom: release ${error.version} carries no ${error.asset}`),
-      ChecksumMismatch: (error) =>
-        refuse(
-          `loom: the checksum of the downloaded ${error.asset} does not match the one its release lists, so Loom was left as it was`,
-        ),
-      UnpackFailed: (error) =>
-        refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
-      ReplaceFailed: (error) =>
-        refuse(
-          `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
-            '      Run the install script again, or move Loom somewhere you can write to.',
-        ),
-    }),
-  )
-}
+  })
 
 ## A dev build that falls behind
 
@@ -1483,45 +1436,37 @@ const doctor = Effect.gen(function* () {
   )
   if (problems === 0) return yield* Console.log(`   ${teal('✓')} no problems found\n`)
   yield* Console.log(`   ${problems === 1 ? '1 problem' : `${problems} problems`} found\n`)
-  yield* Effect.sync(() => void (process.exitCode = 1))
+  yield* exitNonZero
 })
 
 ## Setting a workspace variable
 
 `loom set <name> <value>` writes a workspace variable and re-tangles the corpus. Every variable lives under the configuration's `variables`, so the name alone identifies it and the command needs no `variables.` prefix. A variable feeds the value warps that interpolate it, so writing one without re-tangling would leave the composed output — a version in every manifest, say — behind the configuration. This command changes the one value and reconciles the whole corpus to it in a single step.
 
-The name and the value are two arguments with a space between them — `loom set version 0.0.4`, no `=`. A name that is not a plain word of letters, digits, and underscores, or a value written with a leading `=`, is rejected with the usage rather than bound, so a stray `=` never becomes the value. Given good input, the command changes the one variable in `.loom/config.yaml` through the configuration's `edit` method, which leaves every other line of the file as it was written. Then it tangles the corpus directory the configuration names.
+The name and the value are two arguments with a space between them — `loom set version 0.0.4`, no `=`. A name that is not a plain word of letters, digits, and underscores fails the command with the error `NotAVariableName`. A value written with a leading `=` fails it with the error `ValueOpensOnEquals`, so a stray `=` never becomes the value. Neither binds anything. Given good input, the command changes the one variable in `.loom/config.yaml` through the configuration's `edit` method, which leaves every other line of the file as it was written. Then it tangles the corpus directory the configuration names.
 
 =>
+
+class NotAVariableName extends Data.TaggedError('NotAVariableName')<{
+  readonly name: string
+}> {}
+
+class ValueOpensOnEquals extends Data.TaggedError('ValueOpensOnEquals')<{}> {}
 
 const set = (name: string, value: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
-    const usage = 'usage: loom set <name> <value>'
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-      yield* Console.error(`loom: \`${name}\` is not a variable name — ${usage}`)
-      yield* Effect.sync(() => void (process.exitCode = 1))
-      return
-    }
-    if (value.startsWith('=')) {
-      yield* Console.error(
-        `loom: a value cannot begin with \`=\`; give the name and value with a space, no \`=\` — ${usage}`,
-      )
-      yield* Effect.sync(() => void (process.exitCode = 1))
-      return
-    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      return yield* Effect.fail(new NotAVariableName({ name }))
+    if (value.startsWith('=')) return yield* Effect.fail(new ValueOpensOnEquals())
     const current = yield* config.manifest(workspace)
     yield* config.edit(workspace, ['variables', name], value)
     const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
     const written = yield* tangler.tangle(corpus)
     yield* Console.log(`loom: set ${name} = ${value} (re-tangled ${written.length} files)`)
-  }).pipe(
-    Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-  )
+  })
 
 ## The grammar the CLI carries
 
@@ -1659,18 +1604,7 @@ const buildGrammar = (grammar: string, library: string) =>
 
 ~
 
-Each command checks the editor's configuration before it touches anything, so a clash leaves the configuration as it was. It then builds the library, copies the queries, and writes the configuration, reporting each step, and ends by naming the check that confirms the result. A failure prints what went wrong and how to put it right, and exits non-zero. Both commands answer a failed compile with the same advice.
-
-=>
-
-const refuse = (message: string) =>
-  Console.error(message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1))))
-
-const cannotCompile = (error: GrammarCompileFailed) =>
-  refuse(
-    `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
-      '      Install a C compiler, or name one in the CC variable, then run this again.',
-  )
+Each command checks the editor's configuration before it touches anything, so a clash leaves the configuration as it was. It then builds the library, copies the queries, and writes the configuration, reporting each step, and ends by naming the check that confirms the result.
 
 ## Setting up Helix
 
@@ -1759,18 +1693,7 @@ const helix = Effect.gen(function* () {
     `   ${teal('✓')} added Loom to ${languagesFile}\n` +
       `   ${dim('check it with `hx --health loom`')}\n`,
   )
-}).pipe(
-  Effect.scoped,
-  Effect.catchTags({
-    GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Helix.'),
-    GrammarCompileFailed: cannotCompile,
-    HelixConfigClash: (error) =>
-      refuse(
-        `loom: ${error.file} already sets up Loom.\n` +
-          '      Remove its Loom entries, then run this again to replace them with the managed block.',
-      ),
-  }),
-)
+}).pipe(Effect.scoped)
 
 ## Setting up Neovim
 
@@ -1871,24 +1794,164 @@ const nvim = Effect.gen(function* () {
     `   ${teal('✓')} added Loom to ${pluginFile}\n` +
       `   ${dim('check it with `:checkhealth vim.treesitter` in Neovim')}\n`,
   )
-}).pipe(
-  Effect.scoped,
-  Effect.catchTags({
-    GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Neovim.'),
-    GrammarCompileFailed: cannotCompile,
-    NvimConfigClash: (error) =>
-      refuse(
-        `loom: ${error.file} was not written by \`loom nvim\`.\n` +
-          '      Move it aside, then run this again.',
-      ),
-  }),
+}).pipe(Effect.scoped)
+
+## Telling a failure
+
+A command that cannot go on fails with an error and writes no words about it. This section holds the words for every such error, and the one function that prints them.
+
+The chapter "The failure catalog" names the failures any program of Loom can meet, such as a loom the disk refuses or a tangle that was refused, and gathers them in the type `LoomFailure`. The command line meets failures of its own as well: an argument a command cannot take, a release it cannot reach, an editor's settings it will not overwrite. The type `CommandFailure` adds the errors of the sections above to the catalog's.
+
+=>
+
+type CommandFailure =
+  | LoomFailure
+  | NothingToUpdate
+  | NamesWithAll
+  | NotActivated
+  | ReleaseUnreachable
+  | ReleaseLacksAsset
+  | ChecksumMismatch
+  | UnpackFailed
+  | ReplaceFailed
+  | NotAVariableName
+  | ValueOpensOnEquals
+  | GrammarMissing
+  | GrammarCompileFailed
+  | HelixConfigClash
+  | NvimConfigClash
+
+~
+
+A failure reaches a person as a problem, as the catalog shapes it: a summary that says what went wrong, and a detail that says why, or what to do. The table `commandWording` gives each failure its problem. It spreads the catalog's table `failureWording` and adds a case for each error of the command line, so the compiler demands words for both sets and refuses a case for an error neither set holds.
+
+A dev registry that does not answer is most often one that nobody started. So the words for an address under the dev registry also name the command that starts it. The constant `inWords` writes several names as a person lists them, with "and" before the last.
+
+=>
+
+const startTheRegistry =
+  "The dev registry answers while `bun run registry` runs in Loom's repository."
+
+const inWords = new Intl.ListFormat('en', { type: 'conjunction' })
+
+const commandWording: Wording<CommandFailure> = {
+  ...failureWording,
+  NothingToUpdate: () =>
+    problem(
+      '`loom update` names no language or trope to update.',
+      'Name them, as in `loom update <language or trope>…`, or use `loom update --all`. To upgrade Loom itself, run `loom upgrade`.',
+    ),
+  NamesWithAll: () =>
+    problem(
+      '`loom update` takes names or `--all`, not both.',
+      'Name them, as in `loom update <language or trope>…`, or use `loom update --all` alone.',
+    ),
+  NotActivated: ({ names }) => {
+    const one = names.length === 1
+    return problem(
+      `${inWords.format(names)} ${one ? 'is' : 'are'} not activated.`,
+      `${inWords.format(names.map((name) => `\`loom add ${name}\``))} ${one ? 'turns it on' : 'turn them on'}.`,
+    )
+  },
+  ReleaseUnreachable: ({ url, cause }) =>
+    problem(
+      `Loom could not reach ${url}.`,
+      url.startsWith(devRegistry) ? `${reasonOf(cause)} ${startTheRegistry}` : reasonOf(cause),
+    ),
+  ReleaseLacksAsset: ({ version, asset }) => problem(`Release ${version} carries no ${asset}.`),
+  ChecksumMismatch: ({ asset }) =>
+    problem(
+      `The downloaded ${asset} does not match the checksum its release lists.`,
+      'Loom was left as it was.',
+    ),
+  UnpackFailed: ({ asset, cause }) => problem(`Loom could not unpack ${asset}.`, reasonOf(cause)),
+  ReplaceFailed: ({ path, cause }) =>
+    problem(
+      `Loom could not replace ${path}.`,
+      `${reasonOf(cause)} Run the install script again, or move Loom somewhere you can write to.`,
+    ),
+  NotAVariableName: ({ name }) =>
+    problem(
+      `\`${name}\` is not a variable name.`,
+      'A name holds letters, digits and underscores, and does not open on a digit. Write `loom set <name> <value>`.',
+    ),
+  ValueOpensOnEquals: () =>
+    problem(
+      'A value cannot begin with `=`.',
+      'Give the name and the value with a space between them, as in `loom set version 0.0.4`.',
+    ),
+  GrammarMissing: () => problem('This installation of Loom carries no grammar.'),
+  GrammarCompileFailed: ({ compiler }) =>
+    problem(
+      `Loom could not compile the grammar with \`${compiler}\`.`,
+      'Install a C compiler, or name one in the CC variable, then run this again.',
+    ),
+  HelixConfigClash: ({ file }) =>
+    problem(
+      `${file} already sets up Loom.`,
+      'Remove its Loom entries, then run this again to replace them with the managed block.',
+    ),
+  NvimConfigClash: ({ file }) =>
+    problem(`${file} was not written by \`loom nvim\`.`, 'Move it aside, then run this again.'),
+}
+
+const describe: (failure: CommandFailure) => Problem = Match.type<CommandFailure>().pipe(
+  Match.tagsExhaustive(commandWording),
 )
+
+~
+
+The command line shows a failure on standard error. The summary stands after the program's own name, `loom:`, and the detail on the line below, set in under the summary. A tangle that was refused has more to show. The function `listedUnder` lists the diagnostics that refused it, each with its loom and its line, as the catalog's function `refusedBy` gives them. Every other failure lists nothing.
+
+The function `tell` prints a failure that way. The function `ended` is where a command's failure stops. It tells the failure and sets a non-zero exit code. It takes only a command whose failures the type `CommandFailure` names. So a command that can fail with an error this section has no words for does not compile.
+
+=>
+
+const listedUnder: (failure: CommandFailure) => ReadonlyArray<string> =
+  Match.type<CommandFailure>().pipe(
+    Match.withReturnType<ReadonlyArray<string>>(),
+    Match.tag('TangleError', (refused) => refusedBy(refused).map((line) => `  ${line}`)),
+    Match.orElse(() => []),
+  )
+
+const shown = (failure: CommandFailure): string => {
+  const { summary, detail } = describe(failure)
+  return [
+    `loom: ${summary}`,
+    ...(detail === '' ? [] : [`      ${detail}`]),
+    ...listedUnder(failure),
+  ].join('\n')
+}
+
+const tell = (failure: CommandFailure): Effect.Effect<void> => Console.error(shown(failure))
+
+const exitNonZero = Effect.sync(() => void (process.exitCode = 1))
+
+const ended = <A, R>(command: Effect.Effect<A, CommandFailure, R>): Effect.Effect<void, never, R> =>
+  command.pipe(
+    Effect.asVoid,
+    Effect.catch((failure) => tell(failure).pipe(Effect.andThen(exitNonZero))),
+  )
+
+~
+
+A defect is a mistake in Loom's own code, which no error of a command foresaw: an exception a library threw, or a file that was not where the code took it to be. Effect carries a defect in a cause, not in a type. The function `crashed` turns such a cause into the catalog's failure `Broke` and tells it as any other failure. The person can do nothing about a defect but report it, so `crashed` prints the whole cause beneath the problem, with the place in the code it came from.
+
+=>
+
+const crashed = <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
+  tell(broke('command', cause)).pipe(
+    Effect.andThen(Console.error(dim(Cause.pretty(cause)))),
+    Effect.andThen(exitNonZero),
+  )
 
 ## Where the world ends
 
 The command program is seventeen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom review [path]` lists the approved references that have drifted under a path, grouped by the section that changed. With `--json` it prints the list for an agent, and with `--check` it exits non-zero when any has drifted. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. The command `loom upgrade` replaces Loom with the latest release on its channel, or names the installer's command that does, and with `--dev` it puts a public build on the dev channel. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 On a dev build the program runs the check for a newer dev release beside the command, and prints its notice once the command is done.
+
+Every command runs through the function `ended`, so the failure of any command is told in one place. The program catches a defect once, with the function `crashed`, after its services are provided. A mistake in the setup of a service is then told the same way as one inside a command. The program states its own type, so the one failure left to it is an error of the command line's parser, which Effect's CLI toolkit reports itself. A command that can fail and does not run through `ended` then does not compile.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1897,33 +1960,33 @@ One entry point sits outside the command program. `loom lsp --stdio` starts the 
 const tangleCommand = Command.make(
   'tangle',
   { path: Argument.String('path'), watch: Flag.Boolean('watch').pipe(Flag.withDefault(false)) },
-  ({ path, watch }) => tangle(path, watch),
+  ({ path, watch }) => ended(tangle(path, watch)),
 )
 
 const orphansCommand = Command.make(
   'orphans',
   { prune: Flag.Boolean('prune').pipe(Flag.withDefault(false)) },
-  ({ prune }) => orphans(prune),
+  ({ prune }) => ended(orphans(prune)),
 )
 
 const weaveCommand = Command.make(
   'weave',
   { path: Argument.String('path'), out: Argument.String('out') },
-  ({ path, out }) => weave(path, out),
+  ({ path, out }) => ended(weave(path, out)),
 )
 
 const formatCommand = Command.make(
   'format',
   { path: Argument.String('path'), check: Flag.Boolean('check').pipe(Flag.withDefault(false)) },
-  ({ path, check }) => format(path, check),
+  ({ path, check }) => ended(format(path, check)),
 )
 
 const refreshCommand = Command.make('refresh', { path: Argument.String('path') }, ({ path }) =>
-  refresh(path),
+  ended(refresh(path)),
 )
 
 const approveCommand = Command.make('approve', { path: Argument.String('path') }, ({ path }) =>
-  approve(path),
+  ended(approve(path)),
 )
 
 const reviewCommand = Command.make(
@@ -1933,19 +1996,21 @@ const reviewCommand = Command.make(
     json: Flag.Boolean('json').pipe(Flag.withDefault(false)),
     check: Flag.Boolean('check').pipe(Flag.withDefault(false)),
   },
-  ({ path, json, check }) => review(path, json, check),
+  ({ path, json, check }) => ended(review(path, json, check)),
 )
 
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.Directory('dir')) },
-  ({ dir }) => init(dir),
+  ({ dir }) => ended(init(dir)),
 )
 
-const addCommand = Command.make('add', { name: Argument.String('name') }, ({ name }) => add(name))
+const addCommand = Command.make('add', { name: Argument.String('name') }, ({ name }) =>
+  ended(add(name)),
+)
 
 const removeCommand = Command.make('remove', { name: Argument.String('name') }, ({ name }) =>
-  remove(name),
+  ended(remove(name)),
 )
 
 const updateCommand = Command.make(
@@ -1954,28 +2019,28 @@ const updateCommand = Command.make(
     names: Argument.String('name').pipe(Argument.variadic()),
     all: Flag.Boolean('all').pipe(Flag.withDefault(false)),
   },
-  ({ names, all }) => update(names, all),
+  ({ names, all }) => ended(update(names, all)),
 )
 
 const upgradeCommand = Command.make(
   'upgrade',
   { dev: Flag.Boolean('dev').pipe(Flag.withDefault(false)) },
-  ({ dev }) => upgrade(dev),
+  ({ dev }) => ended(upgrade(dev)),
 )
 
-const statusCommand = Command.make('status', {}, () => status)
+const statusCommand = Command.make('status', {}, () => ended(status))
 
-const doctorCommand = Command.make('doctor', {}, () => doctor)
+const doctorCommand = Command.make('doctor', {}, () => ended(doctor))
 
 const setCommand = Command.make(
   'set',
   { name: Argument.String('name'), value: Argument.String('value') },
-  ({ name, value }) => set(name, value),
+  ({ name, value }) => ended(set(name, value)),
 )
 
-const helixCommand = Command.make('helix', {}, () => helix)
+const helixCommand = Command.make('helix', {}, () => ended(helix))
 
-const nvimCommand = Command.make('nvim', {}, () => nvim)
+const nvimCommand = Command.make('nvim', {}, () => ended(nvim))
 
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
@@ -1999,9 +2064,11 @@ const loom = Command.make('loom').pipe(
   ]),
 )
 
-const program = Effect.zip(Command.run(loom, { version: loomVersion }), devCheck, {
-  concurrent: true,
-}).pipe(
+const program: Effect.Effect<void, CliError.CliError> = Effect.zip(
+  Command.run(loom, { version: loomVersion }),
+  devCheck,
+  { concurrent: true },
+).pipe(
   Effect.flatMap(([, newer]) => devNotice(newer)),
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
@@ -2014,6 +2081,7 @@ const program = Effect.zip(Command.run(loom, { version: loomVersion }), devCheck
   Effect.provide(FileSystemEnvironment),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),
+  Effect.catchCauseIf(Cause.hasDies, crashed),
 )
 
 if (process.argv[2] === 'lsp') {
@@ -2028,18 +2096,19 @@ if (process.argv[2] === 'lsp') {
 
 The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome.
 
-Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
+Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs the C compiler for `helix` and `nvim`, `Data` types the errors a command fails with, `Cause` reads a defect, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes and the package the dev registry describes, `Array` finds a file in a release, `Order` compares two versions, and `node:crypto` computes the checksum of a download. Node's `zlib` module unpacks a release's executable from its gzip, and Bun's own `Bun.Archive`, which needs no import, unpacks a dev release's executable from its package. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, and the function `broke`, which turns a defect into a failure. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
-From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` names the registry its dev releases come from. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
+From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` names the registry its dev releases come from. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
 =>
 
 import {
   Array,
+  Cause,
   Console,
   Data,
   Effect,
@@ -2053,7 +2122,7 @@ import {
   Stream,
   pipe,
 } from 'effect'
-import { Argument, Command, Flag, Prompt } from 'effect/cli'
+import { Argument, type CliError, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { createHash } from 'node:crypto'
@@ -2074,12 +2143,17 @@ import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import { DocumentSource, LoomCompiler, type TangledFile } from '@athrio/loom-lang/LoomCompiler'
 import {
-  DocumentSource,
-  LoomCompiler,
-  type TangledFile,
-  type TangleError,
-} from '@athrio/loom-lang/LoomCompiler'
+  broke,
+  failureWording,
+  type LoomFailure,
+  type Problem,
+  problem,
+  reasonOf,
+  refusedBy,
+  type Wording,
+} from '@athrio/loom-lang/LoomFailure'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { type Drift, driftsIn } from '@athrio/loom-lang/ast/Relations'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
@@ -2103,7 +2177,6 @@ import {
   removeService,
   removeTropes,
   PackageInstall,
-  type StoreError,
   servicePackage,
   serviceVersion,
   standalone,
@@ -2160,5 +2233,7 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 ::[Setting up Helix]
 
 ::[Setting up Neovim]
+
+::[Telling a failure]
 
 ::[Where the world ends]
