@@ -1,5 +1,7 @@
 storage: ./storage
 
+max_body_size: 100mb
+
 auth:
   htpasswd:
     file: ./htpasswd
@@ -10,6 +12,10 @@ uplinks:
     url: https://registry.npmjs.org/
 
 packages:
+  '@athrio/loom-{darwin,linux,win32}-*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
   '@athrio/*':
     access: $all
     publish: $authenticated

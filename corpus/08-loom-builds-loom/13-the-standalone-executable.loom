@@ -136,7 +136,9 @@ NodeRuntime.runMain(
 
 The tests of the CLI run its source under Bun, and none of these three differences shows there. So the executable has a test of its own, a smoke test, which runs the compiled file the way a person runs it and checks that each of its commands still answers.
 
-The test runs `build/loom`, which the package's `compile` script writes. Each case runs the executable in a folder of its own, in an environment `bareEnv` strips of two things. Its `PATH` is an empty folder, so the executable finds no `npm`, `bun`, `node` or C compiler to lean on. Its package registry, which `NPM_CONFIG_REGISTRY` names, is an address where nothing answers, so a download it did not mean to make fails the case. A case that serves a registry or a release of its own names that address instead. Every other variable passes through, since Windows cannot open a network connection without the ones that name its system folders.
+The test runs `build/loom`, which the package's `compile` script writes. Each case runs the executable in a folder of its own, in an environment `bareEnv` strips of three things. Its `PATH` is an empty folder, so the executable finds no `npm`, `bun`, `node` or C compiler to lean on. Its package registry, which `NPM_CONFIG_REGISTRY` names, is an address where nothing answers, so a download it did not mean to make fails the case. Its dev registry, which `LOOM_DEV_REGISTRY` names, answers nowhere either, so a dev build finds no newer dev release and prints no notice of one. A case that serves a registry or a release of its own names that address instead. Every other variable passes through, since Windows cannot open a network connection without the ones that name its system folders.
+
+The executable carries the version of the checkout it was compiled in. A dev release compiles it with the dev release's version and runs this test against it, so the cases that only a dev build can pass run there, and `devBuild` tells them apart from the rest.
 
 `run` spawns the executable and collects its exit status and both its output streams. It spawns without blocking, because a case may serve the executable a registry or a release from inside the test process, and a blocked process answers no request. A case checks the exit status together with the standard error, so a command that fails shows its own reason in the test's report. The registries and releases a case serves listen on `127.0.0.1` by number, since `localhost` may resolve to an address they do not listen on.
 
@@ -162,8 +164,11 @@ const bareEnv = (extra: Record<string, string> = {}): Record<string, string> => 
   ),
   PATH: emptyPath,
   NPM_CONFIG_REGISTRY: nowhere,
+  LOOM_DEV_REGISTRY: nowhere,
   ...extra,
 })
+
+const devBuild = serviceVersion.includes('-dev.')
 
 const run = async (
   args: ReadonlyArray<string>,
@@ -513,7 +518,7 @@ describe('the executable — editors', () => {
 
 ## Upgrading in place
 
-`loom upgrade` replaces the executable it runs from, so each case runs a copy, never `build/loom` itself. `releaseServer` stands in for GitHub. It answers the request for the latest release with a tag and two files, a gzipped replacement executable and the list of checksums, and serves both. The replacement is a short shell script that prints `upgraded`, small enough to check by eye. `assetName` is the name the release gives this platform's file, the same name `loom upgrade` looks for.
+The command `loom upgrade` replaces the executable it runs from, so each case runs a copy, never `build/loom` itself. The function `runCopy` makes the copy in a folder of its own and runs it there. The function `releaseServer` stands in for GitHub. It answers the request for the latest release with a tag and two files, a gzipped replacement executable and the list of checksums, and serves both. The replacement is a short shell script that prints `upgraded`, small enough to check by eye. The constant `assetName` is the name the release gives this platform's file, the same name `loom upgrade` looks for. The function `upgradeCopy` runs `loom upgrade` in a copy, against a release it serves.
 
 =>
 
@@ -549,22 +554,27 @@ const releaseServer = (tag: string, listed: string) =>
     },
   })
 
-const upgradeCopy = async (tag: string, listed: string) => {
-  const server = releaseServer(tag, listed)
+const runCopy = async (args: ReadonlyArray<string>, env: Record<string, string>) => {
   const dir = scratch('upgrade')
   const copy = join(dir, process.platform === 'win32' ? 'loom.exe' : 'loom')
   copyFileSync(binary, copy)
   chmodSync(copy, 0o755)
-  const result = await run(['upgrade'], {
-    cwd: dir,
-    env: bareEnv({ LOOM_RELEASES: new URL('/releases', server.url).href }),
-    executable: copy,
-  })
-  server.stop()
+  const result = await run(args, { cwd: dir, env: bareEnv(env), executable: copy })
   return { ...result, dir, copy }
 }
 
+const upgradeCopy = async (tag: string, listed: string) => {
+  const server = releaseServer(tag, listed)
+  const result = await runCopy(['upgrade'], {
+    LOOM_RELEASES: new URL('/releases', server.url).href,
+  })
+  server.stop()
+  return result
+}
+
 ~
+
+These first three cases read the public channel, which a dev build never reads, so they run on a public build alone. A dev release runs the dev channel's own cases in their place.
 
 A newer release whose checksum matches replaces the copy, and the case compares the copy's checksum with the replacement's rather than their bytes, so a failure reports two short lines instead of an executable's worth of numbers. On macOS and Linux the copy then runs as the replacement. Windows cannot run a shell script, so there the case checks that the running copy moved aside to a name ending in `.old`, the step that lets Windows replace it. A release whose listed checksum differs from the file's leaves the copy as it was, still Loom, and the command exits non-zero. A release no newer than this Loom changes nothing.
 
@@ -573,7 +583,7 @@ An executable that Homebrew installed is Homebrew's to replace, so `loom upgrade
 =>
 
 describe('the executable — upgrade', () => {
-  it(
+  it.skipIf(devBuild)(
     'replaces itself with a newer release whose checksum matches',
     async () => {
       const { status, stderr, dir, copy } = await upgradeCopy('v99.0.0', sha256(archive))
@@ -586,7 +596,7 @@ describe('the executable — upgrade', () => {
     SMOKE_TIMEOUT,
   )
 
-  it(
+  it.skipIf(devBuild)(
     'refuses a download whose checksum does not match the list',
     async () => {
       const { status, stderr, dir, copy } = await upgradeCopy('v99.0.0', sha256(new Uint8Array()))
@@ -599,7 +609,7 @@ describe('the executable — upgrade', () => {
     SMOKE_TIMEOUT,
   )
 
-  it(
+  it.skipIf(devBuild)(
     'leaves itself alone when the latest release is no newer',
     async () => {
       const { status, stdout, stderr, dir, copy } = await upgradeCopy('v0.0.1', sha256(archive))
@@ -636,26 +646,200 @@ describe('the executable — upgrade', () => {
   )
 })
 
-## A check-up for the executable
+~
 
-`loom doctor` must know the executable for what it is. The case puts the folder that holds the executable on `PATH`, and nothing else, and runs the doctor in a folder no workspace holds. The doctor reports a standalone executable, finds that a terminal runs this very file, and exits zero with no problem to report.
+On the dev channel the release comes from the dev registry instead, as a package that holds the executable. The function `devRegistryServer` stands in for that registry. It describes one package, the executable's for this platform, with its `dev` tag on the version a case names. That version's tarball is the replacement packed the way npm packs a package, under `package/loom`, and its integrity is the SHA-512 checksum the registry would record. The function `packageTarball` packs the tarball with Bun's archive writer. The function `devUpgradeCopy` runs a copy against the stand-in, with GitHub's address pointing nowhere, so a case fails if the command asks GitHub anything.
+
+With `--dev`, a newer dev release replaces the copy, which then runs as the replacement. A dev release that is older than the copy leaves it alone. The version these cases call older is a prerelease of the copy's own numbers, such as `0.0.20-dev.0` for `0.0.20`, which semantic versioning orders before the release it leads up to. With no registry answering, the command fails and names `bun run registry`, the command that starts one.
+
+A dev build reads the dev channel with no flag at all, and the last case checks that, on a dev build alone. These cases skip Windows. There an upgrade first moves the running executable aside, a step the cases above already cover, and the replacement, a shell script, cannot run.
 
 =>
+
+const executablePackage = `@athrio/loom-${process.platform}-${process.arch}`
+
+const packageTarball = (): Promise<Uint8Array> =>
+  new Bun.Archive({ 'package/loom': replacement }, { compress: 'gzip' }).bytes()
+
+const devRegistryServer = (tag: string, tarball: Uint8Array) =>
+  Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: (request) => {
+      const path = decodeURIComponent(new URL(request.url).pathname)
+      if (path === `/${executablePackage}`)
+        return Response.json({
+          name: executablePackage,
+          'dist-tags': { dev: tag },
+          versions: {
+            [tag]: {
+              name: executablePackage,
+              version: tag,
+              dist: {
+                tarball: new URL('/package.tgz', request.url).href,
+                integrity: `sha512-${createHash('sha512').update(tarball).digest('base64')}`,
+              },
+            },
+          },
+        })
+      if (path === '/package.tgz') return new Response(tarball)
+      return new Response('not found', { status: 404 })
+    },
+  })
+
+const devUpgradeCopy = async (args: ReadonlyArray<string>, tag: string) => {
+  const server = devRegistryServer(tag, await packageTarball())
+  const result = await runCopy(args, {
+    LOOM_RELEASES: nowhere,
+    LOOM_DEV_REGISTRY: server.url.href,
+  })
+  server.stop()
+  return result
+}
+
+const olderDev = `${serviceVersion.split('-')[0]}-dev.0`
+
+describe.skipIf(process.platform === 'win32')('the executable — dev releases', () => {
+  it(
+    'takes a newer dev release from the dev registry with --dev',
+    async () => {
+      const { status, stderr, dir, copy } = await devUpgradeCopy(
+        ['upgrade', '--dev'],
+        '99.0.0-dev.1',
+      )
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(sha256(new Uint8Array(readFileSync(copy)))).toBe(sha256(replacement))
+      expect((await run([], { cwd: dir, env: bareEnv(), executable: copy })).stdout).toContain(
+        'upgraded',
+      )
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'never moves to a dev release older than itself',
+    async () => {
+      const { status, stdout, stderr, dir, copy } = await devUpgradeCopy(
+        ['upgrade', '--dev'],
+        olderDev,
+      )
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain('is up to date')
+      const after = await run(['--version'], { cwd: dir, env: bareEnv(), executable: copy })
+      expect(after.stdout).toContain(`loom v${serviceVersion}`)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'names the command that starts a dev registry when none answers',
+    async () => {
+      const { status, stderr, dir } = await runCopy(['upgrade', '--dev'], {
+        LOOM_RELEASES: nowhere,
+      })
+      expect(status).toBe(1)
+      expect(stderr).toContain('bun run registry')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it.skipIf(!devBuild)(
+    'takes dev releases on a dev build with no flag, and never asks GitHub',
+    async () => {
+      const { status, stderr, dir, copy } = await devUpgradeCopy(['upgrade'], '99.0.0-dev.1')
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(sha256(new Uint8Array(readFileSync(copy)))).toBe(sha256(replacement))
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+})
+
+## A check-up for the executable
+
+The command `loom doctor` must know the executable for what it is. The first case puts the folder that holds the executable on `PATH`, and nothing else, and runs the doctor in a folder no workspace holds. It also serves a dev registry whose latest dev release is this very executable's version. The doctor reports a standalone executable, finds that a terminal runs this very file, and exits zero with no problem to report. A public build asks the registry nothing, and a dev build finds no newer dev release there.
+
+The second case runs on a dev build alone. Its registry tags a newer dev release, so the doctor names that release, names `loom upgrade` as the fix, counts one problem and exits non-zero.
+
+=>
+
+const doctorIn = async (dir: string, latestDev: string) => {
+  const registry = devRegistryServer(latestDev, await packageTarball())
+  const result = await run(['doctor'], {
+    cwd: dir,
+    env: bareEnv({ PATH: dirname(binary), LOOM_DEV_REGISTRY: registry.url.href }),
+  })
+  registry.stop()
+  return result
+}
 
 describe('the executable — doctor', () => {
   it(
     'knows itself as the standalone executable a terminal runs',
     async () => {
       const dir = scratch('doctor')
-      const { status, stdout, stderr } = await run(['doctor'], {
-        cwd: dir,
-        env: bareEnv({ PATH: dirname(binary) }),
-      })
+      const { status, stdout, stderr } = await doctorIn(dir, serviceVersion)
       expect({ status, stderr }).toMatchObject({ status: 0 })
       expect(stdout).toContain(`runs from ${binary}, a standalone executable`)
       expect(stdout).toContain('a terminal runs this loom')
       expect(stdout).toContain('no problems found')
       rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it.skipIf(!devBuild)(
+    'reports a dev build that a newer dev release has passed, with the upgrade that fixes it',
+    async () => {
+      const dir = scratch('doctor')
+      const { status, stdout } = await doctorIn(dir, '99.0.0-dev.1')
+      expect(status).toBe(1)
+      expect(stdout).toContain(
+        `dev release 99.0.0-dev.1 is out, newer than this loom's ${serviceVersion}`,
+      )
+      expect(stdout).toContain('loom upgrade')
+      expect(stdout).toContain('1 problem found')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+})
+
+## A notice of a newer dev release
+
+A dev build checks the dev registry every time it runs a command. These cases run `loom --version`, the shortest command there is, on a dev build alone. With a registry that tags a newer dev release, the version still comes out on standard output, and the notice of the newer release follows on standard error. With no registry answering, the command prints its version and nothing else.
+
+=>
+
+describe.skipIf(!devBuild)('the executable — notice of a newer dev release', () => {
+  it(
+    'tells a dev build that a newer dev release is out',
+    async () => {
+      const registry = devRegistryServer('99.0.0-dev.1', await packageTarball())
+      const { status, stdout, stderr } = await run(['--version'], {
+        cwd: scratch('notice'),
+        env: bareEnv({ LOOM_DEV_REGISTRY: registry.url.href }),
+      })
+      registry.stop()
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain(`loom v${serviceVersion}`)
+      expect(stderr).toContain('dev release 99.0.0-dev.1 is out')
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'says nothing when no dev registry answers',
+    async () => {
+      const { status, stderr } = await run(['--version'], {
+        cwd: scratch('notice'),
+        env: bareEnv(),
+      })
+      expect(status).toBe(0)
+      expect(stderr).not.toContain('dev release')
     },
     SMOKE_TIMEOUT,
   )
@@ -946,7 +1130,7 @@ import { dirname, join, resolve } from 'node:path'
 
 ## What the smoke test draws on
 
-The cases run on Bun's test runner, and Bun spawns the executable and `tar`, gzips the stand-in executables, and serves the stand-in registry and release. Node's modules make the folders and files a case needs, copy the executable to upgrade, compute a checksum, and turn paths into the `file:` addresses the language server names documents by. Volar's language-server package carries the client half of the protocol: `createMessageConnection`, the stream reader and writer it speaks through, and the `TextEdit` a format answers with. The language store names the TypeScript service's package and this Loom's version, and the host runtime names the key under which the stand-in finds Effect.
+The cases run on Bun's test runner, and Bun spawns the executable and `tar`, gzips the stand-in executables, packs the stand-in package, and serves the stand-in registries and release. Node's modules make the folders and files a case needs, copy the executable to upgrade, compute a checksum, and turn paths into the `file:` addresses the language server names documents by. Volar's language-server package carries the client half of the protocol: `createMessageConnection`, the stream reader and writer it speaks through, and the `TextEdit` a format answers with. The language store names the TypeScript service's package and this Loom's version, and the host runtime names the key under which the stand-in finds Effect.
 
 =>
 
@@ -999,3 +1183,5 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Upgrading in place]
 
 ::[A check-up for the executable]
+
+::[A notice of a newer dev release]

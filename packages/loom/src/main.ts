@@ -599,6 +599,20 @@ const describedInstallation = Installation.$match({
 
 const quoted = (path: string): string => `"${path}"`
 
+const loomVersion = '0.0.20'
+
+type Channel = Data.TaggedEnum<{
+  Public: {}
+  Dev: {}
+}>
+const Channel = Data.taggedEnum<Channel>()
+
+const devBuild = loomVersion.includes('-dev.')
+
+const channelOf = (dev: boolean): Channel => (dev || devBuild ? Channel.Dev() : Channel.Public())
+
+const devRegistry = (process.env.LOOM_DEV_REGISTRY ?? 'http://localhost:4873').replace(/\/$/, '')
+
 const projectCommands: Record<ProjectManager, { readonly add: string; readonly remove: string }> = {
   npm: { add: 'npm install', remove: 'npm uninstall' },
   bun: { add: 'bun add', remove: 'bun remove' },
@@ -606,20 +620,61 @@ const projectCommands: Record<ProjectManager, { readonly add: string; readonly r
   yarn: { add: 'yarn add', remove: 'yarn remove' },
 }
 
-const installerUpgrade = Installation.$match({
-  Executable: () => Option.none<string>(),
-  Unowned: () => Option.none<string>(),
-  Homebrew: () => Option.some('brew upgrade loom'),
-  Npm: () => Option.some('npm install -g @athrio/loom@latest'),
-  Bun: () => Option.some('bun add -g @athrio/loom@latest'),
-  Pnpm: () => Option.some('pnpm add -g @athrio/loom@latest'),
-  Project: ({ root, manager }) =>
-    Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} @athrio/loom@latest`),
+const loomPackage = Channel.$match({
+  Public: () => '@athrio/loom@latest',
+  Dev: () => `@athrio/loom@dev --registry ${devRegistry}`,
 })
 
-const loomVersion = '0.0.20'
+const installerUpgrade = (installation: Installation, channel: Channel): Option.Option<string> =>
+  Installation.$match(installation, {
+    Executable: () => Option.none(),
+    Unowned: () => Option.none(),
+    Homebrew: () => Option.some('brew upgrade loom'),
+    Npm: () => Option.some(`npm install -g ${loomPackage(channel)}`),
+    Bun: () => Option.some(`bun add -g ${loomPackage(channel)}`),
+    Pnpm: () => Option.some(`pnpm add -g ${loomPackage(channel)}`),
+    Project: ({ root, manager }) =>
+      Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} ${loomPackage(channel)}`),
+  })
 
-const releases = process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
+type Identifier = readonly [kind: number, number: number, text: string]
+
+type Precedence = readonly [
+  numbers: ReadonlyArray<number>,
+  release: number,
+  identifiers: ReadonlyArray<Identifier>,
+]
+
+const identifierOf = (identifier: string): Identifier =>
+  /^\d+$/.test(identifier) ? [0, Number(identifier), ''] : [1, 0, identifier]
+
+const precedenceOf = (version: string): Precedence => {
+  const [numbers = '', ...prerelease] = version.split('-')
+  const identifiers = prerelease
+    .join('-')
+    .split('.')
+    .filter((identifier) => identifier !== '')
+  return [
+    numbers.split('.').map(Number),
+    identifiers.length === 0 ? 1 : 0,
+    identifiers.map(identifierOf),
+  ]
+}
+
+const versionOrder: Order.Order<string> = Order.mapInput(
+  Order.Tuple([
+    Order.Array(Order.Number),
+    Order.Number,
+    Order.Array(Order.Tuple([Order.Number, Order.Number, Order.String])),
+  ]),
+  precedenceOf,
+)
+
+const isNewer = (version: string): boolean =>
+  Order.isGreaterThan(versionOrder)(version, loomVersion)
+
+const releases =
+  process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
 
 const ReleaseSchema = Schema.Struct({
   tag_name: Schema.String,
@@ -627,11 +682,6 @@ const ReleaseSchema = Schema.Struct({
 })
 
 type Release = typeof ReleaseSchema.Type
-
-const versionOrder: Order.Order<string> = Order.mapInput(
-  Order.Array(Order.Number),
-  (version: string) => version.split('.').map(Number),
-)
 
 class ReleaseUnreachable extends Data.TaggedError('ReleaseUnreachable')<{
   readonly url: string
@@ -650,17 +700,26 @@ const fetched = (url: string): Effect.Effect<Response, ReleaseUnreachable> =>
     ),
   )
 
-const latestRelease: Effect.Effect<Release, ReleaseUnreachable> = Effect.gen(function* () {
-  const url = `${releases}/latest`
-  const response = yield* fetched(url)
-  const body = yield* Effect.tryPromise({
-    try: () => response.json(),
-    catch: (cause) => new ReleaseUnreachable({ url, cause }),
-  })
-  return yield* Schema.decodeUnknownEffect(ReleaseSchema)(body).pipe(
-    Effect.mapError((cause) => new ReleaseUnreachable({ url, cause })),
+const decodedAt = <A>(
+  url: string,
+  decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
+): Effect.Effect<A, ReleaseUnreachable> =>
+  fetched(url).pipe(
+    Effect.flatMap((response) =>
+      Effect.tryPromise({
+        try: () => response.json(),
+        catch: (cause) => new ReleaseUnreachable({ url, cause }),
+      }),
+    ),
+    Effect.flatMap((body) =>
+      decode(body).pipe(Effect.mapError((cause) => new ReleaseUnreachable({ url, cause }))),
+    ),
   )
-})
+
+const latestRelease: Effect.Effect<Release, ReleaseUnreachable> = decodedAt(
+  `${releases}/latest`,
+  Schema.decodeUnknownEffect(ReleaseSchema),
+)
 
 const bytesAt = (url: string): Effect.Effect<Uint8Array, ReleaseUnreachable> =>
   fetched(url).pipe(
@@ -704,12 +763,15 @@ const listedChecksum = (sums: string, asset: string): Option.Option<string> =>
     Option.flatMap((fields) => Option.fromNullishOr(fields[0])),
   )
 
+const sha256Of = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
 const verified = (
   bytes: Uint8Array,
-  sums: string,
+  listed: Option.Option<string>,
+  checksumOf: (bytes: Uint8Array) => string,
   asset: string,
 ): Effect.Effect<Uint8Array, ChecksumMismatch> =>
-  Option.contains(listedChecksum(sums, asset), createHash('sha256').update(bytes).digest('hex'))
+  Option.contains(listed, checksumOf(bytes))
     ? Effect.succeed(bytes)
     : Effect.fail(new ChecksumMismatch({ asset }))
 
@@ -723,6 +785,100 @@ const unpacked = (archive: Uint8Array): Effect.Effect<Uint8Array, UnpackFailed> 
     try: () => new Uint8Array(gunzipSync(archive)),
     catch: (cause) => new UnpackFailed({ asset: assetName, cause }),
   })
+
+type Offer = {
+  readonly version: string
+  readonly executable: Effect.Effect<
+    Uint8Array,
+    ReleaseUnreachable | ReleaseLacksAsset | ChecksumMismatch | UnpackFailed
+  >
+}
+
+const publicOffer: Effect.Effect<Offer, ReleaseUnreachable> = latestRelease.pipe(
+  Effect.map((release): Offer => ({
+    version: release.tag_name.replace(/^v/, ''),
+    executable: Effect.gen(function* () {
+      const archive = yield* assetUrl(release, assetName).pipe(Effect.flatMap(bytesAt))
+      const sums = yield* assetUrl(release, 'SHA256SUMS').pipe(
+        Effect.flatMap(bytesAt),
+        Effect.map((bytes) => new TextDecoder().decode(bytes)),
+      )
+      const checked = yield* verified(archive, listedChecksum(sums, assetName), sha256Of, assetName)
+      return yield* unpacked(checked)
+    }),
+  })),
+)
+
+const executablePackage = `@athrio/loom-${process.platform}-${process.arch}`
+
+const DevPackageSchema = Schema.Struct({
+  'dist-tags': Schema.Struct({ dev: Schema.String }),
+  versions: Schema.Record(
+    Schema.String,
+    Schema.Struct({ dist: Schema.Struct({ tarball: Schema.String, integrity: Schema.String }) }),
+  ),
+})
+
+type DevRelease = {
+  readonly version: string
+  readonly tarball: string
+  readonly integrity: string
+}
+
+const latestDev: Effect.Effect<DevRelease, ReleaseUnreachable | ReleaseLacksAsset> = decodedAt(
+  `${devRegistry}/${executablePackage.replace('/', '%2f')}`,
+  Schema.decodeUnknownEffect(DevPackageSchema),
+).pipe(
+  Effect.flatMap((held) => {
+    const version = held['dist-tags'].dev
+    return Option.match(Option.fromNullishOr(held.versions[version]), {
+      onNone: () => Effect.fail(new ReleaseLacksAsset({ version, asset: executablePackage })),
+      onSome: ({ dist }) =>
+        Effect.succeed<DevRelease>({ version, tarball: dist.tarball, integrity: dist.integrity }),
+    })
+  }),
+)
+
+const integrityOf = (bytes: Uint8Array): string =>
+  `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+
+const unpackedFromPackage = (tarball: Uint8Array): Effect.Effect<Uint8Array, UnpackFailed> =>
+  Effect.tryPromise({
+    try: () => new Bun.Archive(tarball).files(),
+    catch: (cause) => new UnpackFailed({ asset: executablePackage, cause }),
+  }).pipe(
+    Effect.flatMap((files) =>
+      Option.match(Option.fromNullishOr(files.get('package/loom')), {
+        onNone: () =>
+          Effect.fail(
+            new UnpackFailed({
+              asset: executablePackage,
+              cause: 'the package holds no package/loom',
+            }),
+          ),
+        onSome: (file) =>
+          Effect.tryPromise({
+            try: () => file.bytes(),
+            catch: (cause) => new UnpackFailed({ asset: executablePackage, cause }),
+          }),
+      }),
+    ),
+  )
+
+const devOffer: Effect.Effect<Offer, ReleaseUnreachable | ReleaseLacksAsset> = latestDev.pipe(
+  Effect.map((release): Offer => ({
+    version: release.version,
+    executable: bytesAt(release.tarball).pipe(
+      Effect.flatMap((tarball) =>
+        verified(tarball, Option.some(release.integrity), integrityOf, executablePackage),
+      ),
+      Effect.flatMap(unpackedFromPackage),
+    ),
+  })),
+)
+
+const offerOf: (channel: Channel) => Effect.Effect<Offer, ReleaseUnreachable | ReleaseLacksAsset> =
+  Channel.$match({ Public: () => publicOffer, Dev: () => devOffer })
 
 class ReplaceFailed extends Data.TaggedError('ReplaceFailed')<{
   readonly path: string
@@ -748,55 +904,88 @@ const replaceExecutable = (bytes: Uint8Array): Effect.Effect<void, ReplaceFailed
   }).pipe(Effect.tapError(() => Effect.sync(() => rmSync(partial, { force: true }))))
 }
 
-const upgradeStandalone = Effect.gen(function* () {
-  const release = yield* latestRelease
-  const latest = release.tag_name.replace(/^v/, '')
-  if (!Order.isGreaterThan(versionOrder)(latest, loomVersion))
-    return yield* Console.log(
-      `\n   ${teal('✓')} Loom ${loomVersion} is up to date; the latest release is ${latest}\n`,
-    )
-  const archive = yield* assetUrl(release, assetName).pipe(Effect.flatMap(bytesAt))
-  const sums = yield* assetUrl(release, 'SHA256SUMS').pipe(
-    Effect.flatMap(bytesAt),
-    Effect.map((bytes) => new TextDecoder().decode(bytes)),
-  )
-  yield* verified(archive, sums, assetName).pipe(
-    Effect.flatMap(unpacked),
-    Effect.flatMap(replaceExecutable),
-  )
-  yield* Console.log(
-    `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${latest}\n` +
-      `   ${dim('run `loom update --all` in each workspace to bring its services along')}\n`,
-  )
+const servicesUpdate = Channel.$match({
+  Public: () => 'loom update --all',
+  Dev: () => `npm_config_registry=${devRegistry} loom update --all`,
 })
 
-const upgrade = Effect.gen(function* () {
-  const command = installerUpgrade(thisInstallation)
-  if (Option.isNone(command)) return yield* upgradeStandalone
-  yield* Console.log(
-    `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
-      `   ${command.value}\n\n` +
-      `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
+const releaseKind = Channel.$match({ Public: () => 'release', Dev: () => 'dev release' })
+
+const upgradeStandalone = (channel: Channel) =>
+  Effect.gen(function* () {
+    const offer = yield* offerOf(channel)
+    if (!isNewer(offer.version))
+      return yield* Console.log(
+        `\n   ${teal('✓')} Loom ${loomVersion} is up to date; the latest ${releaseKind(channel)} is ${offer.version}\n`,
+      )
+    yield* offer.executable.pipe(Effect.flatMap(replaceExecutable))
+    yield* Console.log(
+      `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${offer.version}\n` +
+        `   ${dim(`run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+    )
+  })
+
+const unreachableFix = Channel.$match({
+  Public: () => '',
+  Dev: () => "\n      The dev registry answers while `bun run registry` runs in Loom's repository.",
+})
+
+const upgrade = (dev: boolean) => {
+  const channel = channelOf(dev)
+  return Effect.gen(function* () {
+    const command = installerUpgrade(thisInstallation, channel)
+    if (Option.isNone(command)) return yield* upgradeStandalone(channel)
+    yield* Console.log(
+      `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
+        `   ${command.value}\n\n` +
+        `   ${dim(`then run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+    )
+  }).pipe(
+    Effect.catchTags({
+      ReleaseUnreachable: (error) =>
+        refuse(
+          `loom: could not reach the latest ${releaseKind(channel)} at ${error.url} — ${String(error.cause)}${unreachableFix(channel)}`,
+        ),
+      ReleaseLacksAsset: (error) =>
+        refuse(`loom: release ${error.version} carries no ${error.asset}`),
+      ChecksumMismatch: (error) =>
+        refuse(
+          `loom: the checksum of the downloaded ${error.asset} does not match the one its release lists, so Loom was left as it was`,
+        ),
+      UnpackFailed: (error) =>
+        refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
+      ReplaceFailed: (error) =>
+        refuse(
+          `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
+            '      Run the install script again, or move Loom somewhere you can write to.',
+        ),
+    }),
   )
-}).pipe(
-  Effect.catchTags({
-    ReleaseUnreachable: (error) =>
-      refuse(`loom: could not reach the latest release at ${error.url} — ${String(error.cause)}`),
-    ReleaseLacksAsset: (error) =>
-      refuse(`loom: release ${error.version} carries no ${error.asset}`),
-    ChecksumMismatch: (error) =>
-      refuse(
-        `loom: the checksum of the downloaded ${error.asset} does not match the release's list, so Loom was left as it was`,
-      ),
-    UnpackFailed: (error) =>
-      refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
-    ReplaceFailed: (error) =>
-      refuse(
-        `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
-          '      Run the install script again, or move Loom somewhere you can write to.',
-      ),
-  }),
+}
+
+const noticeWait = '300 millis'
+
+const newerDevRelease: Effect.Effect<Option.Option<string>> = latestDev.pipe(
+  Effect.map(({ version }) => Option.filter(Option.some(version), isNewer)),
+  Effect.orElseSucceed(() => Option.none<string>()),
+  Effect.timeoutOption(noticeWait),
+  Effect.map(Option.flatten),
 )
+
+const noticed = devBuild && !['upgrade', 'doctor'].includes(process.argv[2] ?? '')
+
+const devCheck: Effect.Effect<Option.Option<string>> = noticed
+  ? newerDevRelease
+  : Effect.succeedNone
+
+const devNotice = (newer: Option.Option<string>): Effect.Effect<void> =>
+  Option.match(newer, {
+    onNone: () => Effect.void,
+    onSome: (version) =>
+      Console.error(
+        `\n   ${amber('↑')} dev release ${version} is out, newer than this loom's ${loomVersion}; run \`loom upgrade\`\n`,
+      ),
+  })
 
 const status = Effect.gen(function* () {
   const config = yield* LoomConfig
@@ -898,6 +1087,39 @@ const pathFindings = (looms: ReadonlyArray<string>): ReadonlyArray<Finding> =>
     ],
   })
 
+const devReleaseFinding: Effect.Effect<Finding> = latestDev.pipe(
+  Effect.map(({ version }) =>
+    isNewer(version)
+      ? Finding.Problem({
+          note: `dev release ${version} is out, newer than this loom's ${loomVersion}`,
+          fix: 'loom upgrade',
+        })
+      : Finding.Fine({
+          note: `the registry at ${devRegistry} holds no dev release newer than this loom`,
+        }),
+  ),
+  Effect.catchTags({
+    ReleaseUnreachable: () =>
+      Effect.succeed(
+        Finding.Problem({
+          note: `no dev registry answers at ${devRegistry}, so whether a newer dev release is out cannot be told; start the registry from Loom's repository`,
+          fix: 'bun run registry',
+        }),
+      ),
+    ReleaseLacksAsset: ({ version }) =>
+      Effect.succeed(
+        Finding.Problem({
+          note: `the registry at ${devRegistry} tags dev release ${version} but holds no executable for it; release again from Loom's repository`,
+          fix: 'bun run release-local',
+        }),
+      ),
+  }),
+)
+
+const devFindings: Effect.Effect<ReadonlyArray<Finding>> = devBuild
+  ? devReleaseFinding.pipe(Effect.map((finding) => [finding]))
+  : Effect.succeed([])
+
 const serviceFinding = (id: string, root: string): Finding =>
   Option.match(installedVersion(id, root), {
     onNone: () =>
@@ -985,7 +1207,8 @@ const findingLines = (findings: ReadonlyArray<Finding>): string =>
 
 const doctor = Effect.gen(function* () {
   const dir = process.cwd()
-  const machine = [thisLoomFinding, ...pathFindings(loomsOnPath())]
+  const dev = yield* devFindings
+  const machine = [thisLoomFinding, ...dev, ...pathFindings(loomsOnPath())]
   const workspace = workspaceOf(dir)
   const inWorkspace = yield* Option.match(workspace, {
     onNone: () => Effect.succeed([] as ReadonlyArray<Finding>),
@@ -1369,7 +1592,11 @@ const updateCommand = Command.make(
   ({ names, all }) => update(names, all),
 )
 
-const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
+const upgradeCommand = Command.make(
+  'upgrade',
+  { dev: Flag.Boolean('dev').pipe(Flag.withDefault(false)) },
+  ({ dev }) => upgrade(dev),
+)
 
 const statusCommand = Command.make('status', {}, () => status)
 
@@ -1407,7 +1634,10 @@ const loom = Command.make('loom').pipe(
   ]),
 )
 
-const program = Command.run(loom, { version: loomVersion }).pipe(
+const program = Effect.zip(Command.run(loom, { version: loomVersion }), devCheck, {
+  concurrent: true,
+}).pipe(
+  Effect.flatMap(([, newer]) => devNotice(newer)),
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomSummaries.layer),

@@ -16,6 +16,10 @@ const devPackages: ReadonlyArray<string> = [
   'loom',
 ]
 
+const executablePackage = `loom-${process.platform}-${process.arch}`
+
+const releasedPackages: ReadonlyArray<string> = [...devPackages, executablePackage]
+
 const registry = 'http://localhost:4873'
 
 class CommandFailed extends Data.TaggedError('CommandFailed')<{
@@ -112,8 +116,8 @@ const registryAnswer = (
       }),
   })
 
-const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
-  registryAnswer(`/@athrio%2f${folder}`).pipe(
+const heldVersions = (name: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
+  registryAnswer(`/@athrio%2f${name}`).pipe(
     Effect.flatMap(({ status, body }) =>
       status === 404
         ? Effect.succeed<ReadonlyArray<string>>([])
@@ -121,7 +125,7 @@ const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, Cann
             onNone: () =>
               Effect.fail(
                 new CannotRelease({
-                  reason: `the registry answered ${status} when asked which versions of @athrio/${folder} it holds; its own output says why`,
+                  reason: `the registry answered ${status} when asked which versions of @athrio/${name} it holds; its own output says why`,
                 }),
               ),
             onSome: ({ versions }) => Effect.succeed<ReadonlyArray<string>>(Object.keys(versions)),
@@ -182,6 +186,50 @@ const versioned = (beside: Beside, version: string): Effect.Effect<void, Command
     Effect.andThen(run(['bun', 'install'], beside.checkout)),
   )
 
+const cliFolder = (beside: Beside): string => join(beside.checkout, 'packages', 'loom')
+
+const compiled = (beside: Beside): Effect.Effect<void, CommandFailed> =>
+  run(['bun', 'run', 'compile'], cliFolder(beside)).pipe(
+    Effect.andThen(
+      run(
+        ['bun', 'test', './smoke/binary.smoke.ts', './smoke/install.smoke.ts'],
+        cliFolder(beside),
+      ),
+    ),
+  )
+
+const executablePacked = (
+  beside: Beside,
+  version: string,
+): Effect.Effect<void, CannotRelease | CommandFailed, FileSystem.FileSystem> => {
+  const folder = join(beside.folder, executablePackage)
+  const manifest = {
+    name: `@athrio/${executablePackage}`,
+    version,
+    description: "Loom's standalone executable for one platform, from a dev release.",
+    license: 'MIT',
+    os: [process.platform],
+    cpu: [process.arch],
+    files: ['loom'],
+  }
+  const written = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.makeDirectory(folder)
+    yield* fs.copyFile(join(cliFolder(beside), 'build', 'loom'), join(folder, 'loom'))
+    yield* fs.writeFileString(
+      join(folder, 'package.json'),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    )
+  })
+  return written.pipe(
+    Effect.mapError(
+      () =>
+        new CannotRelease({ reason: `the executable's package could not be written to ${folder}` }),
+    ),
+    Effect.andThen(run(['bun', 'pm', 'pack', '--destination', beside.packs], folder)),
+  )
+}
+
 const account = { name: 'loom-dev', password: 'loom-dev' }
 
 const SignedInSchema = Schema.Struct({ token: Schema.String })
@@ -236,14 +284,14 @@ const packed = (beside: Beside, folder: string): Effect.Effect<void, CommandFail
 
 const published = (
   beside: Beside,
-  folder: string,
+  name: string,
   version: string,
 ): Effect.Effect<void, CommandFailed> =>
   run(
     [
       'npm',
       'publish',
-      join(beside.packs, `athrio-${folder}-${version}.tgz`),
+      join(beside.packs, `athrio-${name}-${version}.tgz`),
       '--tag=dev',
       `--registry=${registry}`,
       `--@athrio:registry=${registry}`,
@@ -253,13 +301,18 @@ const published = (
     beside.folder,
   )
 
+const loomUpgraded: Effect.Effect<void, CommandFailed> = run(
+  ['loom', 'upgrade', '--dev'],
+  workspace,
+)
+
 const release = Effect.gen(function* () {
   const config = yield* LoomConfig
   yield* committed
   const commit = yield* commitOf(Option.getOrElse(named, () => 'HEAD'))
-  const held = yield* Effect.forEach(devPackages, heldVersions)
+  const held = yield* Effect.forEach(releasedPackages, heldVersions)
   const token = yield* signedIn
-  return yield* Effect.acquireUseRelease(
+  yield* Effect.acquireUseRelease(
     besideMade,
     (beside) =>
       Effect.gen(function* () {
@@ -270,12 +323,15 @@ const release = Effect.gen(function* () {
         yield* Console.log(`releasing ${version} from ${commit}`)
         yield* versioned(beside, version)
         yield* Effect.forEach(devPackages, (folder) => packed(beside, folder))
+        yield* compiled(beside)
+        yield* executablePacked(beside, version)
         yield* settingsWritten(beside, token)
-        yield* Effect.forEach(devPackages, (folder) => published(beside, folder, version))
+        yield* Effect.forEach(releasedPackages, (name) => published(beside, name, version))
         yield* Console.log(`published ${version} to ${registry}`)
       }),
     besideRemoved,
   )
+  yield* loomUpgraded
 }).pipe(Effect.provide(LoomConfig.layer), Effect.provide(BunServices.layer))
 
 const failWith = (message: string): Effect.Effect<void> =>

@@ -747,17 +747,32 @@ describe('loom cli — installing a trope', () => {
 
 The tests run the CLI from its source, the way the npm package runs it, and a package manager owns the files of an npm install. So `loom upgrade` here must leave every file alone and name the package manager's command instead, without a request to GitHub. The source sits in no `.bun` or `pnpm` folder, so the command it names is npm's. The case points `LOOM_RELEASES` at an address where nothing answers, so a request to it would fail the command and the case with it. The standalone executable replaces itself, and the smoke test of the executable covers that path.
 
+With `--dev` the command names the dev release instead. It asks npm for the package's `dev` tag from the dev registry, whose address the case sets through `LOOM_DEV_REGISTRY` to one where nothing answers. It names that registry for the update of the services too, and still makes no request at all.
+
 =>
+
+const unreachable = 'http://127.0.0.1:9/unreachable'
 
 describe('loom cli — upgrade', () => {
   it(
     'names the package manager\'s command when Loom came from npm',
     () => {
-      const { status, stdout } = loom(['upgrade'], {
-        env: { LOOM_RELEASES: 'http://127.0.0.1:9/unreachable' },
-      })
+      const { status, stdout } = loom(['upgrade'], { env: { LOOM_RELEASES: unreachable } })
       expect(status).toBe(0)
       expect(stdout).toContain('npm install -g @athrio/loom@latest')
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'names the dev release from the dev registry with --dev',
+    () => {
+      const { status, stdout } = loom(['upgrade', '--dev'], {
+        env: { LOOM_RELEASES: unreachable, LOOM_DEV_REGISTRY: unreachable },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain(`npm install -g @athrio/loom@dev --registry ${unreachable}`)
+      expect(stdout).toContain(`npm_config_registry=${unreachable} loom update --all`)
     },
     SPAWN_TIMEOUT,
   )
@@ -787,7 +802,7 @@ const linkedLoom = (root: string, folder: string, copy: string): string => {
 
 The first case puts four other looms on `PATH`, none of them this one. Homebrew's copy sits under its `Cellar`. Bun's sits in a `.bun` folder. A project's sits in the project's `node_modules`, beside a `package.json` and Bun's lockfile. The last is a lone file that no installer owns. The doctor reports that a terminal runs Homebrew's copy instead of this Loom, and names the command that removes each copy. Homebrew and Bun each get their own uninstall, the project gets Bun's removal run in its folder, and the lone file gets `rm`.
 
-The tests run the CLI from its source, which Loom takes for an npm install, as `loom upgrade` does. So in the second case a `loom` that npm installed reads as this one. That `loom` is the only one on `PATH`, beside the `npm` that installed it, which can fetch TypeScript 7 for a project with none. The workspace's store holds its service at this Loom's version, so the doctor finds no problem and exits zero. The third case changes one thing, a service an older release left in the store. The doctor names the version it found and `loom update`, counts one problem, and exits non-zero.
+The tests run the CLI from its source, which Loom takes for an npm install, as `loom upgrade` does. So in the second case a `loom` that npm installed reads as this one. That `loom` is the only one on `PATH`, beside the `npm` that installed it, which can fetch TypeScript 7 for a project with none. The workspace's store holds its service at this Loom's version, so the doctor finds no problem and exits zero. The source carries a public version, so the doctor asks nothing about dev releases either. The third case changes one thing, a service an older release left in the store. The doctor names the version it found and `loom update`, counts one problem, and exits non-zero.
 
 The fourth case takes `npm` away again. The npm package then has no way to fetch TypeScript 7 for a project with none, and the doctor says so and names the install script, which brings a Loom that needs no npm. The last case keeps `npm` away from a workspace that turns no language on. Nothing there can ask for TypeScript 7, so the doctor asks nothing about it and finds no problem.
 
@@ -843,6 +858,7 @@ describe('loom cli — doctor', () => {
       const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
       expect(status).toBe(0)
       expect(stdout).toContain('a terminal runs this loom')
+      expect(stdout).not.toContain('dev release')
       expect(stdout).toContain('no problems found')
       rmSync(root, { recursive: true, force: true })
       rmSync(home, { recursive: true, force: true })

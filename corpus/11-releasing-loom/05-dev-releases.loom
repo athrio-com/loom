@@ -26,6 +26,8 @@ The registry is Verdaccio, a small npm registry made to run on one machine. Verd
 
 The `storage` setting names the folder where Verdaccio keeps each package it holds. The path is relative, and Verdaccio resolves it against the folder of the configuration file, so the packages land beside the configuration.
 
+The `max_body_size` setting is the largest request Verdaccio accepts, and its default of ten megabytes is too small for Loom. A dev release publishes the standalone executable as a package of about thirty megabytes, and npm sends a package to a registry as text, which makes it larger by a third. So the limit here is a hundred megabytes.
+
 The registry keeps one account. npm never publishes without signing in, and Verdaccio turns away a token it did not issue, so the `release-local` tool signs in before it publishes. Under `auth`, `max_users: 1` lets one account register and no second, and that one account is the tool's. Verdaccio keeps the account in the `htpasswd` file, beside the configuration.
 
 The `npmjs` uplink is the public registry. Verdaccio asks the uplink for the packages and the versions it does not hold itself, and keeps a copy of what the uplink sends back.
@@ -34,11 +36,15 @@ The `packages` setting says who may do what, by package name. Any client may ins
 
 Every other package is read through from npm. Its rule names nobody who may publish, and Verdaccio then lets nobody, so nothing outside the `@athrio` scope can be published here.
 
+The executable's package has a rule of its own, at the top of the list, because Verdaccio applies the first rule whose pattern matches a name. The package is named `loom-` followed by a system and an architecture, such as `@athrio/loom-darwin-x64`. npm has never held such a package. A rule with an uplink would still have Verdaccio ask npm about it whenever its own copy was more than two minutes old, and every Loom command on a dev build asks the registry about this package. So its rule names no uplink, and Verdaccio answers from what it holds, without leaving the machine.
+
 The `log` setting keeps Verdaccio's output to warnings and errors.
 
 =>
 
 storage: ./storage
+
+max_body_size: 100mb
 
 auth:
   htpasswd:
@@ -50,6 +56,10 @@ uplinks:
     url: https://registry.npmjs.org/
 
 packages:
+  '@athrio/loom-{darwin,linux,win32}-*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
   '@athrio/*':
     access: $all
     publish: $authenticated
@@ -133,11 +143,13 @@ BunRuntime.runMain(
 
 ## What a dev release publishes
 
-A dev release publishes seven packages. Three are the ones a public release publishes: the command-line tool, the TypeScript service, and the tropes. The other four are the AST, the configuration, the contract of the language services, and the language. npm has never held those four, because a public release bundles them into the packages it does publish. A project that reads a loom in a program of its own imports them directly, so a dev release publishes them as packages.
+A dev release publishes eight packages. Three are the ones a public release publishes to npm: the command-line tool, the TypeScript service, and the tropes. Four more are the AST, the configuration, the contract of the language services, and the language. npm has never held those four, because a public release bundles them into the packages it does publish. A project that reads a loom in a program of its own imports them directly, so a dev release publishes them as packages.
 
-`devPackages` lists the seven in the order they depend on one another, so each package is published after every package it requires. The list names each package by its folder under `packages`, and the package's name on the registry is that folder's name in the `@athrio` scope.
+The eighth package holds Loom's standalone executable, built for the machine that makes the release. A public release attaches an executable for each platform to its release on GitHub. A dev release is made on one machine and used on that machine, so it builds the one executable the machine runs and keeps it in the registry beside the other seven, where `loom upgrade` finds it. The constant `executablePackage` names the package for the platform the executable runs on: `loom-darwin-x64` on an Intel Mac, which the registry holds as `@athrio/loom-darwin-x64`.
 
-The `release-local` tool asks Git for a commit, asks the published `loom` command to set a version, and asks Bun and npm to pack and publish, so it spawns processes through Bun. It reads the workspace's configuration through `LoomConfig`, the service Part V describes. Effect's `Schema` reads the registry's answer, and `Option` carries a version that may not parse. Effect's filesystem service makes the folder the release is built in, and Node's `path` and `url` find the workspace around the tool's own module.
+The list `devPackages` holds the seven source packages in the order they depend on one another, so each package is published after every package it requires. The list names each package by its folder under `packages`, and the package's name on the registry is that folder's name in the `@athrio` scope. The list `releasedPackages` adds the executable's package at the end, since the executable is compiled from the command-line tool.
+
+The `release-local` tool asks Git for a commit, asks the installed `loom` command to set a version and to upgrade itself, and asks Bun and npm to compile, test, pack and publish, so it spawns processes through Bun. It reads the workspace's configuration through `LoomConfig`, the service Part V describes. Effect's `Schema` reads the registry's answer, and `Option` carries a version that may not parse. Effect's filesystem service makes the folder the release is built in and writes the executable's package there. Node's `path` and `url` find the workspace around the tool's own module.
 
 =>
 
@@ -158,6 +170,10 @@ const devPackages: ReadonlyArray<string> = [
   'loom-tropes',
   'loom',
 ]
+
+const executablePackage = `loom-${process.platform}-${process.arch}`
+
+const releasedPackages: ReadonlyArray<string> = [...devPackages, executablePackage]
 
 ## Running a command
 
@@ -236,7 +252,7 @@ The number after `dev` counts the dev releases of that version, and the registry
 
 `heldVersions` asks the registry for every version it holds of one package. The registry answers with a document whose `versions` object has a key for each version. A package the registry has never seen has no such document, the registry answers 404, and the package holds no versions. Any other answer without that document is a fault in the registry, and the tool fails with the status. Read as no versions, such a fault would restart the count at one, over numbers the registry already holds.
 
-`devNumber` reads the number out of one version, when that version is a dev release of the version asked about. `devVersion` gives the number one above the highest that any of the seven packages holds. Counting across all seven keeps a number from being used twice. A release that failed halfway has published its number for some packages, and the next release steps over that number for all of them.
+The function `devNumber` reads the number out of one version, when that version is a dev release of the version asked about. The function `devVersion` gives the number one above the highest that any of the eight packages holds. Counting across all eight keeps a number from being used twice. A release that failed halfway has published its number for some packages, and the next release steps over that number for all of them.
 
 =>
 
@@ -281,8 +297,8 @@ const registryAnswer = (
       }),
   })
 
-const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
-  registryAnswer(`/@athrio%2f${folder}`).pipe(
+const heldVersions = (name: string): Effect.Effect<ReadonlyArray<string>, CannotRelease> =>
+  registryAnswer(`/@athrio%2f${name}`).pipe(
     Effect.flatMap(({ status, body }) =>
       status === 404
         ? Effect.succeed<ReadonlyArray<string>>([])
@@ -290,7 +306,7 @@ const heldVersions = (folder: string): Effect.Effect<ReadonlyArray<string>, Cann
             onNone: () =>
               Effect.fail(
                 new CannotRelease({
-                  reason: `the registry answered ${status} when asked which versions of @athrio/${folder} it holds; its own output says why`,
+                  reason: `the registry answered ${status} when asked which versions of @athrio/${name} it holds; its own output says why`,
                 }),
               ),
             onSome: ({ versions }) => Effect.succeed<ReadonlyArray<string>>(Object.keys(versions)),
@@ -316,7 +332,7 @@ The tool builds the release in a checkout of its own, in a fresh folder under th
 
 `besideRemoved` clears all of it away when the release is done, whether it succeeded or failed. It asks Git to remove the worktree and then removes the folder. A release stopped halfway can leave Git unable to remove the worktree, and the repository would then keep a record of a checkout whose folder is gone. So `besideRemoved` ends by asking Git to prune every such record. No step of the clearing stops the others, since each may find its work already done.
 
-The checkout holds the commit's files, and those carry the last public version. `versioned` gives the checkout the dev release's version the way a public release gets its own. `loom set version` writes the version into the workspace's configuration and tangles the book again, and the `loom` it runs is the published command, the tangler of record. The version then stands in every manifest, and in the code that reads it too, such as the `serviceVersion` at which the command line installs its language services. So the command line of a dev release asks for the services of that same dev release.
+The checkout holds the commit's files, and those carry the last public version. The function `versioned` gives the checkout the dev release's version the way a public release gets its own. The command `loom set version` writes the version into the workspace's configuration and tangles the book again. The `loom` it runs is the one installed on this machine, the tangler of record, which each dev release brings up to date as its last step. The version then stands in every manifest, and in the code that reads it too, such as the `serviceVersion` at which the command line installs its language services. So the command line of a dev release asks for the services of that same dev release, and it knows from its version that it is a dev build.
 
 Only the checkout changes. The working tree keeps the last public version in every manifest, and no commit records the number of a dev release.
 
@@ -365,13 +381,73 @@ const versioned = (beside: Beside, version: string): Effect.Effect<void, Command
     Effect.andThen(run(['bun', 'install'], beside.checkout)),
   )
 
+## An executable compiled from the published bundle
+
+The standalone executable is compiled from the bundle that the command-line package ships, as Part VIII explains. Packing that package runs its `prepack` script, which writes the bundle to `dist/main.js` in the checkout. Once the seven packages are packed, the bundle on disk is therefore the very bundle inside the packed command line. The function `compiled` compiles the executable from it with the package's `compile` script. That script compiles the grammar from the commit's own sources, compiles the bundle and the grammar into `build/loom`, and signs the file ad hoc so that `codesign` accepts it.
+
+A public release runs the executable's smoke test on every platform it ships, and a dev release does the same on the machine that makes it. So `compiled` then runs the smoke test against the new file, before anything is published. The executable carries the dev release's version, so the smoke test also runs the cases that only a dev build can run: the ones where it upgrades from the registry with no flag, reports that it is behind, and tells a person that a newer dev release is out. A case that fails stops the release.
+
+=>
+
+const cliFolder = (beside: Beside): string => join(beside.checkout, 'packages', 'loom')
+
+const compiled = (beside: Beside): Effect.Effect<void, CommandFailed> =>
+  run(['bun', 'run', 'compile'], cliFolder(beside)).pipe(
+    Effect.andThen(
+      run(
+        ['bun', 'test', './smoke/binary.smoke.ts', './smoke/install.smoke.ts'],
+        cliFolder(beside),
+      ),
+    ),
+  )
+
+## The executable as a package
+
+The registry holds packages, so the executable travels as one. The function `executablePacked` makes a folder for the package beside the checkout, copies `build/loom` into it, and writes the package's manifest beside it.
+
+The manifest names the package and gives it the dev release's version. Its `os` and `cpu` fields name the system and the architecture that the executable runs on, so a package manager on any other machine refuses to install it. Its `files` field lists the executable alone. Bun then packs the folder into the folder of packed packages, where the file takes the name that `published` looks for, as each of the other seven does.
+
+=>
+
+const executablePacked = (
+  beside: Beside,
+  version: string,
+): Effect.Effect<void, CannotRelease | CommandFailed, FileSystem.FileSystem> => {
+  const folder = join(beside.folder, executablePackage)
+  const manifest = {
+    name: `@athrio/${executablePackage}`,
+    version,
+    description: "Loom's standalone executable for one platform, from a dev release.",
+    license: 'MIT',
+    os: [process.platform],
+    cpu: [process.arch],
+    files: ['loom'],
+  }
+  const written = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.makeDirectory(folder)
+    yield* fs.copyFile(join(cliFolder(beside), 'build', 'loom'), join(folder, 'loom'))
+    yield* fs.writeFileString(
+      join(folder, 'package.json'),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    )
+  })
+  return written.pipe(
+    Effect.mapError(
+      () =>
+        new CannotRelease({ reason: `the executable's package could not be written to ${folder}` }),
+    ),
+    Effect.andThen(run(['bun', 'pm', 'pack', '--destination', beside.packs], folder)),
+  )
+}
+
 ## Publishing to the local registry alone
 
-A package reaches the registry in two steps, and the tool takes the first step for all seven packages before it takes the second for any.
+A package reaches the registry in two steps, and the tool takes the first step for all eight packages before it takes the second for any.
 
-`packed` has Bun pack one package. `bun pm pack` runs the package's `prepack` script, which builds whatever the package ships built. It then writes the version in place of each `workspace:*`, and leaves the packed file in the folder of packed packages. A build is the step most likely to fail. Packing everything first means a failed build stops the release with nothing published, where publishing as it went would leave some packages at the new number and the rest behind it.
+The first step packs a package. The function `packed` has Bun pack one of the seven source packages. The command `bun pm pack` runs the package's `prepack` script, which builds whatever the package ships built. It then writes the version in place of each `workspace:*`, and leaves the packed file in the folder of packed packages. The executable's package is packed once the executable is compiled and tested. A build or a test is the step most likely to fail. Packing everything first means a failed build stops the release with nothing published, where publishing as it went would leave some packages at the new number and the rest behind it.
 
-`published` has npm publish one packed file.
+The second step publishes the package. The function `published` has npm publish one packed file, named for the package and the version.
 
 The publish must never reach npm's own registry. The person who runs the tool may well be signed in to npm, with the right to publish these very names. Three settings on npm's command line rule that out. `--registry` names the local registry. `--@athrio:registry` names it again for the scope, where npm would otherwise use a registry that a settings file gives the scope. `--userconfig` puts the file `settingsWritten` writes in place of the person's own settings file, so npm holds no token for any other registry while it publishes.
 
@@ -381,7 +457,7 @@ The account's name and password stand in `account`, in plain sight. They guard n
 
 Every dev release goes out under the `dev` tag. npm tags a publish `latest` unless it is told otherwise, and `latest` is the version a plain install resolves to. Under the `dev` tag, a plain install of a package npm holds still gets its last public release through the local registry, and a project gets a dev release only by naming its version.
 
-The four packages npm has never held are the exception. The registry gives the first version of a package the `latest` tag, whatever tag the publish names, and later dev releases leave that tag where it is. So a plain install of one of the four gets its first dev release, and a project names the version for those four as well.
+The four source packages npm has never held are the exception, and so is the executable's package. The registry gives the first version of a package the `latest` tag, whatever tag the publish names, and later dev releases leave that tag where it is. So a plain install of one of those five gets its first dev release, and a project names the version for those as well. The command `loom upgrade` reads the executable's `dev` tag, never its `latest`.
 
 =>
 
@@ -439,14 +515,14 @@ const packed = (beside: Beside, folder: string): Effect.Effect<void, CommandFail
 
 const published = (
   beside: Beside,
-  folder: string,
+  name: string,
   version: string,
 ): Effect.Effect<void, CommandFailed> =>
   run(
     [
       'npm',
       'publish',
-      join(beside.packs, `athrio-${folder}-${version}.tgz`),
+      join(beside.packs, `athrio-${name}-${version}.tgz`),
       '--tag=dev',
       `--registry=${registry}`,
       `--@athrio:registry=${registry}`,
@@ -456,9 +532,24 @@ const published = (
     beside.folder,
   )
 
+## Bringing this machine's loom along
+
+Dev releases are made on this machine and nowhere else, so a release is the one moment when the `loom` installed here falls behind. The release therefore ends by upgrading it. The effect `loomUpgraded` runs `loom upgrade --dev` with the `loom` a terminal runs, the same command a person would type. That `loom` asks the registry for the executable just published, checks the download against the checksum the registry recorded, and puts the new executable in place of itself. So one command installs every dev release, whether a release or a person runs it.
+
+A dev build upgrades from the registry even without the flag. The flag lets the step serve a `loom` from a public release as well, which joins the dev releases when it upgrades. A `loom` that a package manager installed belongs to that package manager, so it names the package manager's command for a person to run, and changes nothing.
+
+The step runs after the release has published all eight packages and cleared its checkout away. When the step fails, the release still stands, and the failure names the command to run again.
+
+=>
+
+const loomUpgraded: Effect.Effect<void, CommandFailed> = run(
+  ['loom', 'upgrade', '--dev'],
+  workspace,
+)
+
 ## The release
 
-The release runs from the commit to the registry in one pass. It resolves the commit and checks the working tree. It asks the registry what it holds and signs in before it builds anything, so a registry that is not running stops the release in a moment. Then it makes the checkout, reads the book's version there, and works out the dev release's number. It sets that version and packs the seven packages. Only then does it write npm's settings and publish the seven, in order. It ends by printing the version a project pins.
+The release runs from the commit to the registry in one pass. It resolves the commit and checks the working tree. It asks the registry what it holds and signs in before it builds anything, so a registry that is not running stops the release in a moment. Then it makes the checkout, reads the book's version there, and works out the dev release's number. It sets that version and packs the seven source packages. It compiles the executable, runs its smoke test, and packs it as the eighth package. Only then does it write npm's settings and publish the eight, in order. It prints the version a project pins, clears the checkout away, and last of all upgrades this machine's `loom` to the release.
 
 A failure at any step stops the release and names itself: a command that failed, or the reason the release cannot be made.
 
@@ -468,9 +559,9 @@ const release = Effect.gen(function* () {
   const config = yield* LoomConfig
   yield* committed
   const commit = yield* commitOf(Option.getOrElse(named, () => 'HEAD'))
-  const held = yield* Effect.forEach(devPackages, heldVersions)
+  const held = yield* Effect.forEach(releasedPackages, heldVersions)
   const token = yield* signedIn
-  return yield* Effect.acquireUseRelease(
+  yield* Effect.acquireUseRelease(
     besideMade,
     (beside) =>
       Effect.gen(function* () {
@@ -481,12 +572,15 @@ const release = Effect.gen(function* () {
         yield* Console.log(`releasing ${version} from ${commit}`)
         yield* versioned(beside, version)
         yield* Effect.forEach(devPackages, (folder) => packed(beside, folder))
+        yield* compiled(beside)
+        yield* executablePacked(beside, version)
         yield* settingsWritten(beside, token)
-        yield* Effect.forEach(devPackages, (folder) => published(beside, folder, version))
+        yield* Effect.forEach(releasedPackages, (name) => published(beside, name, version))
         yield* Console.log(`published ${version} to ${registry}`)
       }),
     besideRemoved,
   )
+  yield* loomUpgraded
 }).pipe(Effect.provide(LoomConfig.layer), Effect.provide(BunServices.layer))
 
 const failWith = (message: string): Effect.Effect<void> =>
@@ -529,6 +623,12 @@ The command line of a dev release needs the registry once more, when `loom add` 
 
 ::[A checkout beside the workspace]
 
+::[An executable compiled from the published bundle]
+
+::[The executable as a package]
+
 ::[Publishing to the local registry alone]
+
+::[Bringing this machine's loom along]
 
 ::[The release]

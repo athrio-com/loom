@@ -651,15 +651,28 @@ describe('loom cli — installing a trope', () => {
   )
 })
 
+const unreachable = 'http://127.0.0.1:9/unreachable'
+
 describe('loom cli — upgrade', () => {
   it(
     'names the package manager\'s command when Loom came from npm',
     () => {
-      const { status, stdout } = loom(['upgrade'], {
-        env: { LOOM_RELEASES: 'http://127.0.0.1:9/unreachable' },
-      })
+      const { status, stdout } = loom(['upgrade'], { env: { LOOM_RELEASES: unreachable } })
       expect(status).toBe(0)
       expect(stdout).toContain('npm install -g @athrio/loom@latest')
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'names the dev release from the dev registry with --dev',
+    () => {
+      const { status, stdout } = loom(['upgrade', '--dev'], {
+        env: { LOOM_RELEASES: unreachable, LOOM_DEV_REGISTRY: unreachable },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain(`npm install -g @athrio/loom@dev --registry ${unreachable}`)
+      expect(stdout).toContain(`npm_config_registry=${unreachable} loom update --all`)
     },
     SPAWN_TIMEOUT,
   )
@@ -729,6 +742,7 @@ describe('loom cli — doctor', () => {
       const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
       expect(status).toBe(0)
       expect(stdout).toContain('a terminal runs this loom')
+      expect(stdout).not.toContain('dev release')
       expect(stdout).toContain('no problems found')
       rmSync(root, { recursive: true, force: true })
       rmSync(home, { recursive: true, force: true })

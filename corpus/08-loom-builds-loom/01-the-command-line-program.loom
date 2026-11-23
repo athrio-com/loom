@@ -699,11 +699,31 @@ const quoted = (path: string): string => `"${path}"`
 
 ## Upgrading Loom itself
 
-`loom upgrade` replaces the installed Loom with its latest release. Who installed this Loom decides how.
+The command `loom upgrade` replaces the installed Loom with its latest release. Which releases count, and who installed this Loom, decide how.
 
-An installer that owns Loom's files upgrades them too, so the command leaves those files alone and names the installer's own command instead. `installerUpgrade` is that command for each installation. Homebrew upgrades its own package. npm, Bun and pnpm install the latest release for the whole machine, over the one they installed. A project's package manager installs the latest release into the project, from the project's folder. Neither the standalone executable nor a file no installer owns has an installer behind it, so neither has such a command.
+Loom has two lines of releases, and a channel names each line. The public channel holds the releases on npm and on GitHub, which anyone can install. The dev channel holds the dev releases that Part XI describes. A dev release is a build that one machine publishes to a registry running on that same machine, at `http://localhost:4873`, for that machine alone. Its version carries a prerelease, as `0.0.21-dev.4` does, so this Loom knows from its own version which line it belongs to. A dev build reads the dev channel. The `--dev` flag puts a public build on the dev channel too, for the one upgrade that moves it onto that line. The variable `LOOM_DEV_REGISTRY` overrides the dev registry's address, which is how a test serves a registry of its own.
 
 {{ version = ${version} }}
+
+=>
+
+const loomVersion = '::[version]'
+
+type Channel = Data.TaggedEnum<{
+  Public: {}
+  Dev: {}
+}>
+const Channel = Data.taggedEnum<Channel>()
+
+const devBuild = loomVersion.includes('-dev.')
+
+const channelOf = (dev: boolean): Channel => (dev || devBuild ? Channel.Dev() : Channel.Public())
+
+const devRegistry = (process.env.LOOM_DEV_REGISTRY ?? 'http://localhost:4873').replace(/\/$/, '')
+
+~
+
+An installer that owns Loom's files upgrades them too, so the command leaves those files alone and names the installer's own command instead. The function `installerUpgrade` gives that command for each installation. Homebrew upgrades its own package. npm, Bun and pnpm install the channel's latest release for the whole machine, over the one they installed. A project's package manager installs it into the project, from the project's folder. The command names the package as `loomPackage` spells it for the channel. On the public channel that is the package's `latest` tag. On the dev channel it is the `dev` tag, fetched from the dev registry, where a dev build came from. Neither the standalone executable nor a file no installer owns has an installer behind it, so neither has such a command.
 
 =>
 
@@ -714,28 +734,77 @@ const projectCommands: Record<ProjectManager, { readonly add: string; readonly r
   yarn: { add: 'yarn add', remove: 'yarn remove' },
 }
 
-const installerUpgrade = Installation.$match({
-  Executable: () => Option.none<string>(),
-  Unowned: () => Option.none<string>(),
-  Homebrew: () => Option.some('brew upgrade loom'),
-  Npm: () => Option.some('npm install -g @athrio/loom@latest'),
-  Bun: () => Option.some('bun add -g @athrio/loom@latest'),
-  Pnpm: () => Option.some('pnpm add -g @athrio/loom@latest'),
-  Project: ({ root, manager }) =>
-    Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} @athrio/loom@latest`),
+const loomPackage = Channel.$match({
+  Public: () => '@athrio/loom@latest',
+  Dev: () => `@athrio/loom@dev --registry ${devRegistry}`,
 })
+
+const installerUpgrade = (installation: Installation, channel: Channel): Option.Option<string> =>
+  Installation.$match(installation, {
+    Executable: () => Option.none(),
+    Unowned: () => Option.none(),
+    Homebrew: () => Option.some('brew upgrade loom'),
+    Npm: () => Option.some(`npm install -g ${loomPackage(channel)}`),
+    Bun: () => Option.some(`bun add -g ${loomPackage(channel)}`),
+    Pnpm: () => Option.some(`pnpm add -g ${loomPackage(channel)}`),
+    Project: ({ root, manager }) =>
+      Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} ${loomPackage(channel)}`),
+  })
 
 ~
 
-The standalone executable replaces itself instead. Every release of Loom on GitHub carries a gzipped executable for each platform Loom builds for, named `loom-<system>-<architecture>.gz`. Beside them sits `SHA256SUMS`, a list of the SHA-256 checksum of each file. The command asks GitHub's API for the latest release and reads the part of its answer that `ReleaseSchema` describes: the release's tag, and the name and address of each file it carries. `LOOM_RELEASES` overrides the address the command asks, which is how a test serves a release of its own.
+The standalone executable replaces itself instead, with the latest release on its channel. It installs that release only when the release is newer than this Loom, so an upgrade never moves Loom back to an older version, on either channel.
 
-The tag is the version with a `v` in front. `versionOrder` compares two versions number by number, so `0.0.10` comes after `0.0.9`. A release no newer than this Loom leaves the executable as it is, and the command says so.
+Newer means what semantic versioning says it means. A version is three numbers, such as `0.0.21`, and may carry a prerelease after a hyphen, such as `-dev.4`. The numbers compare first, one by one, so `0.0.10` comes after `0.0.9`. When the numbers are equal, a prerelease comes before the release it leads up to. So `0.0.21-dev.4` comes after `0.0.20` and before `0.0.21`. Two prereleases of one version compare by their dot-separated parts, which semantic versioning calls identifiers. An identifier made only of digits compares as a number, so `dev.10` comes after `dev.9`, and it comes before any identifier that holds a letter.
+
+The function `precedenceOf` turns a version into the three things `versionOrder` compares, in order: the numbers, a mark that is `1` for a release and `0` for a prerelease, and the identifiers. The function `identifierOf` gives each identifier a kind, `0` for digits and `1` otherwise, so that digits come first. The function `isNewer` asks whether a version comes after this Loom's own.
 
 =>
 
-const loomVersion = '::[version]'
+type Identifier = readonly [kind: number, number: number, text: string]
 
-const releases = process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
+type Precedence = readonly [
+  numbers: ReadonlyArray<number>,
+  release: number,
+  identifiers: ReadonlyArray<Identifier>,
+]
+
+const identifierOf = (identifier: string): Identifier =>
+  /^\d+$/.test(identifier) ? [0, Number(identifier), ''] : [1, 0, identifier]
+
+const precedenceOf = (version: string): Precedence => {
+  const [numbers = '', ...prerelease] = version.split('-')
+  const identifiers = prerelease
+    .join('-')
+    .split('.')
+    .filter((identifier) => identifier !== '')
+  return [
+    numbers.split('.').map(Number),
+    identifiers.length === 0 ? 1 : 0,
+    identifiers.map(identifierOf),
+  ]
+}
+
+const versionOrder: Order.Order<string> = Order.mapInput(
+  Order.Tuple([
+    Order.Array(Order.Number),
+    Order.Number,
+    Order.Array(Order.Tuple([Order.Number, Order.Number, Order.String])),
+  ]),
+  precedenceOf,
+)
+
+const isNewer = (version: string): boolean =>
+  Order.isGreaterThan(versionOrder)(version, loomVersion)
+
+~
+
+On the public channel the releases live on GitHub. Every release carries a gzipped executable for each platform Loom builds for, named `loom-<system>-<architecture>.gz`. Beside them sits `SHA256SUMS`, a list of the SHA-256 checksum of each file. The command asks GitHub's API for the latest release and reads the part of its answer that `ReleaseSchema` describes: the release's tag, and the name and address of each file it carries. The tag is the version with a `v` in front. The variable `LOOM_RELEASES` overrides the address the command asks, which is how a test serves a release of its own.
+
+=>
+
+const releases =
+  process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
 
 const ReleaseSchema = Schema.Struct({
   tag_name: Schema.String,
@@ -744,14 +813,9 @@ const ReleaseSchema = Schema.Struct({
 
 type Release = typeof ReleaseSchema.Type
 
-const versionOrder: Order.Order<string> = Order.mapInput(
-  Order.Array(Order.Number),
-  (version: string) => version.split('.').map(Number),
-)
-
 ~
 
-Every request the command makes can fail. The network may be down, GitHub may answer with an error, or the answer may not be a release. Each of these fails with `ReleaseUnreachable`, which names the address that failed and why. `fetched` makes a request and fails unless the answer is a success. `latestRelease` decodes the latest release, and `bytesAt` reads a whole file.
+Every request the command makes can fail. The network may be down, a server may answer with an error, or the answer may not be what the command expects. Each of these fails with `ReleaseUnreachable`, which names the address that failed and why. The function `fetched` makes a request and fails unless the answer is a success. The function `decodedAt` reads an answer as JSON and decodes it with the decoder a caller gives. The effect `latestRelease` decodes the latest release on GitHub with it, and the function `bytesAt` reads a whole file.
 
 =>
 
@@ -772,17 +836,26 @@ const fetched = (url: string): Effect.Effect<Response, ReleaseUnreachable> =>
     ),
   )
 
-const latestRelease: Effect.Effect<Release, ReleaseUnreachable> = Effect.gen(function* () {
-  const url = `${releases}/latest`
-  const response = yield* fetched(url)
-  const body = yield* Effect.tryPromise({
-    try: () => response.json(),
-    catch: (cause) => new ReleaseUnreachable({ url, cause }),
-  })
-  return yield* Schema.decodeUnknownEffect(ReleaseSchema)(body).pipe(
-    Effect.mapError((cause) => new ReleaseUnreachable({ url, cause })),
+const decodedAt = <A>(
+  url: string,
+  decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
+): Effect.Effect<A, ReleaseUnreachable> =>
+  fetched(url).pipe(
+    Effect.flatMap((response) =>
+      Effect.tryPromise({
+        try: () => response.json(),
+        catch: (cause) => new ReleaseUnreachable({ url, cause }),
+      }),
+    ),
+    Effect.flatMap((body) =>
+      decode(body).pipe(Effect.mapError((cause) => new ReleaseUnreachable({ url, cause }))),
+    ),
   )
-})
+
+const latestRelease: Effect.Effect<Release, ReleaseUnreachable> = decodedAt(
+  `${releases}/latest`,
+  Schema.decodeUnknownEffect(ReleaseSchema),
+)
 
 const bytesAt = (url: string): Effect.Effect<Uint8Array, ReleaseUnreachable> =>
   fetched(url).pipe(
@@ -796,9 +869,9 @@ const bytesAt = (url: string): Effect.Effect<Uint8Array, ReleaseUnreachable> =>
 
 ~
 
-`executableName` is the name of the executable this platform needs, with `.exe` on Windows, and `assetName` is that name gzipped, the file the release carries. A release that lacks it, or lacks the list of checksums, fails with `ReleaseLacksAsset`.
+The constant `executableName` is the name of the executable this platform needs, with `.exe` on Windows, and `assetName` is that name gzipped, the file the release carries. A release that lacks it, or lacks the list of checksums, fails with `ReleaseLacksAsset`.
 
-The command checks the download before it writes a byte. It computes the file's SHA-256 checksum and looks it up in the list, where `listedChecksum` finds the line that names the file. A file whose checksum differs from the one listed fails with `ChecksumMismatch`, and the executable stays as it was. The list comes from the same release as the file, so the check catches a download that was cut short or corrupted on the way, but it cannot prove who built the file. That proof needs a signature, which Loom's releases do not carry yet.
+The command checks the download before it writes a byte. It computes the file's checksum and compares it with the checksum the release lists for the file. The function `verified` takes that listed checksum, when the release lists one, and the function that computes the same kind of checksum from the file. A file whose checksum differs from the one listed fails with `ChecksumMismatch`, and the executable stays as it was. On GitHub the list is `SHA256SUMS`, where `listedChecksum` finds the line that names the file, and `sha256Of` computes a file's SHA-256 checksum in the list's hexadecimal form. The list comes from the same release as the file, so the check catches a download that was cut short or corrupted on the way, but it cannot prove who built the file. That proof needs a signature, which Loom's releases do not carry yet.
 
 =>
 
@@ -834,12 +907,15 @@ const listedChecksum = (sums: string, asset: string): Option.Option<string> =>
     Option.flatMap((fields) => Option.fromNullishOr(fields[0])),
   )
 
+const sha256Of = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
 const verified = (
   bytes: Uint8Array,
-  sums: string,
+  listed: Option.Option<string>,
+  checksumOf: (bytes: Uint8Array) => string,
   asset: string,
 ): Effect.Effect<Uint8Array, ChecksumMismatch> =>
-  Option.contains(listedChecksum(sums, asset), createHash('sha256').update(bytes).digest('hex'))
+  Option.contains(listed, checksumOf(bytes))
     ? Effect.succeed(bytes)
     : Effect.fail(new ChecksumMismatch({ asset }))
 
@@ -859,6 +935,122 @@ const unpacked = (archive: Uint8Array): Effect.Effect<Uint8Array, UnpackFailed> 
     try: () => new Uint8Array(gunzipSync(archive)),
     catch: (cause) => new UnpackFailed({ asset: assetName, cause }),
   })
+
+~
+
+A release is then an offer: the version it carries, and the steps that download its executable, check it and unpack it. The steps wait inside the offer, so nothing is downloaded until the command has compared the version with its own and found it newer. The effect `publicOffer` makes the offer from the latest release on GitHub.
+
+=>
+
+type Offer = {
+  readonly version: string
+  readonly executable: Effect.Effect<
+    Uint8Array,
+    ReleaseUnreachable | ReleaseLacksAsset | ChecksumMismatch | UnpackFailed
+  >
+}
+
+const publicOffer: Effect.Effect<Offer, ReleaseUnreachable> = latestRelease.pipe(
+  Effect.map((release): Offer => ({
+    version: release.tag_name.replace(/^v/, ''),
+    executable: Effect.gen(function* () {
+      const archive = yield* assetUrl(release, assetName).pipe(Effect.flatMap(bytesAt))
+      const sums = yield* assetUrl(release, 'SHA256SUMS').pipe(
+        Effect.flatMap(bytesAt),
+        Effect.map((bytes) => new TextDecoder().decode(bytes)),
+      )
+      const checked = yield* verified(archive, listedChecksum(sums, assetName), sha256Of, assetName)
+      return yield* unpacked(checked)
+    }),
+  })),
+)
+
+~
+
+On the dev channel the executable is a package in the dev registry, which each dev release publishes beside Loom's other packages. The constant `executablePackage` names the package for this platform, `@athrio/loom-darwin-x64` on an Intel Mac. The registry describes a package in one JSON document, and `DevPackageSchema` reads the part of it the command needs. The document's `dist-tags` say which version the `dev` tag points to. Under `versions`, each version names its tarball, the address of the packed package, and its integrity, the checksum the registry recorded when the package was published.
+
+The effect `latestDev` reads that document and gives the dev release that the `dev` tag points to. A registry that tags a version it holds no package for fails with `ReleaseLacksAsset`.
+
+=>
+
+const executablePackage = `@athrio/loom-${process.platform}-${process.arch}`
+
+const DevPackageSchema = Schema.Struct({
+  'dist-tags': Schema.Struct({ dev: Schema.String }),
+  versions: Schema.Record(
+    Schema.String,
+    Schema.Struct({ dist: Schema.Struct({ tarball: Schema.String, integrity: Schema.String }) }),
+  ),
+})
+
+type DevRelease = {
+  readonly version: string
+  readonly tarball: string
+  readonly integrity: string
+}
+
+const latestDev: Effect.Effect<DevRelease, ReleaseUnreachable | ReleaseLacksAsset> = decodedAt(
+  `${devRegistry}/${executablePackage.replace('/', '%2f')}`,
+  Schema.decodeUnknownEffect(DevPackageSchema),
+).pipe(
+  Effect.flatMap((held) => {
+    const version = held['dist-tags'].dev
+    return Option.match(Option.fromNullishOr(held.versions[version]), {
+      onNone: () => Effect.fail(new ReleaseLacksAsset({ version, asset: executablePackage })),
+      onSome: ({ dist }) =>
+        Effect.succeed<DevRelease>({ version, tarball: dist.tarball, integrity: dist.integrity }),
+    })
+  }),
+)
+
+~
+
+A tarball is a tar archive compressed with gzip, the form npm packs every package in, and the dev release's executable is the file `loom` inside it. The command checks the tarball against its integrity before it opens it. An integrity is `sha512-` followed by the tarball's SHA-512 checksum in base64, and `integrityOf` computes the same from the downloaded bytes.
+
+Bun reads the archive, and `unpackedFromPackage` takes the executable out of it from its place in the package, `package/loom`. Only the standalone executable reaches this step, since a Loom that an installer owns names the installer's command instead, and the standalone executable always runs on Bun. A package that holds no executable fails with `UnpackFailed`. The effect `devOffer` makes the offer from the latest dev release, and `offerOf` gives the offer of either channel.
+
+=>
+
+const integrityOf = (bytes: Uint8Array): string =>
+  `sha512-${createHash('sha512').update(bytes).digest('base64')}`
+
+const unpackedFromPackage = (tarball: Uint8Array): Effect.Effect<Uint8Array, UnpackFailed> =>
+  Effect.tryPromise({
+    try: () => new Bun.Archive(tarball).files(),
+    catch: (cause) => new UnpackFailed({ asset: executablePackage, cause }),
+  }).pipe(
+    Effect.flatMap((files) =>
+      Option.match(Option.fromNullishOr(files.get('package/loom')), {
+        onNone: () =>
+          Effect.fail(
+            new UnpackFailed({
+              asset: executablePackage,
+              cause: 'the package holds no package/loom',
+            }),
+          ),
+        onSome: (file) =>
+          Effect.tryPromise({
+            try: () => file.bytes(),
+            catch: (cause) => new UnpackFailed({ asset: executablePackage, cause }),
+          }),
+      }),
+    ),
+  )
+
+const devOffer: Effect.Effect<Offer, ReleaseUnreachable | ReleaseLacksAsset> = latestDev.pipe(
+  Effect.map((release): Offer => ({
+    version: release.version,
+    executable: bytesAt(release.tarball).pipe(
+      Effect.flatMap((tarball) =>
+        verified(tarball, Option.some(release.integrity), integrityOf, executablePackage),
+      ),
+      Effect.flatMap(unpackedFromPackage),
+    ),
+  })),
+)
+
+const offerOf: (channel: Channel) => Effect.Effect<Offer, ReleaseUnreachable | ReleaseLacksAsset> =
+  Channel.$match({ Public: () => publicOffer, Dev: () => devOffer })
 
 ~
 
@@ -894,65 +1086,108 @@ const replaceExecutable = (bytes: Uint8Array): Effect.Effect<void, ReplaceFailed
 
 ~
 
-A new Loom expects every service at its own version, and the store still holds the services the old one installed. So once the executable is replaced, the command names `loom update --all`, which brings a workspace's services in step. Each failure prints what went wrong and exits non-zero.
+A new Loom expects every service at its own version, and the store still holds the services the old one installed. So once the executable is replaced, the command names `loom update --all`, which brings a workspace's services in step. A dev release's services live in the dev registry, and the store's package manager asks the registry that `npm_config_registry` names. So on the dev channel the command names that registry with it, as `servicesUpdate` spells it. The function `releaseKind` names what the channel releases, for the line that reports a Loom already up to date.
 
 =>
 
-const upgradeStandalone = Effect.gen(function* () {
-  const release = yield* latestRelease
-  const latest = release.tag_name.replace(/^v/, '')
-  if (!Order.isGreaterThan(versionOrder)(latest, loomVersion))
-    return yield* Console.log(
-      `\n   ${teal('✓')} Loom ${loomVersion} is up to date; the latest release is ${latest}\n`,
-    )
-  const archive = yield* assetUrl(release, assetName).pipe(Effect.flatMap(bytesAt))
-  const sums = yield* assetUrl(release, 'SHA256SUMS').pipe(
-    Effect.flatMap(bytesAt),
-    Effect.map((bytes) => new TextDecoder().decode(bytes)),
-  )
-  yield* verified(archive, sums, assetName).pipe(
-    Effect.flatMap(unpacked),
-    Effect.flatMap(replaceExecutable),
-  )
-  yield* Console.log(
-    `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${latest}\n` +
-      `   ${dim('run `loom update --all` in each workspace to bring its services along')}\n`,
-  )
+const servicesUpdate = Channel.$match({
+  Public: () => 'loom update --all',
+  Dev: () => `npm_config_registry=${devRegistry} loom update --all`,
 })
+
+const releaseKind = Channel.$match({ Public: () => 'release', Dev: () => 'dev release' })
+
+const upgradeStandalone = (channel: Channel) =>
+  Effect.gen(function* () {
+    const offer = yield* offerOf(channel)
+    if (!isNewer(offer.version))
+      return yield* Console.log(
+        `\n   ${teal('✓')} Loom ${loomVersion} is up to date; the latest ${releaseKind(channel)} is ${offer.version}\n`,
+      )
+    yield* offer.executable.pipe(Effect.flatMap(replaceExecutable))
+    yield* Console.log(
+      `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${offer.version}\n` +
+        `   ${dim(`run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+    )
+  })
 
 ~
 
-`upgrade` lets the installation choose. When `installerUpgrade` names a command, the command prints it, says who installed Loom, and names `loom update --all` as well, since an upgrade through an installer leaves the store just as behind. When it names none, the standalone executable replaces itself.
+The function `upgrade` takes the channel from the `--dev` flag and this Loom's own version, and then lets the installation choose. When `installerUpgrade` names a command, `upgrade` prints it, says who installed Loom, and names the update of the services as well, since an upgrade through an installer leaves the store just as behind. When it names none, the standalone executable replaces itself from its channel.
+
+Each failure prints what went wrong and exits non-zero. A dev registry that does not answer is most often one that nobody started, so on the dev channel that failure also names the command that starts it, as `unreachableFix` spells it.
 
 =>
 
-const upgrade = Effect.gen(function* () {
-  const command = installerUpgrade(thisInstallation)
-  if (Option.isNone(command)) return yield* upgradeStandalone
-  yield* Console.log(
-    `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
-      `   ${command.value}\n\n` +
-      `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
+const unreachableFix = Channel.$match({
+  Public: () => '',
+  Dev: () => "\n      The dev registry answers while `bun run registry` runs in Loom's repository.",
+})
+
+const upgrade = (dev: boolean) => {
+  const channel = channelOf(dev)
+  return Effect.gen(function* () {
+    const command = installerUpgrade(thisInstallation, channel)
+    if (Option.isNone(command)) return yield* upgradeStandalone(channel)
+    yield* Console.log(
+      `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
+        `   ${command.value}\n\n` +
+        `   ${dim(`then run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+    )
+  }).pipe(
+    Effect.catchTags({
+      ReleaseUnreachable: (error) =>
+        refuse(
+          `loom: could not reach the latest ${releaseKind(channel)} at ${error.url} — ${String(error.cause)}${unreachableFix(channel)}`,
+        ),
+      ReleaseLacksAsset: (error) =>
+        refuse(`loom: release ${error.version} carries no ${error.asset}`),
+      ChecksumMismatch: (error) =>
+        refuse(
+          `loom: the checksum of the downloaded ${error.asset} does not match the one its release lists, so Loom was left as it was`,
+        ),
+      UnpackFailed: (error) =>
+        refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
+      ReplaceFailed: (error) =>
+        refuse(
+          `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
+            '      Run the install script again, or move Loom somewhere you can write to.',
+        ),
+    }),
   )
-}).pipe(
-  Effect.catchTags({
-    ReleaseUnreachable: (error) =>
-      refuse(`loom: could not reach the latest release at ${error.url} — ${String(error.cause)}`),
-    ReleaseLacksAsset: (error) =>
-      refuse(`loom: release ${error.version} carries no ${error.asset}`),
-    ChecksumMismatch: (error) =>
-      refuse(
-        `loom: the checksum of the downloaded ${error.asset} does not match the release's list, so Loom was left as it was`,
-      ),
-    UnpackFailed: (error) =>
-      refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
-    ReplaceFailed: (error) =>
-      refuse(
-        `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
-          '      Run the install script again, or move Loom somewhere you can write to.',
-      ),
-  }),
+}
+
+## A dev build that falls behind
+
+A dev release upgrades the `loom` of the machine that made it, as its last step. That step can fail, though, and a terminal may run a `loom` the step never reached. So a dev build checks for a newer dev release whenever it runs a command, and says so when it finds one. The check starts with the command and asks the dev registry for the latest dev release. It gives the registry `noticeWait` to answer, so a command that finishes sooner waits at most that long for the check. When a newer dev release is out, the notice prints one line to standard error after the command's own output, and names `loom upgrade`.
+
+A registry that does not answer leaves the notice out, so a dev build runs as before wherever no registry is running. A public build never asks. Neither `loom upgrade` nor `loom doctor` prints the notice, since each reports a newer dev release itself. The language server runs apart from the commands and never checks.
+
+=>
+
+const noticeWait = '300 millis'
+
+const newerDevRelease: Effect.Effect<Option.Option<string>> = latestDev.pipe(
+  Effect.map(({ version }) => Option.filter(Option.some(version), isNewer)),
+  Effect.orElseSucceed(() => Option.none<string>()),
+  Effect.timeoutOption(noticeWait),
+  Effect.map(Option.flatten),
 )
+
+const noticed = devBuild && !['upgrade', 'doctor'].includes(process.argv[2] ?? '')
+
+const devCheck: Effect.Effect<Option.Option<string>> = noticed
+  ? newerDevRelease
+  : Effect.succeedNone
+
+const devNotice = (newer: Option.Option<string>): Effect.Effect<void> =>
+  Option.match(newer, {
+    onNone: () => Effect.void,
+    onSome: (version) =>
+      Console.error(
+        `\n   ${amber('↑')} dev release ${version} is out, newer than this loom's ${loomVersion}; run \`loom upgrade\`\n`,
+      ),
+  })
 
 ## Reporting the workspace
 
@@ -984,7 +1219,7 @@ const status = Effect.gen(function* () {
 
 ## A check-up for Loom
 
-`loom doctor` looks for what goes wrong around Loom rather than inside it, and pairs each problem it finds with the command that fixes it. It asks four questions. Which `loom` does a terminal run, and who installed it? Does any other `loom` wait on `PATH`? Does the store hold each activated language's service at this Loom's version? Can a project with no TypeScript of its own get the TypeScript 7 Loom fetches for it? The first two concern the machine, so the doctor always asks them. The last two concern a workspace, so the doctor asks them only inside one.
+The command `loom doctor` looks for what goes wrong around Loom rather than inside it, and pairs each problem it finds with the command that fixes it. It asks four questions. Which `loom` does a terminal run, and who installed it? Does any other `loom` wait on `PATH`? Does the store hold each activated language's service at this Loom's version? Can a project with no TypeScript of its own get the TypeScript 7 Loom fetches for it? A dev build adds a fifth question: is a newer dev release out? The questions about the terminal's `loom`, the other looms on `PATH` and the dev release concern the machine, so the doctor always asks them. The questions about services and TypeScript concern a workspace, so the doctor asks them only inside one.
 
 Each answer is a `Finding`. A fine finding notes that something is in order. A problem carries its fix, the command a person runs to put it right, and the type admits no problem without one.
 
@@ -1041,7 +1276,7 @@ const isThisLoom = (file: string): boolean =>
 
 ~
 
-The doctor's first finding names this Loom, its version, its file, and who installed it. The findings after it read `PATH`.
+The doctor's first finding names this Loom, its version, its file, and who installed it. On a dev build the finding about the latest dev release comes next. The findings after those read `PATH`.
 
 When the first `loom` on `PATH` is this one, all is well. When it is another, a terminal runs that one instead, and its fix removes it. Every later `loom` that is not this one is a problem too. It is a stale copy, and a change to `PATH` could put it first again. Its fix removes it the same way. `installerRemoval` names the command that removes a copy, and it runs the installer's own uninstall, so the installer forgets the copy as well. A file no installer owns has no uninstall, so its removal deletes the file.
 
@@ -1091,6 +1326,45 @@ const pathFindings = (looms: ReadonlyArray<string>): ReadonlyArray<Finding> =>
         .map((file) => otherLoom(file, `${file} is on PATH too`)),
     ],
   })
+
+~
+
+On a dev build the doctor asks the dev registry for the latest dev release, as the notice does. A newer one is a problem, and `loom upgrade` fixes it. When none is newer, all is well. A registry that does not answer is a problem too, since the doctor then cannot tell, and a dev build installs its language services from that registry as well. Its fix starts the registry, from Loom's repository. A registry that tags a dev release it holds no executable for is a problem that a new dev release fixes. A public build gets none of these findings.
+
+=>
+
+const devReleaseFinding: Effect.Effect<Finding> = latestDev.pipe(
+  Effect.map(({ version }) =>
+    isNewer(version)
+      ? Finding.Problem({
+          note: `dev release ${version} is out, newer than this loom's ${loomVersion}`,
+          fix: 'loom upgrade',
+        })
+      : Finding.Fine({
+          note: `the registry at ${devRegistry} holds no dev release newer than this loom`,
+        }),
+  ),
+  Effect.catchTags({
+    ReleaseUnreachable: () =>
+      Effect.succeed(
+        Finding.Problem({
+          note: `no dev registry answers at ${devRegistry}, so whether a newer dev release is out cannot be told; start the registry from Loom's repository`,
+          fix: 'bun run registry',
+        }),
+      ),
+    ReleaseLacksAsset: ({ version }) =>
+      Effect.succeed(
+        Finding.Problem({
+          note: `the registry at ${devRegistry} tags dev release ${version} but holds no executable for it; release again from Loom's repository`,
+          fix: 'bun run release-local',
+        }),
+      ),
+  }),
+)
+
+const devFindings: Effect.Effect<ReadonlyArray<Finding>> = devBuild
+  ? devReleaseFinding.pipe(Effect.map((finding) => [finding]))
+  : Effect.succeed([])
 
 ~
 
@@ -1199,7 +1473,8 @@ const findingLines = (findings: ReadonlyArray<Finding>): string =>
 
 const doctor = Effect.gen(function* () {
   const dir = process.cwd()
-  const machine = [thisLoomFinding, ...pathFindings(loomsOnPath())]
+  const dev = yield* devFindings
+  const machine = [thisLoomFinding, ...dev, ...pathFindings(loomsOnPath())]
   const workspace = workspaceOf(dir)
   const inWorkspace = yield* Option.match(workspace, {
     onNone: () => Effect.succeed([] as ReadonlyArray<Finding>),
@@ -1618,7 +1893,9 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is seventeen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom review [path]` lists the approved references that have drifted under a path, grouped by the section that changed. With `--json` it prints the list for an agent, and with `--check` it exits non-zero when any has drifted. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is seventeen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom refresh <path>` brings every box of a corpus back in step with the loom it points to. `loom approve <path>` approves references as the sections they point to stand now: the references on one line of a loom, every reference of a loom, or every reference of the looms a folder holds. `loom review [path]` lists the approved references that have drifted under a path, grouped by the section that changed. With `--json` it prints the list for an agent, and with `--check` it exits non-zero when any has drifted. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <name>` and `loom remove <name>` turn a language on and off, or install and remove one of Loom's tropes, and `loom update <name>…` or `loom update --all` brings their packages to this Loom's version. The command `loom upgrade` replaces Loom with the latest release on its channel, or names the installer's command that does, and with `--dev` it puts a public build on the dev channel. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+
+On a dev build the program runs the check for a newer dev release beside the command, and prints its notice once the command is done.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1687,7 +1964,11 @@ const updateCommand = Command.make(
   ({ names, all }) => update(names, all),
 )
 
-const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
+const upgradeCommand = Command.make(
+  'upgrade',
+  { dev: Flag.Boolean('dev').pipe(Flag.withDefault(false)) },
+  ({ dev }) => upgrade(dev),
+)
 
 const statusCommand = Command.make('status', {}, () => status)
 
@@ -1725,7 +2006,10 @@ const loom = Command.make('loom').pipe(
   ]),
 )
 
-const program = Command.run(loom, { version: loomVersion }).pipe(
+const program = Effect.zip(Command.run(loom, { version: loomVersion }), devCheck, {
+  concurrent: true,
+}).pipe(
+  Effect.flatMap(([, newer]) => devNotice(newer)),
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomSummaries.layer),
@@ -1753,7 +2037,7 @@ The program is built on Effect, a functional TypeScript library for composing an
 
 Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
 
-For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
+For `loom upgrade`, `Schema` decodes the release GitHub describes and the package the dev registry describes, `Array` finds a file in a release, `Order` compares two versions, and `node:crypto` computes the checksum of a download. Node's `zlib` module unpacks a release's executable from its gzip, and Bun's own `Bun.Archive`, which needs no import, unpacks a dev release's executable from its package. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
 
 The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
@@ -1867,6 +2151,8 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 ::[Who installed Loom]
 
 ::[Upgrading Loom itself]
+
+::[A dev build that falls behind]
 
 ::[Reporting the workspace]
 
