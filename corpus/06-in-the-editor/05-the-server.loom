@@ -26,6 +26,7 @@ import {
   Effect,
   Exit,
   Layer,
+  Logger,
   ManagedRuntime,
   Match,
   Option,
@@ -69,7 +70,15 @@ import {
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { broke, describe, lineOf, type LoomFailure, type Work } from '#ast/LoomFailure'
+import {
+  broke,
+  describe,
+  failureIn,
+  failureWording,
+  lineOf,
+  type LoomFailure,
+  type Work,
+} from '#ast/LoomFailure'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -96,11 +105,22 @@ The first way is the log. A step of the server's work that breaks must not stop 
 
 The second way is the answer to a request, and the third is a language's package. Each takes the failure as words. The function `inWords` gives an `Error` that carries the line, for a promise that must reject with one.
 
+A step that meets a failure the server goes on after logs the error itself as a warning, as the loader does for a language's package that does not load. The logger `serverLogger` words such a message. It finds the failure with the catalog's function `failureIn` and hands Effect's own logger the failure's line in its place. Every other message goes through unchanged.
+
 =>
 
 const lineFor = (failure: LoomFailure): string => lineOf(describe(failure))
 
 const inWords = (failure: LoomFailure): Error => new Error(lineFor(failure))
+
+const serverLogger = Logger.make((logged: Logger.Options<unknown>) =>
+  Logger.defaultLogger.log(
+    Option.match(failureIn(failureWording)(logged.message), {
+      onNone: () => logged,
+      onSome: (failure) => ({ ...logged, message: [lineFor(failure)] }),
+    }),
+  ),
+)
 
 const told =
   (work: Work, subject: string) =>
@@ -1116,6 +1136,7 @@ const runtime = ManagedRuntime.make(
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(Layer.orDie(Environment)),
     Layer.provideMerge(LoomConfig.layer),
+    Layer.provideMerge(Logger.layer([serverLogger])),
   ),
 )
 

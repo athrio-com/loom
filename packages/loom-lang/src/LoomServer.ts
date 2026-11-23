@@ -6,6 +6,7 @@ import {
   Effect,
   Exit,
   Layer,
+  Logger,
   ManagedRuntime,
   Match,
   Option,
@@ -49,7 +50,15 @@ import {
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { broke, describe, lineOf, type LoomFailure, type Work } from '#ast/LoomFailure'
+import {
+  broke,
+  describe,
+  failureIn,
+  failureWording,
+  lineOf,
+  type LoomFailure,
+  type Work,
+} from '#ast/LoomFailure'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -71,6 +80,15 @@ import { Environment, type Workspace, WorkspaceSource } from './WorkspaceSource'
 const lineFor = (failure: LoomFailure): string => lineOf(describe(failure))
 
 const inWords = (failure: LoomFailure): Error => new Error(lineFor(failure))
+
+const serverLogger = Logger.make((logged: Logger.Options<unknown>) =>
+  Logger.defaultLogger.log(
+    Option.match(failureIn(failureWording)(logged.message), {
+      onNone: () => logged,
+      onSome: (failure) => ({ ...logged, message: [lineFor(failure)] }),
+    }),
+  ),
+)
 
 const told =
   (work: Work, subject: string) =>
@@ -872,6 +890,7 @@ const runtime = ManagedRuntime.make(
     Layer.provideMerge(DocumentSource.layer),
     Layer.provideMerge(Layer.orDie(Environment)),
     Layer.provideMerge(LoomConfig.layer),
+    Layer.provideMerge(Logger.layer([serverLogger])),
   ),
 )
 

@@ -23,7 +23,7 @@ Reading a package waits on files, so Loom reads a workspace's installed tropes o
 
 `installedKinds` reads the kinds of a set of tropes. `loomsIn` lists the looms of one trope, from the `looms` folder in the trope's folder of the package, ordered by name. `LoomCorpusAstBuilder` builds each loom into a module through `fromDisk`, a source that reads the file. `declaredKindsOf` then gathers the kinds the modules declare, over a book of the packages' own looms, so two installed tropes clash as two tropes of one book do.
 
-A package the registry refuses adds no kinds. No loom of the workspace holds the package's text for an editor to mark, so Loom logs the reason as a warning instead.
+A package the registry refuses adds no kinds. No loom of the workspace holds the package's text for an editor to mark, so Loom logs the error `TropeRefused` as a warning instead, with the package's loom and the reason. The chapter "The failure catalog" words it.
 
 =>
 
@@ -59,6 +59,11 @@ const keyFor = (workspace: Location, tropes: ReadonlyArray<string>): string =>
     ...tropes.map((id) => [id, Option.getOrNull(installedTropeVersion(id, workspace))]),
   ])
 
+export class TropeRefused extends Data.TaggedError('TropeRefused')<{
+  readonly module: Location
+  readonly reason: string
+}> {}
+
 export class TropePackages extends Context.Service<TropePackages>()('TropePackages', {
   make: Effect.gen(function* () {
     const config = yield* LoomConfig
@@ -81,7 +86,7 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
             kinds.refusals,
             (refusal) =>
               Effect.logWarning(
-                `loom: the installed trope in ${refusal.module} is refused: ${refusal.reason}`,
+                new TropeRefused({ module: refusal.module, reason: refusal.reason }),
               ),
             { discard: true },
           ),
@@ -130,7 +135,7 @@ From `effect` come the array, option, and order combinators, `Ref` for the kinds
 
 =>
 
-import { Array, Context, Effect, Layer, Option, Order, pipe, Ref } from 'effect'
+import { Array, Context, Data, Effect, Layer, Option, Order, pipe, Ref } from 'effect'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'

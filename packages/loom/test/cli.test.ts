@@ -1546,4 +1546,22 @@ describe('loom cli — a failure told', () => {
     },
     SPAWN_TIMEOUT,
   )
+
+  it(
+    'warns of a settings file that does not read, and goes on',
+    () => {
+      const dir = workspace('corpus: corpus\nprimary: 7\n')
+      const { status, stdout, stderr } = loom(['status'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stderr).toContain(
+        [
+          `loom: Loom could not read ${join(dir, '.loom', 'config.yaml')}.`,
+          '      Expected string | undefined at ["primary"]. Loom goes on with its own defaults.',
+        ].join('\n'),
+      )
+      expect(stdout).toContain('primary')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
 })

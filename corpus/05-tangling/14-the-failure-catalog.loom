@@ -18,7 +18,7 @@ Loom tells a person about a failure in two programs, the command line and the la
 
 The type `Problem` holds what a person reads about one failure. Its `summary` is one sentence that says what went wrong. Its `detail` says why, or what to do, and may be empty. The function `problem` makes one.
 
-A failure often holds a `cause`, which is whatever the system or a package threw. The function `reasonOf` reads a cause as a sentence a person may read. It takes an error's own message, and any other value as text. A cause comes in another program's words and may not end as a sentence, so the function `closed` gives it a full stop when it lacks one.
+A failure often holds a `cause`, which is whatever the system or a package threw. The function `reasonOf` reads a cause as a sentence a person may read. It takes an error's own message, and any other value as text. A cause comes in another program's words and in that program's layout. It may run over several lines, as a parser's message does when it quotes the text it stopped at, and it may not end as a sentence. So the function `firstParagraph` keeps what stands before the first blank line, on one line, without a colon left hanging at its end. The function `closed` then gives it a full stop when it lacks one.
 
 The type `Wording` shapes a table with one case for each failure of a union. A case takes the failure of its own tag and gives that failure's problem. The compiler demands a case for every tag the union has, and refuses a case for a tag the union does not have.
 
@@ -30,8 +30,11 @@ export const problem = (summary: string, detail = ''): Problem => ({ summary, de
 
 const closed = (words: string): string => (/(^|[.!?])$/.test(words) ? words : `${words}.`)
 
+const firstParagraph = (text: string): string =>
+  (text.split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim().replace(/:$/, '')
+
 export const reasonOf = (cause: unknown): string =>
-  closed(cause instanceof Error ? cause.message : String(cause))
+  closed(firstParagraph(cause instanceof Error ? cause.message : String(cause)))
 
 export type Wording<Failure extends { readonly _tag: string }> = {
   readonly [Tag in Failure['_tag']]: (failure: Extract<Failure, { readonly _tag: Tag }>) => Problem
@@ -149,6 +152,72 @@ const keepingWording: Wording<KeepingFailure> = {
     problem(`Loom could not keep the relations of ${workspace}.`, 'Remote storage takes no write.'),
 }
 
+## A warning the run goes on after
+
+Some failures do not end a run. A workspace whose settings file does not read is built with Loom's own defaults. A language whose package does not load goes unchecked, and the other languages load. An installed trope that Loom refuses adds no kinds, and the book is read without them. Each is still a failure of the run, and a person should hear of it.
+
+The step that meets one logs the error itself as a warning, through Effect's logger, and goes on. It writes no words. Six errors are logged this way.
+
+- **The settings file does not read.** The configuration's error `SettingsUnread` holds the `path` of the file and the `cause`.
+- **A language's package is at another version.** The loader's error `PackageStale` holds the `language`, the `packageName`, the version the store `held` and the version this Loom `wanted`. The loader loads the package all the same.
+- **A language's package is not in the store.** The error `PackageMissing` holds the `language` and the `packageName`.
+- **A package exports no service for its language.** The error `PackageWithoutService` holds the same two.
+- **A package does not load.** The error `PackageNotLoaded` holds them and the `cause`.
+- **An installed trope is refused.** The error `TropeRefused` holds the `module`, which is the trope's loom, and the `reason` the registry of kinds gave.
+
+A program's logger then words what was logged. The function `failureIn` reads a log's message and gives the failure it holds, when the message is one of a wording's failures. A program builds its logger on it, with its own wording, and prints the failure where it prints any other. A message that holds no failure is logged as before.
+
+=>
+
+export type Warning =
+  | SettingsUnread
+  | PackageStale
+  | PackageMissing
+  | PackageWithoutService
+  | PackageNotLoaded
+  | TropeRefused
+
+const warningWording: Wording<Warning> = {
+  SettingsUnread: ({ path, cause }) =>
+    problem(
+      `Loom could not read ${path}.`,
+      `${reasonOf(cause)} Loom goes on with its own defaults.`,
+    ),
+  PackageStale: ({ language, packageName, held, wanted }) =>
+    problem(
+      `The store holds ${packageName} at ${held}, and this Loom is ${wanted}.`,
+      `Run \`loom update ${language}\` to bring it along.`,
+    ),
+  PackageMissing: ({ language, packageName }) =>
+    problem(
+      `The language ${language} is activated, and ${packageName} is not installed.`,
+      `Run \`loom update ${language}\` to install it.`,
+    ),
+  PackageWithoutService: ({ language, packageName }) =>
+    problem(`The package ${packageName} exports no language service for ${language}.`),
+  PackageNotLoaded: ({ packageName, cause }) =>
+    problem(`The package ${packageName} could not be loaded.`, reasonOf(cause)),
+  TropeRefused: ({ module, reason }) =>
+    problem(`Loom refuses the installed trope in ${module}.`, reasonOf(reason)),
+}
+
+const isWordedBy =
+  <Failure extends { readonly _tag: string }>(wording: Wording<Failure>) =>
+  (value: unknown): value is Failure =>
+    typeof value === 'object' &&
+    value !== null &&
+    '_tag' in value &&
+    typeof value._tag === 'string' &&
+    Object.keys(wording).includes(value._tag)
+
+export const failureIn =
+  <Failure extends { readonly _tag: string }>(wording: Wording<Failure>) =>
+  (message: unknown): Option.Option<Failure> =>
+    Option.filter(
+      Option.fromNullishOr(Array.isArray(message) ? message[0] : message),
+      isWordedBy(wording),
+    )
+
 ## A mistake in the code of Loom
 
 A defect is a mistake in Loom's own code, a failure no type foresaw: an exception from a library, or a value a schema should never have refused. Effect carries a defect in a cause, not in a type. Each program catches its defects where a piece of its work starts. Each defect becomes the failure `Broke`. So a mistake in the code reaches a person in the catalog's words, as every other failure does.
@@ -204,7 +273,13 @@ A person reads the two parts of a problem as one line. The function `lineOf` joi
 =>
 
 export type LoomFailure =
-  ReadingFailure | WritingFailure | TanglingFailure | PackageFailure | KeepingFailure | Broke
+  | ReadingFailure
+  | WritingFailure
+  | TanglingFailure
+  | PackageFailure
+  | KeepingFailure
+  | Warning
+  | Broke
 
 export const failureWording: Wording<LoomFailure> = {
   ...readingWording,
@@ -212,6 +287,7 @@ export const failureWording: Wording<LoomFailure> = {
   ...tanglingWording,
   ...packageWording,
   ...keepingWording,
+  ...warningWording,
   ...brokeWording,
 }
 
@@ -226,14 +302,14 @@ export const lineOf = ({ summary, detail }: Problem): string =>
 
 A failure shows where the person who can act on it is looking.
 
-The command line has one place, standard error. It prints the problem's summary after its own name, `loom:`, and the detail on the line below. Under a tangle that was refused it lists the diagnostics that refused it. Then it ends with exit code 1. The chapter "The Loom CLI" builds this in its section "Telling a failure".
+The command line has one place, standard error. It prints the problem's summary after its own name, `loom:`, and the detail on the line below. Under a tangle that was refused it lists the diagnostics that refused it. Then it ends with exit code 1. A warning is printed the same way where it is met, and the command goes on. The chapter "The Loom CLI" builds this in its section "Telling a failure".
 
 The language server has four places.
 
 - **The answer to a request.** A workspace that cannot be opened fails the editor's `initialize` request, and the answer carries the failure's line. So the editor hears of a wrong storage key as it connects.
 - **The loom.** A loom that could not be read shows the failure as its one diagnostic. So does a loom read with delimiters Loom cannot use.
 - **A language's package.** A package that Loom loads from the store cannot see this catalog. So a failure that crosses to one crosses as its line, in words. The TypeScript service is handed the reason a TypeScript is missing or was not fetched, and shows it in the looms it checks. Such a package words its own errors as well. The errors of the TypeScript service travel as rejected promises, which other code reads by their `message`, so each of them writes its own.
-- **The log.** The server writes the failure `Broke` to its log, which an editor keeps in a panel of its own, with the whole cause. The server goes on after it, and the author can do nothing about it but report it.
+- **The log.** The server writes the failure `Broke` to its log, which an editor keeps in a panel of its own, with the whole cause. The server goes on after it, and the author can do nothing about it but report it. A warning lands in the log too, as its line.
 
 ## What the command line adds
 
@@ -249,12 +325,20 @@ The catalog takes each error as a type alone, so it loads no module only to name
 
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import type {
+  PackageMissing,
+  PackageNotLoaded,
+  PackageStale,
+  PackageWithoutService,
+} from '@athrio/loom-lang-services/LanguageLoader'
 import type { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import type { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import type { ReadError } from '#ast/LoomCorpusAstBuilder'
 import type { TangleError } from '../LoomCompiler'
 import type { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../LoomServer'
 import type { NotRemoved, NotWritten } from '../LoomTangler'
+import type { TropeRefused } from '../TropePackages'
 import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
 
 ## The failure catalog module [src/ast/LoomFailure.ts]
@@ -275,6 +359,8 @@ import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
 
 ::[Keeping relations]
 
+::[A warning the run goes on after]
+
 ::[A mistake in the code of Loom]
 
 ::[One catalog]
@@ -286,7 +372,7 @@ The tests hold one failure of every kind in the table `samples`. The table is ke
 =>
 
 import { expect, it } from 'bun:test'
-import { Cause, Data, Effect, Match, Option } from 'effect'
+import { Cause, Data, Effect, Logger, Match, Option } from 'effect'
 import type { Position } from '@athrio/loom-ast/LoomNode'
 import {
   type AnchorDelims,
@@ -295,6 +381,13 @@ import {
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
+import { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import {
+  PackageMissing,
+  PackageNotLoaded,
+  PackageStale,
+  PackageWithoutService,
+} from '@athrio/loom-lang-services/LanguageLoader'
 import { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -303,6 +396,7 @@ import {
   Broke,
   broke,
   describe,
+  failureIn,
   failureWording,
   type LoomFailure,
   lineOf,
@@ -312,6 +406,7 @@ import {
 } from '#ast/LoomFailure'
 import { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../src/LoomServer'
 import { NotRemoved, NotWritten } from '../src/LoomTangler'
+import { TropeRefused } from '../src/TropePackages'
 import { RelationsNotKept, StorageTakesNoWrite } from '../src/WorkspaceSource'
 
 const nowhere: Position = { start: { line: 1, offset: 0 }, end: { line: 1, offset: 0 } }
@@ -350,12 +445,36 @@ const samples: {
     cause: new Error('read-only disk'),
   }),
   StorageTakesNoWrite: new StorageTakesNoWrite({ workspace: 'https://example.com/workspace' }),
+  SettingsUnread: new SettingsUnread({
+    path: '/book/.loom/config.yaml',
+    cause: new Error('a flow sequence is not closed'),
+  }),
+  PackageStale: new PackageStale({
+    language: 'typescript',
+    packageName: 'a-package',
+    held: '0.0.1',
+    wanted: '0.0.2',
+  }),
+  PackageMissing: new PackageMissing({ language: 'typescript', packageName: 'a-package' }),
+  PackageWithoutService: new PackageWithoutService({
+    language: 'typescript',
+    packageName: 'a-package',
+  }),
+  PackageNotLoaded: new PackageNotLoaded({
+    language: 'typescript',
+    packageName: 'a-package',
+    cause: new Error('not a module'),
+  }),
+  TropeRefused: new TropeRefused({
+    module: '/book/.loom/tropes/mermaid/looms/mermaid.loom',
+    reason: 'its manifest declares the kind Chapter, which Loom holds',
+  }),
   Broke: new Broke({ work: 'rereading', subject: '', cause: 'no such function' }),
 }
 
 ## Every failure reads as a sentence
 
-A summary is one sentence that opens on a capital and ends on a full stop, with no name of a program before it. A detail ends as a sentence too when it is there. The first case holds the problem of every sample to both. The others read a cause, list and count a tangle's diagnostics, tell a TypeScript that is missing from one that did not load, and join a problem's two parts in one line.
+A summary is one sentence that opens on a capital and ends on a full stop, with no name of a program before it. A detail ends as a sentence too when it is there. The first case holds the problem of every sample to both. The others read a cause, also one that runs over several lines, list and count a tangle's diagnostics, tell a TypeScript that is missing from one that did not load, and join a problem's two parts in one line.
 
 =>
 
@@ -370,6 +489,10 @@ it('reads a cause in its own words', () => {
   expect(reasonOf(new Error('no such file'))).toBe('no such file.')
   expect(reasonOf('the disk is full')).toBe('the disk is full.')
   expect(reasonOf('It stopped!')).toBe('It stopped!')
+  expect(reasonOf('Expected string\n  at ["primary"]')).toBe('Expected string at ["primary"].')
+  expect(reasonOf('A sequence is not closed at line 2:\n\ncorpus: [\n^\n')).toBe(
+    'A sequence is not closed at line 2.',
+  )
   expect(describe(samples.ReadError)).toEqual({
     summary: 'Loom could not read /book/ledger.loom.',
     detail: 'no such file.',
@@ -445,6 +568,38 @@ it('gives a loom that mixes line endings the words of a fault', () => {
   ])
 })
 
+## A warning found in a log
+
+A step logs a warning as the error itself, and a program's logger finds it there with the function `failureIn`. The first case finds a failure in a log's message, and finds none in a message of plain words or in an object the wording does not hold. The second logs a warning through Effect and reads what a logger built on `failureIn` received, as the two programs do.
+
+=>
+
+it('finds the failure a log message holds, and nothing in plain words', () => {
+  const found = failureIn(failureWording)
+  expect(found([samples.PackageMissing])).toEqual(Option.some(samples.PackageMissing))
+  expect(found(['fetching TypeScript'])).toEqual(Option.none())
+  expect(found([{ _tag: 'Unheard' }])).toEqual(Option.none())
+})
+
+it('words a warning that a step logged', async () => {
+  const lines: Array<string> = []
+  const worded = Logger.make((logged: Logger.Options<unknown>) =>
+    Option.match(failureIn(failureWording)(logged.message), {
+      onNone: () => undefined,
+      onSome: (failure) => void lines.push(lineOf(describe(failure))),
+    }),
+  )
+  await Effect.runPromise(
+    Effect.logWarning(samples.PackageStale).pipe(
+      Effect.andThen(Effect.logInfo('fetching TypeScript')),
+      Effect.provide(Logger.layer([worded])),
+    ),
+  )
+  expect(lines).toEqual([
+    'The store holds a-package at 0.0.1, and this Loom is 0.0.2. Run `loom update typescript` to bring it along.',
+  ])
+})
+
 ## A defect becomes a failure
 
 The function `broke` reads the defect at the heart of a cause, and names the work it struck and the subject of that work. The second case holds two kinds of failure a reader of this chapter may take for one: relations that a disk did not keep, and relations that remote storage never takes.
@@ -501,6 +656,8 @@ it('words its own failures and those of the catalog through one matcher', () => 
 ::[Every failure reads as a sentence]
 
 ::[A loom that was not read]
+
+::[A warning found in a log]
 
 ::[A defect becomes a failure]
 

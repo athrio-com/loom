@@ -6,6 +6,7 @@ import {
   Effect,
   Equal,
   FileSystem,
+  Logger,
   Match,
   Option,
   Order,
@@ -39,6 +40,7 @@ import { gunzipSync } from 'node:zlib'
 import { DocumentSource, LoomCompiler, type TangledFile } from '@athrio/loom-lang/LoomCompiler'
 import {
   broke,
+  failureIn,
   failureWording,
   type LoomFailure,
   type Problem,
@@ -1559,6 +1561,15 @@ const ended = <A, R>(command: Effect.Effect<A, CommandFailure, R>): Effect.Effec
     Effect.catch((failure) => tell(failure).pipe(Effect.andThen(exitNonZero))),
   )
 
+const loggedFailure = failureIn(commandWording)
+
+const commandLogger = Logger.make((logged: Logger.Options<unknown>) =>
+  Option.match(loggedFailure(logged.message), {
+    onNone: () => Logger.defaultLogger.log(logged),
+    onSome: (failure) => console.error(shown(failure)),
+  }),
+)
+
 const crashed = <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
   tell(broke('command', '', cause)).pipe(
     Effect.andThen(Console.error(dim(Cause.pretty(cause)))),
@@ -1689,6 +1700,7 @@ const program: Effect.Effect<void, CliError.CliError> = Effect.zip(
   Effect.provide(FileSystemEnvironment),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),
+  Effect.provide(Logger.layer([commandLogger])),
   Effect.catchCauseIf(Cause.hasDies, crashed),
 )
 

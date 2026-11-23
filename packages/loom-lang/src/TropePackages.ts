@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Layer, Option, Order, pipe, Ref } from 'effect'
+import { Array, Context, Data, Effect, Layer, Option, Order, pipe, Ref } from 'effect'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -44,6 +44,11 @@ const keyFor = (workspace: Location, tropes: ReadonlyArray<string>): string =>
     ...tropes.map((id) => [id, Option.getOrNull(installedTropeVersion(id, workspace))]),
   ])
 
+export class TropeRefused extends Data.TaggedError('TropeRefused')<{
+  readonly module: Location
+  readonly reason: string
+}> {}
+
 export class TropePackages extends Context.Service<TropePackages>()('TropePackages', {
   make: Effect.gen(function* () {
     const config = yield* LoomConfig
@@ -66,7 +71,7 @@ export class TropePackages extends Context.Service<TropePackages>()('TropePackag
             kinds.refusals,
             (refusal) =>
               Effect.logWarning(
-                `loom: the installed trope in ${refusal.module} is refused: ${refusal.reason}`,
+                new TropeRefused({ module: refusal.module, reason: refusal.reason }),
               ),
             { discard: true },
           ),

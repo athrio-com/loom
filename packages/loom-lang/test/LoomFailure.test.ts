@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { Cause, Data, Effect, Match, Option } from 'effect'
+import { Cause, Data, Effect, Logger, Match, Option } from 'effect'
 import type { Position } from '@athrio/loom-ast/LoomNode'
 import {
   type AnchorDelims,
@@ -8,6 +8,13 @@ import {
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
+import { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import {
+  PackageMissing,
+  PackageNotLoaded,
+  PackageStale,
+  PackageWithoutService,
+} from '@athrio/loom-lang-services/LanguageLoader'
 import { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -16,6 +23,7 @@ import {
   Broke,
   broke,
   describe,
+  failureIn,
   failureWording,
   type LoomFailure,
   lineOf,
@@ -25,6 +33,7 @@ import {
 } from '#ast/LoomFailure'
 import { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../src/LoomServer'
 import { NotRemoved, NotWritten } from '../src/LoomTangler'
+import { TropeRefused } from '../src/TropePackages'
 import { RelationsNotKept, StorageTakesNoWrite } from '../src/WorkspaceSource'
 
 const nowhere: Position = { start: { line: 1, offset: 0 }, end: { line: 1, offset: 0 } }
@@ -63,6 +72,30 @@ const samples: {
     cause: new Error('read-only disk'),
   }),
   StorageTakesNoWrite: new StorageTakesNoWrite({ workspace: 'https://example.com/workspace' }),
+  SettingsUnread: new SettingsUnread({
+    path: '/book/.loom/config.yaml',
+    cause: new Error('a flow sequence is not closed'),
+  }),
+  PackageStale: new PackageStale({
+    language: 'typescript',
+    packageName: 'a-package',
+    held: '0.0.1',
+    wanted: '0.0.2',
+  }),
+  PackageMissing: new PackageMissing({ language: 'typescript', packageName: 'a-package' }),
+  PackageWithoutService: new PackageWithoutService({
+    language: 'typescript',
+    packageName: 'a-package',
+  }),
+  PackageNotLoaded: new PackageNotLoaded({
+    language: 'typescript',
+    packageName: 'a-package',
+    cause: new Error('not a module'),
+  }),
+  TropeRefused: new TropeRefused({
+    module: '/book/.loom/tropes/mermaid/looms/mermaid.loom',
+    reason: 'its manifest declares the kind Chapter, which Loom holds',
+  }),
   Broke: new Broke({ work: 'rereading', subject: '', cause: 'no such function' }),
 }
 
@@ -77,6 +110,10 @@ it('reads a cause in its own words', () => {
   expect(reasonOf(new Error('no such file'))).toBe('no such file.')
   expect(reasonOf('the disk is full')).toBe('the disk is full.')
   expect(reasonOf('It stopped!')).toBe('It stopped!')
+  expect(reasonOf('Expected string\n  at ["primary"]')).toBe('Expected string at ["primary"].')
+  expect(reasonOf('A sequence is not closed at line 2:\n\ncorpus: [\n^\n')).toBe(
+    'A sequence is not closed at line 2.',
+  )
   expect(describe(samples.ReadError)).toEqual({
     summary: 'Loom could not read /book/ledger.loom.',
     detail: 'no such file.',
@@ -143,6 +180,32 @@ it('gives a loom read with a bad pair of delimiters the line of that failure', (
 it('gives a loom that mixes line endings the words of a fault', () => {
   expect(messagesFrom(held('one\r\ntwo\nthree'))).toEqual([
     'This loom ends its lines in two ways: line 1 with CRLF (Windows) and line 2 with LF (Unix). End every line the same way.',
+  ])
+})
+
+it('finds the failure a log message holds, and nothing in plain words', () => {
+  const found = failureIn(failureWording)
+  expect(found([samples.PackageMissing])).toEqual(Option.some(samples.PackageMissing))
+  expect(found(['fetching TypeScript'])).toEqual(Option.none())
+  expect(found([{ _tag: 'Unheard' }])).toEqual(Option.none())
+})
+
+it('words a warning that a step logged', async () => {
+  const lines: Array<string> = []
+  const worded = Logger.make((logged: Logger.Options<unknown>) =>
+    Option.match(failureIn(failureWording)(logged.message), {
+      onNone: () => undefined,
+      onSome: (failure) => void lines.push(lineOf(describe(failure))),
+    }),
+  )
+  await Effect.runPromise(
+    Effect.logWarning(samples.PackageStale).pipe(
+      Effect.andThen(Effect.logInfo('fetching TypeScript')),
+      Effect.provide(Logger.layer([worded])),
+    ),
+  )
+  expect(lines).toEqual([
+    'The store holds a-package at 0.0.1, and this Loom is 0.0.2. Run `loom update typescript` to bring it along.',
   ])
 })
 

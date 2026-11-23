@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, pipe, Ref, Schema } from 'effect'
+import { Context, Data, Effect, Layer, Option, pipe, Ref, Result, Schema } from 'effect'
 import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
@@ -75,15 +75,19 @@ export const findWorkspace = (dir: string): string | undefined => {
   return parent === dir ? undefined : findWorkspace(parent)
 }
 
-const decodeManifest = Schema.decodeUnknownOption(WorkspaceManifestSchema)
+export class SettingsUnread extends Data.TaggedError('SettingsUnread')<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
 
-const readManifest = (file: string): WorkspaceManifest | undefined => {
-  try {
-    return Option.getOrUndefined(decodeManifest(parseYaml(readFileSync(file, 'utf8'))))
-  } catch {
-    return undefined
-  }
-}
+const decodeManifest = Schema.decodeUnknownResult(WorkspaceManifestSchema)
+
+const readManifest = (file: string): Result.Result<WorkspaceManifest, SettingsUnread> =>
+  pipe(
+    Result.try((): unknown => parseYaml(readFileSync(file, 'utf8'))),
+    Result.flatMap(decodeManifest),
+    Result.mapError((cause) => new SettingsUnread({ path: file, cause })),
+  )
 
 interface KeptManifest {
   readonly stamp: string
@@ -115,7 +119,13 @@ const manifestAt = (kept: KeptManifests, file: string): Effect.Effect<WorkspaceM
                 Option.match({
                   onSome: (entry) => Effect.succeed(entry.manifest),
                   onNone: () =>
-                    Effect.sync(() => readManifest(file)).pipe(
+                    Effect.suspend(() =>
+                      Result.match(readManifest(file), {
+                        onSuccess: (manifest) =>
+                          Effect.succeed<WorkspaceManifest | undefined>(manifest),
+                        onFailure: (unread) => Effect.as(Effect.logWarning(unread), undefined),
+                      }),
+                    ).pipe(
                       Effect.tap((manifest) =>
                         Ref.update(kept, (held) => new Map(held).set(file, { stamp, manifest })),
                       ),

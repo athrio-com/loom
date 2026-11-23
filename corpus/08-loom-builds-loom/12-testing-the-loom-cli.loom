@@ -1626,7 +1626,9 @@ A command that fails prints one problem on standard error and exits non-zero. Th
 
 The next two cases give `loom set` a name that is no variable name, and a value that opens on `=`. Each is told, and the configuration stays as it was written. The next two give `loom update` names together with `--all`, and two names that are not on, and the second of them reads the `loom add` for each name.
 
-The last two cases meet the disk. A path where nothing is fails `tangle` and `weave` with the path named, and the weave writes no file. A sink whose folder cannot be made fails the tangle with the file it could not write. The case blocks the folder by writing a file under the folder's name.
+The two cases after them meet the disk. A path where nothing is fails `tangle` and `weave` with the path named, and the weave writes no file. A sink whose folder cannot be made fails the tangle with the file it could not write. The case blocks the folder by writing a file under the folder's name.
+
+The last case is a warning. A settings file that does not read stops no command. `loom status` names the file on standard error, says that Loom goes on with its own defaults, and exits zero.
 
 =>
 
@@ -1736,6 +1738,24 @@ describe('loom cli — a failure told', () => {
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
       expect(status).toBe(1)
       expect(stderr).toContain(`loom: Loom could not write ${join(dir, 'blocked', 'ledger.ts')}.`)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'warns of a settings file that does not read, and goes on',
+    () => {
+      const dir = workspace('corpus: corpus\nprimary: 7\n')
+      const { status, stdout, stderr } = loom(['status'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stderr).toContain(
+        [
+          `loom: Loom could not read ${join(dir, '.loom', 'config.yaml')}.`,
+          '      Expected string | undefined at ["primary"]. Loom goes on with its own defaults.',
+        ].join('\n'),
+      )
+      expect(stdout).toContain('primary')
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,

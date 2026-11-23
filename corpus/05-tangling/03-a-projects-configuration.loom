@@ -122,25 +122,29 @@ export const findWorkspace = (dir: string): string | undefined => {
 
 ## Reading the manifest
 
-`readManifest` reads the compiled `.loom/config.yaml` and decodes it. It parses the file as YAML and validates the result against `WorkspaceManifestSchema`, yielding the manifest on success. A read failure, a parse failure, or YAML the schema rejects all yield nothing — the resolver then falls back, and the editor never crashes on a broken manifest.
+`readManifest` reads the compiled `.loom/config.yaml` and decodes it. It parses the file as YAML and validates the result against `WorkspaceManifestSchema`, yielding the manifest on success. A file that cannot be read, YAML that does not parse, and YAML the schema rejects all fail with the error `SettingsUnread`, which holds the file's path and the cause. The error writes no words of its own, since the chapter "The failure catalog" words it.
 
 =>
 
-const decodeManifest = Schema.decodeUnknownOption(WorkspaceManifestSchema)
+export class SettingsUnread extends Data.TaggedError('SettingsUnread')<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
 
-const readManifest = (file: string): WorkspaceManifest | undefined => {
-  try {
-    return Option.getOrUndefined(decodeManifest(parseYaml(readFileSync(file, 'utf8'))))
-  } catch {
-    return undefined
-  }
-}
+const decodeManifest = Schema.decodeUnknownResult(WorkspaceManifestSchema)
+
+const readManifest = (file: string): Result.Result<WorkspaceManifest, SettingsUnread> =>
+  pipe(
+    Result.try((): unknown => parseYaml(readFileSync(file, 'utf8'))),
+    Result.flatMap(decodeManifest),
+    Result.mapError((cause) => new SettingsUnread({ path: file, cause })),
+  )
 
 ## Reading a manifest once
 
 A workspace's manifest changes rarely, but it is asked for constantly. The compiler resolves every chapter of a corpus each time it builds one, and the editor builds one on nearly every request. Read and parsed afresh each time, the manifest would be the costliest step in answering a hover.
 
-So `LoomConfig` keeps each manifest it reads, together with a stamp of the file it read. The stamp is the file's modification time and size, which `stampOf` takes from one `stat` of the file. `manifestAt` stats the file again on every request. While the stamp matches the kept one, it returns the kept manifest without reading the file. When the stamp differs, because `loom add`, `loom set` or an editor rewrote the file, it reads and decodes the file afresh and keeps the new manifest in place of the old. A file that no longer exists yields no manifest and keeps nothing.
+So `LoomConfig` keeps each manifest it reads, together with a stamp of the file it read. The stamp is the file's modification time and size, which `stampOf` takes from one `stat` of the file. `manifestAt` stats the file again on every request. While the stamp matches the kept one, it returns the kept manifest without reading the file. When the stamp differs, because `loom add`, `loom set` or an editor rewrote the file, it reads and decodes the file afresh and keeps the new manifest in place of the old. A file that does not read is no reason to stop, so `manifestAt` logs the error `SettingsUnread` as a warning and goes on with no manifest. The resolver then falls back to its defaults, and neither a command nor the editor stops on a broken manifest. It keeps that answer with the stamp too, so one broken file is reported once and not on every request. A file that no longer exists yields no manifest and keeps nothing.
 
 The stamp makes the cache correct wherever Loom runs. The CLI, the tangler's watch and the language server all see a rewritten file at once, and none of them has to be told the file changed.
 
@@ -176,7 +180,13 @@ const manifestAt = (kept: KeptManifests, file: string): Effect.Effect<WorkspaceM
                 Option.match({
                   onSome: (entry) => Effect.succeed(entry.manifest),
                   onNone: () =>
-                    Effect.sync(() => readManifest(file)).pipe(
+                    Effect.suspend(() =>
+                      Result.match(readManifest(file), {
+                        onSuccess: (manifest) =>
+                          Effect.succeed<WorkspaceManifest | undefined>(manifest),
+                        onFailure: (unread) => Effect.as(Effect.logWarning(unread), undefined),
+                      }),
+                    ).pipe(
                       Effect.tap((manifest) =>
                         Ref.update(kept, (held) => new Map(held).set(file, { stamp, manifest })),
                       ),
@@ -331,7 +341,7 @@ Effect supplies `Schema` for every shape, `Option` for a decode that may yield n
 
 =>
 
-import { Context, Effect, Layer, Option, pipe, Ref, Schema } from 'effect'
+import { Context, Data, Effect, Layer, Option, pipe, Ref, Result, Schema } from 'effect'
 import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'

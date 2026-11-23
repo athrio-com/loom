@@ -1,4 +1,4 @@
-import { Array, Cause, Effect, Option, Schema, pipe } from 'effect'
+import { Array, Cause, Data, Effect, Option, Schema, pipe } from 'effect'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
@@ -47,6 +47,29 @@ const serviceAddress = (entry: string, version: Option.Option<string>): string =
     onSome: (installed) => `${pathToFileURL(entry).href}?version=${installed}`,
   })
 
+export class PackageStale extends Data.TaggedError('PackageStale')<{
+  readonly language: string
+  readonly packageName: string
+  readonly held: string
+  readonly wanted: string
+}> {}
+
+export class PackageMissing extends Data.TaggedError('PackageMissing')<{
+  readonly language: string
+  readonly packageName: string
+}> {}
+
+export class PackageWithoutService extends Data.TaggedError('PackageWithoutService')<{
+  readonly language: string
+  readonly packageName: string
+}> {}
+
+export class PackageNotLoaded extends Data.TaggedError('PackageNotLoaded')<{
+  readonly language: string
+  readonly packageName: string
+  readonly cause: unknown
+}> {}
+
 const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
   Option.match(
     Option.filter(installedVersion(id, root), (version) => version !== serviceVersion),
@@ -54,7 +77,12 @@ const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
       onNone: () => Effect.void,
       onSome: (version) =>
         Effect.logWarning(
-          `${servicePackage(id)} ${version} is installed, but this Loom is ${serviceVersion} — run \`loom update ${id}\` to update it`,
+          new PackageStale({
+            language: id,
+            packageName: servicePackage(id),
+            held: version,
+            wanted: serviceVersion,
+          }),
         ),
     },
   )
@@ -65,15 +93,15 @@ const exportedService = (
 ): Effect.Effect<Option.Option<LanguageService>> =>
   isLanguageService(exported) && exported.id === id
     ? Effect.succeed(Option.some(exported))
-    : Effect.logWarning(`${servicePackage(id)} does not export a language service for "${id}"`).pipe(
-        Effect.as(Option.none<LanguageService>()),
-      )
+    : Effect.logWarning(
+        new PackageWithoutService({ language: id, packageName: servicePackage(id) }),
+      ).pipe(Effect.as(Option.none<LanguageService>()))
 
 const importService = (id: string, root: string): Effect.Effect<Option.Option<LanguageService>> =>
   Option.match(serviceManifest(id, root), {
     onNone: () =>
       Effect.logWarning(
-        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom update ${id}\``,
+        new PackageMissing({ language: id, packageName: servicePackage(id) }),
       ).pipe(Effect.as(Option.none<LanguageService>())),
     onSome: (manifest) =>
       Effect.tryPromise(async () => {
@@ -86,7 +114,11 @@ const importService = (id: string, root: string): Effect.Effect<Option.Option<La
         Effect.flatMap((exported) => exportedService(id, exported)),
         Effect.catchCause((cause) =>
           Effect.logWarning(
-            `${servicePackage(id)} could not be loaded — ${Cause.pretty(cause)}`,
+            new PackageNotLoaded({
+              language: id,
+              packageName: servicePackage(id),
+              cause: Cause.squash(cause),
+            }),
           ).pipe(Effect.as(Option.none<LanguageService>())),
         ),
       ),

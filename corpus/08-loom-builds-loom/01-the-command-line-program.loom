@@ -1941,6 +1941,21 @@ const ended = <A, R>(command: Effect.Effect<A, CommandFailure, R>): Effect.Effec
 
 ~
 
+Some failures do not end a command. A workspace whose settings file does not read is built with Loom's own defaults, and a language whose package does not load goes unchecked. The step that meets one logs the error itself as a warning and goes on, as the chapter "The failure catalog" describes. The logger `commandLogger` words what was logged. The catalog's function `failureIn` finds the failure a log's message holds, and the logger prints it on standard error as `tell` prints any failure, without touching the exit code. A message that holds no failure goes to Effect's own logger, as before.
+
+=>
+
+const loggedFailure = failureIn(commandWording)
+
+const commandLogger = Logger.make((logged: Logger.Options<unknown>) =>
+  Option.match(loggedFailure(logged.message), {
+    onNone: () => Logger.defaultLogger.log(logged),
+    onSome: (failure) => console.error(shown(failure)),
+  }),
+)
+
+~
+
 A defect is a mistake in Loom's own code, which no error of a command foresaw: an exception a library threw, or a file that was not where the code took it to be. Effect carries a defect in a cause, not in a type. The function `crashed` turns such a cause into the catalog's failure `Broke` and tells it as any other failure. The person can do nothing about a defect but report it, so `crashed` prints the whole cause beneath the problem, with the place in the code it came from.
 
 =>
@@ -1957,7 +1972,7 @@ The command program is seventeen subcommands. `loom tangle <path>` emits a `.loo
 
 On a dev build the program runs the check for a newer dev release beside the command, and prints its notice once the command is done.
 
-Every command runs through the function `ended`, so the failure of any command is told in one place. The program catches a defect once, with the function `crashed`, after its services are provided. A mistake in the setup of a service is then told the same way as one inside a command. The program states its own type, so the one failure left to it is an error of the command line's parser, which Effect's CLI toolkit reports itself. A command that can fail and does not run through `ended` then does not compile.
+Every command runs through the function `ended`, so the failure of any command is told in one place. The program runs under the logger `commandLogger`, so a warning a step logs is told on standard error as well. The program catches a defect once, with the function `crashed`, after its services are provided. A mistake in the setup of a service is then told the same way as one inside a command. The program states its own type, so the one failure left to it is an error of the command line's parser, which Effect's CLI toolkit reports itself. A command that can fail and does not run through `ended` then does not compile.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -2087,6 +2102,7 @@ const program: Effect.Effect<void, CliError.CliError> = Effect.zip(
   Effect.provide(FileSystemEnvironment),
   Effect.provide(LoomConfig.layer),
   Effect.provide(NodeServices.layer),
+  Effect.provide(Logger.layer([commandLogger])),
   Effect.catchCauseIf(Cause.hasDies, crashed),
 )
 
@@ -2106,7 +2122,7 @@ Node's `path` resolves a workspace directory for `init`. `node:fs` writes the co
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes and the package the dev registry describes, `Array` finds a file in a release, `Order` compares two versions, and `node:crypto` computes the checksum of a download. Node's `zlib` module unpacks a release's executable from its gzip, and Bun's own `Bun.Archive`, which needs no import, unpacks a dev release's executable from its package. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, and the function `broke`, which turns a defect into a failure. From the tangler come the error `NotWritten` and the function `readText`, and Effect's `FileSystem` is what `readText` reads through. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, the function `failureIn`, which finds a failure in a log's message, and the function `broke`, which turns a defect into a failure. Effect's `Logger` makes the logger that words a logged warning. From the tangler come the error `NotWritten` and the function `readText`, and Effect's `FileSystem` is what `readText` reads through. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
 From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` names the registry its dev releases come from. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
@@ -2120,6 +2136,7 @@ import {
   Effect,
   Equal,
   FileSystem,
+  Logger,
   Match,
   Option,
   Order,
@@ -2153,6 +2170,7 @@ import { gunzipSync } from 'node:zlib'
 import { DocumentSource, LoomCompiler, type TangledFile } from '@athrio/loom-lang/LoomCompiler'
 import {
   broke,
+  failureIn,
   failureWording,
   type LoomFailure,
   type Problem,
