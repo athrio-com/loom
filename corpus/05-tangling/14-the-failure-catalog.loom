@@ -18,7 +18,7 @@ Loom tells a person about a failure in two programs, the command line and the la
 
 The type `Problem` holds what a person reads about one failure. Its `summary` is one sentence that says what went wrong. Its `detail` says why, or what to do, and may be empty. The function `problem` makes one.
 
-A failure often holds a `cause`, which is whatever the system or a package threw. The function `reasonOf` reads a cause as a sentence a person may read. It takes an error's own message, and any other value as text. A cause comes in another program's words and in that program's layout. It may run over several lines, as a parser's message does when it quotes the text it stopped at, and it may not end as a sentence. So the function `firstParagraph` keeps what stands before the first blank line, on one line, without a colon left hanging at its end. The function `closed` then gives it a full stop when it lacks one.
+A failure often holds a `cause`, which is whatever the system or a package threw. The function `reasonOf` reads a cause as a sentence a person may read. A cause may itself be a failure of this catalog, as a loom that was not read is when a step dies on it. Such a failure writes no message of its own, so the function `saidBy` takes the line this catalog has for it. Of any other error it takes the error's own message, or the error's name when the message is empty, and it takes any other value as text. A cause comes in another program's words and in that program's layout. It may run over several lines, as a parser's message does when it quotes the text it stopped at, and it may not end as a sentence. So the function `firstParagraph` keeps what stands before the first blank line, on one line, without a colon left hanging at its end. The function `closed` then gives it a full stop when it lacks one.
 
 The type `Wording` shapes a table with one case for each failure of a union. A case takes the failure of its own tag and gives that failure's problem. The compiler demands a case for every tag the union has, and refuses a case for a tag the union does not have.
 
@@ -33,8 +33,12 @@ const closed = (words: string): string => (/(^|[.!?])$/.test(words) ? words : `$
 const firstParagraph = (text: string): string =>
   (text.split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim().replace(/:$/, '')
 
-export const reasonOf = (cause: unknown): string =>
-  closed(firstParagraph(cause instanceof Error ? cause.message : String(cause)))
+const saidBy = (cause: unknown): string => {
+  if (isWordedBy(failureWording)(cause)) return lineOf(describe(cause))
+  return cause instanceof Error ? cause.message || cause.name : String(cause)
+}
+
+export const reasonOf = (cause: unknown): string => closed(firstParagraph(saidBy(cause)))
 
 export type Wording<Failure extends { readonly _tag: string }> = {
   readonly [Tag in Failure['_tag']]: (failure: Extract<Failure, { readonly _tag: Tag }>) => Problem
@@ -67,15 +71,17 @@ const readingWording: Wording<ReadingFailure> = {
 
 ## Writing what Loom makes
 
-Loom writes the files a tangle composes and the lock that records them. It writes a woven corpus, and a loom whose boxes it brought back in step. It removes a file that lost its loom. The disk may refuse any of these, as a folder Loom may not write to does. The tangler's error `NotWritten` holds the `path` Loom could not write and the `cause`. Its error `NotRemoved` holds the same for a file Loom could not remove.
+Loom writes the files a tangle composes and the lock that records them. It writes a woven corpus, and a loom whose boxes it brought back in step. It removes a file that lost its loom. The disk may refuse any of these, as a folder Loom may not write to does. The tangler's error `NotWritten` holds the `path` Loom could not write and the `cause`. Its error `NotRemoved` holds the same for a file Loom could not remove. A command that changes the workspace's settings writes the settings file, and the configuration's error `SettingsNotWritten` holds the same for that file.
 
 =>
 
-export type WritingFailure = NotWritten | NotRemoved
+export type WritingFailure = NotWritten | NotRemoved | SettingsNotWritten
 
 const writingWording: Wording<WritingFailure> = {
   NotWritten: ({ path, cause }) => problem(`Loom could not write ${path}.`, reasonOf(cause)),
   NotRemoved: ({ path, cause }) => problem(`Loom could not remove ${path}.`, reasonOf(cause)),
+  SettingsNotWritten: ({ path, cause }) =>
+    problem(`Loom could not write ${path}.`, reasonOf(cause)),
 }
 
 ## A tangle refused
@@ -253,7 +259,7 @@ const works: { readonly [Each in Work]: (subject: string) => string } = {
   opening: (workspace) => `Something broke while Loom opened the workspace ${workspace}.`,
   warming: (loom) => `Something broke while Loom built the corpus of ${loom} ahead.`,
   projecting: (loom) => `Something broke while Loom prepared ${loom} for the editor.`,
-  forgetting: (loom) => `Something broke while Loom forgot ${loom}, which was deleted.`,
+  forgetting: (loom) => `Something broke while Loom forgot ${loom}.`,
   reprojecting: (loom) => `Something broke while Loom prepared ${loom} for the editor again.`,
   rereading: () => 'Something broke while Loom read the looms that changed on disk.',
   rebuilding: (loom) => `Something broke while Loom rebuilt ${loom} after an edit.`,
@@ -325,7 +331,7 @@ The catalog takes each error as a type alone, so it loads no module only to name
 
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import type { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
 import type {
   PackageMissing,
   PackageNotLoaded,
@@ -381,7 +387,7 @@ import {
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
-import { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
 import {
   PackageMissing,
   PackageNotLoaded,
@@ -421,6 +427,10 @@ const samples: {
   ReservedAnchorDelims: new ReservedAnchorDelims({ marker: '#' }),
   NotWritten: new NotWritten({ path: '/book/out/ledger.ts', cause: new Error('read-only disk') }),
   NotRemoved: new NotRemoved({ path: '/book/out/old.ts', cause: new Error('read-only disk') }),
+  SettingsNotWritten: new SettingsNotWritten({
+    path: '/book/.loom/config.yaml',
+    cause: new Error('read-only disk'),
+  }),
   TangleError: new TangleError({
     entry: '/book/book.loom',
     failures: [
@@ -474,7 +484,7 @@ const samples: {
 
 ## Every failure reads as a sentence
 
-A summary is one sentence that opens on a capital and ends on a full stop, with no name of a program before it. A detail ends as a sentence too when it is there. The first case holds the problem of every sample to both. The others read a cause, also one that runs over several lines, list and count a tangle's diagnostics, tell a TypeScript that is missing from one that did not load, and join a problem's two parts in one line.
+A summary is one sentence that opens on a capital and ends on a full stop, with no name of a program before it. A detail ends as a sentence too when it is there. The first case holds the problem of every sample to both. The others read a cause, also one that runs over several lines and one that is itself a failure of the catalog, list and count a tangle's diagnostics, tell a TypeScript that is missing from one that did not load, and join a problem's two parts in one line.
 
 =>
 
@@ -489,6 +499,8 @@ it('reads a cause in its own words', () => {
   expect(reasonOf(new Error('no such file'))).toBe('no such file.')
   expect(reasonOf('the disk is full')).toBe('the disk is full.')
   expect(reasonOf('It stopped!')).toBe('It stopped!')
+  expect(reasonOf(samples.ReadError)).toBe('Loom could not read /book/ledger.loom. no such file.')
+  expect(reasonOf(new RangeError(''))).toBe('RangeError.')
   expect(reasonOf('Expected string\n  at ["primary"]')).toBe('Expected string at ["primary"].')
   expect(reasonOf('A sequence is not closed at line 2:\n\ncorpus: [\n^\n')).toBe(
     'A sequence is not closed at line 2.',

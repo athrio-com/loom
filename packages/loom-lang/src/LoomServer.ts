@@ -93,12 +93,16 @@ const serverLogger = Logger.make((logged: Logger.Options<unknown>) =>
 const told =
   (work: Work, subject: string) =>
   <E extends LoomFailure>(cause: Cause.Cause<E>): Effect.Effect<void> =>
-    Effect.logError(
-      lineFor(
-        Option.getOrElse(Cause.findErrorOption(cause), (): LoomFailure => broke(work, subject, cause)),
-      ),
-      cause,
-    )
+    Cause.hasInterruptsOnly(cause)
+      ? Effect.void
+      : Effect.logError(
+          lineFor(
+            Option.getOrElse(Cause.findErrorOption(cause), (): LoomFailure =>
+              broke(work, subject, cause),
+            ),
+          ),
+          cause,
+        )
 
 const EditorTsdkSchema = Schema.Struct({
   typescript: Schema.Struct({ tsdk: Schema.String }),
@@ -190,7 +194,7 @@ const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function*
 const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
   Effect.map(fetchedTypeScript, (fetched) => {
     const classic = classicTypeScript(options)
-    return { classic: (folder) => Result.mapError(classic(folder), lineFor), fetched }
+    return { classic: (folder) => Result.mapError(classic(folder), inWords), fetched }
   })
 
 const workspaceFor = (home: string, uri: URI): string =>

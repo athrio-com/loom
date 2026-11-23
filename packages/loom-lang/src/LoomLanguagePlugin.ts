@@ -6,6 +6,7 @@ import type * as ts from 'typescript'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
+import { describe, lineOf } from '#ast/LoomFailure'
 import { DocumentSource, LoomCompiler } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'
@@ -201,7 +202,10 @@ export const loomServicePlugins = (
     const workspaceSettings = yield* WorkspaceSettings
     const source = yield* WorkspaceSource
     const manifest = Option.getOrUndefined(
-      yield* Effect.orDie(workspaceSettings.manifest(workspace)),
+      yield* workspaceSettings.manifest(workspace).pipe(
+        Effect.mapError((failure) => new Error(lineOf(describe(failure)))),
+        Effect.orDie,
+      ),
     )
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}

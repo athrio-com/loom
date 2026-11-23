@@ -2,6 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { spawnSync } from 'node:child_process'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -1542,6 +1543,21 @@ describe('loom cli — a failure told', () => {
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
       expect(status).toBe(1)
       expect(stderr).toContain(`loom: Loom could not write ${join(dir, 'blocked', 'ledger.ts')}.`)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'names the settings file it could not write',
+    () => {
+      const dir = workspace(handWritten)
+      mkdirSync(join(dir, 'corpus'))
+      chmodSync(join(dir, '.loom', 'config.yaml'), 0o444)
+      const { status, stderr } = loom(['set', 'version', '0.0.2'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain(`loom: Loom could not write ${join(dir, '.loom', 'config.yaml')}.`)
+      expect(configText(dir)).toBe(handWritten)
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,

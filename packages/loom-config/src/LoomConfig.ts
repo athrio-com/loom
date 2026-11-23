@@ -80,6 +80,11 @@ export class SettingsUnread extends Data.TaggedError('SettingsUnread')<{
   readonly cause: unknown
 }> {}
 
+export class SettingsNotWritten extends Data.TaggedError('SettingsNotWritten')<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
+
 const decodeManifest = Schema.decodeUnknownResult(WorkspaceManifestSchema)
 
 const readManifest = (file: string): Result.Result<WorkspaceManifest, SettingsUnread> =>
@@ -195,6 +200,20 @@ const resolveFromManifest = (
 const isFolder = (path: string): boolean =>
   statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
 
+const writingSettings = (
+  workspace: string,
+  write: (file: string) => void,
+): Effect.Effect<void, SettingsNotWritten> => {
+  const file = manifestFileOf(workspace)
+  return Effect.try({
+    try: () => {
+      mkdirSync(dirname(file), { recursive: true })
+      write(file)
+    },
+    catch: (cause) => new SettingsNotWritten({ path: file, cause }),
+  })
+}
+
 export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
   make: Effect.gen(function* () {
     const kept: KeptManifests = yield* Ref.make<ReadonlyMap<string, KeptManifest>>(new Map())
@@ -218,18 +237,18 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
           ),
         ),
 
-      materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
-        Effect.sync(() => {
-          const store = resolvePath(workspace, storeDirName)
-          mkdirSync(store, { recursive: true })
-          writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
-        }),
+      materialize: (
+        workspace: string,
+        manifest: WorkspaceManifest,
+      ): Effect.Effect<void, SettingsNotWritten> =>
+        writingSettings(workspace, (file) => writeFileSync(file, stringifyYaml(manifest))),
 
-      edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
-        Effect.sync(() => {
-          const store = resolvePath(workspace, storeDirName)
-          const file = resolvePath(store, manifestName)
-          mkdirSync(store, { recursive: true })
+      edit: (
+        workspace: string,
+        path: ReadonlyArray<string>,
+        value: unknown,
+      ): Effect.Effect<void, SettingsNotWritten> =>
+        writingSettings(workspace, (file) => {
           const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
           document.setIn(path, value)
           writeFileSync(file, document.toString())

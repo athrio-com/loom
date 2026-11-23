@@ -92,7 +92,7 @@ export const loomLanguagePlugin = (
 
 ## Collecting the service plugins
 
-`loomServicePlugins` is the collect-and-register pass for one workspace, the one whose root it is handed. The server runs it once for every workspace it meets, so every loom gets the languages its own workspace activates. Before it loads anything, it installs the host runtime on the global: Effect and the service contract. A loaded service then reads the host's instances rather than bundling its own and missing the capabilities the host provides.
+`loomServicePlugins` is the collect-and-register pass for one workspace, the one whose root it is handed. The server runs it once for every workspace it meets, so every loom gets the languages its own workspace activates. It reads the workspace's manifest for the languages the workspace activates. A manifest the storage refuses at that point stops the pass. The pass dies with the line the failure catalog has for the failure, so the request that asked for the workspace carries the reason. Before it loads anything, it installs the host runtime on the global: Effect and the service contract. A loaded service then reads the host's instances rather than bundling its own and missing the capabilities the host provides.
 
 The pass reads the workspace's active languages from the manifest the `WorkspaceSettings` service answers, and hands them to `loadActive`. The server reads that manifest once already as it starts, and refuses to start when it cannot, so a failure to read it here is a defect rather than a reason to load no services. The loader always adds `LoomLanguage` and `ProseLanguage`, and loads every other id as a `@athrio/loom-service-<id>` package from the workspace's own store. The pass indexes the loaded services in the `LanguageRegistry` and runs each service's `plugins` Effect with the host's capabilities. A language activated but not installed in the store drops with a warning, and the rest load on.
 
@@ -218,7 +218,10 @@ export const loomServicePlugins = (
     const workspaceSettings = yield* WorkspaceSettings
     const source = yield* WorkspaceSource
     const manifest = Option.getOrUndefined(
-      yield* Effect.orDie(workspaceSettings.manifest(workspace)),
+      yield* workspaceSettings.manifest(workspace).pipe(
+        Effect.mapError((failure) => new Error(lineOf(describe(failure)))),
+        Effect.orDie,
+      ),
     )
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
@@ -252,6 +255,7 @@ import type * as ts from 'typescript'
 import { join } from 'node:path'
 import { URI } from 'vscode-uri'
 import { type Source } from '#ast/LoomCorpusAstBuilder'
+import { describe, lineOf } from '#ast/LoomFailure'
 import { DocumentSource, LoomCompiler } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSource } from './WorkspaceSource'

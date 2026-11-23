@@ -20,6 +20,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { spawnSync } from 'node:child_process'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -1626,7 +1627,7 @@ A command that fails prints one problem on standard error and exits non-zero. Th
 
 The next two cases give `loom set` a name that is no variable name, and a value that opens on `=`. Each is told, and the configuration stays as it was written. The next two give `loom update` names together with `--all`, and two names that are not on, and the second of them reads the `loom add` for each name.
 
-The two cases after them meet the disk. A path where nothing is fails `tangle` and `weave` with the path named, and the weave writes no file. A sink whose folder cannot be made fails the tangle with the file it could not write. The case blocks the folder by writing a file under the folder's name.
+The three cases after them meet the disk. A path where nothing is fails `tangle` and `weave` with the path named, and the weave writes no file. A sink whose folder cannot be made fails the tangle with the file it could not write. The case blocks the folder by writing a file under the folder's name. A settings file the disk will not let Loom change fails `loom set` with that file named, and the file stays as it was. The case makes the file read-only.
 
 The last case is a warning. A settings file that does not read stops no command. `loom status` names the file on standard error, says that Loom goes on with its own defaults, and exits zero.
 
@@ -1738,6 +1739,21 @@ describe('loom cli — a failure told', () => {
       const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
       expect(status).toBe(1)
       expect(stderr).toContain(`loom: Loom could not write ${join(dir, 'blocked', 'ledger.ts')}.`)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'names the settings file it could not write',
+    () => {
+      const dir = workspace(handWritten)
+      mkdirSync(join(dir, 'corpus'))
+      chmodSync(join(dir, '.loom', 'config.yaml'), 0o444)
+      const { status, stderr } = loom(['set', 'version', '0.0.2'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain(`loom: Loom could not write ${join(dir, '.loom', 'config.yaml')}.`)
+      expect(configText(dir)).toBe(handWritten)
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,

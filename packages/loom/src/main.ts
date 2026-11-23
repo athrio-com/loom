@@ -25,7 +25,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -57,7 +56,7 @@ import { LoomTangler, NotWritten, readText } from '@athrio/loom-lang/LoomTangler
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
-import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { defaultWidth, LoomConfig, type SettingsNotWritten } from '@athrio/loom-config/LoomConfig'
 import {
   installedTropeVersion,
   installedVersion,
@@ -244,6 +243,9 @@ const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
 const writing = <A>(path: string, write: (path: string) => A): Effect.Effect<A, NotWritten> =>
   Effect.try({ try: () => write(path), catch: (cause) => new NotWritten({ path, cause }) })
 
+const readIfThere = (fs: FileSystem.FileSystem, path: string) =>
+  existsSync(path) ? Effect.map(readText(fs, path), Option.some) : Effect.succeedNone
+
 const format = (path: string, check: boolean) =>
   Effect.gen(function* () {
     const formatter = yield* LoomFormatter
@@ -322,6 +324,7 @@ const init = (dir: Option.Option<string>) =>
       Option.getOrElse(dir, () => '.'),
     )
     const config = yield* LoomConfig
+    const fs = yield* FileSystem.FileSystem
     yield* banner
 
     const configFile = resolvePath(root, '.loom', 'config.yaml')
@@ -365,9 +368,7 @@ const init = (dir: Option.Option<string>) =>
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     const editorconfig = resolvePath(root, '.editorconfig')
-    const current = yield* Effect.sync(() =>
-      existsSync(editorconfig) ? readFileSync(editorconfig, 'utf8') : '',
-    )
+    const current = Option.getOrElse(yield* readIfThere(fs, editorconfig), () => '')
     const block = editorconfigBlock(manifest?.width ?? defaultWidth)
     yield* Option.match(withManagedBlock(current, block), {
       onNone: () => Console.log(`   ${dim(`✓ kept the [*.loom] section in ${editorconfig}`)}\n`),
@@ -385,7 +386,7 @@ const updateEntries = (
   dir: string,
   key: Entries,
   change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
-): Effect.Effect<void> =>
+): Effect.Effect<void, SettingsNotWritten> =>
   Effect.gen(function* () {
     const workspace = workspaceRoot(dir)
     const current = (yield* config.manifest(workspace))?.[key] ?? {}
@@ -1214,18 +1215,18 @@ const embeddedGrammar: Effect.Effect<Option.Option<Readonly<Record<string, strin
 
 const unpackedGrammar = (
   files: Readonly<Record<string, string>>,
-): Effect.Effect<string, never, Scope.Scope> =>
+): Effect.Effect<string, NotWritten, Scope.Scope> =>
   Effect.acquireRelease(
-    Effect.sync(() => mkdtempSync(resolvePath(tmpdir(), 'loom-grammar-'))),
+    writing(tmpdir(), (temporary) => mkdtempSync(resolvePath(temporary, 'loom-grammar-'))),
     (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
   ).pipe(
     Effect.tap((dir) =>
       Effect.forEach(
         Object.entries(files),
         ([path, text]) =>
-          Effect.sync(() => {
-            mkdirSync(dirname(resolvePath(dir, path)), { recursive: true })
-            writeFileSync(resolvePath(dir, path), text)
+          writing(resolvePath(dir, path), (file) => {
+            mkdirSync(dirname(file), { recursive: true })
+            writeFileSync(file, text)
           }),
         { discard: true },
       ),
@@ -1245,18 +1246,20 @@ const workspaceGrammar = (): Option.Option<string> =>
     (manifest) => grammarIn(dirname(manifest)),
   )
 
-const shippedGrammar: Effect.Effect<string, GrammarMissing, Scope.Scope> = embeddedGrammar.pipe(
-  Effect.flatMap(
-    Option.match({
-      onSome: unpackedGrammar,
-      onNone: () =>
-        Option.match(workspaceGrammar(), {
-          onNone: () => Effect.fail(new GrammarMissing()),
-          onSome: (dir) => Effect.succeed(dir),
-        }),
-    }),
-  ),
-)
+const shippedGrammar: Effect.Effect<string, GrammarMissing | NotWritten, Scope.Scope> =
+  embeddedGrammar.pipe(
+    Effect.flatMap(
+      Option.match({
+        onSome: (files): Effect.Effect<string, GrammarMissing | NotWritten, Scope.Scope> =>
+          unpackedGrammar(files),
+        onNone: () =>
+          Option.match(workspaceGrammar(), {
+            onNone: () => Effect.fail(new GrammarMissing()),
+            onSome: (dir) => Effect.succeed(dir),
+          }),
+      }),
+    ),
+  )
 
 class GrammarCompileFailed extends Data.TaggedError('GrammarCompileFailed')<{
   readonly compiler: string
@@ -1288,18 +1291,18 @@ const compileGrammar = (grammar: string, library: string) =>
       ),
     ).pipe(Effect.catchCause(() => Effect.succeed(-1)))
     if (code !== 0) return yield* Effect.fail(new GrammarCompileFailed({ compiler }))
-    yield* Effect.sync(() => renameSync(partial, library))
+    yield* writing(library, (file) => renameSync(partial, file))
   })
 
 const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
-const writeLibrary = (prebuilt: Blob, library: string): Effect.Effect<void> =>
+const writeLibrary = (prebuilt: Blob, library: string): Effect.Effect<void, NotWritten> =>
   Effect.promise(() => prebuilt.arrayBuffer()).pipe(
     Effect.flatMap((bytes) =>
-      Effect.sync(() => {
-        const partial = `${library}.${process.pid}`
+      writing(library, (file) => {
+        const partial = `${file}.${process.pid}`
         writeFileSync(partial, new Uint8Array(bytes), { mode: 0o755 })
-        renameSync(partial, library)
+        renameSync(partial, file)
       }),
     ),
   )
@@ -1347,12 +1350,11 @@ const withLoomLanguages = (file: string, text: string): Effect.Effect<string, He
   })
 
 const helix = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
   const config = helixConfigDir()
   const languagesFile = resolvePath(config, 'languages.toml')
   const grammar = yield* shippedGrammar
-  const current = yield* Effect.sync(() =>
-    existsSync(languagesFile) ? readFileSync(languagesFile, 'utf8') : '',
-  )
+  const current = Option.getOrElse(yield* readIfThere(fs, languagesFile), () => '')
   const languages = yield* withLoomLanguages(languagesFile, current)
 
   const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
@@ -1418,12 +1420,11 @@ class NvimConfigClash extends Data.TaggedError('NvimConfigClash')<{
 }> {}
 
 const nvim = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
   const site = nvimSiteDir()
   const pluginFile = resolvePath(site, 'plugin', 'loom.lua')
   const grammar = yield* shippedGrammar
-  const current = yield* Effect.sync(() =>
-    existsSync(pluginFile) ? Option.some(readFileSync(pluginFile, 'utf8')) : Option.none<string>(),
-  )
+  const current = yield* readIfThere(fs, pluginFile)
   if (Option.exists(current, (text) => !text.startsWith(nvimHeader)))
     return yield* Effect.fail(new NvimConfigClash({ file: pluginFile }))
 

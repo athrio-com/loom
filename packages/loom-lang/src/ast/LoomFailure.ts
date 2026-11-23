@@ -1,6 +1,6 @@
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import type { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
 import type {
   PackageMissing,
   PackageNotLoaded,
@@ -25,8 +25,12 @@ const closed = (words: string): string => (/(^|[.!?])$/.test(words) ? words : `$
 const firstParagraph = (text: string): string =>
   (text.split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim().replace(/:$/, '')
 
-export const reasonOf = (cause: unknown): string =>
-  closed(firstParagraph(cause instanceof Error ? cause.message : String(cause)))
+const saidBy = (cause: unknown): string => {
+  if (isWordedBy(failureWording)(cause)) return lineOf(describe(cause))
+  return cause instanceof Error ? cause.message || cause.name : String(cause)
+}
+
+export const reasonOf = (cause: unknown): string => closed(firstParagraph(saidBy(cause)))
 
 export type Wording<Failure extends { readonly _tag: string }> = {
   readonly [Tag in Failure['_tag']]: (failure: Extract<Failure, { readonly _tag: Tag }>) => Problem
@@ -47,11 +51,13 @@ const readingWording: Wording<ReadingFailure> = {
     problem(`An anchor cannot open with \`${marker}\`, which Loom already uses.`, delimiterAdvice),
 }
 
-export type WritingFailure = NotWritten | NotRemoved
+export type WritingFailure = NotWritten | NotRemoved | SettingsNotWritten
 
 const writingWording: Wording<WritingFailure> = {
   NotWritten: ({ path, cause }) => problem(`Loom could not write ${path}.`, reasonOf(cause)),
   NotRemoved: ({ path, cause }) => problem(`Loom could not remove ${path}.`, reasonOf(cause)),
+  SettingsNotWritten: ({ path, cause }) =>
+    problem(`Loom could not write ${path}.`, reasonOf(cause)),
 }
 
 export type TanglingFailure = TangleError
@@ -175,7 +181,7 @@ const works: { readonly [Each in Work]: (subject: string) => string } = {
   opening: (workspace) => `Something broke while Loom opened the workspace ${workspace}.`,
   warming: (loom) => `Something broke while Loom built the corpus of ${loom} ahead.`,
   projecting: (loom) => `Something broke while Loom prepared ${loom} for the editor.`,
-  forgetting: (loom) => `Something broke while Loom forgot ${loom}, which was deleted.`,
+  forgetting: (loom) => `Something broke while Loom forgot ${loom}.`,
   reprojecting: (loom) => `Something broke while Loom prepared ${loom} for the editor again.`,
   rereading: () => 'Something broke while Loom read the looms that changed on disk.',
   rebuilding: (loom) => `Something broke while Loom rebuilt ${loom} after an edit.`,

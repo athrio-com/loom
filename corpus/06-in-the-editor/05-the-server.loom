@@ -101,7 +101,7 @@ import { Environment, type Workspace, WorkspaceSource } from './WorkspaceSource'
 
 The server writes no words about a failure. The chapter "The failure catalog" words every one, and this section holds the three ways the server tells them. The function `lineFor` gives a failure's problem as one line.
 
-The first way is the log. A step of the server's work that breaks must not stop the server, so the step catches its cause and the server goes on. The function `told` logs such a cause for a piece of work and the loom or the workspace it was on. A cause that holds a failure the catalog names is logged as that failure. Any other cause is a defect, a mistake in Loom's own code, and is logged as the catalog's failure `Broke`, which names the work. The log keeps the whole cause beside the line.
+The first way is the log. A step of the server's work that breaks must not stop the server, so the step catches its cause and the server goes on. The function `told` logs such a cause for a piece of work and the loom or the workspace it was on. A cause that holds a failure the catalog names is logged as that failure. A cause that holds only an interruption is no failure, since something stopped the step on purpose, and is not logged. Any other cause is a defect, a mistake in Loom's own code, and is logged as the catalog's failure `Broke`, which names the work. The log keeps the whole cause beside the line.
 
 The second way is the answer to a request, and the third is a language's package. Each takes the failure as words. The function `inWords` gives an `Error` that carries the line, for a promise that must reject with one.
 
@@ -125,12 +125,16 @@ const serverLogger = Logger.make((logged: Logger.Options<unknown>) =>
 const told =
   (work: Work, subject: string) =>
   <E extends LoomFailure>(cause: Cause.Cause<E>): Effect.Effect<void> =>
-    Effect.logError(
-      lineFor(
-        Option.getOrElse(Cause.findErrorOption(cause), (): LoomFailure => broke(work, subject, cause)),
-      ),
-      cause,
-    )
+    Cause.hasInterruptsOnly(cause)
+      ? Effect.void
+      : Effect.logError(
+          lineFor(
+            Option.getOrElse(Cause.findErrorOption(cause), (): LoomFailure =>
+              broke(work, subject, cause),
+            ),
+          ),
+          cause,
+        )
 
 ## The compilers a project may ask for
 
@@ -261,14 +265,14 @@ const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function*
 
 ~
 
-`typescriptSdkFor` assembles the capability from the editor's initialization options. The server builds it once, and every workspace's services share it. The capability hands a missing TypeScript 6 to the service as the reason in words, through `lineFor`, and the project's TypeScript features report it.
+`typescriptSdkFor` assembles the capability from the editor's initialization options. The server builds it once, and every workspace's services share it. The capability hands a missing TypeScript 6 to the service as an `Error` that carries the reason in words, through `inWords`, and the project's TypeScript features report it.
 
 =>
 
 const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
   Effect.map(fetchedTypeScript, (fetched) => {
     const classic = classicTypeScript(options)
-    return { classic: (folder) => Result.mapError(classic(folder), lineFor), fetched }
+    return { classic: (folder) => Result.mapError(classic(folder), inWords), fetched }
   })
 
 ## Every loom answers to its own workspace

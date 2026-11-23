@@ -8,7 +8,7 @@ import {
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
-import { SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
 import {
   PackageMissing,
   PackageNotLoaded,
@@ -48,6 +48,10 @@ const samples: {
   ReservedAnchorDelims: new ReservedAnchorDelims({ marker: '#' }),
   NotWritten: new NotWritten({ path: '/book/out/ledger.ts', cause: new Error('read-only disk') }),
   NotRemoved: new NotRemoved({ path: '/book/out/old.ts', cause: new Error('read-only disk') }),
+  SettingsNotWritten: new SettingsNotWritten({
+    path: '/book/.loom/config.yaml',
+    cause: new Error('read-only disk'),
+  }),
   TangleError: new TangleError({
     entry: '/book/book.loom',
     failures: [
@@ -110,6 +114,8 @@ it('reads a cause in its own words', () => {
   expect(reasonOf(new Error('no such file'))).toBe('no such file.')
   expect(reasonOf('the disk is full')).toBe('the disk is full.')
   expect(reasonOf('It stopped!')).toBe('It stopped!')
+  expect(reasonOf(samples.ReadError)).toBe('Loom could not read /book/ledger.loom. no such file.')
+  expect(reasonOf(new RangeError(''))).toBe('RangeError.')
   expect(reasonOf('Expected string\n  at ["primary"]')).toBe('Expected string at ["primary"].')
   expect(reasonOf('A sequence is not closed at line 2:\n\ncorpus: [\n^\n')).toBe(
     'A sequence is not closed at line 2.',

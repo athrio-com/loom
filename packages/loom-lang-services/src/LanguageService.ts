@@ -42,7 +42,7 @@ export interface FetchedTypeScript {
 }
 
 export interface TypescriptSdkApi {
-  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), string>
+  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), Error>
   readonly fetched: FetchedTypeScript
 }
 

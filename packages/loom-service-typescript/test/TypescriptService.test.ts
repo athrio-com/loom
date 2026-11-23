@@ -386,7 +386,7 @@ const standInContext = {
 } as unknown as LanguageServiceContext
 
 const lending = (
-  classic: Result.Result<typeof ts, string>,
+  classic: Result.Result<typeof ts, Error>,
   fetch: () => Promise<void> = () => Promise.reject(new Error('the tests fetch nothing')),
 ): TypescriptSdkApi => ({
   classic: () => classic,
@@ -468,7 +468,7 @@ describe('productPlugin answers about the code\'s shape', () => {
 describe('productPlugin reports a project that cannot have TypeScript 6', () => {
   it('fails each check with the reason, rather than fall back to another compiler', async () => {
     const reason = 'Loom found no TypeScript 6 for /nowhere, in the project or beside Loom.'
-    const instance = pluginWith(lending(Result.fail(reason)))
+    const instance = pluginWith(lending(Result.fail(new Error(reason))))
     const diagnostics = (await instance.provideDiagnostics!(documentOf(), never)) ?? []
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
       `TypeScript 6 is unavailable: ${reason}`,
