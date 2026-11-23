@@ -559,7 +559,7 @@ const makeDocument = (db: DocumentBuilder): ParsedDocument => {
 
 Some failures leave the chain with no tree to fold. `emptyDocument` is the recovery: an empty document — no preamble, no sections — whose root health carries one error diagnostic at the document's span. A caller that cannot produce a real document returns this one. So a `.loom` always parses to a tree, and the error rides in that tree's own health rather than being thrown.
 
-`emptyDocumentFor` is the mixed-terminator case. The parse chain cannot pin a mixed line terminator to any node, so it raises `MixedEOL`. `emptyDocumentFor` names the two conventions and the lines they sit on, then builds the empty document from that message. `eolName` gives each convention — `LF`, `CRLF`, or `CR` — a name a person reads.
+`emptyDocumentFor` is the mixed-terminator case. The parse chain cannot pin a mixed line terminator to any node, so it raises `MixedEOL`. Mixed terminators are a fault of the loom's own text. So `emptyDocumentFor` hands the two conventions and the lines they sit on to the fault `MixedLineEndings`, and builds the empty document from the words the fault catalog has for it.
 
 =>
 
@@ -584,23 +584,19 @@ export const emptyDocument = (text: string, message: string): ParsedDocument => 
 export const emptyDocumentFor = (text: string, err: MixedEOL): ParsedDocument =>
   emptyDocument(
     text,
-    `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+    describe(
+      MixedLineEndings({
+        primary: err.primary,
+        found: err.found,
+        primaryLine: err.primaryLine,
+        foundLine: err.foundLine,
+      }),
+    ).message,
   )
-
-const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
-  switch (kind) {
-    case 'lf':
-      return 'LF (Unix)'
-    case 'crlf':
-      return 'CRLF (Windows)'
-    case 'cr':
-      return 'CR (classic Mac)'
-  }
-}
 
 ## What this module draws on
 
-Effect supplies `Array` to group the wefts and to search them, `Data` to name the two openers, and `Match`, `Option`, `Context`, and `Layer` besides. `byType` and `byTypeOr`, from the node foundation, tell the top-level nodes and the wefts apart. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position`, `okHealth`, and `nodeOf`, which constructs each container, from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, and the faults raised here. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind`, `isPointingKind`, and `chapterKind`, which tell a box that points somewhere and a chapter box among them, `openingFence`, which tells a fence from a label, and the title token a label becomes.
+Effect supplies `Array` to group the wefts and to search them, `Data` to name the two openers, and `Match`, `Option`, `Context`, and `Layer` besides. `byType` and `byTypeOr`, from the node foundation, tell the top-level nodes and the wefts apart. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position`, `okHealth`, and `nodeOf`, which constructs each container, from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty`, the `LoomFault` type, the faults raised here, and `describe`, which words the fault of mixed line terminators. `Weft` lends `boxOf`, which reads the box a weft carries, and `LoomTokens` lends `boxKind`, `isPointingKind`, and `chapterKind`, which tell a box that points somewhere and a chapter box among them, `openingFence`, which tells a fence from a label, and the title token a label becomes.
 
 =>
 
@@ -632,10 +628,12 @@ import {
   ChapterBoxBesideCode,
   ConclusionOutsideTopic,
   SecondConclusion,
+  describe,
   DividerAgainstCode,
   faulty,
   HeadingAgainstCode,
   type LoomFault,
+  MixedLineEndings,
   UnclosedBox,
   UnclosedFence,
   UnnamedBox,

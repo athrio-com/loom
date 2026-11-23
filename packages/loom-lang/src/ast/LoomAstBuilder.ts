@@ -26,10 +26,12 @@ import {
   ChapterBoxBesideCode,
   ConclusionOutsideTopic,
   SecondConclusion,
+  describe,
   DividerAgainstCode,
   faulty,
   HeadingAgainstCode,
   type LoomFault,
+  MixedLineEndings,
   UnclosedBox,
   UnclosedFence,
   UnnamedBox,
@@ -522,16 +524,12 @@ export const emptyDocument = (text: string, message: string): ParsedDocument => 
 export const emptyDocumentFor = (text: string, err: MixedEOL): ParsedDocument =>
   emptyDocument(
     text,
-    `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+    describe(
+      MixedLineEndings({
+        primary: err.primary,
+        found: err.found,
+        primaryLine: err.primaryLine,
+        foundLine: err.foundLine,
+      }),
+    ).message,
   )
-
-const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
-  switch (kind) {
-    case 'lf':
-      return 'LF (Unix)'
-    case 'crlf':
-      return 'CRLF (Windows)'
-    case 'cr':
-      return 'CR (classic Mac)'
-  }
-}

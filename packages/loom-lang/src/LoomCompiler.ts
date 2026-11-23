@@ -68,6 +68,7 @@ import {
   UnsettledModule,
   UnsettledSection,
 } from '#ast/LoomFault'
+import { broke, describe, lineOf } from '#ast/LoomFailure'
 import {
   compositionCycles,
   crossFileFaults,
@@ -160,7 +161,12 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { type Built, declaredKey, LoomDiskCache } from './LoomDiskCache'
 import { type BuildSettings, WorkspaceSettings } from './WorkspaceSettings'
-import { type PlaceOf, type RelationsNotKept, WorkspaceSource } from './WorkspaceSource'
+import {
+  type PlaceOf,
+  type RelationsNotKept,
+  type StorageTakesNoWrite,
+  WorkspaceSource,
+} from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
@@ -1358,7 +1364,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             ),
           ),
           Effect.catchCause((cause) =>
-            Effect.logError('loom: projection failed; serving bare document', cause).pipe(
+            Effect.logError(lineOf(describe(broke('projecting', path, cause))), cause).pipe(
               Effect.andThen(
                 source.read(path).pipe(
                   Effect.orElseSucceed(() => ''),
@@ -1506,7 +1512,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       approve: (
         path: Location,
         chosen: (relation: Relation) => boolean,
-      ): Effect.Effect<ReadonlyArray<KeptRelation>, RelationsNotKept> =>
+      ): Effect.Effect<ReadonlyArray<KeptRelation>, RelationsNotKept | StorageTakesNoWrite> =>
         Effect.all([buildCorpus(documents, path), workspaces.keptRelationsOf(path)]).pipe(
           Effect.flatMap(([modules, kept]) =>
             Option.match(Option.fromNullishOr(modules.get(path)), {

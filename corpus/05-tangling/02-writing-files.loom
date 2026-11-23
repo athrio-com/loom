@@ -10,9 +10,9 @@ Language: TypeScript
 
 ## The tangler service
 
-`LoomTangler` holds the compiler, the filesystem, and the `LoomConfig` service that reads `.loom/config.yaml`. `writeFile` first checks whether the target already holds the tangled content, and only touches the file when it does not. A rerun that changes nothing then leaves the file's modified time alone, so a bundler's dev server watching it sees a real change only when the tangled content actually changed — not on every tangle regardless. When the content does differ, `writeFile` creates the target's directory and writes it, returning the file either way. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — and writes each.
+`LoomTangler` holds the compiler, the filesystem, and the `LoomConfig` service that reads `.loom/config.yaml`. `writeFile` first checks whether the target already holds the tangled content, and only touches the file when it does not. A rerun that changes nothing then leaves the file's modified time alone, so a bundler's dev server watching it sees a real change only when the tangled content actually changed — not on every tangle regardless. When the content does differ, `writeFile` creates the target's directory and writes it, returning the file either way. The function `writeText` does the writing, for the tangler and for the other writers of Loom: the weaver, the summaries, and the command that formats looms. A disk that refuses the folder or the file fails it with the error `NotWritten`, which holds the path and the cause. The function `readText` reads a file for the command that formats looms, and fails with the error `ReadError` when the disk refuses it. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — and writes each.
 
-A path names either a folder or one loom. `projectOf` finds the project a path belongs to, through the configuration `LoomConfig` resolves for it. `loomsOf` resolves a path to the looms it covers. For a folder, those are the looms the project holds beneath it, listed by `loomsIn` under the same rule the compiler and the editor follow. For a file, it is the file itself, even a loom the project leaves out, because a person who names a loom means that loom.
+A path names either a folder or one loom, and the function `found` asks the disk which. A path where nothing is fails with the error `ReadError`, as a loom that cannot be read does. So a command that names a missing path says so, and writes nothing. `projectOf` finds the project a path belongs to, through the configuration `LoomConfig` resolves for it. `loomsOf` resolves a path to the looms it covers. For a folder, those are the looms the project holds beneath it, listed by `loomsIn` under the same rule the compiler and the editor follow. For a file, it is the file itself, even a loom the project leaves out, because a person who names a loom means that loom.
 
 `tangle` tangles each loom a path covers and records the result. It writes every sink, then folds the paths it produced into the lock at the workspace root, so a file enters the lock the first time it is tangled and every file is written once.
 
@@ -20,12 +20,41 @@ The lock records only the project's own files, and `recordsFor` decides which ta
 
 The lock lives on disk beside the configuration. `readLock` reads `loom.lock` and decodes it, answering with the empty lock when the file is absent or malformed, so a first tangle starts from nothing rather than failing. `writeLock` writes it back as formatted JSON. `workspaceOf` finds the workspace root a path belongs to by walking up from a file's own directory, or from a directory itself, and the lock lives in that root's `.loom` folder. A loom that belongs to no workspace is its own root, so the lock of its last tangle lands in a `.loom` folder beside it. That folder holds no configuration, so it makes no workspace.
 
-`orphans` names the files that lost their host and touches no disk. The lock covers the whole workspace, so orphan-finding does too: from a starting directory it finds the workspace root, tangles every loom the project holds beneath it, reads the lock, and returns the recorded paths the produced set no longer holds. A narrower scope would mislead — a file produced elsewhere in the workspace would look lost, and a pipe into `rm` would delete it. `prune` goes one step further: it removes each orphan and rewrites the lock to exactly what the build produces. Both resolve the produced set through the compiler, so a broken corpus fails them with its `TangleError` before either reads a lock or deletes a file — a prune never works from an incomplete build.
+`orphans` names the files that lost their host and touches no disk. The lock covers the whole workspace, so orphan-finding does too: from a starting directory it finds the workspace root, tangles every loom the project holds beneath it, reads the lock, and returns the recorded paths the produced set no longer holds. A narrower scope would mislead — a file produced elsewhere in the workspace would look lost, and a pipe into `rm` would delete it. `prune` goes one step further: it removes each orphan and rewrites the lock to exactly what the build produces. An orphan the disk will not remove fails it with the error `NotRemoved`. Both resolve the produced set through the compiler, so a broken corpus fails them with its `TangleError` before either reads a lock or deletes a file — a prune never works from an incomplete build.
 
 =>
 
 const isStorePath = (name: string): boolean =>
   name.split('/').some((segment) => storeDirs.has(segment))
+
+export class NotWritten extends Data.TaggedError('NotWritten')<{
+  readonly path: Path
+  readonly cause: unknown
+}> {}
+
+export class NotRemoved extends Data.TaggedError('NotRemoved')<{
+  readonly path: Path
+  readonly cause: unknown
+}> {}
+
+export const found = (
+  fs: FileSystem.FileSystem,
+  path: Path,
+): Effect.Effect<FileSystem.File.Info, ReadError> =>
+  fs.stat(path).pipe(Effect.mapError((cause) => new ReadError({ path, cause })))
+
+export const readText = (fs: FileSystem.FileSystem, path: Path): Effect.Effect<string, ReadError> =>
+  fs.readFileString(path).pipe(Effect.mapError((cause) => new ReadError({ path, cause })))
+
+export const writeText = (
+  fs: FileSystem.FileSystem,
+  path: Path,
+  text: string,
+): Effect.Effect<void, NotWritten> =>
+  fs.makeDirectory(dirname(path), { recursive: true }).pipe(
+    Effect.andThen(fs.writeFileString(path, text)),
+    Effect.mapError((cause) => new NotWritten({ path, cause })),
+  )
 
 export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
   make: Effect.gen(function* () {
@@ -36,28 +65,22 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
     const matchesDisk = (file: TangledFile): Effect.Effect<boolean> =>
       fs.readFileString(file.path).pipe(Effect.option, Effect.map(Option.contains(file.content)))
 
-    const writeFile = (file: TangledFile): Effect.Effect<TangledFile> =>
+    const writeFile = (file: TangledFile): Effect.Effect<TangledFile, NotWritten> =>
       matchesDisk(file).pipe(
-        Effect.flatMap((same) =>
-          same
-            ? Effect.void
-            : fs
-                .makeDirectory(dirname(file.path), { recursive: true })
-                .pipe(Effect.andThen(fs.writeFileString(file.path, file.content))),
-        ),
-        Effect.orDie,
+        Effect.flatMap((same) => (same ? Effect.void : writeText(fs, file.path, file.content))),
         Effect.as(file),
       )
 
-    const tangleFile = (entry: Path): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+    const tangleFile = (
+      entry: Path,
+    ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError | NotWritten> =>
       compiler.tangle(entry).pipe(Effect.flatMap((files) => Effect.forEach(files, writeFile)))
 
     const projectOf = (path: Path): Effect.Effect<Option.Option<LoomProject>> =>
       config.resolve(path).pipe(Effect.map(projectIn))
 
-    const loomsOf = (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const loomsOf = (path: Path): Effect.Effect<ReadonlyArray<Path>, ReadError> =>
+      found(fs, path).pipe(
         Effect.flatMap((info) =>
           info.type === 'Directory'
             ? projectOf(path).pipe(Effect.map((project) => loomsIn(path, project)))
@@ -65,9 +88,8 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         ),
       )
 
-    const recordsFor = (path: Path): Effect.Effect<boolean> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const recordsFor = (path: Path): Effect.Effect<boolean, ReadError> =>
+      found(fs, path).pipe(
         Effect.flatMap((info) =>
           info.type === 'Directory'
             ? Effect.succeed(true)
@@ -82,9 +104,8 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         ),
       )
 
-    const workspaceOf = (path: Path): Effect.Effect<Path> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const workspaceOf = (path: Path): Effect.Effect<Path, ReadError> =>
+      found(fs, path).pipe(
         Effect.map((info) => workspaceRoot(info.type === 'Directory' ? path : dirname(path))),
       )
 
@@ -97,15 +118,12 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         Effect.orElseSucceed(() => emptyLock),
       )
 
-    const writeLock = (root: Path, lock: LoomLock): Effect.Effect<void> =>
-      fs
-        .makeDirectory(dirname(lockFile(root)), { recursive: true })
-        .pipe(
-          Effect.andThen(fs.writeFileString(lockFile(root), JSON.stringify(lock, null, 2) + '\n')),
-          Effect.orDie,
-        )
+    const writeLock = (root: Path, lock: LoomLock): Effect.Effect<void, NotWritten> =>
+      writeText(fs, lockFile(root), JSON.stringify(lock, null, 2) + '\n')
 
-    const tangle = (path: Path): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+    const tangle = (
+      path: Path,
+    ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError | ReadError | NotWritten> =>
       Effect.gen(function* () {
         const looms = yield* loomsOf(path)
         const written = (yield* Effect.forEach(looms, tangleFile)).flat()
@@ -147,12 +165,17 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         Effect.map(({ root, orphans }) => orphans.map((rel) => resolvePath(root, rel))),
       )
 
-    const prune = (from: Path): Effect.Effect<ReadonlyArray<Path>, TangleError> =>
+    const removed = (path: Path): Effect.Effect<void, NotRemoved> =>
+      fs
+        .remove(path, { force: true })
+        .pipe(Effect.mapError((cause) => new NotRemoved({ path, cause })))
+
+    const prune = (
+      from: Path,
+    ): Effect.Effect<ReadonlyArray<Path>, TangleError | NotWritten | NotRemoved> =>
       Effect.gen(function* () {
         const { root, produced, orphans } = yield* orphanState(from)
-        yield* Effect.forEach(orphans, (rel) =>
-          fs.remove(resolvePath(root, rel), { force: true }).pipe(Effect.orDie),
-        )
+        yield* Effect.forEach(orphans, (rel) => removed(resolvePath(root, rel)))
         yield* writeLock(root, pruned(produced))
         return orphans.map((rel) => resolvePath(root, rel))
       })
@@ -173,7 +196,7 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
 
 On each batch `watch` evicts the changed files from the build cache through `compiler.invalidate`, then re-tangles the path. Composition re-inlines a changed section wherever another file draws it in, so evicting the one file that changed is enough. The `matchesDisk` guard writes only the outputs that truly changed, so the dev server's watcher fires on a real change, never on a tangle that produced identical bytes.
 
-`watch` streams a `Result` for every pass, the first before any change. It tangles once immediately, so the output is current before watching begins, then once per batch of changes as they arrive. A pass that a broken corpus fails carries its `TangleError` as the `Result`'s failure rather than the stream's, so a half-finished edit prints its error and the watch goes on. The one-shot command exits on that error. The watch cannot, or it would die on the first typo.
+`watch` streams a `Result` for every pass, the first before any change. It tangles once immediately, so the output is current before watching begins, then once per batch of changes as they arrive. A pass that fails carries its failure as the `Result`'s failure rather than the stream's, as a broken corpus does with its `TangleError`, so a half-finished edit prints its error and the watch goes on. The one-shot command exits on that error. The watch cannot, or it would die on the first typo.
 
 A single save can surface as several filesystem events, and a project-wide edit touches many looms at once. So `watch` collects the events that arrive within `batchWindow`, a short span, and re-tangles once for the whole batch rather than once per event. `batchLimit` caps a batch well above any real burst, so the window, not the count, is what closes it. It treats a create, a change, and a delete alike, each one a reason to re-tangle, because an editor that saves atomically — writing a temporary file and renaming it over the original — surfaces as a create, and watching only for a change would miss it.
 
@@ -185,9 +208,8 @@ const batchLimit = 1000
 const isLoomEvent = (event: FileSystem.WatchEvent): boolean =>
   event.path.endsWith('.loom') && !isStorePath(event.path)
 
-const watchRoot = (path: Path): Effect.Effect<Path> =>
-  fs.stat(path).pipe(
-    Effect.orDie,
+const watchRoot = (path: Path): Effect.Effect<Path, ReadError> =>
+  found(fs, path).pipe(
     Effect.flatMap((info) =>
       info.type === 'Directory'
         ? Effect.succeed(path)
@@ -201,7 +223,12 @@ const watchRoot = (path: Path): Effect.Effect<Path> =>
     ),
   )
 
-const watch = (path: Path): Stream.Stream<Result.Result<ReadonlyArray<TangledFile>, TangleError>> =>
+const watch = (
+  path: Path,
+): Stream.Stream<
+  Result.Result<ReadonlyArray<TangledFile>, TangleError | ReadError | NotWritten>,
+  ReadError
+> =>
   Stream.unwrap(
     watchRoot(path).pipe(
       Effect.map((root) =>
@@ -230,9 +257,21 @@ It draws on `LoomCompiler` to resolve each file's sinks to content and target, g
 
 =>
 
-import { Array, Context, Effect, FileSystem, Layer, Option, Result, Schema, Stream } from 'effect'
+import {
+  Array,
+  Context,
+  Data,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Result,
+  Schema,
+  Stream,
+} from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
+import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { holds, loomsIn, projectIn, storeDirs, type LoomProject, type Path } from './LoomProject'

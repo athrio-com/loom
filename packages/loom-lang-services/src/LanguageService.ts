@@ -41,25 +41,8 @@ export interface FetchedTypeScript {
   readonly fetch: () => Promise<void>
 }
 
-export class ClassicTypeScriptMissing extends Data.TaggedError('ClassicTypeScriptMissing')<{
-  readonly folder: string
-  readonly tsdk: Option.Option<string>
-  readonly cause?: unknown
-}> {
-  get message(): string {
-    return Option.match(this.tsdk, {
-      onNone: () =>
-        `found no TypeScript 6 for ${this.folder}, in the project or beside Loom; ` +
-        'install it in the project with `npm install -D typescript@6`',
-      onSome: (tsdk) => `the TypeScript in ${tsdk} did not load: ${String(this.cause)}`,
-    })
-  }
-}
-
 export interface TypescriptSdkApi {
-  readonly classic: (
-    folder: string,
-  ) => Result.Result<typeof import('typescript'), ClassicTypeScriptMissing>
+  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), string>
   readonly fetched: FetchedTypeScript
 }
 

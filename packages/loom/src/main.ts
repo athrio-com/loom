@@ -5,6 +5,7 @@ import {
   Data,
   Effect,
   Equal,
+  FileSystem,
   Match,
   Option,
   Order,
@@ -45,12 +46,12 @@ import {
   reasonOf,
   refusedBy,
   type Wording,
-} from '@athrio/loom-lang/LoomFailure'
+} from '@athrio/loom-lang/ast/LoomFailure'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { type Drift, driftsIn } from '@athrio/loom-lang/ast/Relations'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
-import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
+import { LoomTangler, NotWritten, readText } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
@@ -238,18 +239,22 @@ const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
     if (check && Array.isReadonlyArrayNonEmpty(drifts)) yield* exitNonZero
   })
 
+const writing = <A>(path: string, write: (path: string) => A): Effect.Effect<A, NotWritten> =>
+  Effect.try({ try: () => write(path), catch: (cause) => new NotWritten({ path, cause }) })
+
 const format = (path: string, check: boolean) =>
   Effect.gen(function* () {
     const formatter = yield* LoomFormatter
+    const fs = yield* FileSystem.FileSystem
     const target = resolvePath(process.cwd(), path)
     const languages = yield* formatLanguages(target)
     const looms = yield* formatter.looms(target)
     const changed = yield* Effect.filter(looms, (loom) =>
       Effect.gen(function* () {
-        const text = yield* Effect.sync(() => readFileSync(loom, 'utf8'))
+        const text = yield* readText(fs, loom)
         const formatted = yield* formatter.format(loom, text, languages)
         if (formatted === text) return false
-        if (!check) yield* Effect.sync(() => writeFileSync(loom, formatted))
+        if (!check) yield* writing(loom, (file) => writeFileSync(file, formatted))
         return true
       }),
     )
@@ -342,8 +347,8 @@ const init = (dir: Option.Option<string>) =>
         primary: language,
         ignore: [],
       })
-      yield* Effect.sync(() =>
-        writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
+      yield* writing(resolvePath(root, '.loom', '.gitignore'), (file) =>
+        writeFileSync(file, 'services/\n'),
       )
       yield* Console.log(
         `\n   ${teal('✓')} wrote ${configFile}\n` +
@@ -354,7 +359,7 @@ const init = (dir: Option.Option<string>) =>
 
     const manifest = yield* config.manifest(root)
     const corpusDir = resolvePath(root, manifest?.corpus ?? 'corpus')
-    yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
+    yield* writing(corpusDir, (dir) => mkdirSync(dir, { recursive: true }))
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     const editorconfig = resolvePath(root, '.editorconfig')
@@ -365,7 +370,7 @@ const init = (dir: Option.Option<string>) =>
     yield* Option.match(withManagedBlock(current, block), {
       onNone: () => Console.log(`   ${dim(`✓ kept the [*.loom] section in ${editorconfig}`)}\n`),
       onSome: (text) =>
-        Effect.sync(() => writeFileSync(editorconfig, text)).pipe(
+        writing(editorconfig, (file) => writeFileSync(file, text)).pipe(
           Effect.andThen(Console.log(`   ${teal('✓')} wrote ${editorconfig}\n`)),
         ),
     })
@@ -1349,19 +1354,17 @@ const helix = Effect.gen(function* () {
   const languages = yield* withLoomLanguages(languagesFile, current)
 
   const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
-  yield* Effect.sync(() => mkdirSync(dirname(library), { recursive: true }))
+  yield* writing(dirname(library), (dir) => mkdirSync(dir, { recursive: true }))
   yield* buildGrammar(grammar, library)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${library}`)
 
   const queries = resolvePath(config, 'runtime', 'queries', 'loom')
-  yield* Effect.sync(() =>
-    cpSync(resolvePath(grammar, 'editors', 'helix', 'queries', 'loom'), queries, {
-      recursive: true,
-    }),
+  yield* writing(queries, (dir) =>
+    cpSync(resolvePath(grammar, 'editors', 'helix', 'queries', 'loom'), dir, { recursive: true }),
   )
   yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
 
-  yield* Effect.sync(() => writeFileSync(languagesFile, languages))
+  yield* writing(languagesFile, (file) => writeFileSync(file, languages))
   yield* Console.log(
     `   ${teal('✓')} added Loom to ${languagesFile}\n` +
       `   ${dim('check it with `hx --health loom`')}\n`,
@@ -1423,17 +1426,19 @@ const nvim = Effect.gen(function* () {
     return yield* Effect.fail(new NvimConfigClash({ file: pluginFile }))
 
   const parser = resolvePath(site, 'parser', 'loom.so')
-  yield* Effect.sync(() => mkdirSync(dirname(parser), { recursive: true }))
+  yield* writing(dirname(parser), (dir) => mkdirSync(dir, { recursive: true }))
   yield* buildGrammar(grammar, parser)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${parser}`)
 
   const queries = resolvePath(site, 'queries', 'loom')
-  yield* Effect.sync(() => cpSync(resolvePath(grammar, 'queries'), queries, { recursive: true }))
+  yield* writing(queries, (dir) =>
+    cpSync(resolvePath(grammar, 'queries'), dir, { recursive: true }),
+  )
   yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
 
-  yield* Effect.sync(() => {
-    mkdirSync(dirname(pluginFile), { recursive: true })
-    writeFileSync(pluginFile, nvimPlugin)
+  yield* writing(pluginFile, (file) => {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, nvimPlugin)
   })
   yield* Console.log(
     `   ${teal('✓')} added Loom to ${pluginFile}\n` +
@@ -1555,7 +1560,7 @@ const ended = <A, R>(command: Effect.Effect<A, CommandFailure, R>): Effect.Effec
   )
 
 const crashed = <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
-  tell(broke('command', cause)).pipe(
+  tell(broke('command', '', cause)).pipe(
     Effect.andThen(Console.error(dim(Cause.pretty(cause)))),
     Effect.andThen(exitNonZero),
   )

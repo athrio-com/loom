@@ -1,6 +1,7 @@
 import {
   Array,
   Cache,
+  Cause,
   Data,
   Effect,
   Exit,
@@ -48,6 +49,7 @@ import {
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { broke, describe, lineOf, type LoomFailure, type Work } from '#ast/LoomFailure'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -60,12 +62,25 @@ import {
   workspaceOf,
 } from '@athrio/loom-lang-services/LoomStore'
 import {
-  ClassicTypeScriptMissing,
   type FetchedTypeScript,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 import { Environment, type Workspace, WorkspaceSource } from './WorkspaceSource'
+
+const lineFor = (failure: LoomFailure): string => lineOf(describe(failure))
+
+const inWords = (failure: LoomFailure): Error => new Error(lineFor(failure))
+
+const told =
+  (work: Work, subject: string) =>
+  <E extends LoomFailure>(cause: Cause.Cause<E>): Effect.Effect<void> =>
+    Effect.logError(
+      lineFor(
+        Option.getOrElse(Cause.findErrorOption(cause), (): LoomFailure => broke(work, subject, cause)),
+      ),
+      cause,
+    )
 
 const EditorTsdkSchema = Schema.Struct({
   typescript: Schema.Struct({ tsdk: Schema.String }),
@@ -95,6 +110,12 @@ const classicTsdk = (options: unknown, folder: string): Option.Option<string> =>
   )
 
 type TypeScript = typeof import('typescript')
+
+export class ClassicTypeScriptMissing extends Data.TaggedError('ClassicTypeScriptMissing')<{
+  readonly folder: string
+  readonly tsdk: Option.Option<string>
+  readonly cause?: unknown
+}> {}
 
 export const classicTypeScript = (
   options: unknown,
@@ -129,11 +150,7 @@ export class TypeScriptNotFetched extends Data.TaggedError('TypeScriptNotFetched
   readonly version: string
   readonly folder: string
   readonly cause: unknown
-}> {
-  get message(): string {
-    return `could not fetch TypeScript ${this.version} into ${this.folder}: ${String(this.cause)}`
-  }
-}
+}> {}
 
 const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function* () {
   const folder = fetchedTypeScriptDir(typeScriptVersion)
@@ -148,12 +165,15 @@ const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function*
   return {
     version: typeScriptVersion,
     executable: fetchedExecutable(typeScriptVersion),
-    fetch: () => runtime.runPromise(Effect.asVoid(once)),
+    fetch: () => runtime.runPromise(Effect.asVoid(once).pipe(Effect.mapError(inWords))),
   }
 })
 
 const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
-  Effect.map(fetchedTypeScript, (fetched) => ({ classic: classicTypeScript(options), fetched }))
+  Effect.map(fetchedTypeScript, (fetched) => {
+    const classic = classicTypeScript(options)
+    return { classic: (folder) => Result.mapError(classic(folder), lineFor), fetched }
+  })
 
 const workspaceFor = (home: string, uri: URI): string =>
   uri.scheme === 'file' ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home) : home
@@ -514,10 +534,8 @@ const openLoomsIn = (
   workspace: string,
 ): ReadonlyArray<URI> => openLooms(server).filter((uri) => workspaceFor(home, uri) === workspace)
 
-const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
-  effect.pipe(
-    Effect.catchCause((cause) => Effect.logError(`loom: ${step} ${uri.toString()} failed`, cause)),
-  )
+const logged = (work: Work, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
+  effect.pipe(Effect.catchCause(told(work, uri.toString())))
 
 const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void> =>
   Effect.promise(async () => project.getLanguageService(uri)).pipe(
@@ -648,7 +666,7 @@ const rereadOnDisk = (
             ),
           ),
         ),
-        Effect.catchCause((cause) => Effect.logError('loom: rereading changed looms failed', cause)),
+        Effect.catchCause(told('rereading', '')),
       ),
     ),
   )
@@ -746,9 +764,7 @@ const rebuildEdited = (
     Effect.flatMap(([paths, compiler, documents, source]) =>
       Effect.forEach(paths, (path) =>
         compiler.rebuild(openSource(server, documents, source), path).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError(`loom: rebuilding ${path} failed`, cause).pipe(Effect.as(true)),
-          ),
+          Effect.catchCause((cause) => told('rebuilding', path)(cause).pipe(Effect.as(true))),
           Effect.map((changed) =>
             changed
               ? Option.some<FileEvent>({
@@ -841,9 +857,7 @@ const keepInStep = (
           },
         ),
       ),
-      Effect.catchCause((cause) =>
-        Effect.logError(`loom: keeping ${uri.toString()} in step failed`, cause),
-      ),
+      Effect.catchCause(told('keeping', uri.toString())),
     ),
   )
 }
@@ -882,9 +896,7 @@ const openWorkspace = (
             return Option.some(workspace)
           }).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning('loom: could not open the workspace', cause).pipe(
-                Effect.as(Option.none<Workspace>()),
-              ),
+              told('opening', home)(cause).pipe(Effect.as(Option.none<Workspace>())),
             ),
           ),
       }),
@@ -897,9 +909,11 @@ const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, ne
     Option.match({
       onNone: () => Effect.void,
       onSome: (entry) =>
-        LoomCompiler.pipe(Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry)))),
+        LoomCompiler.pipe(
+          Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry))),
+          Effect.catchCause(told('warming', entry)),
+        ),
     }),
-    Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
   )
 
 const openedFolder = (params: InitializeParams): Option.Option<string> =>
@@ -946,7 +960,7 @@ export const startLanguageServer = (): void => {
         const reprojecting = yield* Semaphore.make(1)
         const edited = yield* Ref.make<ReadonlySet<string>>(new Set())
         return { workspace, services, projects, plugins, reprojecting, edited }
-      }),
+      }).pipe(Effect.mapError(inWords)),
     )
     setTimeout(() => runtime.runSync(warmCorpus(workspace)), 10)
     return server.initialize(

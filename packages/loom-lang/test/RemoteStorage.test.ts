@@ -12,6 +12,7 @@ import {
 import { Effect, ManagedRuntime, Redacted } from 'effect'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { describe as wordsOf, lineOf } from '#ast/LoomFailure'
 import { RemoteEnvironment, WorkspaceSource } from '../src/WorkspaceSource'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { type StorageStub, storageStub } from './storageStub'
@@ -76,8 +77,8 @@ describe('RemoteSource — a workspace kept behind a URL', () => {
       const failure = await runtime.runPromise(
         WorkspaceSource.pipe(Effect.flatMap((source) => Effect.flip(source.open(stub.url)))),
       )
-      expect(failure.message).toContain(stub.url)
-      expect(failure.message).not.toContain('not-the-key')
+      expect(lineOf(wordsOf(failure))).toContain(stub.url)
+      expect(lineOf(wordsOf(failure))).not.toContain('not-the-key')
     } finally {
       stub.stop()
     }

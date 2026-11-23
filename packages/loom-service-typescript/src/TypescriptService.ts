@@ -274,7 +274,7 @@ export const productPlugin = (
     const classicProgramFor = (project: ProductProject): ProductProgram =>
       Result.match(sdk.classic(projectFolder(project)), {
         onSuccess: (ts) => createProductProgram(ts, consumerOptions(ts, project.config)),
-        onFailure: (missing) => createUnavailableProgram('TypeScript 6', missing.message),
+        onFailure: (reason) => createUnavailableProgram('TypeScript 6', reason),
       })
     const nativeProgramFor = (
       executable: string,

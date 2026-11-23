@@ -1,15 +1,16 @@
 import { expect, it } from 'bun:test'
-import { Cause, Data, Match, Option } from 'effect'
+import { Cause, Data, Effect, Match, Option } from 'effect'
 import type { Position } from '@athrio/loom-ast/LoomNode'
 import {
+  type AnchorDelims,
   EmptyAnchorDelims,
   IdenticalAnchorDelims,
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
-import { ClassicTypeScriptMissing, ServiceError } from '@athrio/loom-lang-services/LanguageService'
+import { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import { StoreError } from '@athrio/loom-lang-services/LoomStore'
-import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { TangleError } from '../src/LoomCompiler'
 import {
   Broke,
@@ -21,9 +22,10 @@ import {
   type Problem,
   reasonOf,
   refusedBy,
-} from '../src/LoomFailure'
-import { TypeScriptNotFetched } from '../src/LoomServer'
-import { RelationsNotKept } from '../src/WorkspaceSource'
+} from '#ast/LoomFailure'
+import { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../src/LoomServer'
+import { NotRemoved, NotWritten } from '../src/LoomTangler'
+import { RelationsNotKept, StorageTakesNoWrite } from '../src/WorkspaceSource'
 
 const nowhere: Position = { start: { line: 1, offset: 0 }, end: { line: 1, offset: 0 } }
 
@@ -35,6 +37,8 @@ const samples: {
   IdenticalAnchorDelims: new IdenticalAnchorDelims({ delim: '|' }),
   WhitespaceAnchorDelims: new WhitespaceAnchorDelims({ open: '( ', close: ')' }),
   ReservedAnchorDelims: new ReservedAnchorDelims({ marker: '#' }),
+  NotWritten: new NotWritten({ path: '/book/out/ledger.ts', cause: new Error('read-only disk') }),
+  NotRemoved: new NotRemoved({ path: '/book/out/old.ts', cause: new Error('read-only disk') }),
   TangleError: new TangleError({
     entry: '/book/book.loom',
     failures: [
@@ -56,9 +60,10 @@ const samples: {
   ServiceError: new ServiceError({ service: 'typescript', reason: 'the formatter did not load' }),
   RelationsNotKept: new RelationsNotKept({
     workspace: '/book',
-    cause: 'remote storage takes no write',
+    cause: new Error('read-only disk'),
   }),
-  Broke: new Broke({ program: 'server', cause: 'no such function' }),
+  StorageTakesNoWrite: new StorageTakesNoWrite({ workspace: 'https://example.com/workspace' }),
+  Broke: new Broke({ work: 'rereading', subject: '', cause: 'no such function' }),
 }
 
 it('words every failure as a sentence', () => {
@@ -70,7 +75,7 @@ it('words every failure as a sentence', () => {
 
 it('reads a cause in its own words', () => {
   expect(reasonOf(new Error('no such file'))).toBe('no such file.')
-  expect(reasonOf('remote storage takes no write')).toBe('remote storage takes no write.')
+  expect(reasonOf('the disk is full')).toBe('the disk is full.')
   expect(reasonOf('It stopped!')).toBe('It stopped!')
   expect(describe(samples.ReadError)).toEqual({
     summary: 'Loom could not read /book/ledger.loom.',
@@ -110,12 +115,51 @@ it('joins the two parts of a problem in one line', () => {
   expect(lineOf({ summary: 'It failed.', detail: 'Try again.' })).toBe('It failed. Try again.')
 })
 
-it('names the program a defect struck', () => {
-  const failure = broke('server', Cause.die(new Error('no such function')))
+const held = (text: string): Source => ({ read: () => Effect.succeed(text), list: Option.none() })
+
+const refusing: Source = {
+  read: (path) => Effect.fail(new ReadError({ path, cause: new Error('no such file') })),
+  list: Option.none(),
+}
+
+const messagesFrom = (source: Source, delims?: AnchorDelims): ReadonlyArray<string> =>
+  Effect.runSync(
+    LoomCorpusAstBuilder.pipe(
+      Effect.flatMap((builder) => builder.build(source, '/book/ledger.loom', delims)),
+      Effect.provide(LoomCorpusAstBuilder.layer),
+    ),
+  ).doc.health.diagnostics.map((diagnostic) => diagnostic.message)
+
+it('gives a loom the source refused the line of its failure', () => {
+  expect(messagesFrom(refusing)).toEqual(['Loom could not read /book/ledger.loom. no such file.'])
+})
+
+it('gives a loom read with a bad pair of delimiters the line of that failure', () => {
+  expect(messagesFrom(held('# Ledger\n'), { open: '@@', close: '@@' })).toEqual([
+    lineOf(describe(new IdenticalAnchorDelims({ delim: '@@' }))),
+  ])
+})
+
+it('gives a loom that mixes line endings the words of a fault', () => {
+  expect(messagesFrom(held('one\r\ntwo\nthree'))).toEqual([
+    'This loom ends its lines in two ways: line 1 with CRLF (Windows) and line 2 with LF (Unix). End every line the same way.',
+  ])
+})
+
+it('names the work a defect struck, and what the work was on', () => {
+  const failure = broke('rebuilding', '/book/ledger.loom', Cause.die(new Error('no such function')))
   expect(describe(failure)).toEqual({
-    summary: "Something broke in Loom's language server.",
+    summary: 'Something broke while Loom rebuilt /book/ledger.loom after an edit.',
     detail: 'no such function.',
   })
+  expect(describe(broke('command', '', Cause.die('gone'))).summary).toBe(
+    "Something broke in Loom's command line.",
+  )
+})
+
+it('tells relations a disk did not keep from relations remote storage never takes', () => {
+  expect(describe(samples.RelationsNotKept).detail).toBe('read-only disk.')
+  expect(describe(samples.StorageTakesNoWrite).detail).toBe('Remote storage takes no write.')
 })
 
 class Unreachable extends Data.TaggedError('Unreachable')<{ readonly url: string }> {}

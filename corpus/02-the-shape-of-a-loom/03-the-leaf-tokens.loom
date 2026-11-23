@@ -784,47 +784,29 @@ export type WarpToken = typeof WarpTokenSchema.Type
 
 ## Validating the anchor delimiters
 
-A package may choose its own anchor delimiter pair, so a bad pair must fail the way a mixed line terminator does: a parse-level error the editor and the tangler both report, never a silent misparse. `checkAnchorDelims` is that gate, and it raises a distinct, self-describing error for each fault. It rejects an empty delimiter, an open equal to its close, and whitespace inside either. It holds the open to more, since the open is what triggers anchor scanning: the open may not be one of Loom's own markers — the warp braces, the `=>` arrow, the `~` prose line, the `#` heading — nor a bracket or angle that pervades product code: `<`, `>`, `[`, or `]`. The close escapes that list, so the built-in `]` stays a valid close. Each error carries its own `message` naming the fault and suggesting a sound pair, so the recovery reads `emptyDocument(text, err.message)` and needs no separate message builder.
+A package may choose its own anchor delimiter pair, so a bad pair must fail the way a mixed line terminator does: a parse-level error the editor and the tangler both report, never a silent misparse. `checkAnchorDelims` is that gate, and it raises a distinct error for each kind of bad pair. It rejects an empty delimiter, an open equal to its close, and whitespace inside either. It holds the open to more, since the open is what triggers anchor scanning: the open may not be one of Loom's own markers — the warp braces, the `=>` arrow, the `~` prose line, the `#` heading — nor a bracket or angle that pervades product code: `<`, `>`, `[`, or `]`. The close escapes that list, so the built-in `]` stays a valid close. Each error holds what was wrong with the pair and writes no words of its own. The chapter "The failure catalog" words each one and suggests a sound pair.
 
 =>
-
-const suggestAnchorDelims = `Choose a distinct open that Loom does not use and that does not occur in your product code — for example \`${defaultAnchorDelims.open}\` and \`${defaultAnchorDelims.close}\` — in this package's loom.json.`
 
 const reservedOpen: ReadonlyArray<string> = ['{{', '}}', '=>', '~', '#', '<', '>', '[', ']']
 
 export class EmptyAnchorDelims extends Data.TaggedError('EmptyAnchorDelims')<{
   readonly open: string
   readonly close: string
-}> {
-  get message(): string {
-    return `Anchor delimiters cannot be empty (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export class IdenticalAnchorDelims extends Data.TaggedError('IdenticalAnchorDelims')<{
   readonly delim: string
-}> {
-  get message(): string {
-    return `Anchor open and close must differ; both are \`${this.delim}\`. A symmetric pair cannot be paired unambiguously. ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export class WhitespaceAnchorDelims extends Data.TaggedError('WhitespaceAnchorDelims')<{
   readonly open: string
   readonly close: string
-}> {
-  get message(): string {
-    return `Anchor delimiters cannot contain whitespace (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export class ReservedAnchorDelims extends Data.TaggedError('ReservedAnchorDelims')<{
   readonly marker: string
-}> {
-  get message(): string {
-    return `Anchor open \`${this.marker}\` is one of Loom's reserved markers. ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export type InvalidAnchorDelims =
   EmptyAnchorDelims | IdenticalAnchorDelims | WhitespaceAnchorDelims | ReservedAnchorDelims

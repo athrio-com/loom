@@ -229,20 +229,26 @@ const review = (target: Option.Option<string>, json: boolean, check: boolean) =>
 
 The `format` command formats looms the way an editor formats the one it has open: every prose paragraph on one line, and every code section laid out by its language's formatter. It takes a file or a folder, resolves it against the working directory, and lets `LoomFormatter` name the looms the path covers. Each loom it changes is rewritten in place and reported. With `--check` it rewrites nothing. It names each loom that would change, and exits non-zero when any would, so a CI step can hold a project to its format.
 
+The command reads each loom through the tangler's function `readText`, which fails with the error `ReadError` when the disk refuses the loom. The function `writing` runs one write of the command line, and fails with the tangler's error `NotWritten` when the disk refuses it. The commands `init`, `helix` and `nvim` write through it too, so a folder Loom may not write to is told by name.
+
 =>
+
+const writing = <A>(path: string, write: (path: string) => A): Effect.Effect<A, NotWritten> =>
+  Effect.try({ try: () => write(path), catch: (cause) => new NotWritten({ path, cause }) })
 
 const format = (path: string, check: boolean) =>
   Effect.gen(function* () {
     const formatter = yield* LoomFormatter
+    const fs = yield* FileSystem.FileSystem
     const target = resolvePath(process.cwd(), path)
     const languages = yield* formatLanguages(target)
     const looms = yield* formatter.looms(target)
     const changed = yield* Effect.filter(looms, (loom) =>
       Effect.gen(function* () {
-        const text = yield* Effect.sync(() => readFileSync(loom, 'utf8'))
+        const text = yield* readText(fs, loom)
         const formatted = yield* formatter.format(loom, text, languages)
         if (formatted === text) return false
-        if (!check) yield* Effect.sync(() => writeFileSync(loom, formatted))
+        if (!check) yield* writing(loom, (file) => writeFileSync(file, formatted))
         return true
       }),
     )
@@ -365,8 +371,8 @@ const init = (dir: Option.Option<string>) =>
         primary: language,
         ignore: [],
       })
-      yield* Effect.sync(() =>
-        writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
+      yield* writing(resolvePath(root, '.loom', '.gitignore'), (file) =>
+        writeFileSync(file, 'services/\n'),
       )
       yield* Console.log(
         `\n   ${teal('✓')} wrote ${configFile}\n` +
@@ -377,7 +383,7 @@ const init = (dir: Option.Option<string>) =>
 
     const manifest = yield* config.manifest(root)
     const corpusDir = resolvePath(root, manifest?.corpus ?? 'corpus')
-    yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
+    yield* writing(corpusDir, (dir) => mkdirSync(dir, { recursive: true }))
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     const editorconfig = resolvePath(root, '.editorconfig')
@@ -388,7 +394,7 @@ const init = (dir: Option.Option<string>) =>
     yield* Option.match(withManagedBlock(current, block), {
       onNone: () => Console.log(`   ${dim(`✓ kept the [*.loom] section in ${editorconfig}`)}\n`),
       onSome: (text) =>
-        Effect.sync(() => writeFileSync(editorconfig, text)).pipe(
+        writing(editorconfig, (file) => writeFileSync(file, text)).pipe(
           Effect.andThen(Console.log(`   ${teal('✓')} wrote ${editorconfig}\n`)),
         ),
     })
@@ -1676,19 +1682,17 @@ const helix = Effect.gen(function* () {
   const languages = yield* withLoomLanguages(languagesFile, current)
 
   const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
-  yield* Effect.sync(() => mkdirSync(dirname(library), { recursive: true }))
+  yield* writing(dirname(library), (dir) => mkdirSync(dir, { recursive: true }))
   yield* buildGrammar(grammar, library)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${library}`)
 
   const queries = resolvePath(config, 'runtime', 'queries', 'loom')
-  yield* Effect.sync(() =>
-    cpSync(resolvePath(grammar, 'editors', 'helix', 'queries', 'loom'), queries, {
-      recursive: true,
-    }),
+  yield* writing(queries, (dir) =>
+    cpSync(resolvePath(grammar, 'editors', 'helix', 'queries', 'loom'), dir, { recursive: true }),
   )
   yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
 
-  yield* Effect.sync(() => writeFileSync(languagesFile, languages))
+  yield* writing(languagesFile, (file) => writeFileSync(file, languages))
   yield* Console.log(
     `   ${teal('✓')} added Loom to ${languagesFile}\n` +
       `   ${dim('check it with `hx --health loom`')}\n`,
@@ -1778,17 +1782,19 @@ const nvim = Effect.gen(function* () {
     return yield* Effect.fail(new NvimConfigClash({ file: pluginFile }))
 
   const parser = resolvePath(site, 'parser', 'loom.so')
-  yield* Effect.sync(() => mkdirSync(dirname(parser), { recursive: true }))
+  yield* writing(dirname(parser), (dir) => mkdirSync(dir, { recursive: true }))
   yield* buildGrammar(grammar, parser)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${parser}`)
 
   const queries = resolvePath(site, 'queries', 'loom')
-  yield* Effect.sync(() => cpSync(resolvePath(grammar, 'queries'), queries, { recursive: true }))
+  yield* writing(queries, (dir) =>
+    cpSync(resolvePath(grammar, 'queries'), dir, { recursive: true }),
+  )
   yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
 
-  yield* Effect.sync(() => {
-    mkdirSync(dirname(pluginFile), { recursive: true })
-    writeFileSync(pluginFile, nvimPlugin)
+  yield* writing(pluginFile, (file) => {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, nvimPlugin)
   })
   yield* Console.log(
     `   ${teal('✓')} added Loom to ${pluginFile}\n` +
@@ -1940,7 +1946,7 @@ A defect is a mistake in Loom's own code, which no error of a command foresaw: a
 =>
 
 const crashed = <E>(cause: Cause.Cause<E>): Effect.Effect<void> =>
-  tell(broke('command', cause)).pipe(
+  tell(broke('command', '', cause)).pipe(
     Effect.andThen(Console.error(dim(Cause.pretty(cause)))),
     Effect.andThen(exitNonZero),
   )
@@ -2100,7 +2106,7 @@ Node's `path` resolves a workspace directory for `init`. `node:fs` writes the co
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes and the package the dev registry describes, `Array` finds a file in a release, `Order` compares two versions, and `node:crypto` computes the checksum of a download. Node's `zlib` module unpacks a release's executable from its gzip, and Bun's own `Bun.Archive`, which needs no import, unpacks a dev release's executable from its package. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, and the function `broke`, which turns a defect into a failure. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, and the function `broke`, which turns a defect into a failure. From the tangler come the error `NotWritten` and the function `readText`, and Effect's `FileSystem` is what `readText` reads through. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
 From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` names the registry its dev releases come from. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
@@ -2113,6 +2119,7 @@ import {
   Data,
   Effect,
   Equal,
+  FileSystem,
   Match,
   Option,
   Order,
@@ -2153,12 +2160,12 @@ import {
   reasonOf,
   refusedBy,
   type Wording,
-} from '@athrio/loom-lang/LoomFailure'
+} from '@athrio/loom-lang/ast/LoomFailure'
 import { FileSystemEnvironment } from '@athrio/loom-lang/WorkspaceSource'
 import { type Drift, driftsIn } from '@athrio/loom-lang/ast/Relations'
 import { LanguagePackages } from '@athrio/loom-lang/LanguagePackages'
 import { TropePackages } from '@athrio/loom-lang/TropePackages'
-import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
+import { LoomTangler, NotWritten, readText } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'

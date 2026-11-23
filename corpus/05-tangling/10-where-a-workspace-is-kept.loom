@@ -24,7 +24,7 @@ The first two fetch text. The `open` method hands over a whole `Workspace` value
 
 The other five answer at once. The `corpusOf` method lists the looms that share a loom's corpus, the looms the compiler builds together with it. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placesOf` method says where the sinks of a set of looms land. It gives a `PlaceOf`, a function from one of those looms and a sink to the path the compiler records for the file the sink names. A source is asked once for the whole set, so it can work out what the looms share once, and each sink is then placed without asking again. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
 
-Two more methods keep what a workspace holds of its relations: the fingerprint an author approved for each relation, and the names the relation goes by as its labels, as the chapters "Fingerprints on relations" and "Kept by content, labelled by name" describe. The `keptRelationsOf` method hands over what is kept for the workspace a loom belongs to, and gives nothing when the workspace keeps nothing. The `keepRelations` method keeps what it is handed in place of what was kept before. It fails with `RelationsNotKept` when the workspace cannot take them. The `relationsFileOf` method gives the file that would keep the relations it is handed, and that file's text, as a `KeptFile`. An editor writes the file itself through it, as an edit the author sees and can undo. The method gives nothing for a workspace that keeps its relations in no file.
+Two more methods keep what a workspace holds of its relations: the fingerprint an author approved for each relation, and the names the relation goes by as its labels, as the chapters "Fingerprints on relations" and "Kept by content, labelled by name" describe. The `keptRelationsOf` method hands over what is kept for the workspace a loom belongs to, and gives nothing when the workspace keeps nothing. The `keepRelations` method keeps what it is handed in place of what was kept before. It fails with the error `RelationsNotKept` when the workspace cannot take them, and with the error `StorageTakesNoWrite` when the workspace is kept where nothing can be written. Neither error writes words of its own, since the chapter "The failure catalog" words both. The `relationsFileOf` method gives the file that would keep the relations it is handed, and that file's text, as a `KeptFile`. An editor writes the file itself through it, as an edit the author sees and can undo. The method gives nothing for a workspace that keeps its relations in no file.
 
 A `Location` is a string, the type the corpus model names a loom by, as the chapter "The multi-file AST" describes.
 
@@ -40,13 +40,11 @@ export interface Workspace {
 export class RelationsNotKept extends Data.TaggedError('RelationsNotKept')<{
   readonly workspace: Location
   readonly cause: unknown
-}> {
-  get message(): string {
-    return `Cannot keep relations for ${this.workspace}: ${
-      this.cause instanceof Error ? this.cause.message : String(this.cause)
-    }`
-  }
-}
+}> {}
+
+export class StorageTakesNoWrite extends Data.TaggedError('StorageTakesNoWrite')<{
+  readonly workspace: Location
+}> {}
 
 export interface KeptFile {
   readonly file: Location
@@ -67,7 +65,7 @@ export interface WorkspaceSourceApi {
   readonly keepRelations: (
     loom: Location,
     relations: ReadonlyArray<KeptRelation>,
-  ) => Effect.Effect<void, RelationsNotKept>
+  ) => Effect.Effect<void, RelationsNotKept | StorageTakesNoWrite>
   readonly relationsFileOf: (
     loom: Location,
     relations: ReadonlyArray<KeptRelation>,
@@ -430,7 +428,7 @@ Remote storage answers two requests, because only the `open` and `read` methods 
 
 A URL names one workspace, and each loom's location is a URL beneath it, ending in `.loom`. Volar's language lookup and the `isLoom` function both read that ending. Every request carries the secret key in an `Authorization: Bearer` header.
 
-A `GET` request on the workspace's URL returns the workspace as JSON. It holds the contract's version, the workspace's manifest, every loom's text keyed by location, and the relations the workspace keeps, when it keeps any. Remote storage takes no write, so the `keepRelations` method fails there with `RelationsNotKept`, and the `keptRelationsOf` method hands over the relations of the workspace last opened.
+A `GET` request on the workspace's URL returns the workspace as JSON. It holds the contract's version, the workspace's manifest, every loom's text keyed by location, and the relations the workspace keeps, when it keeps any. Remote storage takes no write, so the `keepRelations` method fails there with the error `StorageTakesNoWrite`, and the `keptRelationsOf` method hands over the relations of the workspace last opened.
 
 ```
 {
@@ -523,9 +521,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
         uriOf: (loom) => URI.parse(loom),
         keptRelationsOf: () => Ref.get(kept),
         keepRelations: () =>
-          Effect.fail(
-            new RelationsNotKept({ workspace: address.url, cause: 'remote storage takes no write' }),
-          ),
+          Effect.fail(new StorageTakesNoWrite({ workspace: address.url })),
         relationsFileOf: () => Option.none(),
       }
       return source
@@ -1124,8 +1120,8 @@ describe('RemoteSource — a workspace kept behind a URL', () => {
       const failure = await runtime.runPromise(
         WorkspaceSource.pipe(Effect.flatMap((source) => Effect.flip(source.open(stub.url)))),
       )
-      expect(failure.message).toContain(stub.url)
-      expect(failure.message).not.toContain('not-the-key')
+      expect(lineOf(wordsOf(failure))).toContain(stub.url)
+      expect(lineOf(wordsOf(failure))).not.toContain('not-the-key')
     } finally {
       stub.stop()
     }
@@ -1265,6 +1261,7 @@ import {
 import { Effect, ManagedRuntime, Redacted } from 'effect'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { describe as wordsOf, lineOf } from '#ast/LoomFailure'
 import { RemoteEnvironment, WorkspaceSource } from '../src/WorkspaceSource'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { type StorageStub, storageStub } from './storageStub'

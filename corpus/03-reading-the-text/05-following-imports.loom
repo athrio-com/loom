@@ -18,7 +18,7 @@ The builder owns no files. It reads through a `Source` the caller hands it, so t
 
 `list` is the other half. Given a loom's path, it returns the paths of the looms that share that loom's corpus, the looms `LoomCompiler` builds together with it. Which looms those are depends on where the looms are kept, so the source decides, and the compiler never walks a folder. `list` is itself an `Option`: a caller that hands in a single document in memory carries `Option.none`, and the compiler then sees a corpus of one. The `DocumentSource` service the CLI and the editor use carries `Option.some` of a listing that asks the `WorkspaceSource` service, as the chapter "Where a workspace is kept" describes.
 
-`ReadError` names a file the source cannot read — one that is missing, or one the operating system refuses to open — and carries the path and the underlying cause. Its message reads `Cannot read <path>: <cause>`. The build catches it and recovers, so a file that cannot be read becomes a diagnostic on that file rather than a crash.
+`ReadError` names a file the source cannot read — one that is missing, or one the operating system refuses to open — and carries the path and the underlying cause. It writes no words of its own, since the chapter "The failure catalog" words every failure of a run. The build catches it and recovers, so a file that cannot be read becomes a diagnostic on that file rather than a crash.
 
 =>
 
@@ -30,13 +30,7 @@ export interface Source {
 export class ReadError extends Data.TaggedError('ReadError')<{
   readonly path: Location
   readonly cause: unknown
-}> {
-  get message(): string {
-    return `Cannot read ${this.path}: ${
-      this.cause instanceof Error ? this.cause.message : String(this.cause)
-    }`
-  }
-}
+}> {}
 
 ## The chain of passes
 
@@ -50,7 +44,9 @@ One more thing rides in beside the settings: `declared`, what the workspace's tr
 
 Only `finish` reads `declared`, and that is why the chain is cut where it is. Nothing in `parse` depends on the book. So a caller that does not know yet what the tropes declare parses each loom, learns the declared kinds from what it parsed, and then finishes each loom once.
 
-The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parse` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `finish` runs the small passes and the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
+The chain is total: it never throws, and it always yields a module. Three things can stop it before a real document exists. A file the source cannot read raises `ReadError`. A delimiter pair the workspace configured badly raises one of the `InvalidAnchorDelims` errors. A loom that mixes line terminators raises `MixedEOL`, which the parse chain cannot pin to a node.
+
+The method `parse` catches all three and recovers to an empty document that carries one diagnostic. The first two are failures of the run, which the chapter "The failure catalog" gathers as the type `ReadingFailure`. The function `unread` gives the empty document for one of them, with the words that catalog has for it. Mixed line terminators are a fault of the loom's own text, so `emptyDocumentFor` takes its words from the fault catalog. So `finish` runs the small passes and the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read failure. Every other malformation rides in the document's own health.
 
 =>
 
@@ -59,6 +55,9 @@ export interface ParsedLoom {
   readonly text: string
   readonly tree: ParsedDocument
 }
+
+const unread = (text: string, failure: ReadingFailure): ParsedDocument =>
+  emptyDocument(text, lineOf(describe(failure)))
 
 export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>()(
   'LoomCorpusAstBuilder',
@@ -77,10 +76,8 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         delims: AnchorDelims = defaultAnchorDelims,
       ): Effect.Effect<ParsedLoom> =>
         source.read(path).pipe(
-          Effect.flatMap((text) => {
-            const onBadDelims = (err: InvalidAnchorDelims) =>
-              Effect.succeed(emptyDocument(text, err.message))
-            return checkAnchorDelims(delims).pipe(
+          Effect.flatMap((text) =>
+            checkAnchorDelims(delims).pipe(
               Effect.andThen(sourceRanges.rangesOf(text)),
               Effect.map((ranges) =>
                 pipe(
@@ -91,17 +88,12 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                 ),
               ),
               Effect.catchTag('MixedEOL', (err) => Effect.succeed(emptyDocumentFor(text, err))),
-              Effect.catchTags({
-                EmptyAnchorDelims: onBadDelims,
-                IdenticalAnchorDelims: onBadDelims,
-                WhitespaceAnchorDelims: onBadDelims,
-                ReservedAnchorDelims: onBadDelims,
-              }),
+              Effect.catch((failure) => Effect.succeed(unread(text, failure))),
               Effect.map((tree): ParsedLoom => ({ path, text, tree })),
-            )
-          }),
-          Effect.catchTag('ReadError', (err) =>
-            Effect.succeed<ParsedLoom>({ path, text: '', tree: emptyDocument('', err.message) }),
+            ),
+          ),
+          Effect.catchTag('ReadError', (failure) =>
+            Effect.succeed<ParsedLoom>({ path, text: '', tree: unread('', failure) }),
           ),
         )
 
@@ -149,7 +141,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
 ## What the builder draws on
 
-The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `LoomDocumentBuilder` for the row of small passes, with the `Declared` it reads and `nothingDeclared`, and `ProductBuilder` for the product pass. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `ParsedDocument`, `LoomModule`, and `Location` types name the tree `parse` gives, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `LoomDocumentBuilder` for the row of small passes, with the `Declared` it reads and `nothingDeclared`, and `ProductBuilder` for the product pass. From the token layer it takes `checkAnchorDelims`, which guards the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. From the failure catalog it takes `describe` and `lineOf`, which word a loom that was not read, and the type `ReadingFailure`. The `ParsedDocument`, `LoomModule`, and `Location` types name the tree `parse` gives, what a build returns, and how a loom is named. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
 
 =>
 
@@ -158,12 +150,12 @@ import {
   checkAnchorDelims,
   defaultAnchorDelims,
   type AnchorDelims,
-  type InvalidAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
+import { describe, lineOf, type ReadingFailure } from '#ast/LoomFailure'
 import type { ParsedDocument } from '@athrio/loom-ast/LoomAst'
 import { type Declared, LoomDocumentBuilder, nothingDeclared } from '#ast/LoomDocumentBuilder'
 import { ProductBuilder } from '#ast/ProductBuilder'

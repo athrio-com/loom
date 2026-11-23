@@ -575,43 +575,25 @@ export const WarpTokenSchema = loomNode('Warp', {
 })
 export type WarpToken = typeof WarpTokenSchema.Type
 
-const suggestAnchorDelims = `Choose a distinct open that Loom does not use and that does not occur in your product code — for example \`${defaultAnchorDelims.open}\` and \`${defaultAnchorDelims.close}\` — in this package's loom.json.`
-
 const reservedOpen: ReadonlyArray<string> = ['{{', '}}', '=>', '~', '#', '<', '>', '[', ']']
 
 export class EmptyAnchorDelims extends Data.TaggedError('EmptyAnchorDelims')<{
   readonly open: string
   readonly close: string
-}> {
-  get message(): string {
-    return `Anchor delimiters cannot be empty (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export class IdenticalAnchorDelims extends Data.TaggedError('IdenticalAnchorDelims')<{
   readonly delim: string
-}> {
-  get message(): string {
-    return `Anchor open and close must differ; both are \`${this.delim}\`. A symmetric pair cannot be paired unambiguously. ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export class WhitespaceAnchorDelims extends Data.TaggedError('WhitespaceAnchorDelims')<{
   readonly open: string
   readonly close: string
-}> {
-  get message(): string {
-    return `Anchor delimiters cannot contain whitespace (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export class ReservedAnchorDelims extends Data.TaggedError('ReservedAnchorDelims')<{
   readonly marker: string
-}> {
-  get message(): string {
-    return `Anchor open \`${this.marker}\` is one of Loom's reserved markers. ${suggestAnchorDelims}`
-  }
-}
+}> {}
 
 export type InvalidAnchorDelims =
   EmptyAnchorDelims | IdenticalAnchorDelims | WhitespaceAnchorDelims | ReservedAnchorDelims

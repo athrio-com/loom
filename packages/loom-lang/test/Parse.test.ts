@@ -335,7 +335,7 @@ describe('parseDocument — parse-chain behaviour', () => {
     const doc = buildDocument(text)
     expect(doc.health.status).toBe('error')
     expect(doc.health.diagnostics).toHaveLength(1)
-    expect(doc.health.diagnostics[0].message).toMatch(/mixed line terminators/i)
+    expect(doc.health.diagnostics[0].message).toMatch(/ends its lines in two ways/i)
     expect(doc.preamble).toEqual([])
     expect(doc.sections).toEqual([])
     expect(doc.position.start.offset).toBe(0)

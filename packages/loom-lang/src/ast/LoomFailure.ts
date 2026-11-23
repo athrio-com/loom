@@ -1,14 +1,12 @@
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type {
-  ClassicTypeScriptMissing,
-  ServiceError,
-} from '@athrio/loom-lang-services/LanguageService'
+import type { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import type { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import type { ReadError } from '#ast/LoomCorpusAstBuilder'
-import type { TangleError } from './LoomCompiler'
-import type { TypeScriptNotFetched } from './LoomServer'
-import type { RelationsNotKept } from './WorkspaceSource'
+import type { TangleError } from '../LoomCompiler'
+import type { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../LoomServer'
+import type { NotRemoved, NotWritten } from '../LoomTangler'
+import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
 
 export type Problem = { readonly summary: string; readonly detail: string }
 
@@ -36,6 +34,13 @@ const readingWording: Wording<ReadingFailure> = {
     problem('An anchor delimiter cannot hold white space.', delimiterAdvice),
   ReservedAnchorDelims: ({ marker }) =>
     problem(`An anchor cannot open with \`${marker}\`, which Loom already uses.`, delimiterAdvice),
+}
+
+export type WritingFailure = NotWritten | NotRemoved
+
+const writingWording: Wording<WritingFailure> = {
+  NotWritten: ({ path, cause }) => problem(`Loom could not write ${path}.`, reasonOf(cause)),
+  NotRemoved: ({ path, cause }) => problem(`Loom could not remove ${path}.`, reasonOf(cause)),
 }
 
 export type TanglingFailure = TangleError
@@ -76,37 +81,57 @@ const packageWording: Wording<PackageFailure> = {
     problem(`The ${service} language service failed.`, reasonOf(reason)),
 }
 
-export type KeepingFailure = RelationsNotKept
+export type KeepingFailure = RelationsNotKept | StorageTakesNoWrite
 
 const keepingWording: Wording<KeepingFailure> = {
   RelationsNotKept: ({ workspace, cause }) =>
     problem(`Loom could not keep the relations of ${workspace}.`, reasonOf(cause)),
+  StorageTakesNoWrite: ({ workspace }) =>
+    problem(`Loom could not keep the relations of ${workspace}.`, 'Remote storage takes no write.'),
 }
 
-export type Program = 'command' | 'server'
+export type Work =
+  | 'command'
+  | 'opening'
+  | 'warming'
+  | 'projecting'
+  | 'forgetting'
+  | 'reprojecting'
+  | 'rereading'
+  | 'rebuilding'
+  | 'keeping'
 
 export class Broke extends Data.TaggedError('Broke')<{
-  readonly program: Program
+  readonly work: Work
+  readonly subject: string
   readonly cause: string
 }> {}
 
-export const broke = (program: Program, cause: Cause.Cause<unknown>): Broke =>
-  new Broke({ program, cause: reasonOf(Cause.squash(cause)) })
+export const broke = (work: Work, subject: string, cause: Cause.Cause<unknown>): Broke =>
+  new Broke({ work, subject, cause: reasonOf(Cause.squash(cause)) })
 
-const programs: { readonly [Each in Program]: string } = {
-  command: 'command line',
-  server: 'language server',
+const works: { readonly [Each in Work]: (subject: string) => string } = {
+  command: () => "Something broke in Loom's command line.",
+  opening: (workspace) => `Something broke while Loom opened the workspace ${workspace}.`,
+  warming: (loom) => `Something broke while Loom built the corpus of ${loom} ahead.`,
+  projecting: (loom) => `Something broke while Loom prepared ${loom} for the editor.`,
+  forgetting: (loom) => `Something broke while Loom forgot ${loom}, which was deleted.`,
+  reprojecting: (loom) => `Something broke while Loom prepared ${loom} for the editor again.`,
+  rereading: () => 'Something broke while Loom read the looms that changed on disk.',
+  rebuilding: (loom) => `Something broke while Loom rebuilt ${loom} after an edit.`,
+  keeping: (loom) => `Something broke while Loom kept the boxes of ${loom} in step.`,
 }
 
 const brokeWording: Wording<Broke> = {
-  Broke: ({ program, cause }) =>
-    problem(`Something broke in Loom's ${programs[program]}.`, reasonOf(cause)),
+  Broke: ({ work, subject, cause }) => problem(works[work](subject), reasonOf(cause)),
 }
 
-export type LoomFailure = ReadingFailure | TanglingFailure | PackageFailure | KeepingFailure | Broke
+export type LoomFailure =
+  ReadingFailure | WritingFailure | TanglingFailure | PackageFailure | KeepingFailure | Broke
 
 export const failureWording: Wording<LoomFailure> = {
   ...readingWording,
+  ...writingWording,
   ...tanglingWording,
   ...packageWording,
   ...keepingWording,

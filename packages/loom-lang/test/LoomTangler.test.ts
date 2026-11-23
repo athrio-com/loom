@@ -5,7 +5,7 @@ import { Effect, Layer } from 'effect'
 import { FileSystem } from 'effect'
 import { BunServices } from '@effect/platform-bun'
 import { DocumentSource } from '../src/LoomCompiler'
-import { refusedBy } from '../src/LoomFailure'
+import { refusedBy } from '#ast/LoomFailure'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -147,7 +147,8 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       expect(result._tag).toBe('Failure')
       if (result._tag === 'Failure') {
         expect(result.failure._tag).toBe('TangleError')
-        expect(refusedBy(result.failure).join('\n')).toMatch(/Ghost/)
+        if (result.failure._tag === 'TangleError')
+          expect(refusedBy(result.failure).join('\n')).toMatch(/Ghost/)
       }
       // the sink is never written — a broken anchor stops the tangle
       expect(yield* fs.exists(`${dir}/out/x.ts`)).toBe(false)

@@ -1,5 +1,6 @@
 import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+import type { EolKind } from '#ast/LineRanges'
 import { type CopiedFrom, type Opening } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type Codeless,
@@ -55,6 +56,12 @@ export type LoomFault = Data.TaggedEnum<{
     readonly found: string
   }
   UnclosedFence: { readonly fence: string }
+  MixedLineEndings: {
+    readonly primary: EolKind
+    readonly found: EolKind
+    readonly primaryLine: number
+    readonly foundLine: number
+  }
   FenceLabelAgainstLanguage: { readonly label: string; readonly language: string }
   StrayFragment: { readonly value: string }
   RepeatedKey: { readonly key: string }
@@ -155,6 +162,7 @@ export const {
   UnservedLanguage,
   CrossLanguageAnchor,
   UnclosedFence,
+  MixedLineEndings,
   FenceLabelAgainstLanguage,
   StrayFragment,
   RepeatedKey,
@@ -370,6 +378,12 @@ const withoutFileText = Match.fn(
   ),
 )
 
+const lineEndings: { readonly [Kind in EolKind]: string } = {
+  lf: 'LF (Unix)',
+  crlf: 'CRLF (Windows)',
+  cr: 'CR (classic Mac)',
+}
+
 export const describe = (fault: LoomFault): Note =>
   matchFault(fault, {
     UnclosedDelimiter: ({ expected }) =>
@@ -570,6 +584,10 @@ export const describe = (fault: LoomFault): Note =>
     UnclosedFence: ({ fence }) =>
       error(
         `Nothing closes this fence, so its code runs to the end of the loom. Close it with \`${fence}\` on a line of its own, at the same column.`,
+      ),
+    MixedLineEndings: ({ primary, found, primaryLine, foundLine }) =>
+      error(
+        `This loom ends its lines in two ways: line ${primaryLine} with ${lineEndings[primary]} and line ${foundLine} with ${lineEndings[found]}. End every line the same way.`,
       ),
     ColonRun: ({ colons }) =>
       error(`A box line starts with three colons, not ${colons.length}. Write \`:::\`.`),

@@ -919,7 +919,9 @@ const fencesOf = (doc: LoomDocument, text: string): ReadonlyArray<Edit> =>
 
 The file's module is built through a `Source` that knows only this one text, so the build never reads another file and never sees an older copy of this one.
 
-Its `looms` names the looms a path covers, for a caller that formats more than one. A file is itself. A folder is every loom under it that the project holds, by the same walk `tangle` takes, so `format` and `tangle` agree on what a folder contains. The project comes from the configuration `LoomConfig` resolves for the folder, since the build settings carry no folders.
+Its `looms` names the looms a path covers, for a caller that formats more than one. A path where nothing is fails with the error `ReadError`, so a command that names a missing path says so. A file is itself. A folder is every loom under it that the project holds, by the same walk `tangle` takes, so `format` and `tangle` agree on what a folder contains. The project comes from the configuration `LoomConfig` resolves for the folder, since the build settings carry no folders.
+
+The function `textSource` gives the source one loom is formatted from. It holds that loom's text and lists no corpus, so the builder reads no other loom. A request for another one is a mistake in Loom's own code, and the source dies on it.
 
 =>
 
@@ -927,9 +929,7 @@ const textSource = (path: Location, text: string): Source => ({
   read: (at) =>
     at === path
       ? Effect.succeed(text)
-      : Effect.fail(
-          new ReadError({ path: at, cause: 'the formatter reads only the file it formats' }),
-        ),
+      : Effect.die(new Error(`the formatter's source was asked for ${at}, and holds only ${path}`)),
   list: Option.none(),
 })
 
@@ -1006,10 +1006,19 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
           )
           return broken.length === 0 ? withFallback : settledText
         }),
-      looms: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-        statSync(path, { throwIfNoEntry: false })?.isDirectory() === true
-          ? Effect.map(loomConfig.resolve(path), (resolved) => loomsIn(path, projectIn(resolved)))
-          : Effect.succeed([path]),
+      looms: (path: Path): Effect.Effect<ReadonlyArray<Path>, ReadError> =>
+        Effect.try({
+          try: () => statSync(path),
+          catch: (cause) => new ReadError({ path, cause }),
+        }).pipe(
+          Effect.flatMap((stats) =>
+            stats.isDirectory()
+              ? Effect.map(loomConfig.resolve(path), (resolved) =>
+                  loomsIn(path, projectIn(resolved)),
+                )
+              : Effect.succeed<ReadonlyArray<Path>>([path]),
+          ),
+        ),
     }
   }),
 }) {

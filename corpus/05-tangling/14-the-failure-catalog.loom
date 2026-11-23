@@ -1,8 +1,5 @@
 ---
-Part: Work in progress
-Chapter: The failure catalog
-Status: Planned
-Priority: 2
+Part V, Chapter 14: The failure catalog
 Package: packages/loom-lang/
 Language: TypeScript
 ---
@@ -15,7 +12,7 @@ A failure is not a fault. A fault is a fact about a loom's text, such as an anch
 
 The two catalogs keep one rule. The step that detects a failure names it, says what it knows, and never writes the words a person reads. This module is the one place that gives a failure its words. Its table holds a case for every failure of the catalog, and the compiler checks that it does. A failure new to Loom does not compile until the table gives it words.
 
-Loom tells a person about a failure in two programs, the command line and the language server. Each program ends its work in one function that takes only a failure of the catalog. A failure the catalog does not name cannot reach that function, so a program that may raise one does not compile.
+Loom tells a person about a failure in two programs, the command line and the language server. Each program tells a failure through a function that takes only a failure of the catalog. A failure the catalog does not name cannot reach that function, so a program that may raise one does not compile.
 
 ## The words of a failure
 
@@ -44,7 +41,7 @@ export type Wording<Failure extends { readonly _tag: string }> = {
 
 Loom reads a workspace before it tangles, weaves or checks it, and two things can stop the reading.
 
-The disk may refuse a loom or a settings file, and so may the storage that keeps a remote workspace. The corpus builder's error `ReadError` holds the `path` that was not read and the `cause`.
+The disk may refuse a loom, a folder or a settings file, and so may the storage that keeps a remote workspace. A command may also name a path where nothing is. The corpus builder's error `ReadError` holds the `path` that was not read and the `cause`.
 
 The workspace's settings may name anchor delimiters that Loom cannot use. The function `checkAnchorDelims` raises one of four errors, which the type `InvalidAnchorDelims` gathers. A delimiter is empty. One text opens and closes an anchor. A delimiter holds white space. Or the opening delimiter is a mark Loom already uses, such as the `#` of a heading. Each of the four ends on the same advice, which names the setting and the pair Loom uses when the settings name none.
 
@@ -63,6 +60,19 @@ const readingWording: Wording<ReadingFailure> = {
     problem('An anchor delimiter cannot hold white space.', delimiterAdvice),
   ReservedAnchorDelims: ({ marker }) =>
     problem(`An anchor cannot open with \`${marker}\`, which Loom already uses.`, delimiterAdvice),
+}
+
+## Writing what Loom makes
+
+Loom writes the files a tangle composes and the lock that records them. It writes a woven corpus, and a loom whose boxes it brought back in step. It removes a file that lost its loom. The disk may refuse any of these, as a folder Loom may not write to does. The tangler's error `NotWritten` holds the `path` Loom could not write and the `cause`. Its error `NotRemoved` holds the same for a file Loom could not remove.
+
+=>
+
+export type WritingFailure = NotWritten | NotRemoved
+
+const writingWording: Wording<WritingFailure> = {
+  NotWritten: ({ path, cause }) => problem(`Loom could not write ${path}.`, reasonOf(cause)),
+  NotRemoved: ({ path, cause }) => problem(`Loom could not remove ${path}.`, reasonOf(cause)),
 }
 
 ## A tangle refused
@@ -98,7 +108,7 @@ A language's service comes to a workspace as a package, which Loom installs into
 
 - **The store cannot install a package.** Its error `StoreError` holds the `packageName` and the `cause`.
 - **The language server cannot fetch its TypeScript.** The server downloads a TypeScript of its own. The error `TypeScriptNotFetched` holds the `version`, the `folder` the download was meant for, and the `cause`.
-- **A project's TypeScript 6 is missing, or does not load.** The error `ClassicTypeScriptMissing` holds the `folder` Loom looked from. Its `tsdk` is the folder of a TypeScript that Loom found and could not load, and is none when Loom found no TypeScript.
+- **A project's TypeScript 6 is missing, or does not load.** The server's error `ClassicTypeScriptMissing` holds the `folder` Loom looked from. Its `tsdk` is the folder of a TypeScript that Loom found and could not load, and is none when Loom found no TypeScript.
 - **A service fails at what it is asked,** such as formatting a section. The error `ServiceError` holds the `service` and the `reason`, in the service's own words.
 
 =>
@@ -126,43 +136,63 @@ const packageWording: Wording<PackageFailure> = {
 
 ## Keeping relations
 
-An author approves a reference, and Loom keeps the approval in the workspace, as the chapter "Fingerprints on relations" describes. The workspace may not take the write. The error `RelationsNotKept` holds the `workspace` and the `cause`.
+An author approves a reference, and Loom keeps the approval in the workspace, as the chapter "Fingerprints on relations" describes. The workspace may not take the write. The error `RelationsNotKept` holds the `workspace` and the `cause`. A workspace kept in remote storage never takes one, and the error `StorageTakesNoWrite` says so of its `workspace`.
 
 =>
 
-export type KeepingFailure = RelationsNotKept
+export type KeepingFailure = RelationsNotKept | StorageTakesNoWrite
 
 const keepingWording: Wording<KeepingFailure> = {
   RelationsNotKept: ({ workspace, cause }) =>
     problem(`Loom could not keep the relations of ${workspace}.`, reasonOf(cause)),
+  StorageTakesNoWrite: ({ workspace }) =>
+    problem(`Loom could not keep the relations of ${workspace}.`, 'Remote storage takes no write.'),
 }
 
 ## A mistake in the code of Loom
 
-A defect is a mistake in Loom's own code, a failure no type foresaw: an exception from a library, or a value a schema should never have refused. Effect carries a defect in a cause, not in a type. Each program catches its defects where its work starts. Each defect becomes the failure `Broke`, which names the `program` it struck and its `cause`. So a mistake in the code reaches a person in the catalog's words, as every other failure does.
+A defect is a mistake in Loom's own code, a failure no type foresaw: an exception from a library, or a value a schema should never have refused. Effect carries a defect in a cause, not in a type. Each program catches its defects where a piece of its work starts. Each defect becomes the failure `Broke`. So a mistake in the code reaches a person in the catalog's words, as every other failure does.
+
+The failure `Broke` names the `work` the defect struck, the `subject` of that work, and the `cause`. The type `Work` lists the pieces of work a program catches defects around. The command line has one, a command. The language server has eight, such as opening a workspace or rebuilding a loom after an edit. The subject is the loom or the workspace the work was on, and is empty for work that has none. The table `works` gives each piece of work its summary.
 
 The function `broke` makes one from the cause Effect hands over. A cause may hold a failure, a defect, or several, and Effect's function `Cause.squash` picks the one at its heart.
 
 =>
 
-export type Program = 'command' | 'server'
+export type Work =
+  | 'command'
+  | 'opening'
+  | 'warming'
+  | 'projecting'
+  | 'forgetting'
+  | 'reprojecting'
+  | 'rereading'
+  | 'rebuilding'
+  | 'keeping'
 
 export class Broke extends Data.TaggedError('Broke')<{
-  readonly program: Program
+  readonly work: Work
+  readonly subject: string
   readonly cause: string
 }> {}
 
-export const broke = (program: Program, cause: Cause.Cause<unknown>): Broke =>
-  new Broke({ program, cause: reasonOf(Cause.squash(cause)) })
+export const broke = (work: Work, subject: string, cause: Cause.Cause<unknown>): Broke =>
+  new Broke({ work, subject, cause: reasonOf(Cause.squash(cause)) })
 
-const programs: { readonly [Each in Program]: string } = {
-  command: 'command line',
-  server: 'language server',
+const works: { readonly [Each in Work]: (subject: string) => string } = {
+  command: () => "Something broke in Loom's command line.",
+  opening: (workspace) => `Something broke while Loom opened the workspace ${workspace}.`,
+  warming: (loom) => `Something broke while Loom built the corpus of ${loom} ahead.`,
+  projecting: (loom) => `Something broke while Loom prepared ${loom} for the editor.`,
+  forgetting: (loom) => `Something broke while Loom forgot ${loom}, which was deleted.`,
+  reprojecting: (loom) => `Something broke while Loom prepared ${loom} for the editor again.`,
+  rereading: () => 'Something broke while Loom read the looms that changed on disk.',
+  rebuilding: (loom) => `Something broke while Loom rebuilt ${loom} after an edit.`,
+  keeping: (loom) => `Something broke while Loom kept the boxes of ${loom} in step.`,
 }
 
 const brokeWording: Wording<Broke> = {
-  Broke: ({ program, cause }) =>
-    problem(`Something broke in Loom's ${programs[program]}.`, reasonOf(cause)),
+  Broke: ({ work, subject, cause }) => problem(works[work](subject), reasonOf(cause)),
 }
 
 ## One catalog
@@ -173,10 +203,12 @@ A person reads the two parts of a problem as one line. The function `lineOf` joi
 
 =>
 
-export type LoomFailure = ReadingFailure | TanglingFailure | PackageFailure | KeepingFailure | Broke
+export type LoomFailure =
+  ReadingFailure | WritingFailure | TanglingFailure | PackageFailure | KeepingFailure | Broke
 
 export const failureWording: Wording<LoomFailure> = {
   ...readingWording,
+  ...writingWording,
   ...tanglingWording,
   ...packageWording,
   ...keepingWording,
@@ -196,11 +228,12 @@ A failure shows where the person who can act on it is looking.
 
 The command line has one place, standard error. It prints the problem's summary after its own name, `loom:`, and the detail on the line below. Under a tangle that was refused it lists the diagnostics that refused it. Then it ends with exit code 1. The chapter "The Loom CLI" builds this in its section "Telling a failure".
 
-The language server has three places.
+The language server has four places.
 
-- **A message.** The editor shows the failure once, through the `window/showMessage` notification of the Language Server Protocol. A message is for a failure the author must act on: a package that did not install, a TypeScript that was not fetched or did not load, a service that failed, an approval that was not kept.
+- **The answer to a request.** A workspace that cannot be opened fails the editor's `initialize` request, and the answer carries the failure's line. So the editor hears of a wrong storage key as it connects.
 - **The loom.** A loom that could not be read shows the failure as its one diagnostic. So does a loom read with delimiters Loom cannot use.
-- **The log.** The server writes the failure to its log, which an editor keeps in a panel of its own. The log is for the failure `Broke`. The server goes on after it, and the author can do nothing about it but report it.
+- **A language's package.** A package that Loom loads from the store cannot see this catalog. So a failure that crosses to one crosses as its line, in words. The TypeScript service is handed the reason a TypeScript is missing or was not fetched, and shows it in the looms it checks. Such a package words its own errors as well. The errors of the TypeScript service travel as rejected promises, which other code reads by their `message`, so each of them writes its own.
+- **The log.** The server writes the failure `Broke` to its log, which an editor keeps in a panel of its own, with the whole cause. The server goes on after it, and the author can do nothing about it but report it.
 
 ## What the command line adds
 
@@ -210,23 +243,21 @@ The command line widens the catalog instead, in the chapter "The Loom CLI". Its 
 
 ## What the catalog draws on
 
-The catalog takes each error as a type alone, so it loads no module only to name that module's errors. It runs on Effect, and it reads the default pair of anchor delimiters for its advice.
+The catalog takes each error as a type alone, so it loads no module only to name that module's errors. It runs on Effect, and it reads the default pair of anchor delimiters for its advice. It sits beside the fault catalog, among the modules that read a loom, so the builder of one module takes the words of a loom it could not read from here.
 
 =>
 
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type {
-  ClassicTypeScriptMissing,
-  ServiceError,
-} from '@athrio/loom-lang-services/LanguageService'
+import type { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import type { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import type { ReadError } from '#ast/LoomCorpusAstBuilder'
-import type { TangleError } from './LoomCompiler'
-import type { TypeScriptNotFetched } from './LoomServer'
-import type { RelationsNotKept } from './WorkspaceSource'
+import type { TangleError } from '../LoomCompiler'
+import type { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../LoomServer'
+import type { NotRemoved, NotWritten } from '../LoomTangler'
+import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
 
-## The failure catalog module [src/LoomFailure.ts]
+## The failure catalog module [src/ast/LoomFailure.ts]
 
 =>
 
@@ -235,6 +266,8 @@ import type { RelationsNotKept } from './WorkspaceSource'
 ::[The words of a failure]
 
 ::[Reading a workspace]
+
+::[Writing what Loom makes]
 
 ::[A tangle refused]
 
@@ -253,17 +286,18 @@ The tests hold one failure of every kind in the table `samples`. The table is ke
 =>
 
 import { expect, it } from 'bun:test'
-import { Cause, Data, Match, Option } from 'effect'
+import { Cause, Data, Effect, Match, Option } from 'effect'
 import type { Position } from '@athrio/loom-ast/LoomNode'
 import {
+  type AnchorDelims,
   EmptyAnchorDelims,
   IdenticalAnchorDelims,
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
-import { ClassicTypeScriptMissing, ServiceError } from '@athrio/loom-lang-services/LanguageService'
+import { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import { StoreError } from '@athrio/loom-lang-services/LoomStore'
-import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { TangleError } from '../src/LoomCompiler'
 import {
   Broke,
@@ -275,9 +309,10 @@ import {
   type Problem,
   reasonOf,
   refusedBy,
-} from '../src/LoomFailure'
-import { TypeScriptNotFetched } from '../src/LoomServer'
-import { RelationsNotKept } from '../src/WorkspaceSource'
+} from '#ast/LoomFailure'
+import { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../src/LoomServer'
+import { NotRemoved, NotWritten } from '../src/LoomTangler'
+import { RelationsNotKept, StorageTakesNoWrite } from '../src/WorkspaceSource'
 
 const nowhere: Position = { start: { line: 1, offset: 0 }, end: { line: 1, offset: 0 } }
 
@@ -289,6 +324,8 @@ const samples: {
   IdenticalAnchorDelims: new IdenticalAnchorDelims({ delim: '|' }),
   WhitespaceAnchorDelims: new WhitespaceAnchorDelims({ open: '( ', close: ')' }),
   ReservedAnchorDelims: new ReservedAnchorDelims({ marker: '#' }),
+  NotWritten: new NotWritten({ path: '/book/out/ledger.ts', cause: new Error('read-only disk') }),
+  NotRemoved: new NotRemoved({ path: '/book/out/old.ts', cause: new Error('read-only disk') }),
   TangleError: new TangleError({
     entry: '/book/book.loom',
     failures: [
@@ -310,9 +347,10 @@ const samples: {
   ServiceError: new ServiceError({ service: 'typescript', reason: 'the formatter did not load' }),
   RelationsNotKept: new RelationsNotKept({
     workspace: '/book',
-    cause: 'remote storage takes no write',
+    cause: new Error('read-only disk'),
   }),
-  Broke: new Broke({ program: 'server', cause: 'no such function' }),
+  StorageTakesNoWrite: new StorageTakesNoWrite({ workspace: 'https://example.com/workspace' }),
+  Broke: new Broke({ work: 'rereading', subject: '', cause: 'no such function' }),
 }
 
 ## Every failure reads as a sentence
@@ -330,7 +368,7 @@ it('words every failure as a sentence', () => {
 
 it('reads a cause in its own words', () => {
   expect(reasonOf(new Error('no such file'))).toBe('no such file.')
-  expect(reasonOf('remote storage takes no write')).toBe('remote storage takes no write.')
+  expect(reasonOf('the disk is full')).toBe('the disk is full.')
   expect(reasonOf('It stopped!')).toBe('It stopped!')
   expect(describe(samples.ReadError)).toEqual({
     summary: 'Loom could not read /book/ledger.loom.',
@@ -370,18 +408,63 @@ it('joins the two parts of a problem in one line', () => {
   expect(lineOf({ summary: 'It failed.', detail: 'Try again.' })).toBe('It failed. Try again.')
 })
 
-## A defect becomes a failure
+## A loom that was not read
 
-The function `broke` reads the defect at the heart of a cause and names the program it struck.
+The builder of one module turns a loom it could not read into an empty document with one diagnostic, as the chapter "Building one module" describes. The first two cases build such a loom, from a source that refuses it and from a pair of delimiters Loom cannot use. Each diagnostic holds the line this catalog has for the failure. The third case builds a loom that mixes line endings. That is a fault of the loom's text, so its diagnostic holds the words of the fault catalog.
 
 =>
 
-it('names the program a defect struck', () => {
-  const failure = broke('server', Cause.die(new Error('no such function')))
+const held = (text: string): Source => ({ read: () => Effect.succeed(text), list: Option.none() })
+
+const refusing: Source = {
+  read: (path) => Effect.fail(new ReadError({ path, cause: new Error('no such file') })),
+  list: Option.none(),
+}
+
+const messagesFrom = (source: Source, delims?: AnchorDelims): ReadonlyArray<string> =>
+  Effect.runSync(
+    LoomCorpusAstBuilder.pipe(
+      Effect.flatMap((builder) => builder.build(source, '/book/ledger.loom', delims)),
+      Effect.provide(LoomCorpusAstBuilder.layer),
+    ),
+  ).doc.health.diagnostics.map((diagnostic) => diagnostic.message)
+
+it('gives a loom the source refused the line of its failure', () => {
+  expect(messagesFrom(refusing)).toEqual(['Loom could not read /book/ledger.loom. no such file.'])
+})
+
+it('gives a loom read with a bad pair of delimiters the line of that failure', () => {
+  expect(messagesFrom(held('# Ledger\n'), { open: '@@', close: '@@' })).toEqual([
+    lineOf(describe(new IdenticalAnchorDelims({ delim: '@@' }))),
+  ])
+})
+
+it('gives a loom that mixes line endings the words of a fault', () => {
+  expect(messagesFrom(held('one\r\ntwo\nthree'))).toEqual([
+    'This loom ends its lines in two ways: line 1 with CRLF (Windows) and line 2 with LF (Unix). End every line the same way.',
+  ])
+})
+
+## A defect becomes a failure
+
+The function `broke` reads the defect at the heart of a cause, and names the work it struck and the subject of that work. The second case holds two kinds of failure a reader of this chapter may take for one: relations that a disk did not keep, and relations that remote storage never takes.
+
+=>
+
+it('names the work a defect struck, and what the work was on', () => {
+  const failure = broke('rebuilding', '/book/ledger.loom', Cause.die(new Error('no such function')))
   expect(describe(failure)).toEqual({
-    summary: "Something broke in Loom's language server.",
+    summary: 'Something broke while Loom rebuilt /book/ledger.loom after an edit.',
     detail: 'no such function.',
   })
+  expect(describe(broke('command', '', Cause.die('gone'))).summary).toBe(
+    "Something broke in Loom's command line.",
+  )
+})
+
+it('tells relations a disk did not keep from relations remote storage never takes', () => {
+  expect(describe(samples.RelationsNotKept).detail).toBe('read-only disk.')
+  expect(describe(samples.StorageTakesNoWrite).detail).toBe('Remote storage takes no write.')
 })
 
 ## A program adds failures of its own
@@ -417,15 +500,8 @@ it('words its own failures and those of the catalog through one matcher', () => 
 
 ::[Every failure reads as a sentence]
 
+::[A loom that was not read]
+
 ::[A defect becomes a failure]
 
 ::[A program adds failures of its own]
-
-## What this chapter grows into
-
-1. The language server tells each failure in its place. It gains a table of places, held by the compiler to the failures it can meet. The lines it logs in words written at each step become the failure `Broke`, which then names the step.
-2. Every other error of the catalog loses the `message` it writes for itself, as the error `TangleError` has. A loom that could not be read takes the message of its one diagnostic from `describe`.
-3. Four failures gain an error. A file or a folder that Loom cannot find, write or remove ends a tangle or a refresh as a defect, which the command line tells as the failure `Broke`. A weave of a loom that does not exist reports that it wove. Nobody is told of a settings file, `.loom/config.yaml`, that does not read. Only a line in a log tells of a language's package that does not load, and of an installed trope that Loom refuses.
-4. Two reasons are written where they are raised: "remote storage takes no write" and "the formatter reads only the file it formats". Each becomes a failure of its own.
-5. Mixed line endings become a fault of the fault catalog, and a diagnostic names the fault it shows.
-6. The TypeScript service keeps a wording of its own for its four errors, since the catalog cannot name the errors of a package that Loom loads from a store.

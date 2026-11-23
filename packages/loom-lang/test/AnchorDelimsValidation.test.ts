@@ -4,6 +4,7 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { checkAnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
+import { describe as wordsOf, lineOf } from '#ast/LoomFailure'
 
 // A package configures its anchor delimiters in loom.json, so a bad pair is a
 // parse-level fault — the same class as a mixed line terminator. checkAnchorDelims
@@ -41,7 +42,7 @@ describe('checkAnchorDelims — a configured anchor pair is validated', () => {
     if (Result.isFailure(result)) {
       expect(result.failure._tag as string).toBe(tag)
       // the error describes itself and points at a sound pair
-      expect(result.failure.message).toContain(defaultAnchorDelims.open)
+      expect(lineOf(wordsOf(result.failure))).toContain(defaultAnchorDelims.open)
     }
   })
 })
@@ -62,6 +63,6 @@ describe('the parse recovers a bad pair into document health', () => {
       ),
     )
     expect(module.doc.health.status).toBe('error')
-    expect(module.doc.health.diagnostics[0]?.message).toContain('must differ')
+    expect(module.doc.health.diagnostics[0]?.message).toContain('cannot open and close with the same')
   })
 })

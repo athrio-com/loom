@@ -1511,4 +1511,39 @@ describe('loom cli — a failure told', () => {
     },
     SPAWN_TIMEOUT,
   )
+
+  it(
+    'names a path where nothing is, and writes nothing',
+    () => {
+      const dir = workspace('corpus: corpus\nprimary: typescript\n')
+      const missing = `loom: Loom could not read ${join(dir, 'nowhere.loom')}.`
+      const tangled = loom(['tangle', 'nowhere.loom'], { cwd: dir })
+      expect(tangled.status).toBe(1)
+      expect(tangled.stderr).toContain(missing)
+      const woven = loom(['weave', 'nowhere.loom', 'out.json'], { cwd: dir })
+      expect(woven.status).toBe(1)
+      expect(woven.stderr).toContain(missing)
+      expect(existsSync(join(dir, 'out.json'))).toBe(false)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'names a file it could not write',
+    () => {
+      const dir = workspace('corpus: corpus\nprimary: typescript\n')
+      mkdirSync(join(dir, 'corpus'))
+      writeFileSync(join(dir, 'blocked'), 'a file where the sink wants a folder\n')
+      writeFileSync(
+        join(dir, 'corpus', 'ledger.loom'),
+        lines('# Ledger [blocked/ledger.ts]', '', '=>', '', 'export const total = 1'),
+      )
+      const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain(`loom: Loom could not write ${join(dir, 'blocked', 'ledger.ts')}.`)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
 })

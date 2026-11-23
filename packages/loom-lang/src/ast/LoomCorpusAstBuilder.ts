@@ -3,12 +3,12 @@ import {
   checkAnchorDelims,
   defaultAnchorDelims,
   type AnchorDelims,
-  type InvalidAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
+import { describe, lineOf, type ReadingFailure } from '#ast/LoomFailure'
 import type { ParsedDocument } from '@athrio/loom-ast/LoomAst'
 import { type Declared, LoomDocumentBuilder, nothingDeclared } from '#ast/LoomDocumentBuilder'
 import { ProductBuilder } from '#ast/ProductBuilder'
@@ -22,19 +22,16 @@ export interface Source {
 export class ReadError extends Data.TaggedError('ReadError')<{
   readonly path: Location
   readonly cause: unknown
-}> {
-  get message(): string {
-    return `Cannot read ${this.path}: ${
-      this.cause instanceof Error ? this.cause.message : String(this.cause)
-    }`
-  }
-}
+}> {}
 
 export interface ParsedLoom {
   readonly path: Location
   readonly text: string
   readonly tree: ParsedDocument
 }
+
+const unread = (text: string, failure: ReadingFailure): ParsedDocument =>
+  emptyDocument(text, lineOf(describe(failure)))
 
 export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>()(
   'LoomCorpusAstBuilder',
@@ -53,10 +50,8 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         delims: AnchorDelims = defaultAnchorDelims,
       ): Effect.Effect<ParsedLoom> =>
         source.read(path).pipe(
-          Effect.flatMap((text) => {
-            const onBadDelims = (err: InvalidAnchorDelims) =>
-              Effect.succeed(emptyDocument(text, err.message))
-            return checkAnchorDelims(delims).pipe(
+          Effect.flatMap((text) =>
+            checkAnchorDelims(delims).pipe(
               Effect.andThen(sourceRanges.rangesOf(text)),
               Effect.map((ranges) =>
                 pipe(
@@ -67,17 +62,12 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                 ),
               ),
               Effect.catchTag('MixedEOL', (err) => Effect.succeed(emptyDocumentFor(text, err))),
-              Effect.catchTags({
-                EmptyAnchorDelims: onBadDelims,
-                IdenticalAnchorDelims: onBadDelims,
-                WhitespaceAnchorDelims: onBadDelims,
-                ReservedAnchorDelims: onBadDelims,
-              }),
+              Effect.catch((failure) => Effect.succeed(unread(text, failure))),
               Effect.map((tree): ParsedLoom => ({ path, text, tree })),
-            )
-          }),
-          Effect.catchTag('ReadError', (err) =>
-            Effect.succeed<ParsedLoom>({ path, text: '', tree: emptyDocument('', err.message) }),
+            ),
+          ),
+          Effect.catchTag('ReadError', (failure) =>
+            Effect.succeed<ParsedLoom>({ path, text: '', tree: unread('', failure) }),
           ),
         )
 

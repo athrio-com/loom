@@ -469,7 +469,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
             ),
           ),
           Effect.catchCause((cause) =>
-            Effect.logError('loom: projection failed; serving bare document', cause).pipe(
+            Effect.logError(lineOf(describe(broke('projecting', path, cause))), cause).pipe(
               Effect.andThen(
                 source.read(path).pipe(
                   Effect.orElseSucceed(() => ''),
@@ -617,7 +617,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       approve: (
         path: Location,
         chosen: (relation: Relation) => boolean,
-      ): Effect.Effect<ReadonlyArray<KeptRelation>, RelationsNotKept> =>
+      ): Effect.Effect<ReadonlyArray<KeptRelation>, RelationsNotKept | StorageTakesNoWrite> =>
         Effect.all([buildCorpus(documents, path), workspaces.keptRelationsOf(path)]).pipe(
           Effect.flatMap(([modules, kept]) =>
             Option.match(Option.fromNullishOr(modules.get(path)), {
@@ -1962,6 +1962,7 @@ import {
   UnsettledModule,
   UnsettledSection,
 } from '#ast/LoomFault'
+import { broke, describe, lineOf } from '#ast/LoomFailure'
 import {
   compositionCycles,
   crossFileFaults,
@@ -2054,7 +2055,12 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { type Built, declaredKey, LoomDiskCache } from './LoomDiskCache'
 import { type BuildSettings, WorkspaceSettings } from './WorkspaceSettings'
-import { type PlaceOf, type RelationsNotKept, WorkspaceSource } from './WorkspaceSource'
+import {
+  type PlaceOf,
+  type RelationsNotKept,
+  type StorageTakesNoWrite,
+  WorkspaceSource,
+} from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
@@ -2093,29 +2099,30 @@ import { type WovenCorpus } from './weave/WovenCorpus'
 
 ## Refreshing the summaries [src/LoomSummaries.ts]
 
-`LoomSummaries` is the writer behind `loom refresh`, the command that brings every box back in step with the loom it points to. A chapter box holds a copy of its chapter's opening prose, a discussion box a copy of its discussion's summary, and the editor warns when a copy differs from its source, as the chapter "The multi-file AST" describes. The command fixes every such box at once. `write` runs the compiler's `summaries` verb over the corpus of the loom at `entry`, writes each loom it rewrote, and reports their paths so the command can name them.
+`LoomSummaries` is the writer behind `loom refresh`, the command that brings every box back in step with the loom it points to. A chapter box holds a copy of its chapter's opening prose, a discussion box a copy of its discussion's summary, and the editor warns when a copy differs from its source, as the chapter "The multi-file AST" describes. The command fixes every such box at once. `write` runs the compiler's `summaries` verb over the corpus of the loom at `entry`, writes each loom it rewrote, and reports their paths so the command can name them. It asks the disk for `entry` first, through the tangler's function `found`, and writes through the tangler's function `writeText`. So a path where nothing is fails with the error `ReadError`, and a loom the disk refuses with the error `NotWritten`.
 
 =>
 
 import { Context, Effect, FileSystem, Layer } from 'effect'
+import type { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { type Path } from './LoomProject'
 import { LoomCompiler } from './LoomCompiler'
+import { found, type NotWritten, writeText } from './LoomTangler'
 
 export class LoomSummaries extends Context.Service<LoomSummaries>()('LoomSummaries', {
   make: Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
 
-    const write = (entry: Path): Effect.Effect<ReadonlyArray<Path>> =>
-      compiler
-        .summaries(entry)
-        .pipe(
-          Effect.flatMap((looms) =>
-            Effect.forEach(looms, (loom) =>
-              fs.writeFileString(loom.path, loom.text).pipe(Effect.orDie, Effect.as(loom.path)),
-            ),
+    const write = (entry: Path): Effect.Effect<ReadonlyArray<Path>, ReadError | NotWritten> =>
+      found(fs, entry).pipe(
+        Effect.andThen(compiler.summaries(entry)),
+        Effect.flatMap((looms) =>
+          Effect.forEach(looms, (loom) =>
+            writeText(fs, loom.path, loom.text).pipe(Effect.as(loom.path)),
           ),
-        )
+        ),
+      )
 
     return { write }
   }),
@@ -2684,7 +2691,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
-import { refusedBy } from '../src/LoomFailure'
+import { refusedBy } from '#ast/LoomFailure'
 import { LanguagePackages } from '../src/LanguagePackages'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'

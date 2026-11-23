@@ -21,6 +21,7 @@ Effect's `Schema` reads the editor's initialization options, `Option` carries a 
 import {
   Array,
   Cache,
+  Cause,
   Data,
   Effect,
   Exit,
@@ -68,6 +69,7 @@ import {
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { broke, describe, lineOf, type LoomFailure, type Work } from '#ast/LoomFailure'
 import { LoomFormatter } from './LoomFormatter'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -80,12 +82,35 @@ import {
   workspaceOf,
 } from '@athrio/loom-lang-services/LoomStore'
 import {
-  ClassicTypeScriptMissing,
   type FetchedTypeScript,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 import { Environment, type Workspace, WorkspaceSource } from './WorkspaceSource'
+
+## Telling a failure
+
+The server writes no words about a failure. The chapter "The failure catalog" words every one, and this section holds the three ways the server tells them. The function `lineFor` gives a failure's problem as one line.
+
+The first way is the log. A step of the server's work that breaks must not stop the server, so the step catches its cause and the server goes on. The function `told` logs such a cause for a piece of work and the loom or the workspace it was on. A cause that holds a failure the catalog names is logged as that failure. Any other cause is a defect, a mistake in Loom's own code, and is logged as the catalog's failure `Broke`, which names the work. The log keeps the whole cause beside the line.
+
+The second way is the answer to a request, and the third is a language's package. Each takes the failure as words. The function `inWords` gives an `Error` that carries the line, for a promise that must reject with one.
+
+=>
+
+const lineFor = (failure: LoomFailure): string => lineOf(describe(failure))
+
+const inWords = (failure: LoomFailure): Error => new Error(lineFor(failure))
+
+const told =
+  (work: Work, subject: string) =>
+  <E extends LoomFailure>(cause: Cause.Cause<E>): Effect.Effect<void> =>
+    Effect.logError(
+      lineFor(
+        Option.getOrElse(Cause.findErrorOption(cause), (): LoomFailure => broke(work, subject, cause)),
+      ),
+      cause,
+    )
 
 ## The compilers a project may ask for
 
@@ -142,11 +167,17 @@ const classicTsdk = (options: unknown, folder: string): Option.Option<string> =>
 
 ~
 
-`classicTypeScript` loads the compiler from the directory `classicTsdk` finds, with `require`. It loads each compiler once and keeps it for the server's life in `loaded`, keyed by its directory, so every project on the same TypeScript 6 shares one copy. When no place holds a TypeScript 6, or the compiler fails to load, it fails with a `ClassicTypeScriptMissing`, and the project's TypeScript features report it. Nothing else is tried in its place.
+`classicTypeScript` loads the compiler from the directory `classicTsdk` finds, with `require`. It loads each compiler once and keeps it for the server's life in `loaded`, keyed by its directory, so every project on the same TypeScript 6 shares one copy. When no place holds a TypeScript 6, or the compiler fails to load, it fails with the error `ClassicTypeScriptMissing`. The error holds the `folder` the search started from, and the `tsdk` directory when a compiler was found there and did not load, with the `cause`. Nothing else is tried in its place.
 
 =>
 
 type TypeScript = typeof import('typescript')
+
+export class ClassicTypeScriptMissing extends Data.TaggedError('ClassicTypeScriptMissing')<{
+  readonly folder: string
+  readonly tsdk: Option.Option<string>
+  readonly cause?: unknown
+}> {}
 
 export const classicTypeScript = (
   options: unknown,
@@ -181,7 +212,7 @@ export const classicTypeScript = (
 
 A project that installs no TypeScript checks against the TypeScript 7 Loom fetches, at the version Loom pins, through the store's `fetchTypeScript`. `fetchedTypeScript` describes that compiler for the capability. Its `executable` is where the fetch puts it, so a project can be assigned to it before it is on the machine.
 
-Its `fetch` runs the fetch on the server's runtime the first time any project asks. `Effect.cached` keeps the outcome, so every later call shares that one fetch, and the editor downloads TypeScript 7 once however many projects ask at the same moment. A machine that holds it already answers at once. The store writes a line to the log whenever it downloads, naming the version and the folder. When the fetch fails, every later call fails the same way, with a `TypeScriptNotFetched` that names the version, the folder and the cause, until the server restarts. A failed download is not tried again on every keystroke.
+Its `fetch` runs the fetch on the server's runtime the first time any project asks. `Effect.cached` keeps the outcome, so every later call shares that one fetch, and the editor downloads TypeScript 7 once however many projects ask at the same moment. A machine that holds it already answers at once. The store writes a line to the log whenever it downloads, naming the version and the folder. When the fetch fails, every later call fails the same way, with a `TypeScriptNotFetched` that names the version, the folder and the cause, until the server restarts. The TypeScript service that asks cannot see the failure catalog, so `fetch` rejects with the failure in words, through `inWords`. A failed download is not tried again on every keystroke.
 
 =>
 
@@ -189,11 +220,7 @@ export class TypeScriptNotFetched extends Data.TaggedError('TypeScriptNotFetched
   readonly version: string
   readonly folder: string
   readonly cause: unknown
-}> {
-  get message(): string {
-    return `could not fetch TypeScript ${this.version} into ${this.folder}: ${String(this.cause)}`
-  }
-}
+}> {}
 
 const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function* () {
   const folder = fetchedTypeScriptDir(typeScriptVersion)
@@ -208,18 +235,21 @@ const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function*
   return {
     version: typeScriptVersion,
     executable: fetchedExecutable(typeScriptVersion),
-    fetch: () => runtime.runPromise(Effect.asVoid(once)),
+    fetch: () => runtime.runPromise(Effect.asVoid(once).pipe(Effect.mapError(inWords))),
   }
 })
 
 ~
 
-`typescriptSdkFor` assembles the capability from the editor's initialization options. The server builds it once, and every workspace's services share it.
+`typescriptSdkFor` assembles the capability from the editor's initialization options. The server builds it once, and every workspace's services share it. The capability hands a missing TypeScript 6 to the service as the reason in words, through `lineFor`, and the project's TypeScript features report it.
 
 =>
 
 const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
-  Effect.map(fetchedTypeScript, (fetched) => ({ classic: classicTypeScript(options), fetched }))
+  Effect.map(fetchedTypeScript, (fetched) => {
+    const classic = classicTypeScript(options)
+    return { classic: (folder) => Result.mapError(classic(folder), lineFor), fetched }
+  })
 
 ## Every loom answers to its own workspace
 
@@ -668,10 +698,8 @@ const openLoomsIn = (
   workspace: string,
 ): ReadonlyArray<URI> => openLooms(server).filter((uri) => workspaceFor(home, uri) === workspace)
 
-const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
-  effect.pipe(
-    Effect.catchCause((cause) => Effect.logError(`loom: ${step} ${uri.toString()} failed`, cause)),
-  )
+const logged = (work: Work, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
+  effect.pipe(Effect.catchCause(told(work, uri.toString())))
 
 const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void> =>
   Effect.promise(async () => project.getLanguageService(uri)).pipe(
@@ -828,7 +856,7 @@ const rereadOnDisk = (
             ),
           ),
         ),
-        Effect.catchCause((cause) => Effect.logError('loom: rereading changed looms failed', cause)),
+        Effect.catchCause(told('rereading', '')),
       ),
     ),
   )
@@ -946,9 +974,7 @@ const rebuildEdited = (
     Effect.flatMap(([paths, compiler, documents, source]) =>
       Effect.forEach(paths, (path) =>
         compiler.rebuild(openSource(server, documents, source), path).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError(`loom: rebuilding ${path} failed`, cause).pipe(Effect.as(true)),
-          ),
+          Effect.catchCause((cause) => told('rebuilding', path)(cause).pipe(Effect.as(true))),
           Effect.map((changed) =>
             changed
               ? Option.some<FileEvent>({
@@ -1059,9 +1085,7 @@ const keepInStep = (
           },
         ),
       ),
-      Effect.catchCause((cause) =>
-        Effect.logError(`loom: keeping ${uri.toString()} in step failed`, cause),
-      ),
+      Effect.catchCause(told('keeping', uri.toString())),
     ),
   )
 }
@@ -1116,9 +1140,7 @@ const openWorkspace = (
             return Option.some(workspace)
           }).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning('loom: could not open the workspace', cause).pipe(
-                Effect.as(Option.none<Workspace>()),
-              ),
+              told('opening', home)(cause).pipe(Effect.as(Option.none<Workspace>())),
             ),
           ),
       }),
@@ -1131,9 +1153,11 @@ const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, ne
     Option.match({
       onNone: () => Effect.void,
       onSome: (entry) =>
-        LoomCompiler.pipe(Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry)))),
+        LoomCompiler.pipe(
+          Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry))),
+          Effect.catchCause(told('warming', entry)),
+        ),
     }),
-    Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
   )
 
 const openedFolder = (params: InitializeParams): Option.Option<string> =>
@@ -1180,7 +1204,7 @@ export const startLanguageServer = (): void => {
         const reprojecting = yield* Semaphore.make(1)
         const edited = yield* Ref.make<ReadonlySet<string>>(new Set())
         return { workspace, services, projects, plugins, reprojecting, edited }
-      }),
+      }).pipe(Effect.mapError(inWords)),
     )
     setTimeout(() => runtime.runSync(warmCorpus(workspace)), 10)
     return server.initialize(
@@ -1201,6 +1225,8 @@ The server module assembles the imports, the compilers a project may ask for, th
 =>
 
 ::[Imports]
+
+::[Telling a failure]
 
 ::[The compilers a project may ask for]
 

@@ -361,7 +361,6 @@ describe('knownEdit keeps only the places the editor can reach', () => {
 import { Result } from 'effect'
 import type { CompletionContext } from '@volar/language-service'
 import {
-  ClassicTypeScriptMissing,
   type PromisedName,
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -387,7 +386,7 @@ const standInContext = {
 } as unknown as LanguageServiceContext
 
 const lending = (
-  classic: Result.Result<typeof ts, ClassicTypeScriptMissing>,
+  classic: Result.Result<typeof ts, string>,
   fetch: () => Promise<void> = () => Promise.reject(new Error('the tests fetch nothing')),
 ): TypescriptSdkApi => ({
   classic: () => classic,
@@ -468,11 +467,11 @@ describe('productPlugin answers about the code\'s shape', () => {
 
 describe('productPlugin reports a project that cannot have TypeScript 6', () => {
   it('fails each check with the reason, rather than fall back to another compiler', async () => {
-    const missing = new ClassicTypeScriptMissing({ folder: '/nowhere', tsdk: Option.none() })
-    const instance = pluginWith(lending(Result.fail(missing)))
+    const reason = 'Loom found no TypeScript 6 for /nowhere, in the project or beside Loom.'
+    const instance = pluginWith(lending(Result.fail(reason)))
     const diagnostics = (await instance.provideDiagnostics!(documentOf(), never)) ?? []
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-      `TypeScript 6 is unavailable: ${missing.message}`,
+      `TypeScript 6 is unavailable: ${reason}`,
     ])
   })
 })

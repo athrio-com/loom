@@ -773,9 +773,7 @@ const textSource = (path: Location, text: string): Source => ({
   read: (at) =>
     at === path
       ? Effect.succeed(text)
-      : Effect.fail(
-          new ReadError({ path: at, cause: 'the formatter reads only the file it formats' }),
-        ),
+      : Effect.die(new Error(`the formatter's source was asked for ${at}, and holds only ${path}`)),
   list: Option.none(),
 })
 
@@ -852,10 +850,19 @@ export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatt
           )
           return broken.length === 0 ? withFallback : settledText
         }),
-      looms: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-        statSync(path, { throwIfNoEntry: false })?.isDirectory() === true
-          ? Effect.map(loomConfig.resolve(path), (resolved) => loomsIn(path, projectIn(resolved)))
-          : Effect.succeed([path]),
+      looms: (path: Path): Effect.Effect<ReadonlyArray<Path>, ReadError> =>
+        Effect.try({
+          try: () => statSync(path),
+          catch: (cause) => new ReadError({ path, cause }),
+        }).pipe(
+          Effect.flatMap((stats) =>
+            stats.isDirectory()
+              ? Effect.map(loomConfig.resolve(path), (resolved) =>
+                  loomsIn(path, projectIn(resolved)),
+                )
+              : Effect.succeed<ReadonlyArray<Path>>([path]),
+          ),
+        ),
     }
   }),
 }) {

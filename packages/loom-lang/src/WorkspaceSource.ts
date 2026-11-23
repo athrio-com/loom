@@ -54,13 +54,11 @@ export interface Workspace {
 export class RelationsNotKept extends Data.TaggedError('RelationsNotKept')<{
   readonly workspace: Location
   readonly cause: unknown
-}> {
-  get message(): string {
-    return `Cannot keep relations for ${this.workspace}: ${
-      this.cause instanceof Error ? this.cause.message : String(this.cause)
-    }`
-  }
-}
+}> {}
+
+export class StorageTakesNoWrite extends Data.TaggedError('StorageTakesNoWrite')<{
+  readonly workspace: Location
+}> {}
 
 export interface KeptFile {
   readonly file: Location
@@ -81,7 +79,7 @@ export interface WorkspaceSourceApi {
   readonly keepRelations: (
     loom: Location,
     relations: ReadonlyArray<KeptRelation>,
-  ) => Effect.Effect<void, RelationsNotKept>
+  ) => Effect.Effect<void, RelationsNotKept | StorageTakesNoWrite>
   readonly relationsFileOf: (
     loom: Location,
     relations: ReadonlyArray<KeptRelation>,
@@ -405,9 +403,7 @@ export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSour
         uriOf: (loom) => URI.parse(loom),
         keptRelationsOf: () => Ref.get(kept),
         keepRelations: () =>
-          Effect.fail(
-            new RelationsNotKept({ workspace: address.url, cause: 'remote storage takes no write' }),
-          ),
+          Effect.fail(new StorageTakesNoWrite({ workspace: address.url })),
         relationsFileOf: () => Option.none(),
       }
       return source

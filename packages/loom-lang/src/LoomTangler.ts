@@ -1,6 +1,18 @@
-import { Array, Context, Effect, FileSystem, Layer, Option, Result, Schema, Stream } from 'effect'
+import {
+  Array,
+  Context,
+  Data,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Result,
+  Schema,
+  Stream,
+} from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
+import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { holds, loomsIn, projectIn, storeDirs, type LoomProject, type Path } from './LoomProject'
@@ -8,6 +20,35 @@ import { emptyLock, orphansOf, pruned, recorded, LoomLockSchema, type LoomLock }
 
 const isStorePath = (name: string): boolean =>
   name.split('/').some((segment) => storeDirs.has(segment))
+
+export class NotWritten extends Data.TaggedError('NotWritten')<{
+  readonly path: Path
+  readonly cause: unknown
+}> {}
+
+export class NotRemoved extends Data.TaggedError('NotRemoved')<{
+  readonly path: Path
+  readonly cause: unknown
+}> {}
+
+export const found = (
+  fs: FileSystem.FileSystem,
+  path: Path,
+): Effect.Effect<FileSystem.File.Info, ReadError> =>
+  fs.stat(path).pipe(Effect.mapError((cause) => new ReadError({ path, cause })))
+
+export const readText = (fs: FileSystem.FileSystem, path: Path): Effect.Effect<string, ReadError> =>
+  fs.readFileString(path).pipe(Effect.mapError((cause) => new ReadError({ path, cause })))
+
+export const writeText = (
+  fs: FileSystem.FileSystem,
+  path: Path,
+  text: string,
+): Effect.Effect<void, NotWritten> =>
+  fs.makeDirectory(dirname(path), { recursive: true }).pipe(
+    Effect.andThen(fs.writeFileString(path, text)),
+    Effect.mapError((cause) => new NotWritten({ path, cause })),
+  )
 
 export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
   make: Effect.gen(function* () {
@@ -18,28 +59,22 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
     const matchesDisk = (file: TangledFile): Effect.Effect<boolean> =>
       fs.readFileString(file.path).pipe(Effect.option, Effect.map(Option.contains(file.content)))
 
-    const writeFile = (file: TangledFile): Effect.Effect<TangledFile> =>
+    const writeFile = (file: TangledFile): Effect.Effect<TangledFile, NotWritten> =>
       matchesDisk(file).pipe(
-        Effect.flatMap((same) =>
-          same
-            ? Effect.void
-            : fs
-                .makeDirectory(dirname(file.path), { recursive: true })
-                .pipe(Effect.andThen(fs.writeFileString(file.path, file.content))),
-        ),
-        Effect.orDie,
+        Effect.flatMap((same) => (same ? Effect.void : writeText(fs, file.path, file.content))),
         Effect.as(file),
       )
 
-    const tangleFile = (entry: Path): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+    const tangleFile = (
+      entry: Path,
+    ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError | NotWritten> =>
       compiler.tangle(entry).pipe(Effect.flatMap((files) => Effect.forEach(files, writeFile)))
 
     const projectOf = (path: Path): Effect.Effect<Option.Option<LoomProject>> =>
       config.resolve(path).pipe(Effect.map(projectIn))
 
-    const loomsOf = (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const loomsOf = (path: Path): Effect.Effect<ReadonlyArray<Path>, ReadError> =>
+      found(fs, path).pipe(
         Effect.flatMap((info) =>
           info.type === 'Directory'
             ? projectOf(path).pipe(Effect.map((project) => loomsIn(path, project)))
@@ -47,9 +82,8 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         ),
       )
 
-    const recordsFor = (path: Path): Effect.Effect<boolean> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const recordsFor = (path: Path): Effect.Effect<boolean, ReadError> =>
+      found(fs, path).pipe(
         Effect.flatMap((info) =>
           info.type === 'Directory'
             ? Effect.succeed(true)
@@ -64,9 +98,8 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         ),
       )
 
-    const workspaceOf = (path: Path): Effect.Effect<Path> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const workspaceOf = (path: Path): Effect.Effect<Path, ReadError> =>
+      found(fs, path).pipe(
         Effect.map((info) => workspaceRoot(info.type === 'Directory' ? path : dirname(path))),
       )
 
@@ -79,15 +112,12 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         Effect.orElseSucceed(() => emptyLock),
       )
 
-    const writeLock = (root: Path, lock: LoomLock): Effect.Effect<void> =>
-      fs
-        .makeDirectory(dirname(lockFile(root)), { recursive: true })
-        .pipe(
-          Effect.andThen(fs.writeFileString(lockFile(root), JSON.stringify(lock, null, 2) + '\n')),
-          Effect.orDie,
-        )
+    const writeLock = (root: Path, lock: LoomLock): Effect.Effect<void, NotWritten> =>
+      writeText(fs, lockFile(root), JSON.stringify(lock, null, 2) + '\n')
 
-    const tangle = (path: Path): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+    const tangle = (
+      path: Path,
+    ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError | ReadError | NotWritten> =>
       Effect.gen(function* () {
         const looms = yield* loomsOf(path)
         const written = (yield* Effect.forEach(looms, tangleFile)).flat()
@@ -129,12 +159,17 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         Effect.map(({ root, orphans }) => orphans.map((rel) => resolvePath(root, rel))),
       )
 
-    const prune = (from: Path): Effect.Effect<ReadonlyArray<Path>, TangleError> =>
+    const removed = (path: Path): Effect.Effect<void, NotRemoved> =>
+      fs
+        .remove(path, { force: true })
+        .pipe(Effect.mapError((cause) => new NotRemoved({ path, cause })))
+
+    const prune = (
+      from: Path,
+    ): Effect.Effect<ReadonlyArray<Path>, TangleError | NotWritten | NotRemoved> =>
       Effect.gen(function* () {
         const { root, produced, orphans } = yield* orphanState(from)
-        yield* Effect.forEach(orphans, (rel) =>
-          fs.remove(resolvePath(root, rel), { force: true }).pipe(Effect.orDie),
-        )
+        yield* Effect.forEach(orphans, (rel) => removed(resolvePath(root, rel)))
         yield* writeLock(root, pruned(produced))
         return orphans.map((rel) => resolvePath(root, rel))
       })
@@ -145,9 +180,8 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
     const isLoomEvent = (event: FileSystem.WatchEvent): boolean =>
       event.path.endsWith('.loom') && !isStorePath(event.path)
 
-    const watchRoot = (path: Path): Effect.Effect<Path> =>
-      fs.stat(path).pipe(
-        Effect.orDie,
+    const watchRoot = (path: Path): Effect.Effect<Path, ReadError> =>
+      found(fs, path).pipe(
         Effect.flatMap((info) =>
           info.type === 'Directory'
             ? Effect.succeed(path)
@@ -161,7 +195,12 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         ),
       )
 
-    const watch = (path: Path): Stream.Stream<Result.Result<ReadonlyArray<TangledFile>, TangleError>> =>
+    const watch = (
+      path: Path,
+    ): Stream.Stream<
+      Result.Result<ReadonlyArray<TangledFile>, TangleError | ReadError | NotWritten>,
+      ReadError
+    > =>
       Stream.unwrap(
         watchRoot(path).pipe(
           Effect.map((root) =>
