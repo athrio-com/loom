@@ -55,6 +55,8 @@ import {
   installService,
   installTropes,
   isLoomTrope,
+  devBuild,
+  devRegistry,
   embeddedFile,
   fetchedExecutable,
   fetchedTypeScriptDir,
@@ -607,11 +609,7 @@ type Channel = Data.TaggedEnum<{
 }>
 const Channel = Data.taggedEnum<Channel>()
 
-const devBuild = loomVersion.includes('-dev.')
-
 const channelOf = (dev: boolean): Channel => (dev || devBuild ? Channel.Dev() : Channel.Public())
-
-const devRegistry = (process.env.LOOM_DEV_REGISTRY ?? 'http://localhost:4873').replace(/\/$/, '')
 
 const projectCommands: Record<ProjectManager, { readonly add: string; readonly remove: string }> = {
   npm: { add: 'npm install', remove: 'npm uninstall' },
@@ -904,11 +902,6 @@ const replaceExecutable = (bytes: Uint8Array): Effect.Effect<void, ReplaceFailed
   }).pipe(Effect.tapError(() => Effect.sync(() => rmSync(partial, { force: true }))))
 }
 
-const servicesUpdate = Channel.$match({
-  Public: () => 'loom update --all',
-  Dev: () => `npm_config_registry=${devRegistry} loom update --all`,
-})
-
 const releaseKind = Channel.$match({ Public: () => 'release', Dev: () => 'dev release' })
 
 const upgradeStandalone = (channel: Channel) =>
@@ -921,7 +914,7 @@ const upgradeStandalone = (channel: Channel) =>
     yield* offer.executable.pipe(Effect.flatMap(replaceExecutable))
     yield* Console.log(
       `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${offer.version}\n` +
-        `   ${dim(`run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+        `   ${dim('run `loom update --all` in each workspace to bring its services along')}\n`,
     )
   })
 
@@ -938,7 +931,7 @@ const upgrade = (dev: boolean) => {
     yield* Console.log(
       `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
         `   ${command.value}\n\n` +
-        `   ${dim(`then run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+        `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
     )
   }).pipe(
     Effect.catchTags({

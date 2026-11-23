@@ -701,7 +701,9 @@ const quoted = (path: string): string => `"${path}"`
 
 The command `loom upgrade` replaces the installed Loom with its latest release. Which releases count, and who installed this Loom, decide how.
 
-Loom has two lines of releases, and a channel names each line. The public channel holds the releases on npm and on GitHub, which anyone can install. The dev channel holds the dev releases that Part XI describes. A dev release is a build that one machine publishes to a registry running on that same machine, at `http://localhost:4873`, for that machine alone. Its version carries a prerelease, as `0.0.21-dev.4` does, so this Loom knows from its own version which line it belongs to. A dev build reads the dev channel. The `--dev` flag puts a public build on the dev channel too, for the one upgrade that moves it onto that line. The variable `LOOM_DEV_REGISTRY` overrides the dev registry's address, which is how a test serves a registry of its own.
+Loom has two lines of releases, and a channel names each line. The public channel holds the releases on npm and on GitHub, which anyone can install. The dev channel holds the dev releases that Part XI describes. A dev release is a build that one machine publishes to a registry running on that same machine, at `http://localhost:4873`, for that machine alone. Its version carries a prerelease, as `0.0.21-dev.4` does, so this Loom knows from its own version which line it belongs to. A dev build reads the dev channel. The `--dev` flag puts a public build on the dev channel too, for the one upgrade that moves it onto that line.
+
+The store of services knows both facts already, since it installs a dev build's services from the dev registry, so the command reads them from there. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` is the dev registry's address, which the variable `LOOM_DEV_REGISTRY` overrides when a test serves a registry of its own.
 
 {{ version = ${version} }}
 
@@ -715,11 +717,7 @@ type Channel = Data.TaggedEnum<{
 }>
 const Channel = Data.taggedEnum<Channel>()
 
-const devBuild = loomVersion.includes('-dev.')
-
 const channelOf = (dev: boolean): Channel => (dev || devBuild ? Channel.Dev() : Channel.Public())
-
-const devRegistry = (process.env.LOOM_DEV_REGISTRY ?? 'http://localhost:4873').replace(/\/$/, '')
 
 ~
 
@@ -1086,14 +1084,9 @@ const replaceExecutable = (bytes: Uint8Array): Effect.Effect<void, ReplaceFailed
 
 ~
 
-A new Loom expects every service at its own version, and the store still holds the services the old one installed. So once the executable is replaced, the command names `loom update --all`, which brings a workspace's services in step. A dev release's services live in the dev registry, and the store's package manager asks the registry that `npm_config_registry` names. So on the dev channel the command names that registry with it, as `servicesUpdate` spells it. The function `releaseKind` names what the channel releases, for the line that reports a Loom already up to date.
+A new Loom expects every service at its own version, and the store still holds the services the old one installed. So once the executable is replaced, the command names `loom update --all`, which brings a workspace's services in step. On the dev channel the same command serves, since a dev build installs its services from the dev registry by itself. The function `releaseKind` names what the channel releases, for the line that reports a Loom already up to date.
 
 =>
-
-const servicesUpdate = Channel.$match({
-  Public: () => 'loom update --all',
-  Dev: () => `npm_config_registry=${devRegistry} loom update --all`,
-})
 
 const releaseKind = Channel.$match({ Public: () => 'release', Dev: () => 'dev release' })
 
@@ -1107,13 +1100,13 @@ const upgradeStandalone = (channel: Channel) =>
     yield* offer.executable.pipe(Effect.flatMap(replaceExecutable))
     yield* Console.log(
       `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${offer.version}\n` +
-        `   ${dim(`run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+        `   ${dim('run `loom update --all` in each workspace to bring its services along')}\n`,
     )
   })
 
 ~
 
-The function `upgrade` takes the channel from the `--dev` flag and this Loom's own version, and then lets the installation choose. When `installerUpgrade` names a command, `upgrade` prints it, says who installed Loom, and names the update of the services as well, since an upgrade through an installer leaves the store just as behind. When it names none, the standalone executable replaces itself from its channel.
+The function `upgrade` takes the channel from the `--dev` flag and this Loom's own version, and then lets the installation choose. When `installerUpgrade` names a command, `upgrade` prints it, says who installed Loom, and names `loom update --all` as well, since an upgrade through an installer leaves the store just as behind. When it names none, the standalone executable replaces itself from its channel.
 
 Each failure prints what went wrong and exits non-zero. A dev registry that does not answer is most often one that nobody started, so on the dev channel that failure also names the command that starts it, as `unreachableFix` spells it.
 
@@ -1132,7 +1125,7 @@ const upgrade = (dev: boolean) => {
     yield* Console.log(
       `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
         `   ${command.value}\n\n` +
-        `   ${dim(`then run \`${servicesUpdate(channel)}\` in each workspace to bring its services along`)}\n`,
+        `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
     )
   }).pipe(
     Effect.catchTags({
@@ -2041,7 +2034,7 @@ For `loom upgrade`, `Schema` decodes the release GitHub describes and the packag
 
 The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
-From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
+From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` names the registry its dev releases come from. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
 =>
 
@@ -2102,6 +2095,8 @@ import {
   installService,
   installTropes,
   isLoomTrope,
+  devBuild,
+  devRegistry,
   embeddedFile,
   fetchedExecutable,
   fetchedTypeScriptDir,

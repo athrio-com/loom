@@ -128,19 +128,43 @@ const onWindows = process.platform === 'win32'
 const quotedOnWindows = (argument: string): string =>
   onWindows && /\s/.test(argument) ? `"${argument}"` : argument
 
-const packageManager = (root: string, spec: string): PackageManager =>
+const registryOption = (registry: Option.Option<string>): ReadonlyArray<string> =>
+  Option.match(registry, { onNone: () => [], onSome: (url) => [`--registry=${url}`] })
+
+const packageManager = (
+  root: string,
+  spec: string,
+  registry: Option.Option<string>,
+): PackageManager =>
   standalone
     ? {
         command: process.execPath,
-        args: ['add', spec, '--cwd', root, '--omit', 'peer', '--linker', 'hoisted'],
+        args: [
+          'add',
+          spec,
+          '--cwd',
+          root,
+          '--omit',
+          'peer',
+          '--linker',
+          'hoisted',
+          ...registryOption(registry),
+        ],
         env: { ...process.env, BUN_BE_BUN: '1' },
         shell: false,
       }
     : {
         command: 'npm',
-        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'].map(
-          quotedOnWindows,
-        ),
+        args: [
+          'install',
+          spec,
+          '--prefix',
+          root,
+          '--omit=peer',
+          '--no-audit',
+          '--no-fund',
+          ...registryOption(registry),
+        ].map(quotedOnWindows),
         env: process.env,
         shell: onWindows,
       }
@@ -149,16 +173,32 @@ const installPackage = (
   root: string,
   packageName: string,
   range: string,
+  registry: Option.Option<string>,
 ): Effect.Effect<void, StoreError> =>
   Effect.gen(function* () {
     yield* Effect.sync(() => prepareRoot(root))
-    const manager = packageManager(root, `${packageName}@${range}`)
+    const manager = packageManager(root, `${packageName}@${range}`, registry)
     yield* Effect.tryPromise({
       try: () =>
         run(manager.command, [...manager.args], { env: manager.env, shell: manager.shell }),
       catch: (cause) => new StoreError({ packageName, cause }),
     })
   })
+
+export const devBuild = serviceVersion.includes('-dev.')
+
+export const devRegistry = (process.env.LOOM_DEV_REGISTRY ?? 'http://localhost:4873').replace(
+  /\/$/,
+  '',
+)
+
+const registryNamed = (): boolean =>
+  Object.entries(process.env).some(
+    ([name, value]) => name.toLowerCase() === 'npm_config_registry' && (value ?? '') !== '',
+  )
+
+const serviceRegistry = (): Option.Option<string> =>
+  devBuild && !registryNamed() ? Option.some(devRegistry) : Option.none()
 
 export type PackageInstall = Data.TaggedEnum<{
   Current: {}
@@ -175,7 +215,7 @@ const installInto = (
   Effect.gen(function* () {
     const installed = versionIn(folder)
     if (Option.contains(installed, serviceVersion)) return PackageInstall.Current()
-    yield* installPackage(storeDir(dir), packageName, serviceVersion)
+    yield* installPackage(storeDir(dir), packageName, serviceVersion, serviceRegistry())
     return Option.match(installed, {
       onNone: () => PackageInstall.Installed(),
       onSome: (from) => PackageInstall.Updated({ from }),
@@ -227,7 +267,7 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
   const install = Effect.gen(function* () {
     yield* Effect.logInfo(`loom: fetching TypeScript ${version} into ${folder}`)
     yield* Effect.sync(() => rmSync(partial, { recursive: true, force: true }))
-    yield* installPackage(partial, 'typescript', version)
+    yield* installPackage(partial, 'typescript', version, Option.none())
     yield* Effect.sync(() => placeFetched(partial, folder, executable))
   }).pipe(Effect.ensuring(Effect.sync(() => rmSync(partial, { recursive: true, force: true }))))
   return present(executable).pipe(

@@ -205,6 +205,23 @@ const registryServer = (tarball: Uint8Array) =>
     },
   })
 
+const installedThrough = async (env: Record<string, string>) => {
+  const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
+  const result = await run(['update', 'typescript'], { cwd: dir, env })
+  const manifest = join(
+    dir,
+    '.loom',
+    'services',
+    'node_modules',
+    servicePackage('typescript'),
+    'package.json',
+  )
+  const version: unknown = existsSync(manifest)
+    ? JSON.parse(readFileSync(manifest, 'utf8')).version
+    : undefined
+  rmSync(dir, { recursive: true, force: true })
+  return { ...result, version }
+}
 
 describe('the executable — languages', () => {
   it(
@@ -223,25 +240,32 @@ describe('the executable — languages', () => {
   it(
     'installs a service the store lacks, acting as its own package manager',
     async () => {
-      const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       const registry = registryServer(standInTarball())
-      const { status, stdout, stderr } = await run(['update', 'typescript'], {
-        cwd: dir,
-        env: bareEnv({ NPM_CONFIG_REGISTRY: registry.url.href }),
-      })
+      const { status, stdout, stderr, version } = await installedThrough(
+        bareEnv({ NPM_CONFIG_REGISTRY: registry.url.href }),
+      )
       registry.stop()
       expect({ status, stderr }).toMatchObject({ status: 0 })
       expect(stdout).toContain(`installed ${servicePackage('typescript')} ${serviceVersion}`)
-      const manifest = join(
-        dir,
-        '.loom',
-        'services',
-        'node_modules',
-        servicePackage('typescript'),
-        'package.json',
+      expect(version).toBe(serviceVersion)
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it.skipIf(!devBuild)(
+    "installs a dev build's service from the dev registry when no registry is named",
+    async () => {
+      const registry = registryServer(standInTarball())
+      const env = Object.fromEntries(
+        Object.entries(bareEnv({ LOOM_DEV_REGISTRY: registry.url.href })).filter(
+          ([name]) => name !== 'NPM_CONFIG_REGISTRY',
+        ),
       )
-      expect(JSON.parse(readFileSync(manifest, 'utf8')).version).toBe(serviceVersion)
-      rmSync(dir, { recursive: true, force: true })
+      const { status, stdout, stderr, version } = await installedThrough(env)
+      registry.stop()
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain(`installed ${servicePackage('typescript')} ${serviceVersion}`)
+      expect(version).toBe(serviceVersion)
     },
     SMOKE_TIMEOUT,
   )

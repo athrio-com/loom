@@ -178,6 +178,8 @@ On Windows, npm is a batch script, `npm.cmd`, and Node starts a batch script onl
 
 Both leave out peer dependencies. Effect, Volar's contracts, and the service interface are a service's peers, and the host that loads the service supplies all three, so the store need not hold them.
 
+A caller may name the registry to install from. The package manager then gets it with `--registry`, which both npm and Bun take over their own settings, and `registryOption` spells that option. A caller that names none leaves the package manager to the registry its own settings name, which is npm's public registry unless a person changed it.
+
 An install that fails, whether the registry is unreachable, the package is not published, or `npm` is absent, fails with a `StoreError` that names the package and carries the cause. The command that called it can then report the reason rather than a stack trace.
 
 =>
@@ -209,19 +211,43 @@ const onWindows = process.platform === 'win32'
 const quotedOnWindows = (argument: string): string =>
   onWindows && /\s/.test(argument) ? `"${argument}"` : argument
 
-const packageManager = (root: string, spec: string): PackageManager =>
+const registryOption = (registry: Option.Option<string>): ReadonlyArray<string> =>
+  Option.match(registry, { onNone: () => [], onSome: (url) => [`--registry=${url}`] })
+
+const packageManager = (
+  root: string,
+  spec: string,
+  registry: Option.Option<string>,
+): PackageManager =>
   standalone
     ? {
         command: process.execPath,
-        args: ['add', spec, '--cwd', root, '--omit', 'peer', '--linker', 'hoisted'],
+        args: [
+          'add',
+          spec,
+          '--cwd',
+          root,
+          '--omit',
+          'peer',
+          '--linker',
+          'hoisted',
+          ...registryOption(registry),
+        ],
         env: { ...process.env, BUN_BE_BUN: '1' },
         shell: false,
       }
     : {
         command: 'npm',
-        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'].map(
-          quotedOnWindows,
-        ),
+        args: [
+          'install',
+          spec,
+          '--prefix',
+          root,
+          '--omit=peer',
+          '--no-audit',
+          '--no-fund',
+          ...registryOption(registry),
+        ].map(quotedOnWindows),
         env: process.env,
         shell: onWindows,
       }
@@ -230,10 +256,11 @@ const installPackage = (
   root: string,
   packageName: string,
   range: string,
+  registry: Option.Option<string>,
 ): Effect.Effect<void, StoreError> =>
   Effect.gen(function* () {
     yield* Effect.sync(() => prepareRoot(root))
-    const manager = packageManager(root, `${packageName}@${range}`)
+    const manager = packageManager(root, `${packageName}@${range}`, registry)
     yield* Effect.tryPromise({
       try: () =>
         run(manager.command, [...manager.args], { env: manager.env, shell: manager.shell }),
@@ -241,9 +268,34 @@ const installPackage = (
     })
   })
 
+## A dev build's own registry
+
+A dev release is published to a registry on the machine that makes it, the one Part XI describes, and npm's public registry never holds it. A dev build of Loom asks for its services at its own version, which only that registry holds, so an install from npm's registry finds nothing. The store therefore installs a dev build's services and tropes from the dev registry.
+
+A dev build carries a prerelease in its version, as `0.0.21-dev.4` does, and the constant `devBuild` says whether this Loom is one. The constant `devRegistry` is the dev registry's address, `http://localhost:4873`, unless the variable `LOOM_DEV_REGISTRY` names another, which is how a test serves a registry of its own. The command line reads both as well, to upgrade a dev build from that same registry.
+
+A registry that a person names for npm still wins, since a person names one to install from somewhere else on purpose. npm and Bun both read it from the variable `npm_config_registry`, written in either case, and `registryNamed` asks whether the environment holds one. The function `serviceRegistry` gives the registry that a service's install names. On a dev build whose environment names none, that is the dev registry. Otherwise it is nothing, and the package manager keeps to its own settings. So a public build installs from npm's public registry, as it always has. TypeScript 7 is not a service, and every build fetches it from npm, never through the dev registry.
+
+=>
+
+export const devBuild = serviceVersion.includes('-dev.')
+
+export const devRegistry = (process.env.LOOM_DEV_REGISTRY ?? 'http://localhost:4873').replace(
+  /\/$/,
+  '',
+)
+
+const registryNamed = (): boolean =>
+  Object.entries(process.env).some(
+    ([name, value]) => name.toLowerCase() === 'npm_config_registry' && (value ?? '') !== '',
+  )
+
+const serviceRegistry = (): Option.Option<string> =>
+  devBuild && !registryNamed() ? Option.some(devRegistry) : Option.none()
+
 ## Installing a service or a trope
 
-`installService` brings a language's package in the store to `serviceVersion`, and `installTropes` does the same for the package of Loom's tropes. Both come down to `installInto`. A store that already holds the package at that version is left alone, so the call is quick and needs no network. A store that lacks the package gets it installed, and a store that holds it at another version gets it replaced. `PackageInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language or a trope on, and bringing it up to date, all come down to these calls.
+The function `installService` brings a language's package in the store to `serviceVersion`, and `installTropes` does the same for the package of Loom's tropes. Both come down to `installInto`, which installs from the registry that `serviceRegistry` names. A store that already holds the package at that version is left alone, so the call is quick and needs no network. A store that lacks the package gets it installed, and a store that holds it at another version gets it replaced. `PackageInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language or a trope on, and bringing it up to date, all come down to these calls.
 
 =>
 
@@ -262,7 +314,7 @@ const installInto = (
   Effect.gen(function* () {
     const installed = versionIn(folder)
     if (Option.contains(installed, serviceVersion)) return PackageInstall.Current()
-    yield* installPackage(storeDir(dir), packageName, serviceVersion)
+    yield* installPackage(storeDir(dir), packageName, serviceVersion, serviceRegistry())
     return Option.match(installed, {
       onNone: () => PackageInstall.Installed(),
       onSome: (from) => PackageInstall.Updated({ from }),
@@ -338,7 +390,7 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
   const install = Effect.gen(function* () {
     yield* Effect.logInfo(`loom: fetching TypeScript ${version} into ${folder}`)
     yield* Effect.sync(() => rmSync(partial, { recursive: true, force: true }))
-    yield* installPackage(partial, 'typescript', version)
+    yield* installPackage(partial, 'typescript', version, Option.none())
     yield* Effect.sync(() => placeFetched(partial, folder, executable))
   }).pipe(Effect.ensuring(Effect.sync(() => rmSync(partial, { recursive: true, force: true }))))
   return present(executable).pipe(
@@ -410,6 +462,8 @@ const run = promisify(execFile)
 ::[Two ways to run Loom]
 
 ::[Installing a package into the store]
+
+::[A dev build's own registry]
 
 ::[Installing a service or a trope]
 

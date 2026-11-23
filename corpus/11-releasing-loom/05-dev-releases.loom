@@ -605,7 +605,7 @@ BunRuntime.runMain(
 
 A project pins a dev release by its exact version, and tells its package manager where the registry is in one of two ways. It names the registry for one install, as `bun add @athrio/loom@0.0.21-dev.1 --registry http://localhost:4873` does. Or it gives the `@athrio` scope that registry in its own `.npmrc` or `bunfig.toml`, and then only the packages of the scope come from the local registry. Either way the registry must be running whenever an install has to fetch.
 
-The command line of a dev release needs the registry once more, when `loom add` installs a language service. The command line asks npm for the service at its own version, and it runs npm in the store's folder, where the project's `.npmrc` does not apply. So a person names the registry in the environment of that one command, as `npm_config_registry=http://localhost:4873 loom add typescript` does.
+The command line of a dev release needs the registry once more, when `loom add` or `loom update` installs a language service or the tropes. It asks for the package at its own version, which only the dev registry holds, and it runs the package manager in the store's folder, where the project's `.npmrc` does not apply. So a dev build names the dev registry to the package manager itself, as Part VII describes, and the registry must be running for that install as well.
 
 ## The dev release tool [release-local.ts]
 

@@ -672,7 +672,8 @@ describe('loom cli — upgrade', () => {
       })
       expect(status).toBe(0)
       expect(stdout).toContain(`npm install -g @athrio/loom@dev --registry ${unreachable}`)
-      expect(stdout).toContain(`npm_config_registry=${unreachable} loom update --all`)
+      expect(stdout).toContain('then run `loom update --all`')
+      expect(stdout).not.toContain('npm_config_registry')
     },
     SPAWN_TIMEOUT,
   )
