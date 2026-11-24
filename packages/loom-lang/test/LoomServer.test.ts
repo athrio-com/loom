@@ -24,9 +24,11 @@ import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
+import type { TableOfContents } from '../src/weave/TableOfContentsBuilder'
 import {
   classicTypeScript,
   closeOf,
+  contentsRequest,
   projectOver,
   rebuildUnder,
   refreshDecorations,
@@ -242,6 +244,8 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
     })
+  const contents = (): Promise<TableOfContents> =>
+    connection.sendRequest<TableOfContents>(contentsRequest)
   const changed = (path: string, type: FileChangeType = FileChangeType.Changed): Promise<void> =>
     connection.sendNotification('workspace/didChangeWatchedFiles', {
       changes: [{ uri: pathToFileURL(path).href, type }],
@@ -262,6 +266,7 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     completions,
     definition,
     rename,
+    contents,
     changed,
     applied,
     close,
@@ -1152,6 +1157,28 @@ describe('LoomServer — a name that waits', () => {
       ).toEqual([
         ['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]],
         ['Mark `Saying goodbye` to be settled', [['{To be settled}', 8, 18]]],
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+const roomsOf = (): string =>
+  lines('---', 'Chapter: Rooms', 'Book: The game', 'Language: TypeScript', '---', '', '# Rooms', '', '=>', '', 'export const rooms = 3')
+
+describe('LoomServer — the books of a workspace', () => {
+  it('lists each book with the chapters that name it', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const answer = workspaceAt(root, standIn(false))
+    const rooms = join(root, 'corpus', 'rooms.loom')
+    writeFileSync(rooms, roomsOf())
+    const editor = await editorAt(root)
+    try {
+      const { books } = await editor.contents()
+      expect(books.map((book) => [book.name, book.orphans.map((chapter) => chapter.path)])).toEqual([
+        ['', [answer]],
+        ['The game', [rooms]],
       ])
     } finally {
       editor.close()

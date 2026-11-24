@@ -228,7 +228,7 @@ export const failureIn =
 
 A defect is a mistake in Loom's own code, a failure no type foresaw: an exception from a library, or a value a schema should never have refused. Effect carries a defect in a cause, not in a type. Each program catches its defects where a piece of its work starts. Each defect becomes the failure `Broke`. So a mistake in the code reaches a person in the catalog's words, as every other failure does.
 
-The failure `Broke` names the `work` the defect struck, the `subject` of that work, and the `cause`. The type `Work` lists the pieces of work a program catches defects around. The command line has one, a command. The language server has eight, such as opening a workspace or rebuilding a loom after an edit. The subject is the loom or the workspace the work was on, and is empty for work that has none. The table `works` gives each piece of work its summary.
+The failure `Broke` names the `work` the defect struck, the `subject` of that work, and the `cause`. The type `Work` lists the pieces of work a program catches defects around. The command line has one, a command. The language server has nine, such as opening a workspace, rebuilding a loom after an edit, or listing the books of a workspace. The subject is the loom or the workspace the work was on, and is empty for work that has none. The table `works` gives each piece of work its summary.
 
 The function `broke` makes one from the cause Effect hands over. A cause may hold a failure, a defect, or several, and Effect's function `Cause.squash` picks the one at its heart.
 
@@ -244,6 +244,7 @@ export type Work =
   | 'rereading'
   | 'rebuilding'
   | 'keeping'
+  | 'listing'
 
 export class Broke extends Data.TaggedError('Broke')<{
   readonly work: Work
@@ -264,6 +265,7 @@ const works: { readonly [Each in Work]: (subject: string) => string } = {
   rereading: () => 'Something broke while Loom read the looms that changed on disk.',
   rebuilding: (loom) => `Something broke while Loom rebuilt ${loom} after an edit.`,
   keeping: (loom) => `Something broke while Loom kept the boxes of ${loom} in step.`,
+  listing: (workspace) => `Something broke while Loom listed the books of ${workspace}.`,
 }
 
 const brokeWording: Wording<Broke> = {

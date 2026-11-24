@@ -166,6 +166,7 @@ export type Work =
   | 'rereading'
   | 'rebuilding'
   | 'keeping'
+  | 'listing'
 
 export class Broke extends Data.TaggedError('Broke')<{
   readonly work: Work
@@ -186,6 +187,7 @@ const works: { readonly [Each in Work]: (subject: string) => string } = {
   rereading: () => 'Something broke while Loom read the looms that changed on disk.',
   rebuilding: (loom) => `Something broke while Loom rebuilt ${loom} after an edit.`,
   keeping: (loom) => `Something broke while Loom kept the boxes of ${loom} in step.`,
+  listing: (workspace) => `Something broke while Loom listed the books of ${workspace}.`,
 }
 
 const brokeWording: Wording<Broke> = {
