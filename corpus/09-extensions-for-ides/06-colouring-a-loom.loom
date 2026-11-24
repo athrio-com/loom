@@ -14,9 +14,11 @@ The capture names follow the list nvim-treesitter keeps. Helix shares every name
 
 ## The frontmatter's colours
 
-The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Part` or `Chapter` line names a title, so its value is a heading, the way the headings below it are. A `Book` line names a book, whose title is a heading too. A `Package` names a file or a folder, so its value is a path, as a sink's file is. A `Language` names a language, so its value is a type, as a specifier's label is. Any other field's value is a string.
+The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Package` names a file or a folder, so its value is a path, as a sink's file is, and so is the value of `Target`, an older name of the same field. A `Language` names a language, so its value is a type, as a specifier's label is. The values of `Rooted in`, `Entries`, `Status`, and `Priority` are strings.
 
-The patterns tell the fields apart by their keys. A `Part` key may carry a chapter as well, `Part III, Chapter 2`, so the two title keys match by the word they start with. The patterns use only a plain prefix and exact names, because Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and only the plainest patterns mean the same to both. The last pattern excludes the five keys the others claim, so no value takes two colours.
+Every other line names the loom itself: its book, its part, its chapter, its discussion, the trope it roots, or a kind of loom that a trope declares, as `Tasks 1: The next release` does. The value of such a line is the loom's title, so it is a heading, the way the headings below it are.
+
+The patterns tell the fields apart by their keys. The grammar cannot know which kinds of loom the tropes of a workspace declare, so the pattern for a title names no key. It takes every field the other patterns leave, and it excludes the seven keys they claim, so no value takes two colours. The patterns compare whole keys alone. Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and an exact name means the same to both.
 
 The key takes a colour of its own, in a section of its own, because the name of that colour is the one Helix spells differently.
 
@@ -29,23 +31,8 @@ The key takes a colour of its own, in a section of its own, because the name of 
 
 ((field
   key: (key) @_key
-  value: (value) @markup.heading)
-  (#match? @_key "^Part"))
-
-((field
-  key: (key) @_key
-  value: (value) @markup.heading)
-  (#match? @_key "^Chapter"))
-
-((field
-  key: (key) @_key
-  value: (value) @markup.heading)
-  (#eq? @_key "Book"))
-
-((field
-  key: (key) @_key
   value: (value) @string.special.path)
-  (#eq? @_key "Package"))
+  (#any-of? @_key "Package" "Target"))
 
 ((field
   key: (key) @_key
@@ -55,11 +42,12 @@ The key takes a colour of its own, in a section of its own, because the name of 
 ((field
   key: (key) @_key
   value: (value) @string)
-  (#not-match? @_key "^Part")
-  (#not-match? @_key "^Chapter")
-  (#not-eq? @_key "Book")
-  (#not-eq? @_key "Package")
-  (#not-eq? @_key "Language"))
+  (#any-of? @_key "Rooted in" "Entries" "Status" "Priority"))
+
+((field
+  key: (key) @_key
+  value: (value) @markup.heading)
+  (#not-any-of? @_key "Package" "Target" "Language" "Rooted in" "Entries" "Status" "Priority"))
 
 ## A key in Neovim
 

@@ -572,6 +572,71 @@ describe('the anchors in a code block', () => {
   )
 })
 
+const fieldForms = [
+  '---',
+  'Tasks 1: The next release',
+  'Discussion 2: Waking',
+  'Trope Chapter: Payments',
+  'Part III, Chapter 2: The classifier stage',
+  'Book: Loom builds Loom',
+  'Package: src/out.ts',
+  'Target: src/old.ts',
+  'Language: TypeScript',
+  'Rooted in: Tasks',
+  'Entries: Billing',
+  'Status: Planned',
+  'Priority: 2',
+  '---',
+]
+
+const valueOf = (field: string): string => field.slice(field.indexOf(': ') + 2)
+
+const coloursOf = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
+  Effect.map(
+    treeSitter([
+      'query',
+      '--lib-path',
+      library,
+      '--lang-name',
+      'loom',
+      query,
+      fixture('field-forms', fieldForms),
+    ]),
+    (printed) => {
+      const captures = Array.fromIterable(printed.matchAll(capturePattern))
+      return fieldForms
+        .filter((field) => field.includes(': '))
+        .map((field) =>
+          captures.filter(([, , , , , , text]) => text === valueOf(field)).map(([, name]) => name),
+        )
+    },
+  )
+
+const coloured = (title: string, path: string): ReadonlyArray<ReadonlyArray<string>> => [
+  ...Array.replicate([title], 5),
+  ...Array.replicate([path], 2),
+  ['type'],
+  ...Array.replicate(['string'], 4),
+]
+
+describe("the frontmatter's colours", () => {
+  it.effect('the shared queries give each value one colour', () =>
+    Effect.map(coloursOf('queries/highlights.scm'), (colours) =>
+      expect(colours).toEqual(coloured('markup.heading', 'string.special.path')),
+    ),
+  )
+  it.effect("Helix's queries give each value one colour", () =>
+    Effect.map(coloursOf('editors/helix/queries/loom/highlights.scm'), (colours) =>
+      expect(colours).toEqual(coloured('markup.heading', 'string.special.path')),
+    ),
+  )
+  it.effect("Zed's queries give each value one colour", () =>
+    Effect.map(coloursOf('editors/zed/languages/loom/highlights.scm'), (colours) =>
+      expect(colours).toEqual(coloured('title', 'link_uri')),
+    ),
+  )
+})
+
 const lastGrammarCommit: Effect.Effect<string> = Effect.sync(() => {
   const asked = spawnSync('git', ['log', '-1', '--format=%H', '--', 'src'], {
     cwd: grammarDir,

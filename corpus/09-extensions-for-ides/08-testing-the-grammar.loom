@@ -705,6 +705,79 @@ describe('the anchors in a code block', () => {
   )
 })
 
+## Each frontmatter value takes one colour
+
+The highlight queries colour a frontmatter value by what it names, and they come in the same three copies. A line that names the loom has a title for its value, and the grammar cannot list the kinds of loom a trope may declare. So the test writes a frontmatter with a line of every sort: five that name a loom, one of them of a kind only a trope could declare, two that name a file, one that names a language, and four plain fields. It asks that each value takes exactly one colour, and the colour its copy gives that sort of line.
+
+The `coloursOf` function runs one copy over the loom and reads every capture the command prints. For each field it lists the names of the captures whose text is the field's value. A key's capture holds the key's text, so it never counts.
+
+=>
+
+const fieldForms = [
+  '---',
+  'Tasks 1: The next release',
+  'Discussion 2: Waking',
+  'Trope Chapter: Payments',
+  'Part III, Chapter 2: The classifier stage',
+  'Book: Loom builds Loom',
+  'Package: src/out.ts',
+  'Target: src/old.ts',
+  'Language: TypeScript',
+  'Rooted in: Tasks',
+  'Entries: Billing',
+  'Status: Planned',
+  'Priority: 2',
+  '---',
+]
+
+const valueOf = (field: string): string => field.slice(field.indexOf(': ') + 2)
+
+const coloursOf = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
+  Effect.map(
+    treeSitter([
+      'query',
+      '--lib-path',
+      library,
+      '--lang-name',
+      'loom',
+      query,
+      fixture('field-forms', fieldForms),
+    ]),
+    (printed) => {
+      const captures = Array.fromIterable(printed.matchAll(capturePattern))
+      return fieldForms
+        .filter((field) => field.includes(': '))
+        .map((field) =>
+          captures.filter(([, , , , , , text]) => text === valueOf(field)).map(([, name]) => name),
+        )
+    },
+  )
+
+const coloured = (title: string, path: string): ReadonlyArray<ReadonlyArray<string>> => [
+  ...Array.replicate([title], 5),
+  ...Array.replicate([path], 2),
+  ['type'],
+  ...Array.replicate(['string'], 4),
+]
+
+describe("the frontmatter's colours", () => {
+  it.effect('the shared queries give each value one colour', () =>
+    Effect.map(coloursOf('queries/highlights.scm'), (colours) =>
+      expect(colours).toEqual(coloured('markup.heading', 'string.special.path')),
+    ),
+  )
+  it.effect("Helix's queries give each value one colour", () =>
+    Effect.map(coloursOf('editors/helix/queries/loom/highlights.scm'), (colours) =>
+      expect(colours).toEqual(coloured('markup.heading', 'string.special.path')),
+    ),
+  )
+  it.effect("Zed's queries give each value one colour", () =>
+    Effect.map(coloursOf('editors/zed/languages/loom/highlights.scm'), (colours) =>
+      expect(colours).toEqual(coloured('title', 'link_uri')),
+    ),
+  )
+})
+
 ## The pins name the grammar's last commit
 
 Zed and Helix compile the grammar at the commit their manifests pin, and Chapter 11 sets the rule: the pin names the last commit that changed `src/`. The test holds every push to that rule. It asks Git for the commit, reads the revision out of Zed's `extension.toml` and Helix's `languages.toml`, and expects both to name it. A commit that changes the grammar fails this test until the next commit moves the pin, which `bun scripts/pin-grammar.ts` writes.
@@ -790,6 +863,8 @@ const it = effectify(it_)
 ::[The corners the book does not reach]
 
 ::[Each code block takes one language]
+
+::[Each frontmatter value takes one colour]
 
 ::[The pins name the grammar's last commit]
 

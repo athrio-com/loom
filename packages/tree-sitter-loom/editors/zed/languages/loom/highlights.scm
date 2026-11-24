@@ -8,23 +8,8 @@
 
 ((field
   key: (key) @_key
-  value: (value) @title)
-  (#match? @_key "^Part"))
-
-((field
-  key: (key) @_key
-  value: (value) @title)
-  (#match? @_key "^Chapter"))
-
-((field
-  key: (key) @_key
-  value: (value) @title)
-  (#eq? @_key "Book"))
-
-((field
-  key: (key) @_key
   value: (value) @link_uri)
-  (#eq? @_key "Package"))
+  (#any-of? @_key "Package" "Target"))
 
 ((field
   key: (key) @_key
@@ -34,11 +19,12 @@
 ((field
   key: (key) @_key
   value: (value) @string)
-  (#not-match? @_key "^Part")
-  (#not-match? @_key "^Chapter")
-  (#not-eq? @_key "Book")
-  (#not-eq? @_key "Package")
-  (#not-eq? @_key "Language"))
+  (#any-of? @_key "Rooted in" "Entries" "Status" "Priority"))
+
+((field
+  key: (key) @_key
+  value: (value) @title)
+  (#not-any-of? @_key "Package" "Target" "Language" "Rooted in" "Entries" "Status" "Priority"))
 
 (heading) @title
 
