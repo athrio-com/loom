@@ -1856,6 +1856,8 @@ The second case gives `note.loom` an unsaved edit to its code and asks only abou
 
 The third case checks that an edit only to prose costs the other chapters nothing. Its stand-in counts the diagnostics it reports and appends the count to each message. An edit to the prose of `note.loom` changes nothing `Main` can see, so `Main` keeps the diagnostics Volar cached for it, and the count stays where it was. An edit to the code of `note.loom` then changes what `Main` reads, and `Main` is checked again.
 
+The fourth case edits what a trope declares. The loom `Tasks` is the root of a trope, and its manifest declares one kind of section. The chapter `Plans` gives a heading the `Task` kind. While the manifest declares `Chore`, the server faults the heading, since no heading takes a `Task` kind. The case then edits the manifest to declare `Task`, and saves nothing. Every loom is read with the kinds the tropes of its workspace declare, so the edit reaches `Plans`, and the fault goes.
+
 =>
 
 describe('LoomServer — an edit that reaches other open chapters', () => {
@@ -1918,6 +1920,43 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved' #1"])
       await editor.edit(note, chapter('Note [note.ts]', "const note = 'edited'"))
       expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'edited' #2"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('reads an open chapter with the kinds an unsaved manifest declares', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const declaring = (kind: string) =>
+      lines(
+        '---',
+        'Trope Chapter: Tasks',
+        '---',
+        '',
+        '# Tasks',
+        '',
+        '## What it declares {Manifest}',
+        '',
+        '=>',
+        '',
+        JSON.stringify({ contract: '1', contributes: { kinds: { section: [{ kind }] } } }),
+      )
+    const tasks = chapterAt(root, 'tasks.loom', declaring('Chore'))
+    const plans = chapterAt(
+      root,
+      'plans.loom',
+      lines('# Plans', '', '## Publish {kind=Task}', '', 'Push.'),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(plans)
+      await editor.open(tasks)
+      expect(await editor.diagnostics(plans)).toEqual([
+        'A heading takes no `Task` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Chore`.',
+      ])
+      await editor.edit(tasks, declaring('Task'))
+      expect(await editor.diagnostics(plans)).toEqual([])
     } finally {
       editor.close()
     }
@@ -2318,14 +2357,14 @@ describe('LoomServer — a box folded under its caption', () => {
   }, 30_000)
 })
 
-## Testing a label as it is typed
+## Testing braces as they are typed
 
-The server offers the labels an anchor takes while the author types between the anchor's braces. `Main` anchors `Greeting` on line 8, and the author has typed `To b` between the braces, from character 13 to character 17. Asked at the end of those four characters, the server offers both kinds an anchor takes, `To be settled` and `Module`, each of which replaces them.
+The server offers what an anchor's braces may hold while the author types between them. `Main` anchors `Greeting` on line 8, and the author has typed `To b` between the braces, from character 13 to character 17. Asked at the end of those four characters, the server offers both kinds an anchor takes, `To be settled` and `Module`, and then the anchor's two keys, each written with its equals sign. Every offer replaces the four characters.
 
 =>
 
-describe('LoomServer — a label as it is typed', () => {
-  it('offers the label an anchor takes between its braces', async () => {
+describe('LoomServer — braces as they are typed', () => {
+  it('offers the kinds and the keys an anchor takes between its braces', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
     const main = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Greeting')}{To b}`))
@@ -2345,6 +2384,20 @@ describe('LoomServer — a label as it is typed', () => {
           textEdit: {
             range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
             newText: 'Module',
+          },
+        },
+        {
+          label: 'kind',
+          textEdit: {
+            range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
+            newText: 'kind=',
+          },
+        },
+        {
+          label: 'provides',
+          textEdit: {
+            range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
+            newText: 'provides=',
           },
         },
       ])
@@ -2978,7 +3031,7 @@ describe("LoomServer — a trope's entries", () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InitializeResult` the server answers an `initialize` request with, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` a label typed in braces arrives in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InitializeResult` the server answers an `initialize` request with, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` the offers for braces arrive in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
@@ -3058,7 +3111,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 
 ::[Testing a box folded under its caption]
 
-::[Testing a label as it is typed]
+::[Testing braces as they are typed]
 
 ::[Testing the names a section must provide]
 

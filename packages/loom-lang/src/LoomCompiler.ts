@@ -29,11 +29,12 @@ import {
   conceptSymbolsIn,
   hintsAt,
   hoverAt,
+  type CorpusHover,
   isTropeEntry,
-  labelSlotAt,
+  bearerAt,
+  keyAt,
   linksOf,
   moduleDiagnostics,
-  standingAt,
   namesakesOf,
   reachable,
   referencesAt,
@@ -83,10 +84,11 @@ import {
   usedSections,
 } from '#ast/ProductBuilder'
 import {
-  anchorKinds,
+  eachType,
   headingLangToken,
   type Keys,
-  type Standing,
+  keyType,
+  type ScalarType,
 } from '@athrio/loom-ast/LoomTokens'
 import { type Code, keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
@@ -107,18 +109,26 @@ import {
   type ServiceError,
   type SpecifierRequest,
 } from '@athrio/loom-lang-services/LanguageService'
-import { normaliseTitle } from '#ast/WeftTokeniser'
+import { type BraceSlot, normaliseTitle, slotAt, type Wanted } from '#ast/WeftTokeniser'
 import {
   type Declarations,
   type DeclaredKinds,
   declaredKindsOf,
+  keyCard,
   kindFaults,
   noDeclarations,
   tropeIn,
   tropeOf,
   tropesOf,
 } from '#ast/DeclaredKinds'
-import { type Declared, type KeyedKind, nothingDeclared } from '#ast/LoomDocumentBuilder'
+import {
+  type Declared,
+  type KeyedKind,
+  namedKind,
+  nothingDeclared,
+  type Taken,
+  takenBy,
+} from '#ast/LoomDocumentBuilder'
 import {
   type Approval,
   approvalsAt,
@@ -208,18 +218,6 @@ const wasBuiltWith =
       onNone: () => true,
       onSome: (declared) => kept.builtAs === declaredKey(declared),
     })
-
-const anchorLabels = (
-  kinds: DeclaredKinds,
-  standing: Option.Option<Standing>,
-): ReadonlyArray<string> => [
-  ...anchorKinds,
-  ...kinds.anchor
-    .filter(
-      (declared) => !Option.exists(declared.standsIn, (place) => !Option.contains(standing, place)),
-    )
-    .map((declared) => declared.kind),
-]
 
 const keyedKind = (declared: {
   readonly kind: string
@@ -845,6 +843,63 @@ const promisedNamesIn = (
           (one, other) => one.name === other.name && one.section === other.section,
         ),
     }),
+  )
+
+type Offer = { readonly label: string; readonly text: string }
+
+const choicesOf: (type: ScalarType) => ReadonlyArray<string> = Match.type<ScalarType>().pipe(
+  Match.withReturnType<ReadonlyArray<string>>(),
+  Match.when({ choice: Match.any }, ({ choice }) => choice),
+  Match.when('boolean', () => ['true', 'false']),
+  Match.orElse(() => []),
+)
+
+const wordsUnder = (taken: Taken, key: string): ReadonlyArray<string> =>
+  key === 'kind'
+    ? taken.kinds
+    : Option.match(keyType(taken.keys, key), {
+        onNone: (): ReadonlyArray<string> => [],
+        onSome: (type) => choicesOf(eachType(type)),
+      })
+
+const keyOffer = (key: string): Offer => ({ label: key, text: `${key}=` })
+
+const standsBare = (word: string): boolean => /^[A-Za-z0-9_.-]+$/.test(word)
+
+const offersIn = byType<Wanted, [taken: Taken, slot: BraceSlot]>()<ReadonlyArray<Offer>>({
+  label: (_wanted, taken, slot) => [
+    ...taken.kinds.map((kind): Offer => ({ label: kind, text: slot.closed ? kind : `${kind}}` })),
+    ...Object.keys(taken.keys).map(keyOffer),
+  ],
+  key: ({ written }, taken) =>
+    Object.keys(taken.keys)
+      .filter((key) => !written.includes(key))
+      .map(keyOffer),
+  value: ({ key, quoted }, taken) =>
+    wordsUnder(taken, key).map((word): Offer => ({
+      label: word,
+      text: quoted || standsBare(word) ? word : `"${word}"`,
+    })),
+})
+
+const keyHoverAt = (
+  { modules, kinds }: Corpus,
+  path: Location,
+  offset: number,
+): Option.Option<CorpusHover> =>
+  Option.flatMap(Option.fromNullishOr(modules.get(path)), (module) =>
+    Option.flatMap(keyAt({ modules }, path, offset), ({ bearer, key }) =>
+      Option.map(
+        keyType(
+          takenBy({ declared: declaredIn(kinds), document: module.doc }, bearer).keys,
+          key.value,
+        ),
+        (type): CorpusHover => ({
+          position: key.position,
+          markdown: keyCard(kinds, bearer.on, namedKind(bearer), key.value, type),
+        }),
+      ),
+    ),
   )
 
 const namesAt = (modules: Modules, path: Location): ReadonlyArray<string> =>
@@ -1632,19 +1687,19 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       hover: (path: Location, offset: number): Effect.Effect<FrameHover | undefined> =>
-        buildCorpus(documents, path).pipe(
-          Effect.map((modules) =>
-            Option.getOrUndefined(
-              Option.flatMap(
-                Option.orElse(hoverAt({ modules }, path, offset), () =>
-                  recognisedHoverAt(vocabulariesIn(modules), path, offset),
+        corpusOf(documents, path).pipe(
+          Effect.map((corpus) =>
+            pipe(
+              hoverAt({ modules: corpus.modules }, path, offset),
+              Option.orElse(() => recognisedHoverAt(vocabulariesIn(corpus.modules), path, offset)),
+              Option.orElse(() => keyHoverAt(corpus, path, offset)),
+              Option.flatMap((card) =>
+                Option.map(
+                  frameLocationOf(corpus.modules, { path, position: card.position }),
+                  (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
                 ),
-                (card) =>
-                  Option.map(
-                    frameLocationOf(modules, { path, position: card.position }),
-                    (location): FrameHover => ({ range: location.range, markdown: card.markdown }),
-                  ),
               ),
+              Option.getOrUndefined,
             ),
           ),
         ),
@@ -1755,25 +1810,31 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       ): Effect.Effect<ReadonlyArray<FrameCompletion>> =>
         corpusOf(documents, path).pipe(
           Effect.map(({ modules, kinds }) =>
-            Option.match(
-              Option.all([
-                Option.fromNullishOr(modules.get(path)),
-                labelSlotAt({ modules }, path, offset),
-              ]),
-              {
-                onNone: (): ReadonlyArray<FrameCompletion> => [],
-                onSome: ([module, slot]) =>
-                  anchorLabels(kinds, standingAt({ modules }, path, offset)).map(
-                    (label): FrameCompletion => ({
-                      label,
+            pipe(
+              Option.fromNullishOr(modules.get(path)),
+              Option.flatMap((module) =>
+                Option.flatMap(slotAt(module.text, offset), (slot) =>
+                  Option.map(bearerAt({ modules }, path, slot.brace), (bearer) =>
+                    offersIn(
+                      slot.wants,
+                      takenBy(
+                        { declared: declaredIn(kinds), document: module.doc },
+                        bearer,
+                        slot.kind,
+                      ),
+                      slot,
+                    ).map((offer): FrameCompletion => ({
+                      label: offer.label,
                       range: {
                         start: lineCharAt(module, slot.start),
                         end: lineCharAt(module, slot.end),
                       },
-                      text: slot.closed ? label : `${label}}`,
-                    }),
+                      text: offer.text,
+                    })),
                   ),
-              },
+                ),
+              ),
+              Option.getOrElse((): ReadonlyArray<FrameCompletion> => []),
             ),
           ),
         ),

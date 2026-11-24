@@ -416,7 +416,7 @@ const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 const loomCompletions = (frame: FrameQueryApi): LanguageServicePlugin => ({
   name: 'loom-completions',
-  capabilities: { completionProvider: { triggerCharacters: ['{'] } },
+  capabilities: { completionProvider: { triggerCharacters: ['{', '='] } },
   create: (context) => ({
     provideCompletionItems: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))

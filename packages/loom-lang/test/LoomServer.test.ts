@@ -611,6 +611,43 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
       editor.close()
     }
   }, 30_000)
+
+  it('reads an open chapter with the kinds an unsaved manifest declares', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const declaring = (kind: string) =>
+      lines(
+        '---',
+        'Trope Chapter: Tasks',
+        '---',
+        '',
+        '# Tasks',
+        '',
+        '## What it declares {Manifest}',
+        '',
+        '=>',
+        '',
+        JSON.stringify({ contract: '1', contributes: { kinds: { section: [{ kind }] } } }),
+      )
+    const tasks = chapterAt(root, 'tasks.loom', declaring('Chore'))
+    const plans = chapterAt(
+      root,
+      'plans.loom',
+      lines('# Plans', '', '## Publish {kind=Task}', '', 'Push.'),
+    )
+    const editor = await editorAt(root)
+    try {
+      await editor.open(plans)
+      await editor.open(tasks)
+      expect(await editor.diagnostics(plans)).toEqual([
+        'A heading takes no `Task` kind. It takes `Tangle`, `Concept`, `Manifest`, and `Chore`.',
+      ])
+      await editor.edit(tasks, declaring('Task'))
+      expect(await editor.diagnostics(plans)).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
 })
 
 const configuredWith = (answer: number): string =>
@@ -955,8 +992,8 @@ describe('LoomServer — a box folded under its caption', () => {
   }, 30_000)
 })
 
-describe('LoomServer — a label as it is typed', () => {
-  it('offers the label an anchor takes between its braces', async () => {
+describe('LoomServer — braces as they are typed', () => {
+  it('offers the kinds and the keys an anchor takes between its braces', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
     const main = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Greeting')}{To b}`))
@@ -976,6 +1013,20 @@ describe('LoomServer — a label as it is typed', () => {
           textEdit: {
             range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
             newText: 'Module',
+          },
+        },
+        {
+          label: 'kind',
+          textEdit: {
+            range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
+            newText: 'kind=',
+          },
+        },
+        {
+          label: 'provides',
+          textEdit: {
+            range: { start: { line: 8, character: 13 }, end: { line: 8, character: 17 } },
+            newText: 'provides=',
           },
         },
       ])

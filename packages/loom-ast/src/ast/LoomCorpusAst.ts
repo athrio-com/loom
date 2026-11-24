@@ -16,13 +16,13 @@ import {
   isLoomKind,
   isPointingKind,
   type LoomKind,
+  type ParameterKeyToken,
   type ParametersToken,
   type ParameterToken,
   type ParameterValueToken,
   type PointingKind,
   valueWords,
   type SpecifierToken,
-  type Standing,
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
@@ -38,7 +38,7 @@ import {
   type TildeWeft,
 } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
-import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
+import { type Bearer, LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt, type SymbolKind } from '#ast/LoomSymbol'
 import { isNode } from '#ast/TreeFold'
 
@@ -955,22 +955,16 @@ type Braces = SpecifierToken | ParametersToken
 const referringIn =
   (on: HeldReference['on'], section: Option.Option<LoomSection>) =>
   (braces: Braces | undefined): ReadonlyArray<HeldReference> =>
-    pipe(
-      Option.fromNullishOr(braces),
-      Option.flatMap((held) =>
-        held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
-      ),
-      Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
-      Array.filter((parameter) => parameter.refers === true),
-      Array.flatMap((parameter) =>
+    parametersIn(braces)
+      .filter((parameter) => parameter.refers === true)
+      .flatMap((parameter) =>
         parameter.values.map((value): HeldReference => ({
           on,
           key: parameter.key.value,
           value,
           section,
         })),
-      ),
-    )
+      )
 
 const referencesAmong = (
   section: Option.Option<LoomSection>,
@@ -2397,79 +2391,94 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
   })
 }
 
-export type LabelSlot = {
-  readonly start: number
-  readonly end: number
-  readonly closed: boolean
-}
+const bearersAmong = (
+  lines: ReadonlyArray<PreambleWeft | SectionBodyWeft>,
+): ReadonlyArray<Bearer> =>
+  lines.flatMap((line) => [
+    ...line.anchors.map((anchor): Bearer => ({ on: 'anchor', anchor, standing: standingOf(line) })),
+    ...Option.toArray(boxOf(line)).map((box): Bearer => ({ on: 'box', box })),
+  ])
 
-const openSlot = (text: string, brace: number, offset: number): Option.Option<LabelSlot> =>
-  text[brace] === '{' && brace < offset && !text.slice(brace, offset).includes('\n')
-    ? Option.some({ start: brace + 1, end: offset, closed: false })
-    : Option.none()
+const bearersOf: (doc: LoomDocument) => ReadonlyArray<Bearer> = memoize((doc: LoomDocument) => [
+  ...bearersAmong(doc.preamble),
+  ...doc.sections.flatMap((section): ReadonlyArray<Bearer> => [
+    { on: 'heading', section },
+    ...bearersAmong([...section.preamble, ...section.code]),
+  ]),
+])
 
-const bracesSlot = Match.fn(
-  (
-    _within: {
-      readonly text: string
-      readonly anchor: WarpAnchorToken
-      readonly offset: number
-    },
-    specifier: WarpAnchorToken['specifier'],
-  ) => specifier,
-).pipe(
-  Match.withReturnType<Option.Option<LabelSlot>>(),
-  Match.when({ type: 'Specifier' }, ({ open, close }) =>
-    Option.some({
-      start: open.position.end.offset,
-      end: close.position.start.offset,
-      closed: true,
-    }),
+const bracesOf = Match.type<Bearer>().pipe(
+  Match.withReturnType<Braces | undefined>(),
+  Match.when({ on: 'heading' }, ({ section }) => section.heading.specifier),
+  Match.when({ on: 'anchor' }, ({ anchor }) => anchor.specifier),
+  Match.when({ on: 'box' }, ({ box }) => box.specifier),
+  Match.exhaustive,
+)
+
+const bearsOpened = Match.type<Bearer>().pipe(
+  Match.withReturnType<(brace: number) => boolean>(),
+  Match.when({ on: 'heading' }, () => () => false),
+  Match.when(
+    { on: 'anchor' },
+    ({ anchor }) =>
+      (brace) =>
+        anchor.position.end.offset === brace,
   ),
-  Match.when({ type: 'Parameters' }, () => Option.none<LabelSlot>()),
-  Match.when(Match.undefined, (_specifier, { text, anchor, offset }) =>
-    openSlot(text, anchor.position.end.offset, offset),
+  Match.when(
+    { on: 'box' },
+    ({ box }) =>
+      (brace) =>
+        box.side === 'open' && covers(box.position, brace),
   ),
   Match.exhaustive,
 )
 
-const slotOf =
-  (text: string, offset: number) =>
-  (anchor: WarpAnchorToken): Option.Option<LabelSlot> =>
-    pipe(
-      bracesSlot({ text, anchor, offset }, anchor.specifier),
-      Option.filter((slot) => slot.start <= offset && offset <= slot.end),
-    )
+const bears =
+  (brace: number) =>
+  (bearer: Bearer): boolean =>
+    Option.match(Option.fromNullishOr(bracesOf(bearer)), {
+      onSome: (braces) => braces.open.position.start.offset === brace,
+      onNone: () => bearsOpened(bearer)(brace),
+    })
 
-export const labelSlotAt = (
+export const bearerAt = (
   corpus: LoomCorpusAst,
   path: Location,
-  offset: number,
-): Option.Option<LabelSlot> =>
-  pipe(
-    Option.fromNullishOr(corpus.modules.get(path)),
-    Option.flatMap((module) =>
-      Array.findFirst(allAnchorsOf(module.doc), slotOf(module.text, offset)),
-    ),
+  brace: number,
+): Option.Option<Bearer> =>
+  Option.flatMap(Option.fromNullishOr(corpus.modules.get(path)), (module) =>
+    Array.findFirst(bearersOf(module.doc), bears(brace)),
   )
 
-export const standingAt = (
+export type KeyUnder = { readonly bearer: Bearer; readonly key: ParameterKeyToken }
+
+const parametersIn = (braces: Braces | undefined): ReadonlyArray<ParameterToken> =>
+  pipe(
+    Option.fromNullishOr(braces),
+    Option.flatMap((held) =>
+      held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
+    ),
+    Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
+  )
+
+const keyUnder =
+  (offset: number) =>
+  (bearer: Bearer): Option.Option<KeyUnder> =>
+    pipe(
+      Array.findFirst(
+        parametersIn(bracesOf(bearer)),
+        (parameter) => parameter.key.source !== '' && covers(parameter.key.position, offset),
+      ),
+      Option.map((parameter) => ({ bearer, key: parameter.key })),
+    )
+
+export const keyAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
-): Option.Option<Standing> =>
-  pipe(
-    Option.fromNullishOr(corpus.modules.get(path)),
-    Option.flatMap((module) =>
-      Array.findFirst(
-        [
-          ...module.doc.preamble,
-          ...module.doc.sections.flatMap((section) => [...section.preamble, ...section.code]),
-        ],
-        (line) => covers(line.position, offset),
-      ),
-    ),
-    Option.map(standingOf),
+): Option.Option<KeyUnder> =>
+  Option.flatMap(Option.fromNullishOr(corpus.modules.get(path)), (module) =>
+    Array.findFirst(bearersOf(module.doc), keyUnder(offset)),
   )
 
 const tidy = (text: string): string =>

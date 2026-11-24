@@ -1065,22 +1065,16 @@ type Braces = SpecifierToken | ParametersToken
 const referringIn =
   (on: HeldReference['on'], section: Option.Option<LoomSection>) =>
   (braces: Braces | undefined): ReadonlyArray<HeldReference> =>
-    pipe(
-      Option.fromNullishOr(braces),
-      Option.flatMap((held) =>
-        held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
-      ),
-      Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
-      Array.filter((parameter) => parameter.refers === true),
-      Array.flatMap((parameter) =>
+    parametersIn(braces)
+      .filter((parameter) => parameter.refers === true)
+      .flatMap((parameter) =>
         parameter.values.map((value): HeldReference => ({
           on,
           key: parameter.key.value,
           value,
           section,
         })),
-      ),
-    )
+      )
 
 const referencesAmong = (
   section: Option.Option<LoomSection>,
@@ -2633,93 +2627,108 @@ export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<Co
   })
 }
 
-## Braces waiting for a label
+## Whose braces these are
 
-An anchor takes a label in braces right after it, as `::[Greeting function]{To be settled}` does. An author types the label one letter at a time, so the editor offers the labels an anchor takes while the cursor stands between the braces. To make that offer, the editor needs the span the chosen label replaces.
+An author types what braces hold one letter at a time, so the editor offers what may stand at the cursor: a label, a key, or a value. The tokeniser finds the brace that opens the braces the cursor stands in, as the chapter "The tokeniser stage" describes. What may stand there depends on the construct that bears the braces, which is a heading, an anchor, or a box.
 
-The `labelSlotAt` function finds that span in one loom. A `LabelSlot` is the span, the slot a label fills: its `start` and `end` in the loom's source, and whether braces close it. Closed braces form a specifier, and the slot is the label between them. A brace the author has only opened forms nothing yet, because the tokeniser reads an open brace without its close as ordinary text. The slot then runs from just after the brace to the cursor, as long as the cursor stays on the anchor's line. Braces that hold parameters already name their keys, so they hold no slot. The `slotOf` function reads the slot of one anchor, after its target when it has one, and keeps the slot only when the cursor stands inside it. `bracesSlot` reads the slot from what follows the anchor: braces that hold a label, braces that hold parameters, or nothing yet.
+The `bearerAt` function finds the `Bearer` whose braces open at an offset in one loom. Braces that an author has closed are a token of their bearer, so `bears` compares the offset with the token's opening brace, which `bracesOf` reads. A brace the author has only opened is no token after an anchor or on a box line, because the tokeniser reads a brace without its close as ordinary text there. So an anchor also bears the brace that touches its end, and a box also bears a brace that stands on the line that opens it. The function `bearersOf` lists the bearers of a loom: the heading of each section, then each anchor and each box of each line. An anchor carries the place its line stands in, prose or code, because a kind of anchor may keep to one of them, as Part XIII, Tropes, describes.
 
 =>
 
-export type LabelSlot = {
-  readonly start: number
-  readonly end: number
-  readonly closed: boolean
-}
+const bearersAmong = (
+  lines: ReadonlyArray<PreambleWeft | SectionBodyWeft>,
+): ReadonlyArray<Bearer> =>
+  lines.flatMap((line) => [
+    ...line.anchors.map((anchor): Bearer => ({ on: 'anchor', anchor, standing: standingOf(line) })),
+    ...Option.toArray(boxOf(line)).map((box): Bearer => ({ on: 'box', box })),
+  ])
 
-const openSlot = (text: string, brace: number, offset: number): Option.Option<LabelSlot> =>
-  text[brace] === '{' && brace < offset && !text.slice(brace, offset).includes('\n')
-    ? Option.some({ start: brace + 1, end: offset, closed: false })
-    : Option.none()
+const bearersOf: (doc: LoomDocument) => ReadonlyArray<Bearer> = memoize((doc: LoomDocument) => [
+  ...bearersAmong(doc.preamble),
+  ...doc.sections.flatMap((section): ReadonlyArray<Bearer> => [
+    { on: 'heading', section },
+    ...bearersAmong([...section.preamble, ...section.code]),
+  ]),
+])
 
-const bracesSlot = Match.fn(
-  (
-    _within: {
-      readonly text: string
-      readonly anchor: WarpAnchorToken
-      readonly offset: number
-    },
-    specifier: WarpAnchorToken['specifier'],
-  ) => specifier,
-).pipe(
-  Match.withReturnType<Option.Option<LabelSlot>>(),
-  Match.when({ type: 'Specifier' }, ({ open, close }) =>
-    Option.some({
-      start: open.position.end.offset,
-      end: close.position.start.offset,
-      closed: true,
-    }),
+const bracesOf = Match.type<Bearer>().pipe(
+  Match.withReturnType<Braces | undefined>(),
+  Match.when({ on: 'heading' }, ({ section }) => section.heading.specifier),
+  Match.when({ on: 'anchor' }, ({ anchor }) => anchor.specifier),
+  Match.when({ on: 'box' }, ({ box }) => box.specifier),
+  Match.exhaustive,
+)
+
+const bearsOpened = Match.type<Bearer>().pipe(
+  Match.withReturnType<(brace: number) => boolean>(),
+  Match.when({ on: 'heading' }, () => () => false),
+  Match.when(
+    { on: 'anchor' },
+    ({ anchor }) =>
+      (brace) =>
+        anchor.position.end.offset === brace,
   ),
-  Match.when({ type: 'Parameters' }, () => Option.none<LabelSlot>()),
-  Match.when(Match.undefined, (_specifier, { text, anchor, offset }) =>
-    openSlot(text, anchor.position.end.offset, offset),
+  Match.when(
+    { on: 'box' },
+    ({ box }) =>
+      (brace) =>
+        box.side === 'open' && covers(box.position, brace),
   ),
   Match.exhaustive,
 )
 
-const slotOf =
-  (text: string, offset: number) =>
-  (anchor: WarpAnchorToken): Option.Option<LabelSlot> =>
-    pipe(
-      bracesSlot({ text, anchor, offset }, anchor.specifier),
-      Option.filter((slot) => slot.start <= offset && offset <= slot.end),
-    )
+const bears =
+  (brace: number) =>
+  (bearer: Bearer): boolean =>
+    Option.match(Option.fromNullishOr(bracesOf(bearer)), {
+      onSome: (braces) => braces.open.position.start.offset === brace,
+      onNone: () => bearsOpened(bearer)(brace),
+    })
 
-export const labelSlotAt = (
+export const bearerAt = (
   corpus: LoomCorpusAst,
   path: Location,
-  offset: number,
-): Option.Option<LabelSlot> =>
-  pipe(
-    Option.fromNullishOr(corpus.modules.get(path)),
-    Option.flatMap((module) =>
-      Array.findFirst(allAnchorsOf(module.doc), slotOf(module.text, offset)),
-    ),
+  brace: number,
+): Option.Option<Bearer> =>
+  Option.flatMap(Option.fromNullishOr(corpus.modules.get(path)), (module) =>
+    Array.findFirst(bearersOf(module.doc), bears(brace)),
   )
 
 ~
 
-A kind of anchor may keep to prose or to code, as Part XIII, Tropes, describes, so the labels worth offering depend on where the anchor stands. `standingAt` reads the place of the line a cursor is on, through `standingOf`.
+A reader who rests on a key wants to know what the key holds. The function `keyAt` finds the key under an offset, with the bearer whose braces hold it, as a `KeyUnder`. The function `parametersIn` reads the parameters braces hold, and braces that hold a label alone hold none. The first pass of the row writes a label in full, under a key that covers no text, so `keyAt` passes over a key the author did not write.
 
 =>
 
-export const standingAt = (
+export type KeyUnder = { readonly bearer: Bearer; readonly key: ParameterKeyToken }
+
+const parametersIn = (braces: Braces | undefined): ReadonlyArray<ParameterToken> =>
+  pipe(
+    Option.fromNullishOr(braces),
+    Option.flatMap((held) =>
+      held.type === 'Parameters' ? Option.some(held.parameters) : Option.none(),
+    ),
+    Option.getOrElse((): ReadonlyArray<ParameterToken> => []),
+  )
+
+const keyUnder =
+  (offset: number) =>
+  (bearer: Bearer): Option.Option<KeyUnder> =>
+    pipe(
+      Array.findFirst(
+        parametersIn(bracesOf(bearer)),
+        (parameter) => parameter.key.source !== '' && covers(parameter.key.position, offset),
+      ),
+      Option.map((parameter) => ({ bearer, key: parameter.key })),
+    )
+
+export const keyAt = (
   corpus: LoomCorpusAst,
   path: Location,
   offset: number,
-): Option.Option<Standing> =>
-  pipe(
-    Option.fromNullishOr(corpus.modules.get(path)),
-    Option.flatMap((module) =>
-      Array.findFirst(
-        [
-          ...module.doc.preamble,
-          ...module.doc.sections.flatMap((section) => [...section.preamble, ...section.code]),
-        ],
-        (line) => covers(line.position, offset),
-      ),
-    ),
-    Option.map(standingOf),
+): Option.Option<KeyUnder> =>
+  Option.flatMap(Option.fromNullishOr(corpus.modules.get(path)), (module) =>
+    Array.findFirst(bearersOf(module.doc), keyUnder(offset)),
   )
 
 ## Keeping a box in step
@@ -3369,7 +3378,7 @@ export const unopenedBookOf = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. Its `memoize` keeps what is computed from a state of the corpus. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do, and `SymbolKind` is the kind of such a token. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. `headingKind` reads the kind a heading names, and `conceptKind` tells a concept's section. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, as every reference that braces hold is, read from the `ParameterToken`s of a `ParametersToken`, the braces that a `SpecifierToken` is the short form of, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, `Data` for the places a lookup walks through, and `Match` for the dispatch on a place and on the kind under a cursor. Its `memoize` keeps what is computed from a state of the corpus. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `Bearer` whose braces a cursor stands in, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic`, `Position`, and `Point`, what a corpus walk gathers, where a diagnostic lands, and where a segment of an anchor's name begins and ends. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and read its features, so the navigation reads the same table the mappings and colours do, and `SymbolKind` is the kind of such a token. `boxOf`, `boxKind`, and `isPointingKind` find the boxes of a loom that point somewhere, and `PointingKind` names their kinds. `isLoomKind` and `LoomKind` tell a chapter box or a discussion box, and `chapterKind`, `discussionKind`, and `tropeKind` tell each kind apart. `headingKind` reads the kind a heading names, and `conceptKind` tells a concept's section. A trope box's `anchors` and `provides` values are each a `ParameterValueToken`, as every reference that braces hold is, read from the `ParameterToken`s of a `ParametersToken`, the braces that a `SpecifierToken` is the short form of, and each parameter's key is a `ParameterKeyToken`, each name on a trope root's `Entries:` line is a `FrontmatterEntryToken`, a `Book:` line's value is a `FrontmatterBookToken`, and `conclusionKind` finds the conclusions a discussion's summary gathers. `Order` sorts the stale boxes from last to first.
 
 =>
 
@@ -3391,13 +3400,13 @@ import {
   isLoomKind,
   isPointingKind,
   type LoomKind,
+  type ParameterKeyToken,
   type ParametersToken,
   type ParameterToken,
   type ParameterValueToken,
   type PointingKind,
   valueWords,
   type SpecifierToken,
-  type Standing,
   tropeKind,
   type WarpAnchorToken,
   type WarpToken,
@@ -3413,7 +3422,7 @@ import {
   type TildeWeft,
 } from '#ast/Weft'
 import { ProductSchema, type Provided } from '#ast/ProductAst'
-import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
+import { type Bearer, LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt, type SymbolKind } from '#ast/LoomSymbol'
 import { isNode } from '#ast/TreeFold'
 
@@ -3445,7 +3454,7 @@ import { isNode } from '#ast/TreeFold'
 
 ::[Titles beside numbers]
 
-::[Braces waiting for a label]
+::[Whose braces these are]
 
 ::[Keeping a box in step]
 

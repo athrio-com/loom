@@ -1,6 +1,7 @@
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  type BoxToken,
   CodelessSchema,
   DividerTokenSchema,
   FrontmatterBookTokenSchema,
@@ -18,6 +19,8 @@ import {
   ParametersTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,
+  type Standing,
+  type WarpAnchorToken,
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
@@ -100,3 +103,8 @@ export type LoomSection = ClaimedSection
 
 export const LoomDocumentSchema = ClaimedDocumentSchema
 export type LoomDocument = ClaimedDocument
+
+export type Bearer =
+  | { readonly on: 'heading'; readonly section: LoomSection }
+  | { readonly on: 'anchor'; readonly anchor: WarpAnchorToken; readonly standing: Standing }
+  | { readonly on: 'box'; readonly box: BoxToken }

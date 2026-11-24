@@ -265,7 +265,7 @@ The second pass gives each section the kind its heading names. A heading names a
 
 A kind may hold no code. A concept holds none, and a trope may say the same of a kind it declares. The pass is handed the names of such kinds, and a section that claims one carries `codeless` beside its kind. The product pass reads that mark to fault an arrow in the section, and an anchor that composes it, as the chapter "The product pass" describes.
 
-A kind of loom is a scope. The kinds of section it holds exist in its looms alone, so the pass first works out the `Scope` of the loom it reads. `ownKind` finds the declared kind the loom's identity line names, through `loomNamed`, which finds a kind of loom by a word in any case of letters, as `sameWord` compares two. `heldElsewhere` lists the kinds of section that some kind of loom holds and this loom's kind does not, each a `Held` with the kinds of loom that hold it. `holdsKind` tells whether a kind of loom holds a kind of section, and `isHeld` finds a kind in that list. A section claims only a kind outside that list. When the loom's own kind holds no code, `inCodelessLoom` marks every section `codeless` for the loom's kind, unless the section's own kind marked it already.
+A kind of loom is a scope. The kinds of section it holds exist in its looms alone, so the pass first works out the `Scope` of the loom it reads, through `scopeOf`. `ownKind` finds the declared kind the loom's identity line names, through `loomNamed`, which finds a kind of loom by a word in any case of letters, as `sameWord` compares two. `heldElsewhere` lists the kinds of section that some kind of loom holds and this loom's kind does not, each a `Held` with the kinds of loom that hold it. `holdsKind` tells whether a kind of loom holds a kind of section, and `isHeld` finds a kind in that list. A section claims only a kind outside that list. When the loom's own kind holds no code, `inCodelessLoom` marks every section `codeless` for the loom's kind, unless the section's own kind marked it already.
 
 =>
 
@@ -312,26 +312,33 @@ const isHeld =
   (held: Held): boolean =>
     sameWord(held.kind, kind)
 
+const scopeOf = (
+  kinds: ReadonlyArray<string>,
+  codeless: ReadonlyArray<string>,
+  looms: ReadonlyArray<KindOfLoom>,
+  expanded: ExpandedDocument,
+): Scope => {
+  const loom = ownKind(looms, expanded)
+  const elsewhere = heldElsewhere(looms, loom)
+  return {
+    kinds: kinds.filter((kind) => !elsewhere.some(isHeld(kind))),
+    codeless,
+    elsewhere,
+    loom,
+  }
+}
+
 export const claimedDocument =
   (
     kinds: ReadonlyArray<string>,
     codeless: ReadonlyArray<string> = codelessKinds,
     looms: ReadonlyArray<KindOfLoom> = [],
   ) =>
-  (expanded: ExpandedDocument): ClaimedDocument => {
-    const loom = ownKind(looms, expanded)
-    const elsewhere = heldElsewhere(looms, loom)
-    const scope: Scope = {
-      kinds: kinds.filter((kind) => !elsewhere.some(isHeld(kind))),
-      codeless,
-      elsewhere,
-      loom,
-    }
-    return rewritten(expanded, {
+  (expanded: ExpandedDocument): ClaimedDocument =>
+    rewritten(expanded, {
       LoomFrontmatter: claimedFrontmatter(looms),
-      LoomSection: claimedSection(scope),
+      LoomSection: claimedSection(scopeOf(kinds, codeless, looms, expanded)),
     })
-  }
 
 type KindStated = {
   readonly held: ParametersToken
@@ -686,6 +693,78 @@ const judged =
       }),
     )
 
+## What a bearer takes
+
+The passes judge braces an author has written. The editor asks the same question earlier, while the author writes them: which keys may these braces hold, and which kinds? The function `takenBy` answers for one `Bearer`, from what the workspace's tropes declare and from the document the bearer stands in. So the offer an editor makes and the fault a pass raises follow one rule.
+
+Its answer is a `Taken`: the keys with their types, and the kinds. The keys are the ones the third pass checks against. They are the core's keys for the bearer, the keys tropes let any heading carry, and the parameters of the bearer's own kind. The function `namedKind` reads that kind: a heading's from the section that claimed it, and an anchor's or a box's from its braces. Braces an author is still writing may read as nothing yet, so a caller may hand in the kind as it is `written` so far, and that kind comes first. Either kind counts only when the bearer takes it, so a kind out of its scope brings no keys. The table `declaredFor` picks the declared kinds of the bearer's sort, since a heading takes a kind of section.
+
+The kinds differ by bearer, and `kindsTaken` lists them.
+
+- **A heading** takes the kinds of section in the scope of its loom, which `sectionsIn` reads from the scope that the second pass works out.
+- **An anchor** takes the core's kinds of anchor, and each declared kind that may stand where the anchor stands. The function `standsAt` tells whether a kind may stand in a place.
+- **A box** takes the core's kinds of box and the declared ones.
+
+=>
+
+export type Taken = { readonly keys: Keys; readonly kinds: ReadonlyArray<string> }
+
+type Within = { readonly declared: Declared; readonly document: LoomDocument }
+
+export const namedKind = Match.type<Bearer>().pipe(
+  Match.withReturnType<Option.Option<string>>(),
+  Match.when({ on: 'heading' }, ({ section }) => Option.fromNullishOr(section.kind)),
+  Match.when({ on: 'anchor' }, ({ anchor }) => bracedKind(anchor)),
+  Match.when({ on: 'box' }, ({ box }) => bracedKind(box)),
+  Match.exhaustive,
+)
+
+const declaredFor: Record<BracesOn, (declared: Declared) => ReadonlyArray<KeyedKind>> = {
+  heading: (declared) => declared.section,
+  anchor: (declared) => declared.anchor,
+  box: (declared) => declared.box,
+}
+
+const sectionsIn = ({ declared, document }: Within): ReadonlyArray<string> =>
+  scopeOf([...sectionKinds, ...kindsOf(declared.section)], [], declared.loom, document).kinds
+
+const standsAt =
+  (standing: Standing) =>
+  (kind: AnchorKind): boolean =>
+    !Option.exists(kind.standsIn, (place) => place !== standing)
+
+const kindsTaken = Match.fn((_within: Within, bearer: Bearer) => bearer).pipe(
+  Match.withReturnType<ReadonlyArray<string>>(),
+  Match.when({ on: 'heading' }, (_heading, within) => sectionsIn(within)),
+  Match.when({ on: 'anchor' }, ({ standing }, { declared }) => [
+    ...anchorKinds,
+    ...kindsOf(declared.anchor.filter(standsAt(standing))),
+  ]),
+  Match.when({ on: 'box' }, (_box, { declared }) => [...boxKinds, ...kindsOf(declared.box)]),
+  Match.exhaustive,
+)
+
+export const takenBy = (
+  within: Within,
+  bearer: Bearer,
+  written: Option.Option<string> = Option.none(),
+): Taken => {
+  const kinds = kindsTaken(within, bearer)
+  const kind = pipe(
+    written,
+    Option.orElse(() => namedKind(bearer)),
+    Option.flatMap(kindNamed(kinds)),
+  )
+  return {
+    keys: withKind(
+      takesOn(coreKeys, within.declared, bearer.on),
+      declaredFor[bearer.on](within.declared),
+      kind,
+    ).keys,
+    kinds,
+  }
+}
+
 ## Marking references
 
 The fourth pass marks the parameters that hold references. A key's type says whether its values name sections, as `replaces` does under a key declared as a reference. Loom treats such a value as it treats an anchor's name: it resolves the value through the book, rewrites it when the section is renamed, and faults a value that names nothing. All of that needs the whole book, which no pass over one loom has. So this pass only sets `refers` on each such parameter, and the corpus reads the mark, as the chapter "The multi-file AST" describes.
@@ -821,13 +900,14 @@ export const placedDocument =
 
 ## What the row draws on
 
-The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", the lines that carry anchors from the chapter "Wefts", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The node foundation gives `nodeOf`, which constructs the parameters a label expands to, and `byType`, which tells a label in braces from parameters. The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, `Array`, `Match`, `Option`, and `pipe` for the passes, and `Result` for a value read through its type.
+The passes rewrite the tree with `rewritten`, from the chapter "A fold over the tree". The trees before and after each pass come from the chapter "The container nodes", with the `Bearer` an editor asks about, the lines that carry anchors from the chapter "Wefts", and the tokens, the label rule, and the former names of kinds from the chapter "The leaf tokens". The node foundation gives `nodeOf`, which constructs the parameters a label expands to, and `byType`, which tells a label in braces from parameters. The fault catalog gives `faulty`, the faults the passes raise, and `BracesOn`, which names a bearer of braces. Effect supplies `Context` and `Layer` for the service, `Array`, `Match`, `Option`, and `pipe` for the passes, and `Result` for a value read through its type.
 
 =>
 
 import { Array, Context, Effect, Layer, Match, Option, pipe, Result } from 'effect'
 import { type Health, nodeOf, okHealth, type Position, byType } from '@athrio/loom-ast/LoomNode'
 import type {
+  Bearer,
   ClaimedDocument,
   ClaimedSection,
   ExpandedDocument,
@@ -842,6 +922,7 @@ import {
   anchorKeys,
   anchorKinds,
   boxKeys,
+  boxKinds,
   type BoxToken,
   codelessKinds,
   eachType,
@@ -924,6 +1005,8 @@ import {
 
 ::[A fault reaches the bearer]
 
+::[What a bearer takes]
+
 ::[Marking references]
 
 ::[Keeping an anchor to its place]
@@ -939,7 +1022,7 @@ The tests read one loom the way a build does: they parse it and run the row over
 import { describe, expect, it } from 'bun:test'
 import { Effect, Match, Option, pipe, Schema } from 'effect'
 import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
-import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { type Bearer, LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import {
   type Keys,
   type ParametersToken,
@@ -954,6 +1037,7 @@ import {
   expandedDocument,
   LoomDocumentBuilder,
   nothingDeclared,
+  takenBy,
 } from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
@@ -1717,6 +1801,111 @@ describe("the kind an anchor's braces name", () => {
   })
 })
 
+## What an editor is told a bearer takes
+
+The `takenBy` function tells an editor what braces may hold. The tests declare a `Task` kind of section that a `Tasks` kind of loom holds, a key any heading may carry, two kinds of anchor, and a kind of box. The document `board` is a loom of the `Tasks` kind, and `chapter` is an ordinary one. The function `taken` asks about one bearer of a document.
+
+A heading takes the `Task` kind in a `Tasks` loom and not in a chapter. It takes the keys every heading takes, and the keys of its own kind once it claims one. An anchor takes a kind that keeps to prose only where the anchor stands in prose. A box takes the core's kinds and the declared one, with the declared kind's keys once its braces name it.
+
+=>
+
+describe('what a bearer takes', () => {
+  const declared: Declared = {
+    ...nothingDeclared,
+    section: [
+      { kind: 'Task', parameters: { status: { choice: ['todo', 'done'] } }, codeless: false },
+    ],
+    anchor: [
+      { kind: 'Decision', parameters: { weight: 'number' }, standsIn: Option.some('prose') },
+      { kind: 'Seen', parameters: {}, standsIn: Option.none() },
+    ],
+    box: [{ kind: 'Dataset', parameters: { rows: 'number' } }],
+    loom: [{ kind: 'Tasks', numbered: true, zone: 'back', codeless: true, holds: ['Task'] }],
+    headings: { translates: 'reference' },
+  }
+
+  const board = builtWith(
+    [
+      '---',
+      'Tasks 1: The next release',
+      '---',
+      '',
+      '# The next release',
+      '',
+      '## Publish {Task}',
+      '',
+    ].join('\n'),
+    declared,
+  )
+
+  const chapter = builtWith(
+    [
+      '# A',
+      '',
+      `See ${greeting('{Seen}')} first.`,
+      '',
+      '::: Rows {Dataset}',
+      'Body.',
+      ':::',
+      '',
+    ].join('\n'),
+    declared,
+  )
+
+  const taken = (document: LoomDocument, bearer: Bearer) => takenBy({ declared, document }, bearer)
+
+  const headingOf = (document: LoomDocument, at: number): Bearer => ({
+    on: 'heading',
+    section: document.sections[at]!,
+  })
+
+  it('gives a heading the kinds of section in the scope of its loom', () => {
+    expect(taken(board, headingOf(board, 1)).kinds).toEqual([
+      'Tangle',
+      'Concept',
+      'Manifest',
+      'Task',
+    ])
+    expect(taken(chapter, headingOf(chapter, 0)).kinds).toEqual(['Tangle', 'Concept', 'Manifest'])
+  })
+
+  it('gives a heading the keys every heading takes, and the keys of its kind', () => {
+    expect(taken(chapter, headingOf(chapter, 0)).keys).toEqual({
+      lang: 'text',
+      kind: 'text',
+      translates: 'reference',
+    })
+    expect(taken(board, headingOf(board, 1)).keys).toEqual({
+      lang: 'text',
+      kind: 'text',
+      translates: 'reference',
+      status: { choice: ['todo', 'done'] },
+    })
+  })
+
+  it('gives an anchor the kinds that may stand where it stands', () => {
+    const anchor = chapter.sections[0]!.preamble.flatMap((weft) => weft.anchors)[0]!
+    expect(taken(chapter, { on: 'anchor', anchor, standing: 'prose' }).kinds).toEqual([
+      'To be settled',
+      'Module',
+      'Decision',
+      'Seen',
+    ])
+    expect(taken(chapter, { on: 'anchor', anchor, standing: 'code' }).kinds).toEqual([
+      'To be settled',
+      'Module',
+      'Seen',
+    ])
+  })
+
+  it('gives a box the kinds of box, and the keys of the kind its braces name', () => {
+    const box = chapter.sections[0]!.preamble.flatMap((weft) => (weft.box ? [weft.box] : []))[0]!
+    const boxed = taken(chapter, { on: 'box', box })
+    expect(boxed.kinds).toEqual(['Note', 'Chapter', 'Discussion', 'Trope', 'Conclusion', 'Dataset'])
+    expect(Object.keys(boxed.keys)).toEqual(['kind', 'provides', 'anchors', 'rows'])
+  })
+})
+
 ## The row writes the tree it claims
 
 The tree the row returns decodes against the schema of the `LoomDocument`. The tree the parser built does not, while a heading in it still holds a label. So the test fails for a pass that leaves a label behind.
@@ -1776,6 +1965,8 @@ describe('the tree the row writes', () => {
 ::[An anchor of a kind that keeps to one place]
 
 ::[An anchor's kind is one of its own]
+
+::[What an editor is told a bearer takes]
 
 ::[The row writes the tree it claims]
 

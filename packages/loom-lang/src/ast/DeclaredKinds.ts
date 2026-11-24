@@ -21,12 +21,14 @@ import {
   type FrontmatterTropeToken,
   headingKeys,
   identityWords,
+  isList,
   type Keys,
   keyType,
   loomKinds,
   openingFence,
   type ParameterToken,
   type ParametersToken,
+  type ScalarType,
   sectionKinds,
   type SpecifierToken,
   type Standing,
@@ -46,6 +48,7 @@ import { isManifest, sectionNameOf } from './ProductBuilder'
 import type { Code } from '@athrio/loom-ast/ProductAst'
 import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
 import {
+  type BracesOn,
   faulty,
   KeyOutsideTrope,
   type LoomFault,
@@ -690,3 +693,83 @@ const bodyFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyArray<Dia
       Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
     ),
   )
+
+const anyOf = new Intl.ListFormat('en', { type: 'disjunction' })
+
+const heldIn: (type: ScalarType) => string = Match.type<ScalarType>().pipe(
+  Match.withReturnType<string>(),
+  Match.when('text', () => 'text'),
+  Match.when('number', () => 'a number'),
+  Match.when('boolean', () => '`true` or `false`'),
+  Match.when('locale', () => 'a language tag, such as `et` or `pt-BR`'),
+  Match.when('reference', () => 'the name of a section or a chapter'),
+  Match.when({ choice: Match.any }, ({ choice }) =>
+    anyOf.format(choice.map((word) => `\`${word}\``)),
+  ),
+  Match.exhaustive,
+)
+
+const takingOf = (key: string, type: ValueType): string =>
+  isList(type)
+    ? `\`${key}\` takes a list. Each value in the list is ${heldIn(type.list)}.`
+    : `\`${key}\` takes ${heldIn(type)}.`
+
+type Sort = {
+  readonly noun: string
+  readonly declared: (kinds: Declarations) => ReadonlyArray<{
+    readonly kind: string
+    readonly parameters: Keys
+    readonly trope: string
+  }>
+}
+
+const sorts: Record<BracesOn, Sort> = {
+  heading: { noun: 'section', declared: (kinds) => kinds.section },
+  anchor: { noun: 'anchor', declared: (kinds) => kinds.anchor },
+  box: { noun: 'box', declared: (kinds) => kinds.box },
+}
+
+const kindGiving = (
+  kinds: Declarations,
+  on: BracesOn,
+  kind: Option.Option<string>,
+  key: string,
+): Option.Option<string> =>
+  pipe(
+    kind,
+    Option.flatMap((named) =>
+      Array.findFirst(
+        sorts[on].declared(kinds),
+        (each) =>
+          each.kind.toLowerCase() === named.toLowerCase() &&
+          Option.isSome(keyType(each.parameters, key)),
+      ),
+    ),
+    Option.map(
+      (declared) =>
+        `The trope \`${declared.trope}\` gives it to every ${sorts[on].noun} of the \`${declared.kind}\` kind.`,
+    ),
+  )
+
+const headingsGiving = (kinds: Declarations, on: BracesOn, key: string): Option.Option<string> =>
+  pipe(
+    Option.liftPredicate(kinds.headings, () => on === 'heading'),
+    Option.flatMap(Array.findFirst((each) => each.key === key)),
+    Option.map((declared) => `The trope \`${declared.trope}\` gives it to every heading.`),
+  )
+
+export const keyCard = (
+  kinds: Declarations,
+  on: BracesOn,
+  kind: Option.Option<string>,
+  key: string,
+  type: ValueType,
+): string =>
+  [
+    takingOf(key, type),
+    pipe(
+      kindGiving(kinds, on, kind, key),
+      Option.orElse(() => headingsGiving(kinds, on, key)),
+      Option.getOrElse(() => `Loom gives it to every ${on}.`),
+    ),
+  ].join('\n\n')

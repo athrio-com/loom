@@ -810,7 +810,9 @@ describe('the rules a kind follows', () => {
       const found = await asked(files, (compiler) =>
         compiler.completions(chapter, text.indexOf('{}') + 1),
       )
-      return found.map((completion) => completion.label)
+      return found
+        .filter((completion) => !completion.text.endsWith('='))
+        .map((completion) => completion.label)
     }
     expect(await offered(`The store follows ${anchor('Postgres')}{}.`)).toEqual([
       'To be settled',
@@ -1179,5 +1181,116 @@ describe('a dataset judged by its schema', () => {
 
   it('leaves the body of a kind without a schema unread', async () => {
     expect(await judged(datasets('yaml', {}), ['source: [a.csv', 'rows: many'])).toEqual([])
+  })
+})
+
+describe('what the editor offers in braces', () => {
+  const root = '/corpus/tasks/declaring.loom'
+  const release = '/corpus/tasks/release.loom'
+  const plans = '/corpus/plans.loom'
+
+  const tasksRoot = rootLoom('Tasks', [
+    JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          loom: [{ kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] }],
+          section: [
+            {
+              kind: 'Task',
+              parameters: { status: { choice: ['todo', 'done'] }, owners: { list: 'text' } },
+            },
+          ],
+        },
+        headings: { parameters: { translates: 'reference' } },
+      },
+    }),
+  ])
+
+  const loomOf: Record<string, (braces: string) => string> = {
+    [release]: (braces) =>
+      lines(
+        '---',
+        'Tasks 1: The next release',
+        '---',
+        '',
+        '# The next release',
+        '',
+        `## Publish ${braces}`,
+      ),
+    [plans]: (braces) =>
+      lines('---', 'Chapter 1: Plans', '---', '', '# Plans', '', `## Publish ${braces}`),
+  }
+
+  const bookWith = (path: string, braces: string) => ({
+    [root]: tasksRoot,
+    [path]: loomOf[path]!(braces),
+  })
+
+  const offered = async (path: string, marked: string) => {
+    const braces = marked.replace('|', '')
+    const book = bookWith(path, braces)
+    const offset = book[path]!.indexOf(braces) + marked.indexOf('|')
+    const found = await asked(book, (compiler) => compiler.completions(path, offset))
+    return found.map((offer) => [offer.label, offer.text])
+  }
+
+  const cardOf = async (braces: string, word: string) => {
+    const book = bookWith(release, braces)
+    const offset = book[release]!.indexOf(word) + 1
+    return (await asked(book, (compiler) => compiler.hover(release, offset)))?.markdown
+  }
+
+  const core = ['Tangle', 'Concept', 'Manifest'].map((kind) => [kind, kind])
+
+  it('offers the kinds of section in scope, then the keys a heading takes', async () => {
+    const keys = [
+      ['lang', 'lang='],
+      ['kind', 'kind='],
+      ['translates', 'translates='],
+    ]
+    expect(await offered(release, '{|}')).toEqual([...core, ['Task', 'Task'], ...keys])
+    expect(await offered(plans, '{|}')).toEqual([...core, ...keys])
+  })
+
+  it('offers the keys of the kind the braces name, less the ones they hold', async () => {
+    expect(await offered(release, '{kind=Task |}')).toEqual([
+      ['lang', 'lang='],
+      ['translates', 'translates='],
+      ['status', 'status='],
+      ['owners', 'owners='],
+    ])
+    expect(await offered(release, '{kind=Task st| owners=[ann]}')).toEqual([
+      ['lang', 'lang='],
+      ['translates', 'translates='],
+      ['status', 'status='],
+    ])
+  })
+
+  it('offers the words a key takes, in braces that read as no parameters yet', async () => {
+    expect(await offered(release, '{kind=Task status=|}')).toEqual([
+      ['todo', 'todo'],
+      ['done', 'done'],
+    ])
+    expect(await offered(release, '{kind=Task owners=|}')).toEqual([])
+  })
+
+  it('offers the kinds of section under the kind key', async () => {
+    expect(await offered(release, '{kind=T|}')).toEqual([...core, ['Task', 'Task']])
+    expect(await offered(plans, '{kind=|}')).toEqual(core)
+  })
+
+  it('shows what a key takes, and who gave it to the heading', async () => {
+    const braces = '{kind=Task status=todo translates=Plans lang=sh}'
+    expect(await cardOf(braces, 'status')).toBe(
+      '`status` takes `todo` or `done`.\n\nThe trope `Tasks` gives it to every section of the `Task` kind.',
+    )
+    expect(await cardOf(braces, 'translates')).toBe(
+      '`translates` takes the name of a section or a chapter.\n\nThe trope `Tasks` gives it to every heading.',
+    )
+    expect(await cardOf(braces, 'lang')).toBe(
+      '`lang` takes text.\n\nLoom gives it to every heading.',
+    )
+    expect(await cardOf(braces, 'todo')).toBeUndefined()
   })
 })

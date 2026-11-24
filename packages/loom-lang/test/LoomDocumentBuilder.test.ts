@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { Effect, Match, Option, pipe, Schema } from 'effect'
 import type { Fix, Health, Position } from '@athrio/loom-ast/LoomNode'
-import { LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { type Bearer, LoomDocumentSchema, type LoomDocument } from '@athrio/loom-ast/LoomAst'
 import {
   type Keys,
   type ParametersToken,
@@ -16,6 +16,7 @@ import {
   expandedDocument,
   LoomDocumentBuilder,
   nothingDeclared,
+  takenBy,
 } from '#ast/LoomDocumentBuilder'
 import { parseDocument, parsedDocument, ParseLayer } from './parse'
 
@@ -668,6 +669,103 @@ describe("the kind an anchor's braces name", () => {
 
   it("leaves a box's kind for the book to judge", () => {
     expect(messagesIn(boxIn('::: Cells {Mermaid}')?.specifier)).toEqual([])
+  })
+})
+
+describe('what a bearer takes', () => {
+  const declared: Declared = {
+    ...nothingDeclared,
+    section: [
+      { kind: 'Task', parameters: { status: { choice: ['todo', 'done'] } }, codeless: false },
+    ],
+    anchor: [
+      { kind: 'Decision', parameters: { weight: 'number' }, standsIn: Option.some('prose') },
+      { kind: 'Seen', parameters: {}, standsIn: Option.none() },
+    ],
+    box: [{ kind: 'Dataset', parameters: { rows: 'number' } }],
+    loom: [{ kind: 'Tasks', numbered: true, zone: 'back', codeless: true, holds: ['Task'] }],
+    headings: { translates: 'reference' },
+  }
+
+  const board = builtWith(
+    [
+      '---',
+      'Tasks 1: The next release',
+      '---',
+      '',
+      '# The next release',
+      '',
+      '## Publish {Task}',
+      '',
+    ].join('\n'),
+    declared,
+  )
+
+  const chapter = builtWith(
+    [
+      '# A',
+      '',
+      `See ${greeting('{Seen}')} first.`,
+      '',
+      '::: Rows {Dataset}',
+      'Body.',
+      ':::',
+      '',
+    ].join('\n'),
+    declared,
+  )
+
+  const taken = (document: LoomDocument, bearer: Bearer) => takenBy({ declared, document }, bearer)
+
+  const headingOf = (document: LoomDocument, at: number): Bearer => ({
+    on: 'heading',
+    section: document.sections[at]!,
+  })
+
+  it('gives a heading the kinds of section in the scope of its loom', () => {
+    expect(taken(board, headingOf(board, 1)).kinds).toEqual([
+      'Tangle',
+      'Concept',
+      'Manifest',
+      'Task',
+    ])
+    expect(taken(chapter, headingOf(chapter, 0)).kinds).toEqual(['Tangle', 'Concept', 'Manifest'])
+  })
+
+  it('gives a heading the keys every heading takes, and the keys of its kind', () => {
+    expect(taken(chapter, headingOf(chapter, 0)).keys).toEqual({
+      lang: 'text',
+      kind: 'text',
+      translates: 'reference',
+    })
+    expect(taken(board, headingOf(board, 1)).keys).toEqual({
+      lang: 'text',
+      kind: 'text',
+      translates: 'reference',
+      status: { choice: ['todo', 'done'] },
+    })
+  })
+
+  it('gives an anchor the kinds that may stand where it stands', () => {
+    const anchor = chapter.sections[0]!.preamble.flatMap((weft) => weft.anchors)[0]!
+    expect(taken(chapter, { on: 'anchor', anchor, standing: 'prose' }).kinds).toEqual([
+      'To be settled',
+      'Module',
+      'Decision',
+      'Seen',
+    ])
+    expect(taken(chapter, { on: 'anchor', anchor, standing: 'code' }).kinds).toEqual([
+      'To be settled',
+      'Module',
+      'Seen',
+    ])
+  })
+
+  it('gives a box the kinds of box, and the keys of the kind its braces name', () => {
+    const box = chapter.sections[0]!.preamble.flatMap((weft) => (weft.box ? [weft.box] : []))[0]!
+    const boxed = taken(chapter, { on: 'box', box })
+    expect(boxed.kinds).toEqual(['Note', 'Chapter', 'Discussion', 'Trope', 'Conclusion', 'Dataset'])
+    expect(Object.keys(boxed.keys)).toEqual(['kind', 'provides', 'anchors', 'rows'])
   })
 })
 

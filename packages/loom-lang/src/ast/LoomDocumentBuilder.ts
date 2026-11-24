@@ -1,6 +1,7 @@
 import { Array, Context, Effect, Layer, Match, Option, pipe, Result } from 'effect'
 import { type Health, nodeOf, okHealth, type Position, byType } from '@athrio/loom-ast/LoomNode'
 import type {
+  Bearer,
   ClaimedDocument,
   ClaimedSection,
   ExpandedDocument,
@@ -15,6 +16,7 @@ import {
   anchorKeys,
   anchorKinds,
   boxKeys,
+  boxKinds,
   type BoxToken,
   codelessKinds,
   eachType,
@@ -269,26 +271,33 @@ const isHeld =
   (held: Held): boolean =>
     sameWord(held.kind, kind)
 
+const scopeOf = (
+  kinds: ReadonlyArray<string>,
+  codeless: ReadonlyArray<string>,
+  looms: ReadonlyArray<KindOfLoom>,
+  expanded: ExpandedDocument,
+): Scope => {
+  const loom = ownKind(looms, expanded)
+  const elsewhere = heldElsewhere(looms, loom)
+  return {
+    kinds: kinds.filter((kind) => !elsewhere.some(isHeld(kind))),
+    codeless,
+    elsewhere,
+    loom,
+  }
+}
+
 export const claimedDocument =
   (
     kinds: ReadonlyArray<string>,
     codeless: ReadonlyArray<string> = codelessKinds,
     looms: ReadonlyArray<KindOfLoom> = [],
   ) =>
-  (expanded: ExpandedDocument): ClaimedDocument => {
-    const loom = ownKind(looms, expanded)
-    const elsewhere = heldElsewhere(looms, loom)
-    const scope: Scope = {
-      kinds: kinds.filter((kind) => !elsewhere.some(isHeld(kind))),
-      codeless,
-      elsewhere,
-      loom,
-    }
-    return rewritten(expanded, {
+  (expanded: ExpandedDocument): ClaimedDocument =>
+    rewritten(expanded, {
       LoomFrontmatter: claimedFrontmatter(looms),
-      LoomSection: claimedSection(scope),
+      LoomSection: claimedSection(scopeOf(kinds, codeless, looms, expanded)),
     })
-  }
 
 type KindStated = {
   readonly held: ParametersToken
@@ -587,6 +596,64 @@ const judged =
         }),
       }),
     )
+
+export type Taken = { readonly keys: Keys; readonly kinds: ReadonlyArray<string> }
+
+type Within = { readonly declared: Declared; readonly document: LoomDocument }
+
+export const namedKind = Match.type<Bearer>().pipe(
+  Match.withReturnType<Option.Option<string>>(),
+  Match.when({ on: 'heading' }, ({ section }) => Option.fromNullishOr(section.kind)),
+  Match.when({ on: 'anchor' }, ({ anchor }) => bracedKind(anchor)),
+  Match.when({ on: 'box' }, ({ box }) => bracedKind(box)),
+  Match.exhaustive,
+)
+
+const declaredFor: Record<BracesOn, (declared: Declared) => ReadonlyArray<KeyedKind>> = {
+  heading: (declared) => declared.section,
+  anchor: (declared) => declared.anchor,
+  box: (declared) => declared.box,
+}
+
+const sectionsIn = ({ declared, document }: Within): ReadonlyArray<string> =>
+  scopeOf([...sectionKinds, ...kindsOf(declared.section)], [], declared.loom, document).kinds
+
+const standsAt =
+  (standing: Standing) =>
+  (kind: AnchorKind): boolean =>
+    !Option.exists(kind.standsIn, (place) => place !== standing)
+
+const kindsTaken = Match.fn((_within: Within, bearer: Bearer) => bearer).pipe(
+  Match.withReturnType<ReadonlyArray<string>>(),
+  Match.when({ on: 'heading' }, (_heading, within) => sectionsIn(within)),
+  Match.when({ on: 'anchor' }, ({ standing }, { declared }) => [
+    ...anchorKinds,
+    ...kindsOf(declared.anchor.filter(standsAt(standing))),
+  ]),
+  Match.when({ on: 'box' }, (_box, { declared }) => [...boxKinds, ...kindsOf(declared.box)]),
+  Match.exhaustive,
+)
+
+export const takenBy = (
+  within: Within,
+  bearer: Bearer,
+  written: Option.Option<string> = Option.none(),
+): Taken => {
+  const kinds = kindsTaken(within, bearer)
+  const kind = pipe(
+    written,
+    Option.orElse(() => namedKind(bearer)),
+    Option.flatMap(kindNamed(kinds)),
+  )
+  return {
+    keys: withKind(
+      takesOn(coreKeys, within.declared, bearer.on),
+      declaredFor[bearer.on](within.declared),
+      kind,
+    ).keys,
+    kinds,
+  }
+}
 
 const refersIn =
   (takes: Takes) =>

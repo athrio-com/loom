@@ -734,9 +734,99 @@ const bodyFaults = (kinds: DeclaredKinds, module: LoomModule): ReadonlyArray<Dia
     ),
   )
 
+## A key's card
+
+A reader who rests on a key in braces wants to know two things: what the key takes, and who gave it to the bearer of the braces. The `keyCard` function writes both, as the card an editor shows over the key.
+
+The card's first sentence reads the key's type, in the words the fault for a wrong value uses. So `status` takes `todo` or `done`, and `weight` takes a number. The function `heldIn` words one value, and `takingOf` words a key that takes one value or a list of them.
+
+The second sentence names the giver. A trope gives a key to the bearers of a kind it declares, or to every heading, and Loom gives the core's keys to every bearer. The function `kindGiving` looks for the bearer's kind among the declared kinds of its sort, and keeps the kind when it lists the key. The table `sorts` names the sort of kind each bearer takes, since a heading takes a kind of section. The function `headingsGiving` looks for the key among those a trope gives every heading.
+
+=>
+
+const anyOf = new Intl.ListFormat('en', { type: 'disjunction' })
+
+const heldIn: (type: ScalarType) => string = Match.type<ScalarType>().pipe(
+  Match.withReturnType<string>(),
+  Match.when('text', () => 'text'),
+  Match.when('number', () => 'a number'),
+  Match.when('boolean', () => '`true` or `false`'),
+  Match.when('locale', () => 'a language tag, such as `et` or `pt-BR`'),
+  Match.when('reference', () => 'the name of a section or a chapter'),
+  Match.when({ choice: Match.any }, ({ choice }) =>
+    anyOf.format(choice.map((word) => `\`${word}\``)),
+  ),
+  Match.exhaustive,
+)
+
+const takingOf = (key: string, type: ValueType): string =>
+  isList(type)
+    ? `\`${key}\` takes a list. Each value in the list is ${heldIn(type.list)}.`
+    : `\`${key}\` takes ${heldIn(type)}.`
+
+type Sort = {
+  readonly noun: string
+  readonly declared: (kinds: Declarations) => ReadonlyArray<{
+    readonly kind: string
+    readonly parameters: Keys
+    readonly trope: string
+  }>
+}
+
+const sorts: Record<BracesOn, Sort> = {
+  heading: { noun: 'section', declared: (kinds) => kinds.section },
+  anchor: { noun: 'anchor', declared: (kinds) => kinds.anchor },
+  box: { noun: 'box', declared: (kinds) => kinds.box },
+}
+
+const kindGiving = (
+  kinds: Declarations,
+  on: BracesOn,
+  kind: Option.Option<string>,
+  key: string,
+): Option.Option<string> =>
+  pipe(
+    kind,
+    Option.flatMap((named) =>
+      Array.findFirst(
+        sorts[on].declared(kinds),
+        (each) =>
+          each.kind.toLowerCase() === named.toLowerCase() &&
+          Option.isSome(keyType(each.parameters, key)),
+      ),
+    ),
+    Option.map(
+      (declared) =>
+        `The trope \`${declared.trope}\` gives it to every ${sorts[on].noun} of the \`${declared.kind}\` kind.`,
+    ),
+  )
+
+const headingsGiving = (kinds: Declarations, on: BracesOn, key: string): Option.Option<string> =>
+  pipe(
+    Option.liftPredicate(kinds.headings, () => on === 'heading'),
+    Option.flatMap(Array.findFirst((each) => each.key === key)),
+    Option.map((declared) => `The trope \`${declared.trope}\` gives it to every heading.`),
+  )
+
+export const keyCard = (
+  kinds: Declarations,
+  on: BracesOn,
+  kind: Option.Option<string>,
+  key: string,
+  type: ValueType,
+): string =>
+  [
+    takingOf(key, type),
+    pipe(
+      kindGiving(kinds, on, kind, key),
+      Option.orElse(() => headingsGiving(kinds, on, key)),
+      Option.getOrElse(() => `Loom gives it to every ${on}.`),
+    ),
+  ].join('\n\n')
+
 ## What the registry draws on
 
-From `effect` come the array, option, and result combinators, `Match` for the clashes and for the misfits of a box's data, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `ParsedDocument` a chapter's frontmatter is read from, the `boxKinds`, `sectionKinds`, `anchorKinds`, and `loomKinds` the core keeps, the `identityWords` and `frontmatterKeys` a frontmatter already reads, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are, the `ValueType` of one key, and the `Standing` of a kind of anchor, the `Zone` of a kind of loom, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, `heldBy`, which reads what a kind of loom holds, and `parametersOf`, which reads a kind's parameters.
+From `effect` come the array, option, and result combinators, `Match` for the clashes and for the misfits of a box's data, `Order` for the order of the tropes, and `pipe` for the steps. From the Loom AST come the `Diagnostic` and `Position` a fault lands with, the section a manifest is, the `ParsedDocument` a chapter's frontmatter is read from, the `boxKinds`, `sectionKinds`, `anchorKinds`, and `loomKinds` the core keeps, the `identityWords` and `frontmatterKeys` a frontmatter already reads, the `headingKeys`, `boxKeys`, and `anchorKeys` it keeps with `keyType`, the `Keys` a kind's parameters are, the `ValueType` of one key, with `isList` and the `ScalarType` a key's card words, and the `Standing` of a kind of anchor, the `Zone` of a kind of loom, `boxKind` and `tropeKind`, which tell a trope box, the `FrontmatterTropeToken` a chapter names its trope with, and the tokens a box's braces arrive in, and from the corpus the `Catalogue` with `catalogueOf`, which builds one, the modules, and `openedBoxesOf`, which lists a loom's boxes. The product pass lends `isManifest` and `sectionNameOf`, which find a manifest's composed code, and the projection lends `fromCode`, which composes it, and `unfoundIn`, which names what the composition cannot find, over the `Code` the product model gives. The fault catalog lends `faulty` with the `TropeRefused`, `UnknownKind`, and `KeyOutsideTrope` faults, and `BracesOn`, which names a bearer of braces, and the contract lends `readManifest` with the shape it reads, the functions that read a manifest's tables and its keys for headings, `heldBy`, which reads what a kind of loom holds, and `parametersOf`, which reads a kind's parameters.
 
 Judging a body draws on more. Effect's `Schema` decodes a body, and its `SchemaIssue` is the tree of what does not fit. The `yaml` package reads a body: `parseDocument` gives a `Document`, and `isNode` tells a field the document holds. The Loom AST gives the `Point` a span starts at, with `shifted`, which moves a point along its line, the `LoomWeft` a line of a body is, `openingFence` and `closesFence`, which tell a fence that wraps a body, the `DataFormat` a body is written in, and the `OpenedBox` a loom's box is. The fault catalog lends the `UnreadBody`, `MissingField`, `UnknownField`, and `WrongField` faults, with the `LoomFault` each is. The contract lends the `DataBody` of a kind, `dataOf`, which reads it, and `parsedJson`, which reads JSON.
 
@@ -765,12 +855,14 @@ import {
   type FrontmatterTropeToken,
   headingKeys,
   identityWords,
+  isList,
   type Keys,
   keyType,
   loomKinds,
   openingFence,
   type ParameterToken,
   type ParametersToken,
+  type ScalarType,
   sectionKinds,
   type SpecifierToken,
   type Standing,
@@ -790,6 +882,7 @@ import { isManifest, sectionNameOf } from './ProductBuilder'
 import type { Code } from '@athrio/loom-ast/ProductAst'
 import { fromCode, unfoundIn } from './LoomVirtualCodeBuilder'
 import {
+  type BracesOn,
   faulty,
   KeyOutsideTrope,
   type LoomFault,
@@ -832,6 +925,8 @@ import {
 ::[Judging a loom against the registry]
 
 ::[A body that fits its schema]
+
+::[A key's card]
 
 ## Testing the registry
 
@@ -1654,7 +1749,7 @@ describe('a parameter that names a section', () => {
 
 ## The rules a kind follows
 
-A kind of section may hold no code, and a kind of anchor may keep to prose or to code. The editor offers a declared kind of anchor as a label only where the kind stands. The cases compile a book whose trope declares an `Option` kind of section with no code, and a `Decision` kind of anchor that stands in prose. A chapter then writes an option that holds code, composes an option into a file, and cites a decision from code and from prose.
+A kind of section may hold no code, and a kind of anchor may keep to prose or to code. The editor offers a declared kind of anchor as a label only where the kind stands, and the case reads the kinds among the offers, leaving the keys out. The cases compile a book whose trope declares an `Option` kind of section with no code, and a `Decision` kind of anchor that stands in prose. A chapter then writes an option that holds code, composes an option into a file, and cites a decision from code and from prose.
 
 =>
 
@@ -1715,7 +1810,9 @@ describe('the rules a kind follows', () => {
       const found = await asked(files, (compiler) =>
         compiler.completions(chapter, text.indexOf('{}') + 1),
       )
-      return found.map((completion) => completion.label)
+      return found
+        .filter((completion) => !completion.text.endsWith('='))
+        .map((completion) => completion.label)
     }
     expect(await offered(`The store follows ${anchor('Postgres')}{}.`)).toEqual([
       'To be settled',
@@ -2109,6 +2206,129 @@ describe('a dataset judged by its schema', () => {
   })
 })
 
+## What the editor offers in braces
+
+The editor offers what braces may hold, and what a trope declares is part of the offer. The cases compile a book whose trope for tasks declares a `Tasks` kind of loom, which holds a `Task` kind of section. A `Task` takes a `status`, one of two words, and a list of `owners`. The trope also gives every heading a `translates` key. The loom `release` is of the `Tasks` kind, and `plans` is an ordinary chapter. Each holds one heading, `## Publish`, with the braces a case gives it.
+
+A case marks the cursor with a bar in the heading's braces. The function `offered` takes the bar out, asks the compiler for its offers at that place, and gives each offer's label with the text it writes.
+
+In empty braces the editor offers the kinds of section first and the keys after them. The `Task` kind is offered in the `Tasks` loom and not in the chapter, since its kind of loom is its scope. Once the braces name the `Task` kind, the editor offers that kind's keys beside the others, without the ones the braces hold already. After the equals sign of `status` it offers the two words the key takes, though braces that end on an equals sign read as no parameters yet. Under `kind` it offers the kinds of section.
+
+A hover on a key shows its card. The function `cardOf` asks for the card over a word of the heading. The card of `status` says what the key takes and that the trope gives it to every section of the `Task` kind. The card of `translates` names the trope that gives it to every heading, and the card of `lang` names Loom.
+
+=>
+
+describe('what the editor offers in braces', () => {
+  const root = '/corpus/tasks/declaring.loom'
+  const release = '/corpus/tasks/release.loom'
+  const plans = '/corpus/plans.loom'
+
+  const tasksRoot = rootLoom('Tasks', [
+    JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          loom: [{ kind: 'Tasks', numbered: true, zone: 'back', code: 'none', holds: ['Task'] }],
+          section: [
+            {
+              kind: 'Task',
+              parameters: { status: { choice: ['todo', 'done'] }, owners: { list: 'text' } },
+            },
+          ],
+        },
+        headings: { parameters: { translates: 'reference' } },
+      },
+    }),
+  ])
+
+  const loomOf: Record<string, (braces: string) => string> = {
+    [release]: (braces) =>
+      lines(
+        '---',
+        'Tasks 1: The next release',
+        '---',
+        '',
+        '# The next release',
+        '',
+        `## Publish ${braces}`,
+      ),
+    [plans]: (braces) =>
+      lines('---', 'Chapter 1: Plans', '---', '', '# Plans', '', `## Publish ${braces}`),
+  }
+
+  const bookWith = (path: string, braces: string) => ({
+    [root]: tasksRoot,
+    [path]: loomOf[path]!(braces),
+  })
+
+  const offered = async (path: string, marked: string) => {
+    const braces = marked.replace('|', '')
+    const book = bookWith(path, braces)
+    const offset = book[path]!.indexOf(braces) + marked.indexOf('|')
+    const found = await asked(book, (compiler) => compiler.completions(path, offset))
+    return found.map((offer) => [offer.label, offer.text])
+  }
+
+  const cardOf = async (braces: string, word: string) => {
+    const book = bookWith(release, braces)
+    const offset = book[release]!.indexOf(word) + 1
+    return (await asked(book, (compiler) => compiler.hover(release, offset)))?.markdown
+  }
+
+  const core = ['Tangle', 'Concept', 'Manifest'].map((kind) => [kind, kind])
+
+  it('offers the kinds of section in scope, then the keys a heading takes', async () => {
+    const keys = [
+      ['lang', 'lang='],
+      ['kind', 'kind='],
+      ['translates', 'translates='],
+    ]
+    expect(await offered(release, '{|}')).toEqual([...core, ['Task', 'Task'], ...keys])
+    expect(await offered(plans, '{|}')).toEqual([...core, ...keys])
+  })
+
+  it('offers the keys of the kind the braces name, less the ones they hold', async () => {
+    expect(await offered(release, '{kind=Task |}')).toEqual([
+      ['lang', 'lang='],
+      ['translates', 'translates='],
+      ['status', 'status='],
+      ['owners', 'owners='],
+    ])
+    expect(await offered(release, '{kind=Task st| owners=[ann]}')).toEqual([
+      ['lang', 'lang='],
+      ['translates', 'translates='],
+      ['status', 'status='],
+    ])
+  })
+
+  it('offers the words a key takes, in braces that read as no parameters yet', async () => {
+    expect(await offered(release, '{kind=Task status=|}')).toEqual([
+      ['todo', 'todo'],
+      ['done', 'done'],
+    ])
+    expect(await offered(release, '{kind=Task owners=|}')).toEqual([])
+  })
+
+  it('offers the kinds of section under the kind key', async () => {
+    expect(await offered(release, '{kind=T|}')).toEqual([...core, ['Task', 'Task']])
+    expect(await offered(plans, '{kind=|}')).toEqual(core)
+  })
+
+  it('shows what a key takes, and who gave it to the heading', async () => {
+    const braces = '{kind=Task status=todo translates=Plans lang=sh}'
+    expect(await cardOf(braces, 'status')).toBe(
+      '`status` takes `todo` or `done`.\n\nThe trope `Tasks` gives it to every section of the `Task` kind.',
+    )
+    expect(await cardOf(braces, 'translates')).toBe(
+      '`translates` takes the name of a section or a chapter.\n\nThe trope `Tasks` gives it to every heading.',
+    )
+    expect(await cardOf(braces, 'lang')).toBe(
+      '`lang` takes text.\n\nLoom gives it to every heading.',
+    )
+    expect(await cardOf(braces, 'todo')).toBeUndefined()
+  })
+})
+
 ## The test file [test/DeclaredKinds.test.ts]
 
 =>
@@ -2136,3 +2356,5 @@ describe('a dataset judged by its schema', () => {
 ::[A kind of loom a trope declares]
 
 ::[A dataset judged by its schema]
+
+::[What the editor offers in braces]

@@ -297,7 +297,7 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## A concept's card
 
-A link in prose may name a concept, and a reader resting on the link wants the concept's meaning without leaving the sentence. `loomHover` shows it. It answers for the root alone, like the navigation, and asks `FrameQuery` for the card of the concept under the cursor. The card becomes Volar's `Hover`, its Markdown drawn over the whole link or heading the cursor rests on.
+A link in prose may name a concept, and a reader resting on the link wants the concept's meaning without leaving the sentence. `loomHover` shows it. It answers for the root alone, like the navigation, and asks `FrameQuery` for the card under the cursor. The card becomes Volar's `Hover`, its Markdown drawn over the whole link or heading the cursor rests on. A key in braces has a card too, which says what the key takes and who gave it to the heading, the anchor, or the box that bears the braces.
 
 =>
 
@@ -484,15 +484,17 @@ const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
-## Labels as they are typed
+## Braces as they are typed
 
-An anchor takes a label in braces, as `::[Greeting function]{To be settled}` does. The `loomCompletions` plugin offers the labels an anchor takes while the author types between the anchor's braces. The Language Server Protocol lets a provider name the characters that trigger it, so an open brace asks for the offer at once. Each letter typed after the brace then narrows the offer. The provider answers for the root alone, like the diagnostics, and asks `FrameQuery` for the labels at the cursor. Each label becomes a `CompletionItem`, the protocol's type for one offer. The item shows the label and writes its text over the range the label replaces, so a closed pair of braces keeps its close and an open brace gains one. Its kind is 14, the number the protocol gives a keyword, since a label is a word of Loom's own.
+A heading, an anchor, and a box take braces, as `::[Greeting function]{To be settled}` does. Braces hold a label, or parameters, each a key with its value. The `loomCompletions` plugin offers what may stand at the cursor while the author types between the braces: the kinds the bearer takes, its keys, or the words a key takes as its value.
+
+The Language Server Protocol lets a provider name the characters that trigger it. An open brace asks for the offer at once, and so does the equals sign that follows a key. Each letter typed after either then narrows the offer. The provider answers for the root alone, like the diagnostics, and asks `FrameQuery` for the offers at the cursor. Each offer becomes a `CompletionItem`, the protocol's type for one offer. The item shows the offer's label and writes its text over the range it replaces, so a closed pair of braces keeps its close and an open brace gains one. Its kind is 14, the number the protocol gives a keyword, since a kind, a key, and a word a key takes are each a word of Loom's own or of a trope's.
 
 =>
 
 const loomCompletions = (frame: FrameQueryApi): LanguageServicePlugin => ({
   name: 'loom-completions',
-  capabilities: { completionProvider: { triggerCharacters: ['{'] } },
+  capabilities: { completionProvider: { triggerCharacters: ['{', '='] } },
   create: (context) => ({
     provideCompletionItems: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
@@ -596,7 +598,7 @@ const loomFolding = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## Composing the services
 
-`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomHover` for a concept's card, `loomLinks` for the links a word two concepts claim may take, `loomApprovals` for approving a reference, `loomMoves` for moving a concept up, `loomSymbols` for the concepts a symbol search finds, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for the labels an anchor takes, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
+`LoomLanguage` composes its plugins over the `FrameQuery` the host provides: `loomDiagnostics` for Loom's own health, `loomFixes` for the fixes a diagnostic offers, `loomDefinition` and `loomReferences` for its navigation, `loomHover` for the card of a concept or of a key, `loomLinks` for the links a word two concepts claim may take, `loomApprovals` for approving a reference, `loomMoves` for moving a concept up, `loomSymbols` for the concepts a symbol search finds, `loomRename` for renaming a section, `loomSemanticTokens` for colouring its tokens, `loomHints` for the titles beside numbered references, `loomFolding` for folding each box under its caption, `loomCompletions` for what braces may hold, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
 
 =>
 
@@ -629,7 +631,7 @@ export const LoomLanguage = defineLanguageService({
 
 ## What this module draws on
 
-From Volar's language service come the `LanguageServicePlugin` contract, the `ClientCapabilities` an editor states when it starts, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `FoldingRange` a box folds into, the `CompletionItem` a label becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `Hover` a concept's card becomes, the `WorkspaceSymbol` a concept becomes in a symbol search, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `Schema`, which decodes the commands an editor lists, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability, the `FrameLocation` navigation answers in, the `FrameEdit` a rename's span is, and the `FrameFix` and `FrameMove` a link and a move are offered as.
+From Volar's language service come the `LanguageServicePlugin` contract, the `ClientCapabilities` an editor states when it starts, the `CodeAction` a fix becomes, the `InlayHint` a title beside a number becomes, the `FoldingRange` a box folds into, the `CompletionItem` an offer in braces becomes, the `DocumentSymbol` a language reports for each name a document declares, the `LocationLink` a definition returns, the `Hover` a card becomes, the `WorkspaceSymbol` a concept becomes in a symbol search, the `TextEdit` a rename produces, the `WorkspaceEdit` a fix that writes a new loom becomes, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `Option`, `Schema`, which decodes the commands an editor lists, and the `Effect` the service builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded document's uri, and the `LanguageService` module gives `defineLanguageService` with the `FrameQuery` capability, the `FrameLocation` navigation answers in, the `FrameEdit` a rename's span is, and the `FrameFix` and `FrameMove` a link and a move are offered as.
 
 =>
 
@@ -691,7 +693,7 @@ import {
 
 ::[Titles beside numbers]
 
-::[Labels as they are typed]
+::[Braces as they are typed]
 
 ::[Colouring the source]
 

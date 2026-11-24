@@ -580,20 +580,48 @@ const at = (from: number, to: number) => ({
   end: { line: 5, character: to },
 })
 
-describe("completing an anchor's label", () => {
-  it.effect('offers the label between the braces, and closes braces left open', () =>
+describe("completing what an anchor's braces hold", () => {
+  it.effect('offers the kinds and the keys between the braces, and closes braces left open', () =>
     Effect.gen(function* () {
       const closed = helloAnchoring(`${anchor('Greeting')}{To b}`)
       expect(yield* complete(closed, closed.indexOf('To b') + 4)).toEqual([
         { label: 'To be settled', range: at(13, 17), text: 'To be settled' },
         { label: 'Module', range: at(13, 17), text: 'Module' },
+        { label: 'kind', range: at(13, 17), text: 'kind=' },
+        { label: 'provides', range: at(13, 17), text: 'provides=' },
       ])
       const open = helloAnchoring(`${anchor('Greeting')}{`)
       expect(yield* complete(open, open.indexOf('{') + 1)).toEqual([
         { label: 'To be settled', range: at(13, 13), text: 'To be settled}' },
         { label: 'Module', range: at(13, 13), text: 'Module}' },
+        { label: 'kind', range: at(13, 13), text: 'kind=' },
+        { label: 'provides', range: at(13, 13), text: 'provides=' },
       ])
       expect(yield* complete(closed, closed.indexOf('Greeting') + 2)).toEqual([])
+    }),
+  )
+
+  it.effect('offers only the keys the braces do not hold yet', () =>
+    Effect.gen(function* () {
+      const held = helloAnchoring(`${anchor('Greeting')}{provides=greet }`)
+      expect(yield* complete(held, held.indexOf('greet ') + 6)).toEqual([
+        { label: 'kind', range: at(28, 28), text: 'kind=' },
+      ])
+    }),
+  )
+
+  it.effect('offers the kinds under the kind key, in quotes where a value needs them', () =>
+    Effect.gen(function* () {
+      const bare = helloAnchoring(`${anchor('Greeting')}{kind=}`)
+      expect(yield* complete(bare, bare.indexOf('kind=') + 5)).toEqual([
+        { label: 'To be settled', range: at(18, 18), text: '"To be settled"' },
+        { label: 'Module', range: at(18, 18), text: 'Module' },
+      ])
+      const quoted = helloAnchoring(`${anchor('Greeting')}{kind="To"}`)
+      expect(yield* complete(quoted, quoted.indexOf('"To') + 3)).toEqual([
+        { label: 'To be settled', range: at(19, 21), text: 'To be settled' },
+        { label: 'Module', range: at(19, 21), text: 'Module' },
+      ])
     }),
   )
 })

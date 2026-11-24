@@ -1464,21 +1464,26 @@ const listFrom = (
     return listContinued({ text, next, found, value }, text[next])
   })
 
+const keyAt = (text: string, at: number): Option.Option<{ key: Span; from: number }> =>
+  Option.map(matchAt(/^([A-Za-z_][A-Za-z0-9_-]*)=/, text, at), (match) => ({
+    key: spanOf(text, at, at + match[0].length - 1),
+    from: at + match[0].length,
+  }))
+
 const parameterAt = (text: string, at: number): Option.Option<BraceItem> =>
-  Option.flatMap(matchAt(/^([A-Za-z_][A-Za-z0-9_-]*)=/, text, at), (match) => {
-    const from = at + match[0].length
-    return Option.map(
+  Option.flatMap(keyAt(text, at), ({ key, from }) =>
+    Option.map(
       Option.orElse(listAt(text, from), () =>
         Option.map(valueAt(text, from), (value) => ({ values: [value], end: value.end })),
       ),
       ({ values, end }): BraceItem => ({
         type: 'parameter',
         whole: spanOf(text, at, end),
-        key: spanOf(text, at, from - 1),
+        key,
         values,
       }),
-    )
-  })
+    ),
+  )
 
 const specifierOf = (
   openAt: number,
@@ -1572,6 +1577,165 @@ const strayLabels = (
           }),
         ),
   })
+
+export type Wanted =
+  | { readonly type: 'label' }
+  | { readonly type: 'key'; readonly written: ReadonlyArray<string> }
+  | { readonly type: 'value'; readonly key: string; readonly quoted: boolean }
+
+export type BraceSlot = {
+  readonly brace: number
+  readonly start: number
+  readonly end: number
+  readonly closed: boolean
+  readonly kind: Option.Option<string>
+  readonly wants: Wanted
+}
+
+const whereFound = (index: number): Option.Option<number> =>
+  index < 0 ? Option.none() : Option.some(index)
+
+const braceBefore = (line: string, cursor: number): Option.Option<number> =>
+  Option.filter(
+    whereFound(line.slice(0, cursor).lastIndexOf('{')),
+    (brace) => !line.slice(brace, cursor).includes('}'),
+  )
+
+const closeAfter = (line: string, cursor: number): Option.Option<number> =>
+  Option.filter(
+    whereFound(line.indexOf('}', cursor)),
+    (close) => !line.slice(cursor, close).includes('{'),
+  )
+
+type Before = { readonly items: ReadonlyArray<BraceItem>; readonly at: number }
+
+const itemsBefore = (
+  line: string,
+  at: number,
+  cursor: number,
+  found: ReadonlyArray<BraceItem>,
+): Before => {
+  const next = Math.min(skipSpaces(line, at), cursor)
+  return pipe(
+    Option.orElse(parameterAt(line, next), () => wordAt(line, next)),
+    Option.filter((item) => endOf(item) < cursor && line[endOf(item)] === ' '),
+    Option.match({
+      onNone: (): Before => ({ items: found, at: next }),
+      onSome: (item) => itemsBefore(line, endOf(item), cursor, [...found, item]),
+    }),
+  )
+}
+
+const runEnd = (pattern: RegExp, line: string, cursor: number): number =>
+  Option.match(matchAt(pattern, line, cursor), {
+    onNone: () => cursor,
+    onSome: (match) => cursor + match[0].length,
+  })
+
+const quoteEnd = (line: string, cursor: number): number =>
+  Option.getOrElse(whereFound(line.indexOf('"', cursor)), () => cursor)
+
+const itemStart = (line: string, from: number, cursor: number): number => {
+  const typed = line.slice(from, cursor)
+  const item = typed.startsWith('[')
+    ? from + Math.max(typed.lastIndexOf(','), typed.lastIndexOf('[')) + 1
+    : from
+  return Math.min(skipSpaces(line, item), cursor)
+}
+
+type Within = {
+  readonly line: string
+  readonly brace: number
+  readonly cursor: number
+  readonly before: Before
+  readonly close: Option.Option<number>
+}
+
+const itemsAfter = (line: string, end: number): ReadonlyArray<BraceItem> =>
+  Option.match(itemsFrom(line, end, []), {
+    onNone: (): ReadonlyArray<BraceItem> => [],
+    onSome: ({ items }) => items,
+  })
+
+const keysIn = (items: ReadonlyArray<BraceItem>): ReadonlyArray<string> =>
+  Array.getSomes(items.map(parameterOf)).map((parameter) => parameter.key.value)
+
+const kindIn = (items: ReadonlyArray<BraceItem>): Option.Option<string> =>
+  pipe(
+    Array.findFirst(Array.getSomes(items.map(parameterOf)), ({ key }) => key.value === 'kind'),
+    Option.flatMap((parameter) => Array.head(parameter.values)),
+    Option.map((value) => value.value),
+  )
+
+const valueSlot = (
+  { line, brace, cursor, before, close }: Within,
+  key: string,
+  from: number,
+): BraceSlot => {
+  const item = itemStart(line, from, cursor)
+  const quoted = item < cursor && line[item] === '"'
+  const end = quoted ? quoteEnd(line, cursor) : runEnd(/^[A-Za-z0-9_.-]*/, line, cursor)
+  return {
+    brace,
+    start: quoted ? item + 1 : item,
+    end,
+    closed: Option.isSome(close),
+    kind: kindIn([...before.items, ...itemsAfter(line, end)]),
+    wants: { type: 'value', key, quoted },
+  }
+}
+
+const wordSlot = ({ line, brace, cursor, before, close }: Within): BraceSlot => {
+  const end = runEnd(/^[A-Za-z0-9_-]*/, line, cursor)
+  const around = [...before.items, ...itemsAfter(line, end)]
+  const written = keysIn(around)
+  const closed = Option.isSome(close)
+  return written.length === 0
+    ? {
+        brace,
+        start: brace + 1,
+        end: Option.getOrElse(close, () => cursor),
+        closed,
+        kind: Option.none(),
+        wants: { type: 'label' },
+      }
+    : {
+        brace,
+        start: before.at,
+        end,
+        closed,
+        kind: kindIn(around),
+        wants: { type: 'key', written },
+      }
+}
+
+const slotIn = (line: string, brace: number, cursor: number): BraceSlot => {
+  const before = itemsBefore(line, brace + 1, cursor, [])
+  const within: Within = { line, brace, cursor, before, close: closeAfter(line, cursor) }
+  return pipe(
+    keyAt(line, before.at),
+    Option.filter(({ from }) => from <= cursor),
+    Option.match({
+      onNone: () => wordSlot(within),
+      onSome: ({ key, from }) => valueSlot(within, key.value, from),
+    }),
+  )
+}
+
+export const slotAt = (text: string, offset: number): Option.Option<BraceSlot> => {
+  const lineStart = text.slice(0, offset).lastIndexOf('\n') + 1
+  const lineEnd = Option.getOrElse(whereFound(text.indexOf('\n', offset)), () => text.length)
+  const line = text.slice(lineStart, lineEnd)
+  return Option.map(braceBefore(line, offset - lineStart), (brace) => {
+    const slot = slotIn(line, brace, offset - lineStart)
+    return {
+      ...slot,
+      brace: lineStart + slot.brace,
+      start: lineStart + slot.start,
+      end: lineStart + slot.end,
+    }
+  })
+}
 
 const tokeniseBoxLine = <Line extends PreambleWeft | ProseWeft>(
   text: string,

@@ -136,15 +136,27 @@ export type LoomSection = ClaimedSection
 export const LoomDocumentSchema = ClaimedDocumentSchema
 export type LoomDocument = ClaimedDocument
 
+## A bearer of braces
+
+Three constructs take braces: a heading, an anchor, and a box. A reader that asks what a pair of braces may hold needs the construct that bears them, as the editor does while an author writes the braces. A `Bearer` is that construct. A heading comes with its section, because the section carries the kind it claimed. An anchor comes with the place it stands, in prose or in code, because a kind of anchor may keep to one of them.
+
+=>
+
+export type Bearer =
+  | { readonly on: 'heading'; readonly section: LoomSection }
+  | { readonly on: 'anchor'; readonly anchor: WarpAnchorToken; readonly standing: Standing }
+  | { readonly on: 'box'; readonly box: BoxToken }
+
 ## What this module draws on
 
-Each container is a `loomNode` built from Effect's `Schema`. The heading's subtokens come from `LoomTokens`; the preamble and body weft types come from `Weft`.
+Each container is a `loomNode` built from Effect's `Schema`. The heading's subtokens come from `LoomTokens`, with the anchor, the box, and the standing that a bearer of braces holds; the preamble and body weft types come from `Weft`.
 
 =>
 
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  type BoxToken,
   CodelessSchema,
   DividerTokenSchema,
   FrontmatterBookTokenSchema,
@@ -162,6 +174,8 @@ import {
   ParametersTokenSchema,
   SinkTokenSchema,
   SpecifierTokenSchema,
+  type Standing,
+  type WarpAnchorToken,
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
@@ -182,3 +196,5 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 ::[The tree after a pass]
 
 ::[The tree every reader takes]
+
+::[A bearer of braces]
