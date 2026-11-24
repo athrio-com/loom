@@ -75,6 +75,7 @@ import {
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
+import { type TableOfContents } from './weave/TableOfContentsBuilder'
 import { Environment, type Workspace, WorkspaceSource } from './WorkspaceSource'
 
 const lineFor = (failure: LoomFailure): string => lineOf(describe(failure))
@@ -887,6 +888,25 @@ const keepInStep = (
 const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effect.Effect<void> =>
   Ref.update(seen, (texts) => new Map([...texts].filter(([key]) => key !== uri.toString())))
 
+export const contentsRequest = 'loom/contents'
+
+const noBooks: TableOfContents = { books: [] }
+
+const contentsOf = (
+  workspace: Option.Option<Workspace>,
+): Effect.Effect<TableOfContents, never, LoomCompiler> =>
+  pipe(
+    Option.flatMap(workspace, (opened) => Array.head(Array.fromIterable(opened.looms.keys()))),
+    Option.match({
+      onNone: () => Effect.succeed(noBooks),
+      onSome: (entry) =>
+        LoomCompiler.pipe(
+          Effect.flatMap((compiler) => compiler.contents(entry)),
+          Effect.catchCause((cause) => told('listing', entry)(cause).pipe(Effect.as(noBooks))),
+        ),
+    }),
+  )
+
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer).pipe(
     Layer.provideMerge(LanguagePackages.held),
@@ -986,6 +1006,7 @@ export const startLanguageServer = (): void => {
       }).pipe(Effect.mapError(inWords)),
     )
     setTimeout(() => runtime.runSync(warmCorpus(workspace)), 10)
+    connection.onRequest(contentsRequest, () => runtime.runPromise(contentsOf(workspace)))
     return server.initialize(
       params,
       workspaceProject(server, home, services, projects, reprojecting, edited),

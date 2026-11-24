@@ -178,6 +178,7 @@ import {
   WorkspaceSource,
 } from './WorkspaceSource'
 import { LanguagePackages } from './LanguagePackages'
+import { buildContents, type TableOfContents } from './weave/TableOfContentsBuilder'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 
@@ -1482,6 +1483,9 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => weaver.build({ modules }, path)),
         ),
+
+      contents: (path: Location): Effect.Effect<TableOfContents> =>
+        buildCorpus(documents, path).pipe(Effect.map((modules) => buildContents({ modules }))),
 
       summaries: (
         path: Location,
