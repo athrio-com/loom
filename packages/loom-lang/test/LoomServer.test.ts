@@ -19,6 +19,7 @@ import {
 import { Cache, Effect, Layer, Option, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import type { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
 import { FileSystemSource } from '../src/WorkspaceSource'
@@ -1500,6 +1501,33 @@ const editorThat = (declares: boolean) => {
   return { server, asked }
 }
 
+const projectAnswering = async (answeringFor: (workspace: string) => ReturnType<typeof recording>) => {
+  const { services, projects, places, reprojecting, edited } = await Effect.runPromise(
+    Effect.all({
+      services: Cache.make({
+        capacity: Infinity,
+        lookup: (_: string) => Effect.succeed<ReadonlyArray<LanguageServicePlugin>>([]),
+      }),
+      projects: Cache.make({
+        capacity: Infinity,
+        lookup: (workspace: string) =>
+          Effect.sync(() => projectOf(answeringFor(workspace), recording())),
+      }),
+      places: Cache.make({
+        capacity: Infinity,
+        lookup: (_: string): Effect.Effect<Option.Option<string>, ReadError> =>
+          Effect.succeed(Option.none()),
+      }),
+      reprojecting: Semaphore.make(1),
+      edited: Ref.make<ReadonlySet<string>>(new Set()),
+    }),
+  )
+  return {
+    project: workspaceProject(serverWith(), home, services, projects, places, reprojecting, edited),
+    reprojecting,
+  }
+}
+
 const home = '/nowhere'
 
 const mainUri = URI.file('/nowhere/corpus/main.loom')
@@ -1511,7 +1539,9 @@ describe('LoomServer — the pass piece by piece', () => {
     const answering = recording()
     const other = recording()
     await Effect.runPromise(
-      refreshProject(serverWith(mainUri), home, home, projectOf(answering, other), [goneUri]),
+      refreshProject(serverWith(mainUri), home, home, projectOf(answering, other), [goneUri]).pipe(
+        Effect.provide(FileSystemSource),
+      ),
     )
     expect(answering.scripts.get(mainUri.toString())).toEqual({ isAssociationDirty: true })
     expect(other.scripts.has(mainUri.toString())).toBe(false)
@@ -1567,26 +1597,9 @@ describe('LoomServer — the pass piece by piece', () => {
 
   it('holds a request back while a reprojection runs', async () => {
     const answering = recording()
-    const { services, projects, reprojecting, edited } = await Effect.runPromise(
-      Effect.all({
-        services: Cache.make({
-          capacity: Infinity,
-          lookup: (_: string) => Effect.succeed<ReadonlyArray<LanguageServicePlugin>>([]),
-        }),
-        projects: Cache.make({
-          capacity: Infinity,
-          lookup: (_: string) => Effect.succeed(projectOf(answering, recording())),
-        }),
-        reprojecting: Semaphore.make(1),
-        edited: Ref.make<ReadonlySet<string>>(new Set()),
-      }),
-    )
+    const { project, reprojecting } = await projectAnswering(() => answering)
     await Effect.runPromise(reprojecting.take(1))
-    const answer = Promise.resolve(
-      workspaceProject(serverWith(), home, services, projects, reprojecting, edited).getLanguageService(
-        mainUri,
-      ),
-    )
+    const answer = Promise.resolve(project.getLanguageService(mainUri))
     const waited = await Promise.race([
       answer.then(() => 'answered'),
       new Promise<string>((resolve) => setTimeout(() => resolve('waiting'), 100)),
@@ -1594,6 +1607,17 @@ describe('LoomServer — the pass piece by piece', () => {
     expect(waited).toBe('waiting')
     await Effect.runPromise(reprojecting.release(1))
     expect<unknown>(await answer).toBe(answering.languageService)
+  })
+
+  it('answers a document that is no file from the project of home', async () => {
+    const asked: Array<string> = []
+    const { project } = await projectAnswering((workspace) => {
+      asked.push(workspace)
+      return recording()
+    })
+    await project.getLanguageService(URI.parse('untitled:Untitled-1'))
+    await project.getLanguageService(URI.parse('git:/nowhere/corpus/main.loom'))
+    expect(asked).toEqual([home])
   })
 
   it('projects a loom the editor has closed from disk, and reads it once', async () => {

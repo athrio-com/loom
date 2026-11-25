@@ -49,6 +49,15 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(opened.looms.get(chapter)).toBe('# Chapter\n')
   })
 
+  it('opens a folder that holds no configuration with no manifest and no looms', async () => {
+    const loose = looseLoom()
+    const opened = await runtime.runPromise(
+      WorkspaceSource.pipe(Effect.flatMap((s) => s.open(loose.root))),
+    )
+    expect(Option.isNone(opened.manifest)).toBe(true)
+    expect(opened.looms.size).toBe(0)
+  })
+
   it("names a loom's workspace, or its own folder when it has none", async () => {
     const { root, chapter } = workspace()
     const loose = looseLoom()
@@ -83,6 +92,8 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     expect(s.uriOf(book).toString()).toBe(URI.file(book).toString())
     expect(s.locationOf(URI.parse('memory:/a.loom'))).toBe('memory:/a.loom')
     expect(s.uriOf('memory:/a.loom').scheme).toBe('memory')
+    expect(s.workspaceOf('memory:/a.loom')).toBe('memory:/a.loom')
+    expect(s.workspaceOf('untitled:Untitled-1')).toBe('untitled:Untitled-1')
   })
 
   it('lets DocumentSource answer a held loom from memory and any other from disk', async () => {

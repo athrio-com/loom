@@ -1,7 +1,7 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Record, Ref } from 'effect'
 import { memoize } from 'effect/Function'
-import { join, sep } from 'node:path'
+import { isAbsolute, join, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic, type Health, type Position, byType } from '@athrio/loom-ast/LoomNode'
 import type { LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
@@ -666,7 +666,8 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
     })),
   )
 
-export const within = (dir: Location, path: Location): boolean => path.startsWith(join(dir, sep))
+export const within = (dir: Location, path: Location): boolean =>
+  path.startsWith(isAbsolute(dir) ? join(dir, sep) : `${dir.replace(/\/+$/, '')}/`)
 
 const tokenValue = (token: { readonly value: string } | undefined): string =>
   Option.getOrElse(
