@@ -3,6 +3,7 @@ import {
   Cache,
   Cause,
   Data,
+  Duration,
   Effect,
   Exit,
   Layer,
@@ -60,7 +61,6 @@ import {
   type Work,
 } from '#ast/LoomFailure'
 import { LoomFormatter } from './LoomFormatter'
-import { WorkspaceSettings } from './WorkspaceSettings'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   fetchedExecutable,
@@ -198,8 +198,16 @@ const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
     return { classic: (folder) => Result.mapError(classic(folder), inWords), fetched }
   })
 
-const workspaceFor = (home: string, uri: URI): string =>
-  uri.scheme === 'file' ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home) : home
+const workspaceNamed = (source: WorkspaceSource['Service'], home: string, location: string): string =>
+  Option.getOrElse(
+    Option.filter(Option.some(source.workspaceOf(location)), (named) => named !== location),
+    () => home,
+  )
+
+const workspaceFor = (source: WorkspaceSource['Service'], home: string, uri: URI): string =>
+  uri.scheme === 'file'
+    ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home)
+    : workspaceNamed(source, home, source.locationOf(uri))
 
 const languageServiceOver = (
   server: LanguageServer,
@@ -340,24 +348,31 @@ export const workspaceProject = (
   home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
   reprojecting: Semaphore.Semaphore,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
-    watchConfigs(server, home, services, projects, edited)
-    watchLooms(server, home, projects, reprojecting, edited)
+    watchConfigs(server, home, services, projects, places, reprojecting, edited)
+    watchLooms(server, home, projects, places, reprojecting, edited)
     watchRelations(server)
   },
   getLanguageService: (uri) =>
     runtime.runPromise(
-      reprojecting.withPermits(1)(settleEdits(server, home, projects, edited)).pipe(
-        Effect.andThen(Cache.get(projects, workspaceFor(home, uri))),
-        Effect.flatMap((project) => Effect.promise(async () => project.getLanguageService(uri))),
-      ),
+      reprojecting
+        .withPermits(1)(
+          settleEdits(server, home, projects, places, edited).pipe(
+            Effect.andThen(WorkspaceSource),
+            Effect.flatMap((source) => Cache.get(projects, workspaceFor(source, home, uri))),
+          ),
+        )
+        .pipe(
+          Effect.flatMap((project) => Effect.promise(async () => project.getLanguageService(uri))),
+        ),
     ),
   getExistingLanguageServices: () =>
     runtime.runPromise(
-      reprojecting.withPermits(1)(settleEdits(server, home, projects, edited)).pipe(
+      reprojecting.withPermits(1)(settleEdits(server, home, projects, places, edited)).pipe(
         Effect.andThen(Cache.values(projects)),
         Effect.flatMap((all) =>
           Effect.forEach(all, (project) =>
@@ -429,10 +444,23 @@ export const rebuildUnder = (
     ),
   )
 
+const closeWorkspace = (
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
+  workspace: string,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => source.close(workspace)),
+    Effect.andThen(Cache.invalidate(places, workspace)),
+    Effect.andThen(forgetWorkspace(services, projects, workspace)),
+  )
+
 const reconfigure = (
   server: LanguageServer,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
   edited: Ref.Ref<ReadonlySet<string>>,
   workspaces: ReadonlyArray<string>,
 ): Effect.Effect<void, never, LoomCompiler | WorkspaceSource> =>
@@ -442,7 +470,7 @@ const reconfigure = (
         workspaces,
         (workspace) =>
           rebuildUnder(server, edited, workspace).pipe(
-            Effect.andThen(forgetWorkspace(services, projects, workspace)),
+            Effect.andThen(closeWorkspace(services, projects, places, workspace)),
           ),
         { discard: true },
       ).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
@@ -451,13 +479,14 @@ const isCompilerSetting = (uri: string): boolean =>
   /\/(tsconfig|jsconfig|package)\.json$/.test(uri) && !uri.includes('/node_modules/')
 
 const retypedWorkspaces = (
+  source: WorkspaceSource['Service'],
   home: string,
   changes: ReadonlyArray<FileEvent>,
 ): ReadonlyArray<string> =>
   Array.dedupe(
     changes
       .filter((change) => isCompilerSetting(change.uri))
-      .map((change) => workspaceFor(home, URI.parse(change.uri))),
+      .map((change) => workspaceFor(source, home, URI.parse(change.uri))),
   )
 
 const retype = (
@@ -476,6 +505,8 @@ const watchConfigs = (
   home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
+  reprojecting: Semaphore.Semaphore,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
   void server.fileWatcher.watchFiles([
@@ -484,15 +515,26 @@ const watchConfigs = (
     '**/jsconfig.json',
     '**/package.json',
   ])
-  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
-    runtime.runSync(
-      WorkspaceSource.pipe(
-        Effect.flatMap((source) =>
-          reconfigure(server, services, projects, edited, reconfiguredWorkspaces(source, changes)),
+  server.fileWatcher.onDidChangeWatchedFiles(
+    ({ changes }) =>
+      void runtime.runFork(
+        reprojecting.withPermits(1)(
+          WorkspaceSource.pipe(
+            Effect.flatMap((source) =>
+              reconfigure(
+                server,
+                services,
+                projects,
+                places,
+                edited,
+                reconfiguredWorkspaces(source, changes),
+              ).pipe(
+                Effect.andThen(retype(server, projects, retypedWorkspaces(source, home, changes))),
+              ),
+            ),
+          ),
         ),
-        Effect.andThen(retype(server, projects, retypedWorkspaces(home, changes))),
       ),
-    ),
   )
 }
 
@@ -522,14 +564,28 @@ const rereadLoom = (
       ),
     )
 
+const fetchReportedLoom = (
+  source: WorkspaceSource['Service'],
+  change: FileEvent,
+): Effect.Effect<void, never, WorkspaceSource | DocumentSource> => {
+  const loom = source.locationOf(URI.parse(change.uri))
+  return fetchSaved(loom).pipe(
+    Effect.flatMap((saved) =>
+      change.type === FileChangeType.Changed
+        ? Effect.void
+        : source.relist(loom, Option.isSome(saved)),
+    ),
+  )
+}
+
 const fetchReported = (
   changes: ReadonlyArray<FileEvent>,
 ): Effect.Effect<void, never, WorkspaceSource | DocumentSource> =>
   WorkspaceSource.pipe(
     Effect.flatMap((source) =>
       Effect.forEach(
-        changes.map((change) => URI.parse(change.uri)).filter(isLoom),
-        (uri) => fetchSaved(source.locationOf(uri)),
+        changes.filter((change) => isLoom(URI.parse(change.uri))),
+        (change) => fetchReportedLoom(source, change),
         { discard: true },
       ),
     ),
@@ -553,9 +609,11 @@ const openLooms = (server: LanguageServer): ReadonlyArray<URI> =>
 
 const openLoomsIn = (
   server: LanguageServer,
+  source: WorkspaceSource['Service'],
   home: string,
   workspace: string,
-): ReadonlyArray<URI> => openLooms(server).filter((uri) => workspaceFor(home, uri) === workspace)
+): ReadonlyArray<URI> =>
+  openLooms(server).filter((uri) => workspaceFor(source, home, uri) === workspace)
 
 const logged = (work: Work, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
   effect.pipe(Effect.catchCause(told(work, uri.toString())))
@@ -583,8 +641,9 @@ export const refreshProject = (
   workspace: string,
   project: LanguageServerProject,
   forgotten: ReadonlyArray<URI>,
-): Effect.Effect<void> =>
+): Effect.Effect<void, never, WorkspaceSource> =>
   Effect.gen(function* () {
+    const source = yield* WorkspaceSource
     const languageServices = yield* Effect.promise(
       async () => (await project.getExistingLanguageServices()) ?? [],
     )
@@ -595,7 +654,7 @@ export const refreshProject = (
       { discard: true },
     )
     yield* Effect.forEach(
-      openLoomsIn(server, home, workspace),
+      openLoomsIn(server, source, home, workspace),
       (uri) => logged('reprojecting', uri, markStale(project, uri)),
       { discard: true },
     )
@@ -607,7 +666,7 @@ const reprojectWorkspace = (
   projects: Cache.Cache<string, LanguageServerProject>,
   workspace: string,
   forgotten: ReadonlyArray<URI>,
-): Effect.Effect<void> =>
+): Effect.Effect<void, never, WorkspaceSource> =>
   Cache.getSuccess(projects, workspace).pipe(
     Effect.flatMap(
       Option.match({
@@ -638,7 +697,7 @@ const reproject = (
   changes: ReadonlyArray<FileEvent>,
   alsoForgotten: ReadonlyArray<URI>,
   refresh: (server: LanguageServer) => void,
-): Effect.Effect<void> => {
+): Effect.Effect<void, never, WorkspaceSource> => {
   const forgotten = [
     ...changes
       .filter((change) => change.type === FileChangeType.Deleted)
@@ -647,11 +706,18 @@ const reproject = (
   ]
   return changes.length === 0
     ? Effect.void
-    : Effect.forEach(
-        Array.dedupe(changes.map((change) => workspaceFor(home, URI.parse(change.uri)))),
-        (workspace) => reprojectWorkspace(server, home, projects, workspace, forgotten),
-        { discard: true },
-      ).pipe(Effect.andThen(Effect.sync(() => refresh(server))))
+    : WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          Effect.forEach(
+            Array.dedupe(
+              changes.map((change) => workspaceFor(source, home, URI.parse(change.uri))),
+            ),
+            (workspace) => reprojectWorkspace(server, home, projects, workspace, forgotten),
+            { discard: true },
+          ),
+        ),
+        Effect.andThen(Effect.sync(() => refresh(server))),
+      )
 }
 
 export const closeOf = (
@@ -698,6 +764,7 @@ const watchLooms = (
   server: LanguageServer,
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
   reprojecting: Semaphore.Semaphore,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
@@ -709,6 +776,7 @@ const watchLooms = (
       server,
       home,
       projects,
+      places,
       reprojecting,
       edited,
       seen,
@@ -722,7 +790,9 @@ const watchLooms = (
       home,
       projects,
       reprojecting,
-      fetchReported(changes).pipe(Effect.as(closedLoomChanges(server, changes))),
+      fetchReported(changes).pipe(
+        Effect.andThen(Effect.sync(() => closedLoomChanges(server, changes))),
+      ),
       () => [],
     ),
   )
@@ -802,14 +872,32 @@ const rebuildEdited = (
     Effect.map(Array.getSomes),
   )
 
+const openEdited = (
+  home: string,
+  places: Places,
+  edited: Ref.Ref<ReadonlySet<string>>,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  Effect.all([Ref.get(edited), WorkspaceSource]).pipe(
+    Effect.flatMap(([paths, source]) =>
+      Effect.forEach(
+        Array.dedupe([...paths].map((path) => workspaceFor(source, home, source.uriOf(path)))),
+        (workspace) => placeOpened(places, workspace),
+        { discard: true },
+      ),
+    ),
+  )
+
 const settleEdits = (
   server: LanguageServer,
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): Effect.Effect<void, never, LoomCompiler | DocumentSource | WorkspaceSource> =>
-  rebuildEdited(server, edited).pipe(
-    Effect.provideService(Scheduler.PreventSchedulerYield, true),
+  openEdited(home, places, edited).pipe(
+    Effect.andThen(
+      rebuildEdited(server, edited).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true)),
+    ),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [], refreshDecorations)),
   )
 
@@ -845,6 +933,7 @@ const keepInStep = (
   server: LanguageServer,
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
   reprojecting: Semaphore.Semaphore,
   edited: Ref.Ref<ReadonlySet<string>>,
   seen: Ref.Ref<ReadonlyMap<string, string>>,
@@ -869,7 +958,7 @@ const keepInStep = (
             onSome: (was) =>
               reprojecting
                 .withPermits(1)(
-                  settleEdits(server, home, projects, edited).pipe(
+                  settleEdits(server, home, projects, places, edited).pipe(
                     Effect.andThen(Effect.all([LoomCompiler, WorkspaceSource])),
                     Effect.flatMap(([compiler, source]) =>
                       compiler.summaryEdits(source.locationOf(uri), was, after),
@@ -890,21 +979,58 @@ const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effec
 
 export const contentsRequest = 'loom/contents'
 
+const ContentsParamsSchema = Schema.Struct({ workspace: Schema.String })
+
+type Places = Cache.Cache<string, Option.Option<string>, ReadError>
+
 const noBooks: TableOfContents = { books: [] }
 
+const workspaceAsked = (
+  source: WorkspaceSource['Service'],
+  home: string,
+  params: unknown,
+): string =>
+  Option.match(Schema.decodeUnknownOption(ContentsParamsSchema)(params), {
+    onNone: () => home,
+    onSome: ({ workspace }) => source.workspaceOf(source.locationOf(URI.parse(workspace))),
+  })
+
+const entryOf = (
+  place: Option.Option<string>,
+): Effect.Effect<Option.Option<string>, never, WorkspaceSource> =>
+  Option.match(place, {
+    onNone: () => Effect.succeed(Option.none<string>()),
+    onSome: (loom) =>
+      WorkspaceSource.pipe(
+        Effect.flatMap((source) => source.corpusOf(loom)),
+        Effect.map(Array.head),
+      ),
+  })
+
 const contentsOf = (
-  workspace: Option.Option<Workspace>,
-): Effect.Effect<TableOfContents, never, LoomCompiler> =>
-  pipe(
-    Option.flatMap(workspace, (opened) => Array.head(Array.fromIterable(opened.looms.keys()))),
-    Option.match({
-      onNone: () => Effect.succeed(noBooks),
-      onSome: (entry) =>
-        LoomCompiler.pipe(
-          Effect.flatMap((compiler) => compiler.contents(entry)),
-          Effect.catchCause((cause) => told('listing', entry)(cause).pipe(Effect.as(noBooks))),
-        ),
-    }),
+  place: Option.Option<string>,
+): Effect.Effect<TableOfContents, never, LoomCompiler | WorkspaceSource> =>
+  entryOf(place).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(noBooks),
+        onSome: (entry) =>
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) => compiler.contents(entry)),
+            Effect.catchCause((cause) => told('listing', entry)(cause).pipe(Effect.as(noBooks))),
+          ),
+      }),
+    ),
+  )
+
+const contentsFor = (
+  places: Places,
+  home: string,
+  params: unknown,
+): Effect.Effect<TableOfContents, ReadError, LoomCompiler | WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => Cache.get(places, workspaceAsked(source, home, params))),
+    Effect.flatMap(contentsOf),
   )
 
 const runtime = ManagedRuntime.make(
@@ -918,62 +1044,173 @@ const runtime = ManagedRuntime.make(
   ),
 )
 
+const openedFolders = (params: InitializeParams): ReadonlyArray<string> =>
+  Option.getOrElse(
+    Option.firstSomeOf([
+      Option.map(
+        Option.filter(Option.fromNullishOr(params.workspaceFolders), (folders) => folders.length > 0),
+        (folders) => folders.map((folder) => folder.uri),
+      ),
+      Option.map(Option.fromNullishOr(params.rootUri), (uri) => [uri]),
+      Option.map(Option.fromNullishOr(params.rootPath), (path) => [URI.file(path).toString()]),
+    ]),
+    (): ReadonlyArray<string> => [],
+  )
+
+const workspacesAt = (
+  source: WorkspaceSource['Service'],
+  folders: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  Array.dedupe(folders.map((folder) => source.workspaceOf(source.locationOf(URI.parse(folder)))))
+
+const servedWorkspaces = (
+  params: InitializeParams,
+): Effect.Effect<Array.NonEmptyReadonlyArray<string>, never, WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.map((source) =>
+      Array.match(workspacesAt(source, openedFolders(params)), {
+        onEmpty: (): Array.NonEmptyReadonlyArray<string> => [source.workspaceOf(process.cwd())],
+        onNonEmpty: (named) => named,
+      }),
+    ),
+  )
+
 const openWorkspace = (
-  home: string,
-): Effect.Effect<
-  Option.Option<Workspace>,
-  ReadError,
-  WorkspaceSettings | WorkspaceSource | DocumentSource
-> =>
-  WorkspaceSettings.pipe(
-    Effect.flatMap((settings) => settings.manifest(home)),
-    Effect.flatMap(
-      Option.match({
+  workspace: string,
+): Effect.Effect<Option.Option<Workspace>, ReadError, WorkspaceSource | DocumentSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => source.open(workspace)),
+    Effect.flatMap((opened) =>
+      Option.match(opened.manifest, {
         onNone: () => Effect.succeed(Option.none<Workspace>()),
         onSome: () =>
-          Effect.gen(function* () {
-            const source = yield* WorkspaceSource
-            const documents = yield* DocumentSource
-            const workspace = yield* source.open(home)
-            yield* documents.hold(workspace.looms)
-            return Option.some(workspace)
-          }).pipe(
-            Effect.catchCause((cause) =>
-              told('opening', home)(cause).pipe(Effect.as(Option.none<Workspace>())),
-            ),
+          DocumentSource.pipe(
+            Effect.flatMap((documents) => documents.hold(opened.looms)),
+            Effect.as(Option.some(opened)),
           ),
       }),
     ),
   )
 
-const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, never, LoomCompiler> =>
-  pipe(
-    Option.flatMap(workspace, (opened) => Array.head(Array.fromIterable(opened.looms.keys()))),
-    Option.match({
-      onNone: () => Effect.void,
-      onSome: (entry) =>
-        LoomCompiler.pipe(
-          Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry))),
-          Effect.catchCause(told('warming', entry)),
-        ),
+const openedPlace = (
+  workspace: string,
+): Effect.Effect<Option.Option<string>, ReadError, WorkspaceSource | DocumentSource> =>
+  openWorkspace(workspace).pipe(
+    Effect.map(Option.flatMap((opened) => Array.head(Array.fromIterable(opened.looms.keys())))),
+  )
+
+const lifetimeOf = (opened: Exit.Exit<Option.Option<string>, ReadError>): Duration.Duration =>
+  Exit.isSuccess(opened) ? Duration.infinity : Duration.zero
+
+const placeOpened = (places: Places, workspace: string): Effect.Effect<Option.Option<string>> =>
+  Cache.get(places, workspace).pipe(
+    Effect.catchCause((cause) =>
+      told('opening', workspace)(cause).pipe(Effect.as(Option.none<string>())),
+    ),
+  )
+
+const warmCorpus = (
+  place: Option.Option<string>,
+): Effect.Effect<void, never, LoomCompiler | WorkspaceSource> =>
+  entryOf(place).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: (entry) =>
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry))),
+            Effect.catchCause(told('warming', entry)),
+          ),
+      }),
+    ),
+  )
+
+const warmInTurn = (places: ReadonlyArray<Option.Option<string>>): void =>
+  Array.match(places, {
+    onEmpty: () => undefined,
+    onNonEmpty: ([place, ...rest]) =>
+      void setTimeout(() => {
+        runtime.runSync(warmCorpus(place))
+        warmInTurn(rest)
+      }, 10),
+  })
+
+const closeRemoved = (
+  server: LanguageServer,
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
+  removed: ReadonlyArray<string>,
+): Effect.Effect<void, never, WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => {
+      const held = workspacesAt(
+        source,
+        server.workspaceFolders.all.map((folder) => folder.toString()),
+      )
+      return Effect.forEach(
+        workspacesAt(source, removed).filter((workspace) => !Array.contains(held, workspace)),
+        (workspace) => closeWorkspace(services, projects, places, workspace),
+        { discard: true },
+      )
     }),
   )
 
-const openedFolder = (params: InitializeParams): Option.Option<string> =>
-  Option.firstSomeOf([
-    Option.fromNullishOr(params.workspaceFolders?.[0]?.uri),
-    Option.fromNullishOr(params.rootUri),
-    Option.map(Option.fromNullishOr(params.rootPath), (path) => URI.file(path).toString()),
-  ])
-
-const homeOf = (folder: Option.Option<string>): Effect.Effect<string, never, WorkspaceSource> =>
+const openAdded = (
+  places: Places,
+  added: ReadonlyArray<string>,
+): Effect.Effect<void, never, WorkspaceSource> =>
   WorkspaceSource.pipe(
-    Effect.map((source) =>
-      source.workspaceOf(
-        Option.match(folder, {
-          onNone: () => process.cwd(),
-          onSome: (uri) => source.locationOf(URI.parse(uri)),
-        }),
+    Effect.flatMap((source) =>
+      Effect.forEach(workspacesAt(source, added), (workspace) => placeOpened(places, workspace)),
+    ),
+    Effect.flatMap((opened) => Effect.sync(() => warmInTurn(opened))),
+  )
+
+const urisOf = (folders: ReadonlyArray<{ readonly uri: string }>): ReadonlyArray<string> =>
+  folders.map((folder) => folder.uri)
+
+const watchFolders = (
+  server: LanguageServer,
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  places: Places,
+  reprojecting: Semaphore.Semaphore,
+): void =>
+  void server.workspaceFolders.onDidChange(
+    ({ added, removed }) =>
+      void runtime.runFork(
+        reprojecting.withPermits(1)(
+          closeRemoved(server, services, projects, places, urisOf(removed)).pipe(
+            Effect.andThen(openAdded(places, urisOf(added))),
+          ),
+        ),
+      ),
+  )
+
+const placeFirst = (places: Places, workspace: string, loom: string): Effect.Effect<void> =>
+  Cache.getSuccess(places, workspace).pipe(
+    Effect.flatMap((kept) =>
+      Option.exists(kept, Option.isNone)
+        ? Cache.set(places, workspace, Option.some(loom))
+        : Effect.void,
+    ),
+  )
+
+const watchPlaces = (server: LanguageServer, home: string, places: Places): void =>
+  void server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
+    runtime.runSync(
+      WorkspaceSource.pipe(
+        Effect.flatMap((source) =>
+          Effect.forEach(
+            changes
+              .filter((change) => change.type === FileChangeType.Created)
+              .map((change) => URI.parse(change.uri))
+              .filter(isLoom),
+            (uri) => placeFirst(places, workspaceFor(source, home, uri), source.locationOf(uri)),
+            { discard: true },
+          ),
+        ),
       ),
     ),
   )
@@ -983,33 +1220,50 @@ export const startLanguageServer = (): void => {
   const server = createServer(connection)
 
   connection.onInitialize(async (params) => {
-    const home = await runtime.runPromise(homeOf(openedFolder(params)))
-    const { workspace, services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
-      Effect.gen(function* () {
-        const workspace = yield* openWorkspace(home)
-        const sdk = yield* typescriptSdkFor(params.initializationOptions)
-        const services = yield* Cache.make({
-          capacity: Infinity,
-          lookup: (workspace: string) => loomServicePlugins(runtime, sdk, workspace),
-        })
-        const projects = yield* Cache.make({
-          capacity: Infinity,
-          lookup: (workspace: string) =>
-            Cache.get(services, workspace).pipe(
-              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, plugins))),
-            ),
-        })
-        const plugins = yield* Cache.get(services, home)
-        const reprojecting = yield* Semaphore.make(1)
-        const edited = yield* Ref.make<ReadonlySet<string>>(new Set())
-        return { workspace, services, projects, plugins, reprojecting, edited }
-      }).pipe(Effect.mapError(inWords)),
+    const workspaces = await runtime.runPromise(servedWorkspaces(params))
+    const home = Array.headNonEmpty(workspaces)
+    const { places, opened, services, projects, plugins, reprojecting, edited } =
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          const places = yield* Cache.makeWith(openedPlace, {
+            capacity: Infinity,
+            timeToLive: lifetimeOf,
+          })
+          const homePlace = yield* Cache.get(places, home)
+          const otherPlaces = yield* Effect.forEach(Array.tailNonEmpty(workspaces), (workspace) =>
+            placeOpened(places, workspace),
+          )
+          const opened = [homePlace, ...otherPlaces]
+          const sdk = yield* typescriptSdkFor(params.initializationOptions)
+          const services = yield* Cache.make({
+            capacity: Infinity,
+            lookup: (workspace: string) => loomServicePlugins(runtime, sdk, workspace),
+          })
+          const projects = yield* Cache.make({
+            capacity: Infinity,
+            lookup: (workspace: string) =>
+              placeOpened(places, workspace).pipe(
+                Effect.andThen(Cache.get(services, workspace)),
+                Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, plugins))),
+              ),
+          })
+          const plugins = yield* Cache.get(services, home)
+          const reprojecting = yield* Semaphore.make(1)
+          const edited = yield* Ref.make<ReadonlySet<string>>(new Set())
+          return { places, opened, services, projects, plugins, reprojecting, edited }
+        }).pipe(Effect.mapError(inWords)),
+      )
+    warmInTurn(opened)
+    watchFolders(server, services, projects, places, reprojecting)
+    watchPlaces(server, home, places)
+    connection.onRequest(contentsRequest, (asked: unknown) =>
+      runtime.runPromise(
+        reprojecting.withPermits(1)(contentsFor(places, home, asked)).pipe(Effect.mapError(inWords)),
+      ),
     )
-    setTimeout(() => runtime.runSync(warmCorpus(workspace)), 10)
-    connection.onRequest(contentsRequest, () => runtime.runPromise(contentsOf(workspace)))
     return server.initialize(
       params,
-      workspaceProject(server, home, services, projects, reprojecting, edited),
+      workspaceProject(server, home, services, projects, places, reprojecting, edited),
       [...plugins],
     )
   })

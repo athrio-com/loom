@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { DocumentSource, LoomCompiler, within } from '../src/LoomCompiler'
 import { FileSystemSource } from '../src/WorkspaceSource'
 import { FileSystemSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
@@ -62,5 +62,12 @@ describe('LoomCompiler — what an edit evicts', () => {
     expect(await run((compiler) => compiler.invalidate(inside))).toEqual([])
     expect(await run((compiler) => compiler.invalidate(beside))).toEqual([beside])
     expect(await run((compiler) => compiler.invalidate(sibling))).toEqual([sibling])
+  })
+
+  it('tells the looms within a remote workspace', () => {
+    const loom = 'https://storage.example/books/42/corpus/book.loom'
+    expect(within('https://storage.example/books/42', loom)).toBe(true)
+    expect(within('https://storage.example/books/42/', loom)).toBe(true)
+    expect(within('https://storage.example/books/4', loom)).toBe(false)
   })
 })

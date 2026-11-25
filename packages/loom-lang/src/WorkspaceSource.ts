@@ -75,6 +75,8 @@ export interface WorkspaceSourceApi {
   readonly placesOf: (looms: ReadonlyArray<Location>) => Effect.Effect<PlaceOf>
   readonly locationOf: (uri: URI) => Location
   readonly uriOf: (loom: Location) => URI
+  readonly relist: (loom: Location, held: boolean) => Effect.Effect<void>
+  readonly close: (workspace: Location) => Effect.Effect<void>
   readonly keptRelationsOf: (loom: Location) => Effect.Effect<ReadonlyArray<KeptRelation>>
   readonly keepRelations: (
     loom: Location,
@@ -98,11 +100,8 @@ export const fromDisk = (path: Path): Effect.Effect<string, ReadError> =>
     catch: (cause) => new ReadError({ path, cause }),
   })
 
-const corpusFolderOf = (workspace: Location, manifest: Option.Option<WorkspaceManifest>): Location =>
-  Option.match(manifest, {
-    onNone: () => workspace,
-    onSome: (m) => join(workspace, m.corpus ?? defaultCorpus),
-  })
+const corpusFolderOf = (workspace: Location, manifest: WorkspaceManifest): Location =>
+  join(workspace, manifest.corpus ?? defaultCorpus)
 
 interface KeptReading<Answer> {
   readonly answer: Answer
@@ -245,27 +244,41 @@ export const FileSystemSource = Layer.effect(
       walks: yield* Ref.make<ReadonlyMap<string, KeptReading<ReadonlyArray<Location>>>>(new Map()),
       holds: yield* Ref.make<ReadonlyMap<string, KeptReading<(loom: Path) => boolean>>>(new Map()),
     }
+    const loomsOf = (
+      workspace: Location,
+      manifest: Option.Option<WorkspaceManifest>,
+    ): Effect.Effect<ReadonlyMap<Location, string>> =>
+      Option.match(manifest, {
+        onNone: () => Effect.succeed(new Map<Location, string>()),
+        onSome: (found) =>
+          config.resolve(workspace).pipe(
+            Effect.flatMap((resolved) =>
+              Effect.sync(() => loomsIn(corpusFolderOf(workspace, found), projectIn(resolved))),
+            ),
+            Effect.flatMap((paths) =>
+              Effect.forEach(paths, (loom) =>
+                Effect.option(fromDisk(loom).pipe(Effect.map((text) => [loom, text] as const))),
+              ),
+            ),
+            Effect.map((read) => new Map(Array.getSomes(read))),
+          ),
+      })
     const open = (workspace: Location): Effect.Effect<Workspace, ReadError> =>
       Effect.gen(function* () {
         const manifest = Option.fromNullishOr(yield* config.manifest(workspace))
-        const resolved = yield* config.resolve(workspace)
-        const paths = yield* Effect.sync(() =>
-          loomsIn(corpusFolderOf(workspace, manifest), projectIn(resolved)),
-        )
-        const looms = yield* Effect.forEach(paths, (loom) =>
-          fromDisk(loom).pipe(Effect.map((text) => [loom, text] as const)),
-        )
         return {
           location: workspace,
           manifest,
-          looms: new Map(looms),
+          looms: yield* loomsOf(workspace, manifest),
           relations: yield* relationsIn(workspace),
         }
       })
     const workspaceOf = (location: Location): Location =>
-      Option.getOrElse(Option.fromNullishOr(findWorkspace(folderOf(location))), () =>
-        folderOf(location),
-      )
+      isAbsolute(location)
+        ? Option.getOrElse(Option.fromNullishOr(findWorkspace(folderOf(location))), () =>
+            folderOf(location),
+          )
+        : location
     const source: WorkspaceSourceApi = {
       open,
       read: fromDisk,
@@ -286,6 +299,8 @@ export const FileSystemSource = Layer.effect(
         ),
       locationOf: locationOfUri,
       uriOf: uriOfLocation,
+      relist: () => Effect.void,
+      close: () => Effect.void,
       keptRelationsOf: (loom) => relationsIn(workspaceOf(loom)),
       keepRelations: (loom, relations) => keepIn(workspaceOf(loom), relations),
       relationsFileOf: (loom, relations) => Option.some(keptFile(workspaceOf(loom), relations)),
@@ -379,48 +394,148 @@ const workspaceFrom = (url: string, text: string): Effect.Effect<Workspace, Read
     })),
   )
 
-export const RemoteSource = (address: StorageAddress): Layer.Layer<WorkspaceSource> =>
+const firstStepBeneath = (storage: string, location: Location): Option.Option<string> =>
+  location.startsWith(`${storage}/`)
+    ? Option.filter(
+        Array.head(location.slice(storage.length + 1).split('/')),
+        (step) => step !== '',
+      )
+    : Option.none()
+
+const workspaceBeneath = (storage: string, location: Location): Location =>
+  Option.match(firstStepBeneath(storage, location), {
+    onNone: () => location,
+    onSome: (step) => `${storage}/${step}`,
+  })
+
+export interface OpenedWorkspace {
+  readonly looms: ReadonlyArray<Location>
+  readonly relations: ReadonlyArray<KeptRelation>
+  readonly manifest: Option.Option<WorkspaceManifest>
+}
+
+export class RemoteWorkspaces extends Context.Service<RemoteWorkspaces>()('RemoteWorkspaces', {
+  make: Effect.gen(function* () {
+    const opened = yield* Ref.make<ReadonlyMap<Location, OpenedWorkspace>>(new Map())
+    return {
+      keptOf: (workspace: Location): Effect.Effect<Option.Option<OpenedWorkspace>> =>
+        Ref.get(opened).pipe(Effect.map((all) => Option.fromNullishOr(all.get(workspace)))),
+      keep: (workspace: Location, kept: OpenedWorkspace): Effect.Effect<void> =>
+        Ref.update(opened, (all) => new Map(all).set(workspace, kept)),
+      update: (
+        workspace: Location,
+        change: (kept: OpenedWorkspace) => OpenedWorkspace,
+      ): Effect.Effect<void> =>
+        Ref.update(opened, (all) =>
+          Option.match(Option.fromNullishOr(all.get(workspace)), {
+            onNone: () => all,
+            onSome: (kept) => new Map(all).set(workspace, change(kept)),
+          }),
+        ),
+      forget: (workspace: Location): Effect.Effect<void> =>
+        Ref.update(opened, (all) => new Map([...all].filter(([key]) => key !== workspace))),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+const relisted = (
+  looms: ReadonlyArray<Location>,
+  loom: Location,
+  held: boolean,
+): ReadonlyArray<Location> =>
+  held ? Array.dedupe([...looms, loom]) : looms.filter((listed) => listed !== loom)
+
+export const RemoteSource = (
+  address: StorageAddress,
+): Layer.Layer<WorkspaceSource, never, RemoteWorkspaces> =>
   Layer.effect(
     WorkspaceSource,
     Effect.gen(function* () {
       const client = yield* HttpClient.HttpClient
-      const listed = yield* Ref.make<ReadonlyArray<Location>>([])
-      const kept = yield* Ref.make<ReadonlyArray<KeptRelation>>([])
+      const workspaces = yield* RemoteWorkspaces
+      const storage = address.url.replace(/\/+$/, '')
+      const workspaceOf = (location: Location): Location => workspaceBeneath(storage, location)
+      const keptOf = (loom: Location): Effect.Effect<Option.Option<OpenedWorkspace>> =>
+        workspaces.keptOf(workspaceOf(loom))
       const read = (loom: Location): Effect.Effect<string, ReadError> =>
         fetchText(client, address.key, loom)
       const source: WorkspaceSourceApi = {
         open: (workspace) =>
           read(workspace).pipe(
             Effect.flatMap((text) => workspaceFrom(workspace, text)),
-            Effect.tap((opened) => Ref.set(listed, Array.fromIterable(opened.looms.keys()))),
-            Effect.tap((opened) => Ref.set(kept, opened.relations)),
+            Effect.tap((opened) =>
+              workspaces.keep(workspaceOf(workspace), {
+                looms: Array.fromIterable(opened.looms.keys()),
+                relations: opened.relations,
+                manifest: opened.manifest,
+              }),
+            ),
           ),
         read,
-        corpusOf: () => Ref.get(listed),
-        workspaceOf: () => address.url,
+        corpusOf: (loom) =>
+          keptOf(loom).pipe(
+            Effect.map(
+              Option.match({
+                onNone: (): ReadonlyArray<Location> => [],
+                onSome: (kept) => kept.looms,
+              }),
+            ),
+          ),
+        workspaceOf,
         placesOf: () => Effect.succeed((_loom, sink) => sink),
         locationOf: (uri) => uri.toString(),
         uriOf: (loom) => URI.parse(loom),
-        keptRelationsOf: () => Ref.get(kept),
-        keepRelations: () =>
-          Effect.fail(new StorageTakesNoWrite({ workspace: address.url })),
+        relist: (loom, held) =>
+          workspaces.update(workspaceOf(loom), (kept) => ({
+            ...kept,
+            looms: relisted(kept.looms, loom, held),
+          })),
+        close: (workspace) => workspaces.forget(workspaceOf(workspace)),
+        keptRelationsOf: (loom) =>
+          keptOf(loom).pipe(
+            Effect.map(
+              Option.match({
+                onNone: (): ReadonlyArray<KeptRelation> => [],
+                onSome: (kept) => kept.relations,
+              }),
+            ),
+          ),
+        keepRelations: (loom) =>
+          Effect.fail(new StorageTakesNoWrite({ workspace: workspaceOf(loom) })),
         relationsFileOf: () => Option.none(),
       }
       return source
     }),
   ).pipe(Layer.provide(FetchHttpClient.layer))
 
-export const RemoteSettings = Layer.effect(
+export const RemoteSettings: Layer.Layer<
+  WorkspaceSettings,
+  never,
+  WorkspaceSource | RemoteWorkspaces
+> = Layer.effect(
   WorkspaceSettings,
   Effect.gen(function* () {
     const source = yield* WorkspaceSource
-    const kept = yield* Ref.make(Option.none<WorkspaceManifest>())
+    const workspaces = yield* RemoteWorkspaces
     const settings: WorkspaceSettingsApi = {
-      resolve: () => Ref.get(kept).pipe(Effect.map(settingsOfManifest)),
+      resolve: (loom) =>
+        workspaces
+          .keptOf(source.workspaceOf(loom))
+          .pipe(
+            Effect.map((kept) =>
+              settingsOfManifest(Option.flatMap(kept, (opened) => opened.manifest)),
+            ),
+          ),
       manifest: (workspace) =>
-        source.open(workspace).pipe(
-          Effect.map((opened) => opened.manifest),
-          Effect.tap((manifest) => Ref.set(kept, manifest)),
+        workspaces.keptOf(source.workspaceOf(workspace)).pipe(
+          Effect.flatMap(
+            Option.match({
+              onSome: (kept) => Effect.succeed(kept.manifest),
+              onNone: () => source.open(workspace).pipe(Effect.map((opened) => opened.manifest)),
+            }),
+          ),
         ),
     }
     return settings
@@ -433,7 +548,7 @@ export const RemoteEnvironment = (
   Layer.mergeAll(
     RemoteSettings.pipe(Layer.provideMerge(RemoteSource(address))),
     LoomDiskCache.none,
-  )
+  ).pipe(Layer.provide(RemoteWorkspaces.layer))
 
 export interface StorageAddress {
   readonly url: string
