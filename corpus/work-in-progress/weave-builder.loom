@@ -781,7 +781,7 @@ A book that defines concepts closes on its index, the page a reader turns to for
 
 The function `entryBlocks` writes one concept's entry: its name as a heading, its definition with the links it makes, its other forms, and a line that says where the book defines it and where the book uses it. The definition's place is the loom that defines the concept, by its title, linked to the concept's section on that loom's page.
 
-A `Use` is one place the book uses a concept: a loom, and the section the use stands in. A use in the prose that leads a loom stands in no section, so its `section` is empty. The function `usesByConcept` finds the uses of every concept in one pass over the corpus's links and recognised words, keyed by `conceptKey`. It reads each loom as its passages, which the function `passagesOf` lists: the leading prose, then each section. A passage with a link that reaches the concept, or a word that recognises it, is a use, and `conceptsRecognisedIn` finds the concepts a passage's words recognise. The uses are ordered by their page's slug and then by where they stand, as `byUse` orders them. The function `placeOf` writes a use as the title of its section, linked to that section, and writes a use in the leading prose as the title of its loom, linked to the top of the loom's page. The function `linkedBlock` writes the whole line as a prose block from its phrases, each a `Phrase`, with a link on each name it gives, so a reader reaches the definition and each use in one step.
+A `Use` is one place the book uses a concept: a loom, and the section the use stands in. A use in the prose that leads a loom stands in no section, so its `section` is empty. The function `usesByConcept` finds the uses of every concept in one pass over the corpus's links and recognised words, keyed by `conceptKey`. It reads each loom as its passages, which the function `passagesOf` lists: the leading prose, then each section. A passage with a link that reaches the concept, or a word that recognises it, is a use, and `conceptsRecognisedIn` finds the concepts a passage's words recognise. The uses are ordered by their page's slug and then by where they stand, as `byUse` orders them. An application that lists a workspace's concepts reads the same uses through `conceptUsesOf`, which builds the weave's view of the corpus and finds the uses of every concept in it, so the index page and the application never disagree. The function `placeOf` writes a use as the title of its section, linked to that section, and writes a use in the leading prose as the title of its loom, linked to the top of the loom's page. The function `linkedBlock` writes the whole line as a prose block from its phrases, each a `Phrase`, with a link on each name it gives, so a reader reaches the definition and each use in one step.
 
 =>
 
@@ -824,9 +824,9 @@ const linkedBlock = (source: SourceAnchor, pieces: ReadonlyArray<Phrase>): Woven
     ),
   })
 
-type Use = { readonly module: LoomModule; readonly section: Option.Option<LoomSection> }
+export type Use = { readonly module: LoomModule; readonly section: Option.Option<LoomSection> }
 
-const conceptKey = (module: Location, section: LoomSection): string =>
+export const conceptKey = (module: Location, section: LoomSection): string =>
   `${module}#${section.position.start.offset}`
 
 const startOf = (use: Use): number =>
@@ -912,6 +912,11 @@ const usesByConcept = (
     ),
   )
 }
+
+export const conceptUsesOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+): ReadonlyMap<string, ReadonlyArray<Use>> =>
+  usesByConcept(weavingOf(modules), Array.fromIterable(modules.values()))
 
 const placeOf = (weaving: Weaving, use: Use): Phrase => {
   const slug = pageSlug(weaving.catalogue, use.module.path)

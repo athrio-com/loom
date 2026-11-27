@@ -1,0 +1,4109 @@
+---
+Part VI, Chapter 10: Edits an application asks for
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# Edits an application asks for
+
+An application that shows its writers a loom in its own words must also change the loom in those words. A writer makes a chapter, moves it to another part, renames a section, leaves a note, or adds a message to a discussion. Each change rewrites Loom's syntax: a frontmatter line, a heading, an arrow, the colons of a box, a tilde before an author's name. Loom alone writes Loom's syntax, so an application never composes that text by hand. It asks Loom for the change instead, through the request `loom/edit`, which the chapter "The language server" wires.
+
+The request names one intent, such as making a loom or adding a note, and Loom answers with the edit that carries it out. The answer is an edit of looms in the shape the Language Server Protocol gives a workspace edit: a loom to create with its text, and ranged changes to looms that exist. The application applies the edit to wherever it keeps its looms. Loom writes nothing itself, because only the application knows where its looms are kept.
+
+Every edit is a pure function of the corpus the compiler builds and the intent. This chapter builds those functions. The compiler's verb `edit`, which the chapter "The compile layer" describes, calls them, and then checks the result: it builds every loom the edit changes again from its new text, and refuses an edit that would leave a loom with a problem it does not have now.
+
+## The intents
+
+An intent names one change in Loom's terms. The type `LoomIntent` is a tagged union of the intents below, so an application can send only an intent Loom knows.
+
+A loom is named by the address the application keeps it under, its `uri`. A section is named by its heading's title, as the outline of the chapter "The outline of a loom" gives it, and a topic of a discussion is named the same way, since a topic is a section. A note is named by its section and its text, because nothing in a loom carries an id: Loom keeps facts about text by the text's content and labels them by name, as the chapter "Kept by content, labelled by name" describes. A book is named by its name, empty for the default book. A part is named by its number, the Roman numeral the frontmatter writes, or by its name when it has no number.
+
+Several intents place something after something else. Their field `after` names what comes before it: a loom by its address, a section by its name, a part by its number or its name. When `after` is `null`, the thing goes first. When the intent leaves `after` out, the thing goes last.
+
+These are the intents for looms and books:
+
+- The intent `MakeLoom` makes a loom of a `kind` under a `title`, at `uri`, in a `book`, in a `language` or none. Its `part` is a part that exists, or a new part given by its `name` and its own `after`, or nothing for a loom in no part.
+- The intent `MakeBook` makes the book loom that opens the book `name`.
+- The intent `MoveLoom` moves a loom to another place in a book, in a part, or in no part.
+- The intent `RemoveLoom` numbers again the looms after one the application removes.
+- The intent `RetitleLoom` gives a loom a new `title`.
+- The intent `RenameBook` gives a book a new `name`.
+
+These are the intents for parts:
+
+- The intent `RenamePart` gives a part a new `name`.
+- The intent `MovePart` moves a part to another place in its book.
+- The intent `RemovePart` numbers again the parts after one the application removes.
+
+These are the intents for sections:
+
+- The intent `ReplaceSection` replaces a section's `body`, the pieces of prose and code the outline gives.
+- The intent `AddSection` adds a section under a `name`, with a `kind` and a `language` it may name, and a `body`.
+- The intents `RemoveSection`, `MoveSection`, and `RenameSection` remove a section, move it, and give it a new `name`.
+- The intents `AddNote` and `ResolveNote` leave a note in a section, and resolve one, which removes it.
+
+These are the intents for discussions and for the configuration:
+
+- The intent `OpenTopic` opens a topic in a discussion under a `name`.
+- The intent `AddMessage` adds a message to a `topic`, under an `author`, and the intent `Conclude` ends a topic with its conclusion.
+- The intent `SetVariable` sets a variable of the workspace's configuration.
+
+=>
+
+const AfterSchema = Schema.optional(Schema.NullOr(Schema.String))
+
+const NewPartSchema = Schema.Struct({ name: Schema.String, after: AfterSchema })
+
+const PartChosenSchema = Schema.optional(Schema.Union([Schema.String, NewPartSchema]))
+
+const BodySchema = Schema.Array(PieceSchema)
+
+export const LoomIntentSchema = Schema.TaggedUnion({
+  MakeLoom: {
+    uri: Schema.String,
+    kind: Schema.String,
+    book: Schema.String,
+    part: PartChosenSchema,
+    title: Schema.String,
+    language: Schema.optional(Schema.String),
+    after: AfterSchema,
+  },
+  MakeBook: { uri: Schema.String, name: Schema.String },
+  MoveLoom: { uri: Schema.String, book: Schema.String, part: PartChosenSchema, after: AfterSchema },
+  RemoveLoom: { uri: Schema.String },
+  RetitleLoom: { uri: Schema.String, title: Schema.String },
+  RenamePart: { book: Schema.String, part: Schema.String, name: Schema.String },
+  MovePart: { book: Schema.String, part: Schema.String, after: AfterSchema },
+  RemovePart: { book: Schema.String, part: Schema.String },
+  RenameBook: { book: Schema.String, name: Schema.String },
+  ReplaceSection: { uri: Schema.String, section: Schema.String, body: BodySchema },
+  AddSection: {
+    uri: Schema.String,
+    after: AfterSchema,
+    name: Schema.String,
+    kind: Schema.optional(Schema.String),
+    language: Schema.optional(Schema.String),
+    body: BodySchema,
+  },
+  RemoveSection: { uri: Schema.String, section: Schema.String },
+  MoveSection: { uri: Schema.String, section: Schema.String, after: AfterSchema },
+  RenameSection: { uri: Schema.String, section: Schema.String, name: Schema.String },
+  AddNote: { uri: Schema.String, section: Schema.String, text: Schema.String },
+  ResolveNote: { uri: Schema.String, section: Schema.String, text: Schema.String },
+  OpenTopic: { uri: Schema.String, name: Schema.String },
+  AddMessage: {
+    uri: Schema.String,
+    topic: Schema.String,
+    author: Schema.String,
+    text: Schema.String,
+  },
+  Conclude: { uri: Schema.String, topic: Schema.String, text: Schema.String },
+  SetVariable: { name: Schema.String, value: Schema.String },
+})
+export type LoomIntent = typeof LoomIntentSchema.Type
+
+type Intent<Tag extends LoomIntent['_tag']> = Extract<LoomIntent, { readonly _tag: Tag }>
+
+type PartChosen = Intent<'MakeLoom'>['part']
+
+## The edit an intent becomes
+
+The type `LoomEdit` holds what an intent becomes. Its `made` lists the looms to create, each a `MadeLoom` with its `path` and its whole `text`. Its `splices` list the changes to looms that exist, each a `Splice`: the `path` of a loom, the `start` and the `end` of the text it replaces, as offsets into the loom's text, and the `text` that replaces it. A splice with the same start and end inserts its text, and a splice with empty text removes what it spans.
+
+Its `gone` lists the looms the application removes itself, as it does after an intent that prepares a removal. The check reads the corpus without them, and the answer names them, so the application removes exactly those looms and no others. Its `configuration` holds the one value the edit sets in the workspace's configuration, as a `Setting`: the `path` of keys that leads to the value, and the `value`. The compiler writes the setting into the configuration's text, which the edits never read.
+
+The function `splicedText` applies a loom's splices to its text. It applies them from the end of the text to its start, so a splice never moves the offsets of the ones still to come. The splices of one edit never overlap, so their order among themselves does not matter. The function `editOf` makes an edit of splices and the looms they leave gone, and drops any splice that repeats another, since two walks over the corpus may find one span twice.
+
+=>
+
+export type Splice = {
+  readonly path: Location
+  readonly start: number
+  readonly end: number
+  readonly text: string
+}
+
+export type MadeLoom = { readonly path: Location; readonly text: string }
+
+export type Setting = { readonly path: ReadonlyArray<string>; readonly value: string }
+
+export type LoomEdit = {
+  readonly made: ReadonlyArray<MadeLoom>
+  readonly splices: ReadonlyArray<Splice>
+  readonly gone: ReadonlyArray<Location>
+  readonly configuration: Option.Option<Setting>
+}
+
+const sameSpan = (one: Splice, other: Splice): boolean =>
+  one.path === other.path && one.start === other.start && one.end === other.end
+
+const editOf = (splices: ReadonlyArray<Splice>, gone: ReadonlyArray<Location> = []): LoomEdit => ({
+  made: [],
+  splices: Array.dedupeWith(splices, sameSpan),
+  gone,
+  configuration: Option.none(),
+})
+
+const lastFirst: Order.Order<Splice> = Order.mapInput(
+  Order.Number,
+  (splice: Splice) => -splice.start,
+)
+
+export const splicedText = (text: string, splices: ReadonlyArray<Splice>): string =>
+  Array.sort(splices, lastFirst).reduce(
+    (done, splice) => done.slice(0, splice.start) + splice.text + done.slice(splice.end),
+    text,
+  )
+
+## An edit Loom refuses
+
+An intent may ask for what cannot be done. Each refusal is a failure of the catalog in the chapter "The failure catalog", which gives it its words, and the language server answers the request with it. The step that refuses names the failure and what it knows, and writes no words.
+
+- The failure `LoomExists`: a loom is already kept at the `path` a new loom asks for.
+- The failures `NoSuchBook` and `BookExists`: the `book` an intent names holds no loom, or a book loom already opens it.
+- The failures `NoSuchPart` and `PartExists`: the `part` an intent names stands in no part of its `book`, or a part of that name already stands there.
+- The failure `PartNameIsNumber`: the `name` a part would take reads as a Roman numeral, which an intent takes for a part's number.
+- The failure `TitleTaken`: a loom of the `part` already has the `title`, which the chapter "Books" forbids, since a reference names a chapter of a part by its title.
+- The failure `NotInPart`: no loom of the part an intent places a loom in stands at `path`, the loom the intent names to follow.
+- The failure `NotOfKind`: the loom at `path` stands in that part but is no loom of the `kind`, and each kind of loom is numbered apart.
+- The failures `NoSuchSection` and `SectionExists`: the loom at `path` holds no `section` of that name, or holds one already.
+- The failure `OpensTheLoom`: the `section` an intent removes or moves opens the loom at `path` and carries its title.
+- The failure `NoSuchNote`: the `section` holds no note with the `text`.
+- The failure `NotADiscussion`: the loom at `path` is no discussion, so it has no topics.
+- The failure `UnfitName`: the `name` is empty or runs over more than one line, so it cannot stand in a heading or a frontmatter line.
+- The failure `UnfitText`: a `line` of prose, of a message, or of a note would read as Loom's syntax, so the words would change the loom's structure.
+- The failure `OpensABook`: the loom at `path` opens a book, and a book loom stands in no part.
+- The failure `NoConfiguration`: the `workspace` has no configuration to set a variable in.
+- The failure `EditBreaksLoom`: the check found that the edit would leave the loom at `path` with the `problems` it lists.
+
+The type `EditRefusal` joins the failures an intent may meet. A loom the corpus does not hold is the failure `NoSuchLoom` of the chapter "The outline of a loom". A variable's name that is no name is the configuration's failure `NotAVariableName`, which `loom set` meets too.
+
+=>
+
+export class LoomExists extends Data.TaggedError('LoomExists')<{ readonly path: Location }> {}
+
+export class NoSuchBook extends Data.TaggedError('NoSuchBook')<{ readonly book: string }> {}
+
+export class BookExists extends Data.TaggedError('BookExists')<{ readonly book: string }> {}
+
+export class NoSuchPart extends Data.TaggedError('NoSuchPart')<{
+  readonly book: string
+  readonly part: string
+}> {}
+
+export class PartExists extends Data.TaggedError('PartExists')<{
+  readonly book: string
+  readonly part: string
+}> {}
+
+export class TitleTaken extends Data.TaggedError('TitleTaken')<{
+  readonly title: string
+  readonly book: string
+  readonly part: string
+}> {}
+
+export class PartNameIsNumber extends Data.TaggedError('PartNameIsNumber')<{
+  readonly name: string
+}> {}
+
+export class NotInPart extends Data.TaggedError('NotInPart')<{ readonly path: Location }> {}
+
+export class NotOfKind extends Data.TaggedError('NotOfKind')<{
+  readonly path: Location
+  readonly kind: string
+}> {}
+
+export class NoSuchSection extends Data.TaggedError('NoSuchSection')<{
+  readonly path: Location
+  readonly section: string
+}> {}
+
+export class SectionExists extends Data.TaggedError('SectionExists')<{
+  readonly path: Location
+  readonly section: string
+}> {}
+
+export class OpensTheLoom extends Data.TaggedError('OpensTheLoom')<{
+  readonly path: Location
+  readonly section: string
+}> {}
+
+export class NoSuchNote extends Data.TaggedError('NoSuchNote')<{
+  readonly path: Location
+  readonly section: string
+  readonly text: string
+}> {}
+
+export class NotADiscussion extends Data.TaggedError('NotADiscussion')<{
+  readonly path: Location
+}> {}
+
+export class UnfitName extends Data.TaggedError('UnfitName')<{ readonly name: string }> {}
+
+export class UnfitText extends Data.TaggedError('UnfitText')<{ readonly line: string }> {}
+
+export class OpensABook extends Data.TaggedError('OpensABook')<{ readonly path: Location }> {}
+
+export class NoConfiguration extends Data.TaggedError('NoConfiguration')<{
+  readonly workspace: Location
+}> {}
+
+export class EditBreaksLoom extends Data.TaggedError('EditBreaksLoom')<{
+  readonly path: Location
+  readonly problems: ReadonlyArray<string>
+}> {}
+
+export type EditRefusal =
+  | NoSuchLoom
+  | LoomExists
+  | NoSuchBook
+  | BookExists
+  | NoSuchPart
+  | PartExists
+  | PartNameIsNumber
+  | TitleTaken
+  | NotInPart
+  | NotOfKind
+  | NoSuchSection
+  | SectionExists
+  | OpensTheLoom
+  | NoSuchNote
+  | NotADiscussion
+  | UnfitName
+  | UnfitText
+  | OpensABook
+  | NoConfiguration
+  | NotAVariableName
+
+## What an edit reads
+
+An edit reads an `EditContext`: the `corpus` the compiler built, the `workspace` it belongs to, the workspace's `manifest`, which the compiler reads from its configuration, and `locate`, which turns the address an application names a loom by into the location the corpus keeps it under. Only the language server knows how an address maps to a location, so the compiler hands that mapping in.
+
+The function `loomAt` finds the loom at a location, and the corpus's `chapterOf` finds the place its catalogue gives the loom, as the chapter "The multi-file AST" describes. A loom at no place in the catalogue, such as a book loom, has no `Chapter`.
+
+The function `fitName` takes a name or a title as an author gives it, without the spaces at either end, and refuses one that is empty or runs over more than one line. A loom's kind and a section's language stand on a line too, in the frontmatter or in a heading's braces, so the same test judges them. A name on two lines would write a line of its own into the frontmatter, such as a `Book` line the author never asked for. An intent may leave a language or a section's kind out, and `fitChosen` judges one that it gives.
+
+=>
+
+export type EditContext = {
+  readonly corpus: LoomCorpusAst
+  readonly workspace: Location
+  readonly manifest: Option.Option<WorkspaceManifest>
+  readonly locate: (uri: string) => Location
+}
+
+const loomAt = (corpus: LoomCorpusAst, path: Location): Result.Result<LoomModule, NoSuchLoom> =>
+  Result.fromOption(Option.fromNullishOr(corpus.modules.get(path)), () => new NoSuchLoom({ path }))
+
+const fitName = (name: string): Result.Result<string, UnfitName> =>
+  name.trim() === '' || /[\r\n]/.test(name)
+    ? Result.fail(new UnfitName({ name }))
+    : Result.succeed(name.trim())
+
+const fitChosen = (name: string | undefined): Result.Result<Option.Option<string>, UnfitName> =>
+  Option.match(Option.fromNullishOr(name), {
+    onNone: () => Result.succeed(Option.none()),
+    onSome: (given) => Result.map(fitName(given), Option.some),
+  })
+
+## First, last, or after another
+
+The type `Spot` names a place in a sequence: `First`, `Last`, or `After` the thing a name names. The function `spotOf` reads it from an intent's `after`, as the section "The intents" describes: no `after` at all goes last, a `null` goes first, and a name goes after what it names. The function `spotIndex` turns a spot into the index the new thing takes in a sequence, given the test that tells whether an item answers to a name. A name that no item answers to gives no index, and the caller refuses the intent. The function `spotName` gives the name a spot holds, for the failure that names it, and `namesItself` tells whether a spot places a thing after itself, which leaves it where it stands.
+
+=>
+
+type Spot = Data.TaggedEnum<{
+  First: {}
+  Last: {}
+  After: { readonly name: string }
+}>
+
+const Spot = Data.taggedEnum<Spot>()
+
+const spotOf = Match.type<string | null | undefined>().pipe(
+  Match.withReturnType<Spot>(),
+  Match.when(Match.undefined, () => Spot.Last()),
+  Match.when(Match.null, () => Spot.First()),
+  Match.orElse((name) => Spot.After({ name })),
+)
+
+const spotIndex = <Item>(
+  items: ReadonlyArray<Item>,
+  spot: Spot,
+  answers: (item: Item, name: string) => boolean,
+): Option.Option<number> =>
+  Spot.$match(spot, {
+    First: () => Option.some(0),
+    Last: () => Option.some(items.length),
+    After: ({ name }) =>
+      Option.map(
+        Array.findFirstIndex(items, (item) => answers(item, name)),
+        (at) => at + 1,
+      ),
+  })
+
+const spotName = (spot: Spot): string =>
+  Spot.$match(spot, { First: () => '', Last: () => '', After: ({ name }) => name })
+
+const namesItself = (spot: Spot, itself: (name: string) => boolean): boolean =>
+  Spot.$match(spot, { First: () => false, Last: () => false, After: ({ name }) => itself(name) })
+
+## Lines of a loom's text
+
+An edit changes whole lines of a loom more often than parts of one. The corpus gives each token the line it stands on, counted from one, and each line of a loom's text, a weft, the offsets it spans, its line break included. The function `lineSpanOf` gives the offsets a line spans from its number, its line break included, through the start of each line, which `lineStartsOf` lists.
+
+A loom ends its lines with a newline, or with a carriage return before the newline, as a loom written on Windows often does. The chapter "Line ranges" faults a loom that ends its lines in both ways. The edits write every line break as a newline alone, and the edit as a whole is written in each loom's own ending at the last, as the section "One table of intents" describes. The text around an offset may end its lines either way, though, so the functions that read it read both. The function `breakAt` gives the length of the line break that starts at an offset, zero when the offset stands within a line, and `breakBefore` the length of the one that ends just before it, both through `breakLength`. The text before an offset ends on a blank line when a line break ends just before it and another ends just before that one, as `blankBefore` tells.
+
+A new block of text needs a blank line between it and the text around it, as every block of a loom has. The function `blockAt` gives the text to insert at an offset that ends a line, a blank line before the block and, when text follows on the same line, a newline after it. The function `blockBefore` gives the text to insert before a line, such as a heading: the block and a blank line after it, and a blank line before it when the line above holds words.
+
+The function `contentEnd` gives the offset after the last line of a run that holds words, or a fallback when every line of the run is blank. A note, a message, or a conclusion follows that line, rather than the blank lines a section ends on. The function `afterWords` gives the same offset for the text before an offset: the start of the line after the last line of words.
+
+=>
+
+const lineStartsOf = (text: string): ReadonlyArray<number> => [
+  0,
+  ...Array.fromIterable(text.matchAll(/\n/g)).map((found) => found.index + 1),
+]
+
+const breakLength = (found: RegExpExecArray | null): number =>
+  Option.match(Option.fromNullishOr(found), { onNone: () => 0, onSome: (line) => line[0].length })
+
+const breakAt = (text: string, at: number): number =>
+  breakLength(/^\r?\n/.exec(text.slice(at, at + 2)))
+
+const breakBefore = (text: string, at: number): number =>
+  breakLength(/\r?\n$/.exec(text.slice(Math.max(0, at - 2), at)))
+
+const blankBefore = (text: string, at: number): boolean => {
+  const last = breakBefore(text, at)
+  return last > 0 && breakBefore(text, at - last) > 0
+}
+
+const afterWords = (text: string, at: number): number => {
+  const words = text.slice(0, at).replace(/[\r\n]+$/, '').length
+  return words + breakAt(text, words)
+}
+
+const lineSpanOf = (
+  text: string,
+  line: number,
+): { readonly start: number; readonly end: number } => {
+  const starts = lineStartsOf(text)
+  return {
+    start: Option.getOrElse(Array.get(starts, line - 1), () => text.length),
+    end: Option.getOrElse(Array.get(starts, line), () => text.length),
+  }
+}
+
+const blockAt = (text: string, at: number, block: string): string => {
+  const before = at === 0 || breakBefore(text, at) > 0 ? '' : '\n'
+  const after = at === text.length || breakAt(text, at) > 0 ? '' : '\n'
+  return `${before}\n${block}\n${after}`
+}
+
+const blockBefore = (text: string, at: number, block: string): string =>
+  `${at > 0 && !blankBefore(text, at) ? '\n' : ''}${block}\n\n`
+
+const contentEnd = (lines: ReadonlyArray<LoomWeft>, fallback: number): number =>
+  Option.getOrElse(
+    Option.map(
+      Array.findLast(lines, (line) => line.source.trim() !== ''),
+      (line) => line.position.end.offset,
+    ),
+    () => fallback,
+  )
+
+## Books, parts, and the looms they hold
+
+A loom stands in a book, and in a part of it or in none, as its frontmatter says and the corpus's catalogue reads. The catalogue lists every loom that is no book loom as a `Chapter`, with its title, its number, its kind, its book, and its part. A loom with no frontmatter says nothing of where it stands, so `placedIn` leaves it out, and keeps the looms of one book. The function `bookNameOf` gives a loom's book by name, empty for the default book.
+
+A `Part` names one part of a book by its `number` and its `name`. A numbered part is known by its number, and a numberless part by its name, as `sameIdentity` tells. The function `partOf` gives the part a loom stands in, and nothing for a loom in no part, and `standsIn` tests whether a loom stands in a given part, or in none. The function `partsOf` lists the parts of a book in their order, the numbered parts by their Roman numerals and the numberless parts after them by name, as `byPart` orders them and as the contents order them. The corpus's catalogue knows a part's name wherever one loom of the part announces it, so every loom of the part carries it. The function `partNamed` finds a part by its number or its name, and `partAsked` refuses a part the book does not hold.
+
+A book exists when a loom names it, and the default book always exists, as `knownBook` tells. The function `refOf` writes a part as the corpus's own `PartRef`, which the walks of the corpus take.
+
+A book numbers its parts as a part numbers its looms. It numbers a new part when it holds no part yet or holds a numbered one, as `numbersParts` tells, and gives none to a new part when every part it holds is numberless.
+
+=>
+
+type Part = {
+  readonly book: string
+  readonly number: Option.Option<string>
+  readonly name: Option.Option<string>
+}
+
+const bookNameOf = (chapter: Chapter): string => Option.getOrElse(chapter.book, () => '')
+
+const placedIn = (catalogue: Catalogue, book: string): ReadonlyArray<Chapter> =>
+  catalogue.chapters.filter(
+    (chapter) => chapter.module.doc.frontmatter !== undefined && bookNameOf(chapter) === book,
+  )
+
+const partOf = (chapter: Chapter): Option.Option<Part> =>
+  Option.isNone(chapter.part.number) && Option.isNone(chapter.part.name)
+    ? Option.none()
+    : Option.some({
+        book: bookNameOf(chapter),
+        number: chapter.part.number,
+        name: chapter.part.name,
+      })
+
+const sameIdentity = (part: Part, other: Part): boolean =>
+  part.book === other.book &&
+  Option.match(part.number, {
+    onSome: (number) => Option.contains(other.number, number),
+    onNone: () =>
+      Option.isNone(other.number) && Option.getOrNull(part.name) === Option.getOrNull(other.name),
+  })
+
+const standsIn =
+  (part: Option.Option<Part>) =>
+  (chapter: Chapter): boolean =>
+    Option.match(part, {
+      onNone: () => Option.isNone(partOf(chapter)),
+      onSome: (asked) => Option.exists(partOf(chapter), (held) => sameIdentity(held, asked)),
+    })
+
+const byPart: Order.Order<Part> = Order.combineAll([
+  Order.mapInput(Order.Number, (part: Part) => (Option.isSome(part.number) ? 0 : 1)),
+  Order.mapInput(Order.Number, (part: Part) =>
+    Option.match(part.number, { onNone: () => 0, onSome: romanValue }),
+  ),
+  Order.mapInput(Order.String, (part: Part) => Option.getOrElse(part.name, () => '')),
+])
+
+const partsOf = (catalogue: Catalogue, book: string): ReadonlyArray<Part> =>
+  Array.sort(
+    Array.dedupeWith(Array.getSomes(placedIn(catalogue, book).map(partOf)), sameIdentity),
+    byPart,
+  )
+
+const answersTo = (part: Part, name: string): boolean =>
+  Option.contains(part.number, name) || Option.contains(part.name, name)
+
+const partNamed = (parts: ReadonlyArray<Part>, asked: string): Option.Option<Part> =>
+  Option.orElse(
+    Array.findFirst(parts, (part) => Option.contains(part.number, asked)),
+    () => Array.findFirst(parts, (part) => Option.contains(part.name, asked)),
+  )
+
+const partAsked = (
+  catalogue: Catalogue,
+  book: string,
+  asked: string,
+): Result.Result<Part, NoSuchPart> =>
+  Result.fromOption(
+    partNamed(partsOf(catalogue, book), asked),
+    () => new NoSuchPart({ book, part: asked }),
+  )
+
+const knownBook = (catalogue: Catalogue, book: string): Result.Result<string, NoSuchBook> =>
+  book === '' || catalogue.books.has(book)
+    ? Result.succeed(book)
+    : Result.fail(new NoSuchBook({ book }))
+
+const refOf = (part: Part): PartRef => ({
+  book: part.book === '' ? Option.none() : Option.some(part.book),
+  number: part.number,
+  name: part.name,
+})
+
+const isNumberedPart = (part: Part): boolean => Option.isSome(part.number)
+
+const numbersParts = (parts: ReadonlyArray<Part>): boolean =>
+  parts.length === 0 || parts.some(isNumberedPart)
+
+const partLabel = (part: Part): string =>
+  Option.getOrElse(
+    Option.orElse(part.number, () => part.name),
+    () => '',
+  )
+
+## Numbers within a part
+
+The looms of a part are numbered in sequences, one for each kind: the chapters count from one, the discussions count from one apart from them, and so do the looms of each kind a trope declares, as the chapter "Books" describes. The function `siblingsOf` lists one sequence, the looms of a book and a part that share a kind, in their order, which `byNumber` gives: numbered looms by number, then numberless looms by title. The function `numberOf` reads a loom's number as an integer, and a number that is no integer counts as none.
+
+A sequence may be numberless, as the chapters of a part of work in progress often are, ordered by whoever reads them. A new loom follows the sequence it joins, which `numbersItself` tells: it takes a number when the sequence is empty or holds a numbered loom, and none when every loom of the sequence is numberless.
+
+=>
+
+const numberOf = (chapter: Chapter): Option.Option<number> =>
+  Option.filter(
+    Option.map(chapter.number, (written) => Number.parseInt(written, 10)),
+    Number.isFinite,
+  )
+
+const byNumber: Order.Order<Chapter> = Order.combineAll([
+  Order.mapInput(Order.Number, (chapter: Chapter) =>
+    Option.getOrElse(numberOf(chapter), () => Infinity),
+  ),
+  Order.mapInput(Order.String, (chapter: Chapter) => chapter.title),
+])
+
+const siblingsOf = (
+  catalogue: Catalogue,
+  book: string,
+  part: Option.Option<Part>,
+  kind: string,
+): ReadonlyArray<Chapter> =>
+  Array.sort(
+    placedIn(catalogue, book).filter((chapter) => chapter.kind === kind && standsIn(part)(chapter)),
+    byNumber,
+  )
+
+const isNumbered = (chapter: Chapter): boolean => Option.isSome(numberOf(chapter))
+
+const numbersItself = (siblings: ReadonlyArray<Chapter>): boolean =>
+  siblings.length === 0 || siblings.some(isNumbered)
+
+~
+
+A loom placed in a sequence takes the place its spot gives, among the numbered looms of the sequence. A `Slot` holds a loom's place in the sequence and its number, none for a loom still to be numbered. The function `renumbered` numbers a sequence of slots again from one slot on, one after another. The slot before keeps its number, so the first slot renumbered takes the number after it, or one when it opens the sequence. It gives the new number of every slot whose number changes.
+
+The function `placing` places a loom in a sequence and numbers it. It gives a `Placing`: the loom's own number, and the new numbers of the other looms. A `Sequence` names what it places the loom among: the `book`, the `part`, and the `kind` of the sequence, its `siblings` without the loom that `moving` holds, and the place the loom held in it, `earliest`, when it moves within its own sequence. Such a loom first leaves its place, so the sequence is numbered again from the earlier of the place it left and the place it takes. A loom joining a numberless sequence takes no number, and its spot does not matter, since numberless looms are ordered by title.
+
+An `after` names the loom the placed loom follows, and the function `afterLoom` finds where that leaves it among the numbered looms, as a `Following`: the place, or the failure that refuses it. A loom of the sequence that has no number stands after every numbered loom, so a loom placed after it goes last. A loom of the same part but of another kind is refused with `NotOfKind`, since each kind is numbered apart. Any other `after`, a loom of another part or no loom at all, is refused with `NotInPart`.
+
+=>
+
+type Slot = { readonly path: Location; readonly number: Option.Option<number> }
+
+const slotOf = (chapter: Chapter): Slot => ({
+  path: chapter.module.path,
+  number: numberOf(chapter),
+})
+
+const renumbered = (slots: ReadonlyArray<Slot>, from: number): ReadonlyMap<Location, number> => {
+  const first =
+    Option.getOrElse(
+      Option.flatMap(Array.get(slots, from - 1), (slot) => slot.number),
+      () => 0,
+    ) + 1
+  return new Map(
+    Array.getSomes(
+      slots
+        .slice(from)
+        .map((slot, at) =>
+          Option.contains(slot.number, first + at)
+            ? Option.none()
+            : Option.some([slot.path, first + at] as const),
+        ),
+    ),
+  )
+}
+
+type Placing = {
+  readonly number: Option.Option<number>
+  readonly numbers: ReadonlyMap<Location, number>
+}
+
+type Sequence = {
+  readonly book: string
+  readonly part: Option.Option<Part>
+  readonly kind: string
+  readonly siblings: ReadonlyArray<Chapter>
+  readonly moving: Slot
+  readonly earliest: Option.Option<number>
+}
+
+type Following = Result.Result<number, NotInPart | NotOfKind>
+
+const afterLoom = (
+  catalogue: Catalogue,
+  sequence: Sequence,
+  numbered: ReadonlyArray<Slot>,
+  path: Location,
+): Following =>
+  pipe(
+    Option.map(
+      Array.findFirstIndex(numbered, (slot) => slot.path === path),
+      (at) => at + 1,
+    ),
+    Option.orElse(() =>
+      Option.as(
+        Array.findFirst(sequence.siblings, (sibling) => sibling.module.path === path),
+        numbered.length,
+      ),
+    ),
+    Option.map((at): Following => Result.succeed(at)),
+    Option.orElse(() =>
+      Option.as(
+        Option.filter(
+          chapterOf(catalogue, path),
+          (chapter) =>
+            chapter.kind !== sequence.kind &&
+            bookNameOf(chapter) === sequence.book &&
+            standsIn(sequence.part)(chapter),
+        ),
+        Result.fail(new NotOfKind({ path, kind: sequence.kind })),
+      ),
+    ),
+    Option.getOrElse((): Following => Result.fail(new NotInPart({ path }))),
+  )
+
+const placing = (
+  context: EditContext,
+  sequence: Sequence,
+  spot: Spot,
+): Result.Result<Placing, NotInPart | NotOfKind> => {
+  const { siblings, moving, earliest } = sequence
+  if (!numbersItself(siblings)) return Result.succeed({ number: Option.none(), numbers: new Map() })
+  const numbered = siblings.filter(isNumbered).map(slotOf)
+  return Result.map(
+    Spot.$match(spot, {
+      First: (): Following => Result.succeed(0),
+      Last: (): Following => Result.succeed(numbered.length),
+      After: ({ name }) =>
+        afterLoom(catalogueOf(context.corpus.modules), sequence, numbered, context.locate(name)),
+    }),
+    (at) => {
+      const numbers = renumbered(
+        [...numbered.slice(0, at), moving, ...numbered.slice(at)],
+        Math.min(
+          at,
+          Option.getOrElse(earliest, () => at),
+        ),
+      )
+      return {
+        number: Option.orElse(Option.fromNullishOr(numbers.get(moving.path)), () => moving.number),
+        numbers: new Map([...numbers].filter(([path]) => path !== moving.path)),
+      }
+    },
+  )
+}
+
+~
+
+A loom that leaves a sequence leaves a gap behind it, and the looms after it close the gap, as `gapNumbers` numbers them. A numberless loom leaves no gap.
+
+=>
+
+const gapNumbers = (catalogue: Catalogue, chapter: Chapter): ReadonlyMap<Location, number> => {
+  const numbered = siblingsOf(catalogue, bookNameOf(chapter), partOf(chapter), chapter.kind).filter(
+    isNumbered,
+  )
+  return Option.match(
+    Array.findFirstIndex(numbered, (sibling) => sibling.module.path === chapter.module.path),
+    {
+      onNone: () => new Map(),
+      onSome: (at) =>
+        renumbered(
+          numbered.filter((sibling) => sibling.module.path !== chapter.module.path).map(slotOf),
+          at,
+        ),
+    },
+  )
+}
+
+## A title free in its part
+
+Two looms of one part may not share a title, as the chapter "Books" describes: a reference names a chapter of a part by its title, and two titles alike would leave it unsure which. A loom in no part takes part in no such rule. The function `titleFree` refuses a title another loom of the part already has, with `TitleTaken`. A loom that keeps its place, such as one being retitled, does not count against itself.
+
+Two titles that differ only in case, spacing, or punctuation read to a writer as one, as `The grid` and `the grid` do. So the function `titleFree` compares titles as the function `foldedTitle` folds them: their letters and digits in lower case, each word apart from the next by one space. It folds the letters of every script, so two titles in Cyrillic fold apart as two in Latin do.
+
+=>
+
+const foldedTitle = (title: string): string =>
+  Option.getOrElse(
+    Option.fromNullishOr(title.toLowerCase().match(/[\p{L}\p{N}]+/gu)),
+    () => [],
+  ).join(' ')
+
+const titleFree = (
+  catalogue: Catalogue,
+  book: string,
+  part: Option.Option<Part>,
+  title: string,
+  keeping: Option.Option<Location>,
+): Result.Result<string, TitleTaken> =>
+  Option.match(part, {
+    onNone: () => Result.succeed(title),
+    onSome: (held) =>
+      placedIn(catalogue, book).some(
+        (chapter) =>
+          standsIn(part)(chapter) &&
+          foldedTitle(chapter.title) === foldedTitle(title) &&
+          !Option.contains(keeping, chapter.module.path),
+      )
+        ? Result.fail(new TitleTaken({ title, book, part: partLabel(held) }))
+        : Result.succeed(title),
+  })
+
+## Writing where a loom stands
+
+A loom says where it stands in its frontmatter, in Loom's grammar, which the chapter "The tokeniser stage" reads. A part's announcement names the part by its number and its name, as `Part I: The room` does, or by its name alone for a numberless part, as `Part: Work in progress` does. An identity line names the loom's kind, its number when it has one, and its title, as `Chapter 2: Walls` does. A `Book` line names its book. A loom of the default book names no book.
+
+Loom writes every loom of a named part with the part's announcement, so each loom carries its part's name, and the part keeps it whichever loom leaves. A part whose name no loom announces is written in the joined form the grammar also reads, as `Part I, Chapter 2: Walls` is.
+
+A `Placed` value holds where a loom stands: its `book`, its `part`, and its `number`. The function `placementLines` writes the lines that say so, through `partLines` and `identityLine`. The word that opens a loom's identity line is its kind, `Chapter`, `Discussion`, or a kind a trope declares, and a chapter that roots a trope opens with `Trope Chapter`, as `wordOf` reads. A loom keeps the title its frontmatter declares, and `declaredTitle` falls back to the title the contents give a loom that declares none.
+
+=>
+
+type Placed = {
+  readonly book: string
+  readonly part: Option.Option<Part>
+  readonly number: Option.Option<number>
+}
+
+const partLines = (part: Option.Option<Part>): ReadonlyArray<string> =>
+  Option.match(
+    Option.flatMap(part, (held) => Option.map(held.name, (name) => ({ held, name }))),
+    {
+      onNone: () => [],
+      onSome: ({ held, name }) => [
+        Option.match(held.number, {
+          onNone: () => `Part: ${name}`,
+          onSome: (number) => `Part ${number}: ${name}`,
+        }),
+      ],
+    },
+  )
+
+const identityLine = (word: string, title: string, placed: Placed): string => {
+  const own = Option.match(placed.number, {
+    onNone: () => word,
+    onSome: (number) => `${word} ${number}`,
+  })
+  return Option.match(
+    Option.flatMap(placed.part, (part) => (Option.isNone(part.name) ? part.number : Option.none())),
+    {
+      onNone: () => `${own}: ${title}`,
+      onSome: (number) => `Part ${number}, ${own}: ${title}`,
+    },
+  )
+}
+
+const placementLines = (word: string, title: string, placed: Placed): ReadonlyArray<string> => [
+  ...partLines(placed.part),
+  identityLine(word, title, placed),
+  ...(placed.book === '' ? [] : [`Book: ${placed.book}`]),
+]
+
+const wordOf = (module: LoomModule): string =>
+  module.doc.frontmatter?.trope === undefined ? loomKindOf(module) : 'Trope Chapter'
+
+const declaredTitle = (module: LoomModule): string =>
+  module.doc.frontmatter?.title?.value ?? titleOf(module)
+
+~
+
+A loom that moves to another part or book has its placement written anew. The lines that place a loom are those that hold one of the tokens `placingTokens` lists: a part, a part's name, a number, a kind, a title, a book, or the mark of a trope chapter. The function `placementSplices` writes the new lines where the first of them stood, and removes the others, so the other lines of the frontmatter, such as its `Language` and its `Package`, stay where they were. A frontmatter that holds no placing line takes the new lines after its opening fence. A loom with no frontmatter takes a whole new one at its start.
+
+=>
+
+type Spanned = { readonly position: Position }
+
+const placingToken = (token: Spanned | undefined): Option.Option<Spanned> =>
+  Option.fromNullishOr(token)
+
+const placingTokens = (frontmatter: LoomFrontmatter): ReadonlyArray<Spanned> =>
+  Array.getSomes(
+    [
+      frontmatter.part,
+      frontmatter.partName,
+      frontmatter.chapter,
+      frontmatter.discussion,
+      frontmatter.kind,
+      frontmatter.title,
+      frontmatter.book,
+      frontmatter.trope,
+    ].map(placingToken),
+  )
+
+const placementSplices = (module: LoomModule, placed: Placed): ReadonlyArray<Splice> => {
+  const lines = placementLines(wordOf(module), declaredTitle(module), placed)
+  const written = `${lines.join('\n')}\n`
+  return Option.match(Option.fromNullishOr(module.doc.frontmatter), {
+    onNone: () => [{ path: module.path, start: 0, end: 0, text: `---\n${written}---\n\n` }],
+    onSome: (frontmatter) =>
+      Array.match(
+        Array.sort(
+          Array.dedupe(placingTokens(frontmatter).map((token) => token.position.start.line)),
+          Order.Number,
+        ),
+        {
+          onEmpty: () => {
+            const { start } = lineSpanOf(module.text, frontmatter.position.start.line + 1)
+            return [{ path: module.path, start, end: start, text: written }]
+          },
+          onNonEmpty: ([first, ...rest]) => [
+            { path: module.path, ...lineSpanOf(module.text, first), text: written },
+            ...rest.map((line) => ({
+              path: module.path,
+              ...lineSpanOf(module.text, line),
+              text: '',
+            })),
+          ],
+        },
+      ),
+  })
+}
+
+## Numbers that follow a change
+
+A loom's number names it too. An anchor may name a chapter by its part's number and its own, as Part VI, Chapter 5 names the language server, and the corpus's `numberNamesOf` gathers every place that names a loom by its number, its frontmatter's number among them. A part's number names it in the same way, and the corpus's `partNumbersOf` gathers every anchor that names a part by its number. So a loom or a part that takes a new number takes it everywhere it is named, in one edit.
+
+A change to where looms stand comes down to four kinds of move, which `Moves` holds. Its `numbers` give the looms whose numbers change. Its `placed` give the looms whose placement is written anew. Its `parts` give the parts whose numbers change, each with its new number. Its `leaving` give the looms that leave their place, whose numbered names follow them, as the section "A path that follows its loom" describes. The function `splicesOf` turns the moves into splices.
+
+A loom whose placement is written anew gets its number with its placement, so the splices of its number leave its own frontmatter alone, as `inFrontmatterOf` tells, and change only the anchors that name it elsewhere. The function `withNumber` writes a new number in place of the last word of a name, so `Chapter 3` becomes `Chapter 4` and `Tasks 1` becomes `Tasks 2`.
+
+=>
+
+type Moves = {
+  readonly numbers: ReadonlyMap<Location, number>
+  readonly placed: ReadonlyMap<Location, Placed>
+  readonly parts: ReadonlyArray<readonly [Part, number]>
+  readonly leaving: ReadonlyMap<Location, Leaving>
+}
+
+const withNumber = (written: string, number: number): string =>
+  written.replace(/\S+$/, String(number))
+
+const spliceAt = (
+  corpus: LoomCorpusAst,
+  location: CorpusLocation,
+  text: (written: string) => string,
+): Option.Option<Splice> =>
+  Option.map(Option.fromNullishOr(corpus.modules.get(location.path)), (module) => ({
+    path: location.path,
+    start: location.position.start.offset,
+    end: location.position.end.offset,
+    text: text(module.text.slice(location.position.start.offset, location.position.end.offset)),
+  }))
+
+const inFrontmatterOf = (corpus: LoomCorpusAst, location: CorpusLocation): boolean =>
+  Option.exists(
+    Option.flatMap(Option.fromNullishOr(corpus.modules.get(location.path)), (module) =>
+      Option.fromNullishOr(module.doc.frontmatter),
+    ),
+    (frontmatter) => location.position.start.offset <= frontmatter.position.end.offset,
+  )
+
+const numberSplices = (corpus: LoomCorpusAst, moves: Moves): ReadonlyArray<Splice> =>
+  Array.fromIterable(moves.numbers).flatMap(([path, number]) =>
+    Array.getSomes(
+      numberNamesOf(corpus, path)
+        .filter(
+          (location) => !(moves.placed.has(location.path) && inFrontmatterOf(corpus, location)),
+        )
+        .map((location) => spliceAt(corpus, location, (written) => withNumber(written, number))),
+    ),
+  )
+
+~
+
+A part takes a new number in the frontmatter of each of its looms, and in each anchor that names it by number. The function `partMark` writes the new number in one loom. A loom whose frontmatter writes the part's number has that number replaced. A loom of a numberless part that is numbered for the first time has the number written after the word `Part` of its announcement. The function `partSplices` does so for every loom of the part, except the looms whose placement is written anew, and for every anchor. A new part holds no loom yet, so its number lands nowhere but in the loom placed in it.
+
+A path that follows its loom is written whole, its part's number among its segments. So the function `splicesOf` drops every other splice that a path's splice covers, as `covers` tells.
+
+=>
+
+const partMark = (module: LoomModule, number: number): Option.Option<Splice> =>
+  Option.flatMap(Option.fromNullishOr(module.doc.frontmatter), (frontmatter) =>
+    Option.match(Option.fromNullishOr(frontmatter.part), {
+      onSome: (part) =>
+        Option.some({
+          path: module.path,
+          start: part.position.start.offset,
+          end: part.position.end.offset,
+          text: `Part ${romanOf(number)}`,
+        }),
+      onNone: () =>
+        Option.map(Option.fromNullishOr(frontmatter.partName), (name) => {
+          const line = lineSpanOf(module.text, name.position.start.line)
+          const at =
+            line.start + module.text.slice(line.start, line.end).indexOf('Part') + 'Part'.length
+          return { path: module.path, start: at, end: at, text: ` ${romanOf(number)}` }
+        }),
+    }),
+  )
+
+const partSplices = (
+  corpus: LoomCorpusAst,
+  placed: ReadonlyMap<Location, Placed>,
+  part: Part,
+  number: number,
+): ReadonlyArray<Splice> => [
+  ...Array.getSomes(
+    placedIn(catalogueOf(corpus.modules), part.book)
+      .filter((chapter) => standsIn(Option.some(part))(chapter) && !placed.has(chapter.module.path))
+      .map((chapter) => partMark(chapter.module, number)),
+  ),
+  ...(Option.isSome(part.number)
+    ? Array.getSomes(
+        partNumbersOf(corpus, refOf(part)).map((location) =>
+          spliceAt(corpus, location, () => `Part ${romanOf(number)}`),
+        ),
+      )
+    : []),
+]
+
+const covers = (outer: Splice, inner: Splice): boolean =>
+  outer.path === inner.path && outer.start <= inner.start && inner.end <= outer.end
+
+const splicesOf = (corpus: LoomCorpusAst, moves: Moves): ReadonlyArray<Splice> => {
+  const paths = pathSplices(corpus, moves.leaving)
+  return [
+    ...paths,
+    ...[
+      ...numberSplices(corpus, moves),
+      ...Array.fromIterable(moves.placed).flatMap(([path, placed]) =>
+        Option.match(Option.fromNullishOr(corpus.modules.get(path)), {
+          onNone: (): ReadonlyArray<Splice> => [],
+          onSome: (module) => placementSplices(module, placed),
+        }),
+      ),
+      ...moves.parts.flatMap(([part, number]) => partSplices(corpus, moves.placed, part, number)),
+    ].filter((splice) => !paths.some((path) => covers(path, splice))),
+  ]
+}
+
+~
+
+A part's number is a Roman numeral, which the contents read with `romanValue`. The function `romanOf` writes one, taking each value from the largest down as many times as it fits, so four is `IV` and twelve is `XII`. A name reads as a part's number when it is a Roman numeral as `romanOf` writes it, as `readsAsNumber` tells, so `IV` does and `Ivy` does not.
+
+An edit that moves, adds, or removes a part changes the order of a book's numbered parts. The function `partNumbers` takes the numbered parts before the edit and the parts in their order after it. It finds the first place where the two orders part, and numbers the parts from that place on, one after another, as `renumbered` numbers looms. The part before that place keeps its number, so the parts before it keep theirs. A `Numbering` holds the outcome: its `parts`, each part whose number changes with its new number, and `final`, which gives a part as it stands after the edit. A loom whose placement is written anew stands in its part's final number, never in the number the part held before.
+
+=>
+
+const romanUnits: ReadonlyArray<readonly [number, string]> = [
+  [1000, 'M'],
+  [900, 'CM'],
+  [500, 'D'],
+  [400, 'CD'],
+  [100, 'C'],
+  [90, 'XC'],
+  [50, 'L'],
+  [40, 'XL'],
+  [10, 'X'],
+  [9, 'IX'],
+  [5, 'V'],
+  [4, 'IV'],
+  [1, 'I'],
+]
+
+export const romanOf = (value: number): string =>
+  romanUnits.reduce(
+    ({ left, written }, [unit, letters]) => ({
+      left: left % unit,
+      written: written + letters.repeat(Math.floor(left / unit)),
+    }),
+    { left: value, written: '' },
+  ).written
+
+const partValue = (part: Part): number =>
+  Option.match(part.number, { onNone: () => 0, onSome: romanValue })
+
+const readsAsNumber = (name: string): boolean =>
+  /^[IVXLCDM]+$/.test(name) && romanOf(romanValue(name)) === name
+
+const partNumbers = (
+  before: ReadonlyArray<Part>,
+  after: ReadonlyArray<Part>,
+): ReadonlyArray<readonly [Part, number]> => {
+  const from = Option.getOrElse(
+    Array.findFirstIndex(
+      after,
+      (part, at) => !Option.exists(Array.get(before, at), (held) => sameIdentity(held, part)),
+    ),
+    () => after.length,
+  )
+  const first = Option.getOrElse(Option.map(Array.get(after, from - 1), partValue), () => 0) + 1
+  return after.slice(from).map((part, at) => [part, first + at] as const)
+}
+
+type Numbering = {
+  readonly parts: ReadonlyArray<readonly [Part, number]>
+  readonly final: (part: Part) => Part
+}
+
+const numbering = (numbers: ReadonlyArray<readonly [Part, number]>): Numbering => ({
+  parts: numbers.filter(([part, number]) => partValue(part) !== number),
+  final: (part) =>
+    Option.match(
+      Array.findFirst(numbers, ([held]) => sameIdentity(held, part)),
+      {
+        onNone: () => part,
+        onSome: ([, number]) => ({ ...part, number: Option.some(romanOf(number)) }),
+      },
+    ),
+})
+
+## A path that follows its loom
+
+A loom that leaves its place takes its numbered names with it. An anchor may name a loom by its number, as `Part I, Chapter 1, Cells` names the section `Cells` of the first chapter of Part I. Once that loom leaves, another loom takes its number, and the anchor would name the other loom's `Cells` without a word of warning. So every path that names a leaving loom by its number is written anew, and `Leaving` tells how.
+
+A loom `Moving` to its `placed`, a new place, is named by the path to that place, as `pathFor` writes it. The path names the book when it named one before, or when the anchor stands in another book. It names the part by its number, or by its name when the part has none, and the loom by its number, or by its title when the loom has no number or stands in no part. The default book has no name, so a path from another book cannot reach it, and names the loom by its title alone. The functions `bookSegments`, `partSegment`, and `loomSegment` write the three steps of the path, and `homeOf` gives the book the anchor stands in.
+
+A loom `Going` out of the corpus has no place to be named by. Its numbered names take its title instead, where its number stood, so the path names nothing once the loom is gone. A section that composed the loom then shows the problem in its own loom, and a link to the loom warns, as a link that leads nowhere always does. The corpus's `numberPathsOf` gives each path that names a loom by its number, and its `numberNamesOf` the segment that numbers the loom, as `pathSplices` takes them.
+
+=>
+
+type Leaving = Data.TaggedEnum<{
+  Moving: { readonly placed: Placed }
+  Going: {}
+}>
+
+const Leaving = Data.taggedEnum<Leaving>()
+
+const partSegment = (part: Part): string =>
+  Option.match(part.number, {
+    onSome: (number) => `Part ${number}`,
+    onNone: () => Option.getOrElse(part.name, () => ''),
+  })
+
+const loomSegment = (chapter: Chapter, placed: Placed): string =>
+  Option.match(
+    Option.filter(placed.number, () => Option.isSome(placed.part)),
+    {
+      onSome: (number) => `${chapter.kind} ${number}`,
+      onNone: () => chapter.title,
+    },
+  )
+
+const bookSegments = (
+  placed: Placed,
+  named: boolean,
+  home: string,
+): Option.Option<ReadonlyArray<string>> =>
+  named || placed.book !== home
+    ? Option.map(
+        Option.liftPredicate(placed.book, (book) => book !== ''),
+        (book) => [book],
+      )
+    : Option.some([])
+
+const pathFor = (chapter: Chapter, placed: Placed, named: boolean, home: string): string =>
+  Option.match(bookSegments(placed, named, home), {
+    onNone: () => chapter.title,
+    onSome: (books) =>
+      [
+        ...books,
+        ...Option.toArray(Option.map(placed.part, partSegment)),
+        loomSegment(chapter, placed),
+      ].join(', '),
+  })
+
+const homeOf = (corpus: LoomCorpusAst, path: Location): string =>
+  Option.getOrElse(Option.flatMap(Option.fromNullishOr(corpus.modules.get(path)), bookOf), () => '')
+
+const pathSplices = (
+  corpus: LoomCorpusAst,
+  leaving: ReadonlyMap<Location, Leaving>,
+): ReadonlyArray<Splice> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Array.fromIterable(leaving).flatMap(([path, leaves]) =>
+    Option.match(chapterOf(catalogue, path), {
+      onNone: (): ReadonlyArray<Splice> => [],
+      onSome: (chapter) =>
+        Leaving.$match(leaves, {
+          Moving: ({ placed }) =>
+            Array.getSomes(
+              numberPathsOf(corpus, path).map((named) =>
+                spliceAt(corpus, named.location, () =>
+                  pathFor(chapter, placed, named.book, homeOf(corpus, named.location.path)),
+                ),
+              ),
+            ),
+          Going: () =>
+            Array.getSomes(
+              numberNamesOf(corpus, path)
+                .filter((location) => location.path !== path)
+                .map((location) => spliceAt(corpus, location, () => chapter.title)),
+            ),
+        }),
+    }),
+  )
+}
+
+## A part that keeps its name
+
+A part is named wherever one of its looms announces it. When the one loom that announces a part leaves it, the part would lose its name. So the function `keptNamed` hands the announcement to the first loom that stays, the first chapter by number, as `byPlace` orders the looms, by writing that loom's placement anew. The loom keeps the number the edit gives it, and stands in the part as the edit numbers it, through the numbering's `final`. A part may take a new number in the same edit, as Light does when a new part opens before it, and the loom that announces it then writes the new number.
+
+=>
+
+const announces = (chapter: Chapter): boolean =>
+  chapter.module.doc.frontmatter?.partName !== undefined
+
+const byPlace: Order.Order<Chapter> = Order.combineAll([
+  Order.mapInput(Order.Number, (chapter: Chapter) => (chapter.kind === chapterKind ? 0 : 1)),
+  byNumber,
+])
+
+const keptNamed = (
+  catalogue: Catalogue,
+  leaver: Chapter,
+  numbers: ReadonlyMap<Location, number>,
+  final: (part: Part) => Part,
+): ReadonlyMap<Location, Placed> =>
+  Option.match(
+    pipe(
+      partOf(leaver),
+      Option.filter((part) => Option.isSome(part.name) && announces(leaver)),
+      Option.flatMap((part) => {
+        const staying = placedIn(catalogue, part.book).filter(
+          (chapter) =>
+            standsIn(Option.some(part))(chapter) && chapter.module.path !== leaver.module.path,
+        )
+        return staying.some(announces)
+          ? Option.none()
+          : Option.map(Array.head(Array.sort(staying, byPlace)), (heir) => ({ heir, part }))
+      }),
+    ),
+    {
+      onNone: () => new Map(),
+      onSome: ({ heir, part }) =>
+        new Map([
+          [
+            heir.module.path,
+            {
+              book: part.book,
+              part: Option.some(final(part)),
+              number: Option.orElse(Option.fromNullishOr(numbers.get(heir.module.path)), () =>
+                numberOf(heir),
+              ),
+            },
+          ],
+        ]),
+    },
+  )
+
+## The part a loom is placed in
+
+A loom made or moved names the part it goes to in its `part`, a `PartChosen`, and the function `partChosen` reads that choice as a `Target`. A choice of no part places the loom in `NoPart`. The name of a part the book holds places it in that part, as `Held`. A new part, given by its `name` and its own `after`, is `Fresh`, as `newPart` works out: it carries the part, and its place `at` among the book's numbered parts. A book of numberless parts gives a new part no number and no place, and orders it by name, as it orders its other parts.
+
+A new part needs a name fit for a part, as `fitPartName` judges it. The name must be fit for a frontmatter line, as `fitName` judges a name. It must not read as a part's number, since an intent names a part by its number first, and a part named `IV` would then stand for Part IV. And no other part of the book may hold it already. The type `PartRefusal` joins the failures a choice of part may meet.
+
+A fresh part holds no loom yet, as `siblingsIn` tells, and no title in it is taken, as `titleFreeIn` tells. It has no number of its own yet, so it never stands for a part that holds one.
+
+=>
+
+type Target = Data.TaggedEnum<{
+  NoPart: {}
+  Held: { readonly part: Part }
+  Fresh: { readonly part: Part; readonly at: Option.Option<number> }
+}>
+
+const Target = Data.taggedEnum<Target>()
+
+const targetPart = (target: Target): Option.Option<Part> =>
+  Target.$match(target, {
+    NoPart: () => Option.none(),
+    Held: ({ part }) => Option.some(part),
+    Fresh: ({ part }) => Option.some(part),
+  })
+
+const siblingsIn = (
+  catalogue: Catalogue,
+  book: string,
+  target: Target,
+  kind: string,
+): ReadonlyArray<Chapter> =>
+  Target.$is('Fresh')(target) ? [] : siblingsOf(catalogue, book, targetPart(target), kind)
+
+const titleFreeIn = (
+  catalogue: Catalogue,
+  book: string,
+  target: Target,
+  title: string,
+  keeping: Option.Option<Location>,
+): Result.Result<string, TitleTaken> =>
+  Target.$is('Fresh')(target)
+    ? Result.succeed(title)
+    : titleFree(catalogue, book, targetPart(target), title, keeping)
+
+type PartRefusal = UnfitName | PartNameIsNumber | PartExists | NoSuchPart
+
+const fitPartName = (
+  parts: ReadonlyArray<Part>,
+  book: string,
+  asked: string,
+  keeping: Option.Option<Part>,
+): Result.Result<string, UnfitName | PartNameIsNumber | PartExists> =>
+  Result.gen(function* () {
+    const name = yield* fitName(asked)
+    yield* readsAsNumber(name) ? Result.fail(new PartNameIsNumber({ name })) : Result.succeed(name)
+    return yield* parts.some(
+      (part) =>
+        Option.contains(part.name, name) &&
+        !Option.exists(keeping, (kept) => sameIdentity(kept, part)),
+    )
+      ? Result.fail(new PartExists({ book, part: name }))
+      : Result.succeed(name)
+  })
+
+const newPart = (
+  catalogue: Catalogue,
+  book: string,
+  asked: { readonly name: string; readonly after?: string | null },
+): Result.Result<Target, PartRefusal> =>
+  Result.gen(function* () {
+    const parts = partsOf(catalogue, book)
+    const name = yield* fitPartName(parts, book, asked.name, Option.none())
+    const spot = spotOf(asked.after)
+    const at = yield* numbersParts(parts)
+      ? Result.map(
+          Result.fromOption(
+            spotIndex(parts.filter(isNumberedPart), spot, answersTo),
+            () => new NoSuchPart({ book, part: spotName(spot) }),
+          ),
+          Option.some,
+        )
+      : Result.succeed(Option.none<number>())
+    return Target.Fresh({ part: { book, number: Option.none(), name: Option.some(name) }, at })
+  })
+
+const partChosen = Match.fn(
+  (_where: { readonly catalogue: Catalogue; readonly book: string }, chosen: PartChosen) => chosen,
+).pipe(
+  Match.withReturnType<Result.Result<Target, PartRefusal>>(),
+  Match.when(Match.undefined, () => Result.succeed(Target.NoPart())),
+  Match.when(Match.string, (asked, { catalogue, book }) =>
+    Result.map(partAsked(catalogue, book, asked), (part) => Target.Held({ part })),
+  ),
+  Match.orElse((asked, { catalogue, book }) => newPart(catalogue, book, asked)),
+)
+
+~
+
+A loom placed in a part may also leave a part behind, and a part that loses its last loom of any kind is gone, as `vacatedBy` finds. The parts after it close the gap, as the looms after a removed loom do. So the numbers of a book's parts after an edit follow from what the edit takes out of the order and what it puts in, as `partsAfter` gives the order and `partNumbering` the `Numbering`. A part the edit vacates leaves the order. A fresh part of the same book enters it at its place, a place one earlier when the vacated part stood before it. A loom that moves from one book to another vacates a part of the one and opens a part of the other, so each book is numbered on its own, and `joined` joins their numberings.
+
+=>
+
+const vacatedBy = (catalogue: Catalogue, leaver: Chapter): Option.Option<Part> =>
+  Option.filter(
+    partOf(leaver),
+    (part) =>
+      !placedIn(catalogue, part.book).some(
+        (chapter) =>
+          standsIn(Option.some(part))(chapter) && chapter.module.path !== leaver.module.path,
+      ),
+  )
+
+const partsAfter = (
+  numbered: ReadonlyArray<Part>,
+  book: string,
+  vacated: Option.Option<Part>,
+  target: Target,
+): ReadonlyArray<Part> => {
+  const kept = numbered.filter(
+    (part) => !Option.exists(vacated, (gone) => sameIdentity(gone, part)),
+  )
+  return Option.match(
+    Option.filter(
+      Option.flatMap(Option.liftPredicate(target, Target.$is('Fresh')), ({ part, at }) =>
+        Option.map(at, (place) => ({ part, place })),
+      ),
+      ({ part }) => part.book === book,
+    ),
+    {
+      onNone: () => kept,
+      onSome: ({ part, place }) => {
+        const shifted =
+          place - numbered.slice(0, place).filter((held) => !kept.includes(held)).length
+        return [...kept.slice(0, shifted), part, ...kept.slice(shifted)]
+      },
+    },
+  )
+}
+
+const partNumbering = (
+  catalogue: Catalogue,
+  book: string,
+  vacated: Option.Option<Part>,
+  target: Target,
+): Numbering => {
+  const numbered = partsOf(catalogue, book).filter(isNumberedPart)
+  return numbering(partNumbers(numbered, partsAfter(numbered, book, vacated, target)))
+}
+
+const joined = (numberings: ReadonlyArray<Numbering>): Numbering => ({
+  parts: numberings.flatMap((held) => held.parts),
+  final: (part) => numberings.reduce((done, held) => held.final(done), part),
+})
+
+## Making a loom
+
+The intent `MakeLoom` makes a new loom at the location its address names, which must be free. Its title, its kind, and its language must be fit, its title free in its part, its book must exist, and its part must be one the book holds or a new one. It joins the sequence of its kind in its part, takes its number there, and numbers again the looms after it. A new part numbers again the parts after it, and the new loom stands in the new part as the edit numbers it.
+
+The new loom's text is its frontmatter, written as the section "Writing where a loom stands" describes, with a `Language` line when the intent names a language, then its opening heading, which carries its title, as `madeText` writes it. The function `freePath` refuses a location the corpus already holds.
+
+=>
+
+const freePath = (context: EditContext, uri: string): Result.Result<Location, LoomExists> => {
+  const path = context.locate(uri)
+  return context.corpus.modules.has(path)
+    ? Result.fail(new LoomExists({ path }))
+    : Result.succeed(path)
+}
+
+const madeText = (
+  word: string,
+  title: string,
+  placed: Placed,
+  language: Option.Option<string>,
+): string =>
+  [
+    '---',
+    ...placementLines(word, title, placed),
+    ...Option.toArray(Option.map(language, (named) => `Language: ${named}`)),
+    '---',
+    '',
+    `# ${title}`,
+    '',
+  ].join('\n')
+
+const madeLoom = (
+  context: EditContext,
+  intent: Intent<'MakeLoom'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const path = yield* freePath(context, intent.uri)
+    const book = yield* knownBook(catalogue, intent.book)
+    const kind = yield* fitName(intent.kind)
+    const language = yield* fitChosen(intent.language)
+    const target = yield* partChosen({ catalogue, book }, intent.part)
+    const title = yield* fitName(intent.title)
+    yield* titleFreeIn(catalogue, book, target, title, Option.none())
+    const parts = partNumbering(catalogue, book, Option.none(), target)
+    const placement = yield* placing(
+      context,
+      {
+        book,
+        part: targetPart(target),
+        kind,
+        siblings: siblingsIn(catalogue, book, target, kind),
+        moving: { path, number: Option.none() },
+        earliest: Option.none(),
+      },
+      spotOf(intent.after),
+    )
+    const placed: Placed = {
+      book,
+      part: Option.map(targetPart(target), parts.final),
+      number: placement.number,
+    }
+    return {
+      made: [{ path, text: madeText(kind, title, placed, language) }],
+      splices: splicesOf(context.corpus, {
+        numbers: placement.numbers,
+        placed: new Map(),
+        parts: parts.parts,
+        leaving: new Map(),
+      }),
+      gone: [],
+      configuration: Option.none(),
+    }
+  })
+
+## Making a book
+
+The intent `MakeBook` makes the book loom that opens a book, as the chapter "Books" describes. Its frontmatter names the book and nothing else, and its heading carries the book's name as its title. A book that looms already name may still need its book loom, so only a book loom that opens the book already refuses the intent, as `bookOpened` tells.
+
+=>
+
+const bookOpened = (corpus: LoomCorpusAst, book: string): boolean =>
+  Array.fromIterable(corpus.modules.values()).some(
+    (module) => isBookLoom(module) && Option.contains(bookOf(module), book),
+  )
+
+const madeBook = (
+  context: EditContext,
+  intent: Intent<'MakeBook'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const path = yield* freePath(context, intent.uri)
+    const name = yield* fitName(intent.name)
+    yield* bookOpened(context.corpus, name)
+      ? Result.fail(new BookExists({ book: name }))
+      : Result.succeed(name)
+    return {
+      made: [{ path, text: ['---', `Book: ${name}`, '---', '', `# ${name}`, ''].join('\n') }],
+      splices: [],
+      gone: [],
+      configuration: Option.none(),
+    }
+  })
+
+## Moving a loom
+
+The intent `MoveLoom` moves a loom to a place in a book and a part, or in no part. A loom that stays in its own sequence only takes a new number, and the looms between its old place and its new one are numbered again. A loom named to follow itself stays where it stands, as `staysPut` tells. A book loom stands in no part, so it never moves.
+
+A loom that leaves its sequence closes the gap behind it, as `gapNumbers` numbers the looms it leaves, takes a number in the sequence it joins, and has its placement written anew. Its numbered names follow it to its new place, as the section "A path that follows its loom" describes. A part that loses the loom that announced it hands its announcement on, as the section "A part that keeps its name" describes. A part that loses its last loom is gone, and the parts after it are numbered again.
+
+The function `movedLoom` reads the intent as a `Move`: the `catalogue`, the loom's `chapter`, the `book` and the `target` it goes to, whether it `stays` in its own sequence, and its `spot` there. The function `moved` carries the move out.
+
+=>
+
+const staysPut = (context: EditContext, path: Location, spot: Spot): boolean =>
+  namesItself(spot, (uri) => context.locate(uri) === path)
+
+const movedLoom = (
+  context: EditContext,
+  intent: Intent<'MoveLoom'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const path = context.locate(intent.uri)
+    const module = yield* loomAt(context.corpus, path)
+    const chapter = yield* Result.fromOption(
+      Option.filter(chapterOf(catalogue, path), () => !isBookLoom(module)),
+      () => new OpensABook({ path }),
+    )
+    const book = yield* knownBook(catalogue, intent.book)
+    const target = yield* partChosen({ catalogue, book }, intent.part)
+    yield* titleFreeIn(catalogue, book, target, chapter.title, Option.some(path))
+    const spot = spotOf(intent.after)
+    const stays =
+      bookNameOf(chapter) === book &&
+      Target.$match(target, {
+        NoPart: () => Option.isNone(partOf(chapter)),
+        Held: ({ part }) => standsIn(Option.some(part))(chapter),
+        Fresh: () => false,
+      })
+    return yield* stays && staysPut(context, path, spot)
+      ? Result.succeed(editOf([]))
+      : moved(context, { catalogue, chapter, book, target, stays, spot })
+  })
+
+type Move = {
+  readonly catalogue: Catalogue
+  readonly chapter: Chapter
+  readonly book: string
+  readonly target: Target
+  readonly stays: boolean
+  readonly spot: Spot
+}
+
+const moved = (context: EditContext, move: Move): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const { catalogue, chapter, book, target, stays, spot } = move
+    const path = chapter.module.path
+    const left = bookNameOf(chapter)
+    const vacated = stays ? Option.none<Part>() : vacatedBy(catalogue, chapter)
+    const parts = joined([
+      partNumbering(catalogue, left, vacated, left === book ? target : Target.NoPart()),
+      ...(left === book ? [] : [partNumbering(catalogue, book, Option.none(), target)]),
+    ])
+    const siblings = siblingsIn(catalogue, book, target, chapter.kind)
+    const placement = yield* placing(
+      context,
+      {
+        book,
+        part: targetPart(target),
+        kind: chapter.kind,
+        siblings: siblings.filter((sibling) => sibling.module.path !== path),
+        moving: stays ? slotOf(chapter) : { path, number: Option.none() },
+        earliest: stays
+          ? Array.findFirstIndex(
+              siblings.filter(isNumbered),
+              (sibling) => sibling.module.path === path,
+            )
+          : Option.none(),
+      },
+      spot,
+    )
+    const numbers = new Map([
+      ...(stays ? [] : gapNumbers(catalogue, chapter)),
+      ...placement.numbers,
+      ...(stays
+        ? Option.toArray(
+            Option.filter(
+              Option.map(placement.number, (number) => [path, number] as const),
+              ([, number]) => !Option.contains(numberOf(chapter), number),
+            ),
+          )
+        : []),
+    ])
+    const placed: Placed = {
+      book,
+      part: Option.map(targetPart(target), parts.final),
+      number: placement.number,
+    }
+    return editOf(
+      splicesOf(context.corpus, {
+        numbers,
+        placed: stays
+          ? new Map()
+          : new Map([...keptNamed(catalogue, chapter, numbers, parts.final), [path, placed]]),
+        parts: parts.parts,
+        leaving: stays ? new Map() : new Map([[path, Leaving.Moving({ placed })]]),
+      }),
+    )
+  })
+
+## Removing a loom
+
+The intent `RemoveLoom` prepares a loom's removal. The application removes the loom itself, from wherever it keeps it, so the edit only numbers again the looms after it, hands its part's announcement on, and lists the loom as gone. A part the loom leaves empty is gone with it, and the parts after it are numbered again. A splice into the loom being removed would land in nothing, so the edit drops any, as `outside` does.
+
+The check reads the corpus without the loom, and judges every loom that reaches it. A section elsewhere that composes a section of the loom would then compose nothing, which is an error the edit adds, so the edit is refused. A numbered name of the loom takes the loom's title, as the section "A path that follows its loom" describes, so no other loom answers to its number in its place. A link that leads into the loom only warns once the loom is gone, as a link that leads nowhere always does, so it refuses nothing.
+
+=>
+
+const outside =
+  (paths: ReadonlyArray<Location>) =>
+  (splice: Splice): boolean =>
+    !Array.contains(paths, splice.path)
+
+const removedLoom = (
+  context: EditContext,
+  intent: Intent<'RemoveLoom'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const path = context.locate(intent.uri)
+    yield* loomAt(context.corpus, path)
+    return Option.match(chapterOf(catalogue, path), {
+      onNone: () => editOf([], [path]),
+      onSome: (chapter) => {
+        const numbers = gapNumbers(catalogue, chapter)
+        const parts = partNumbering(
+          catalogue,
+          bookNameOf(chapter),
+          vacatedBy(catalogue, chapter),
+          Target.NoPart(),
+        )
+        return editOf(
+          splicesOf(context.corpus, {
+            numbers,
+            placed: keptNamed(catalogue, chapter, numbers, parts.final),
+            parts: parts.parts,
+            leaving: new Map([[path, Leaving.Going()]]),
+          }).filter(outside([path])),
+          [path],
+        )
+      },
+    })
+  })
+
+## Retitling a loom
+
+A loom's title stands in its frontmatter and in its opening heading, and anchors and boxes elsewhere name the loom by it. The intent `RetitleLoom` rewrites every one of them through the corpus's own rename, `renameAt`, which the editor's rename runs, as the chapter "The multi-file AST" describes. It starts one walk on the frontmatter's title, which gathers the anchors and boxes that name the loom by its title, and one on the opening heading, which gathers the anchors that name the opening section. A book loom has no frontmatter title, so the heading alone carries its title. A loom whose first heading has two hashes or more has no opening section, as the section "Finding a section" describes, so its frontmatter alone carries its title, and its first section keeps its own name.
+
+The function `renamedAll` runs the rename from each starting offset and writes the new name over every span it gathers.
+
+=>
+
+const renamedAll = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  offsets: ReadonlyArray<number>,
+  name: string,
+): ReadonlyArray<Splice> =>
+  Array.getSomes(
+    offsets
+      .flatMap((offset) => renameAt(corpus, path, offset))
+      .map((location) => spliceAt(corpus, location, () => name)),
+  )
+
+const openingTitle = (module: LoomModule): Option.Option<{ readonly position: Position }> =>
+  Option.flatMap(openingSection(module), (section) => Option.fromNullishOr(section.heading.title))
+
+const retitledLoom = (
+  context: EditContext,
+  intent: Intent<'RetitleLoom'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const path = context.locate(intent.uri)
+    const module = yield* loomAt(context.corpus, path)
+    const title = yield* fitName(intent.title)
+    yield* Option.match(chapterOf(catalogue, path), {
+      onNone: () => Result.succeed(title),
+      onSome: (chapter) =>
+        titleFree(catalogue, bookNameOf(chapter), partOf(chapter), title, Option.some(path)),
+    })
+    return editOf(
+      renamedAll(
+        context.corpus,
+        path,
+        Array.getSomes([
+          Option.fromNullishOr(module.doc.frontmatter?.title),
+          openingTitle(module),
+        ]).map((token) => token.position.start.offset),
+        title,
+      ),
+    )
+  })
+
+## Renaming a book
+
+A book's name stands on the `Book` line of every loom of the book, and anchors name it at the head of a path into the book. The intent `RenameBook` rewrites all of them through `renameAt`, started on one `Book` line of the book, and retitles the book loom's heading, which carries the book's name as its title. The default book has no name, so it cannot be renamed, and a name another book has is refused.
+
+=>
+
+const bookLine = (
+  corpus: LoomCorpusAst,
+  book: string,
+): Option.Option<readonly [Location, number]> =>
+  Array.findFirst(Array.fromIterable(corpus.modules.values()), (module) =>
+    Option.map(
+      Option.filter(
+        Option.fromNullishOr(module.doc.frontmatter?.book),
+        (line) => line.value === book,
+      ),
+      (line) => [module.path, line.position.start.offset] as const,
+    ),
+  )
+
+const renamedBook = (
+  context: EditContext,
+  intent: Intent<'RenameBook'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const [path, offset] = yield* Result.fromOption(
+      Option.filter(bookLine(context.corpus, intent.book), () => intent.book !== ''),
+      () => new NoSuchBook({ book: intent.book }),
+    )
+    const name = yield* fitName(intent.name)
+    yield* catalogue.books.has(name)
+      ? Result.fail(new BookExists({ book: name }))
+      : Result.succeed(name)
+    const opening = Array.fromIterable(context.corpus.modules.values())
+      .filter((module) => isBookLoom(module) && Option.contains(bookOf(module), intent.book))
+      .flatMap((module) =>
+        Option.match(openingTitle(module), {
+          onNone: (): ReadonlyArray<Splice> => [],
+          onSome: (title) =>
+            renamedAll(context.corpus, module.path, [title.position.start.offset], name),
+        }),
+      )
+    return editOf([...renamedAll(context.corpus, path, [offset], name), ...opening])
+  })
+
+## Renaming, moving, and removing a part
+
+A part's name stands in the announcement of each of its looms, and anchors may name the part by it. The intent `RenamePart` rewrites each announcement and each such anchor, which the corpus's `partNamesOf` gathers. A part whose name no loom announces gets its first loom's placement written anew, with the name. The new name must be fit for a part, as `fitPartName` judges it: a name another part of the book has is refused, and so is a name that reads as a part's number.
+
+=>
+
+const renamedPart = (
+  context: EditContext,
+  intent: Intent<'RenamePart'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const part = yield* partAsked(catalogue, intent.book, intent.part)
+    const name = yield* fitPartName(
+      partsOf(catalogue, intent.book),
+      intent.book,
+      intent.name,
+      Option.some(part),
+    )
+    const looms = Array.sort(
+      placedIn(catalogue, intent.book).filter(standsIn(Option.some(part))),
+      byPlace,
+    )
+    const announced = Array.getSomes(
+      looms.map((chapter) =>
+        Option.map(Option.fromNullishOr(chapter.module.doc.frontmatter?.partName), (token) => ({
+          path: chapter.module.path,
+          start: token.position.start.offset,
+          end: token.position.end.offset,
+          text: name,
+        })),
+      ),
+    )
+    const named: Part = { ...part, name: Option.some(name) }
+    return editOf([
+      ...announced,
+      ...Array.getSomes(
+        partNamesOf(context.corpus, refOf(part)).map((location) =>
+          spliceAt(context.corpus, location, () => name),
+        ),
+      ),
+      ...(announced.length > 0
+        ? []
+        : Array.head(looms).pipe(
+            Option.map((first) =>
+              placementSplices(first.module, {
+                book: intent.book,
+                part: Option.some(named),
+                number: numberOf(first),
+              }),
+            ),
+            Option.getOrElse((): ReadonlyArray<Splice> => []),
+          )),
+    ])
+  })
+
+~
+
+The intent `MovePart` moves a part to a place among its book's numbered parts and numbers the parts again from the first place where the order changes. A numberless part that moves takes a number in its new place. A part named to follow itself stays where it stands. The intent `RemovePart` prepares a part's removal: the application removes the part's looms, the edit numbers again the parts after it, and leaves the looms being removed alone. The part's looms are every loom that stands in it, its discussions as well as its chapters, so a part that holds discussions alone is removed as well. Each removed loom is gone, its numbered names take its title, and the answer lists it, so the application removes exactly those looms.
+
+=>
+
+const movedPart = (
+  context: EditContext,
+  intent: Intent<'MovePart'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const part = yield* partAsked(catalogue, intent.book, intent.part)
+    const numbered = partsOf(catalogue, intent.book).filter(isNumberedPart)
+    const others = numbered.filter((held) => !sameIdentity(held, part))
+    const spot = spotOf(intent.after)
+    const order = yield* namesItself(spot, (name) => answersTo(part, name))
+      ? Result.succeed(numbered)
+      : Result.map(
+          Result.fromOption(
+            spotIndex(others, spot, answersTo),
+            () => new NoSuchPart({ book: intent.book, part: spotName(spot) }),
+          ),
+          (at) => [...others.slice(0, at), part, ...others.slice(at)],
+        )
+    return editOf(
+      splicesOf(context.corpus, {
+        numbers: new Map(),
+        placed: new Map(),
+        parts: numbering(partNumbers(numbered, order)).parts,
+        leaving: new Map(),
+      }),
+    )
+  })
+
+const removedPart = (
+  context: EditContext,
+  intent: Intent<'RemovePart'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const catalogue = catalogueOf(context.corpus.modules)
+    const part = yield* partAsked(catalogue, intent.book, intent.part)
+    const removed = placedIn(catalogue, intent.book)
+      .filter(standsIn(Option.some(part)))
+      .map((chapter) => chapter.module.path)
+    return editOf(
+      splicesOf(context.corpus, {
+        numbers: new Map(),
+        placed: new Map(),
+        parts: partNumbering(catalogue, intent.book, Option.some(part), Target.NoPart()).parts,
+        leaving: new Map(removed.map((path) => [path, Leaving.Going()] as const)),
+      }).filter(outside(removed)),
+      removed,
+    )
+  })
+
+## Finding a section
+
+A section is named by its heading's title. Two titles that differ only in case, spacing, or punctuation name one section, since a section's code takes its name from its title in the same way, through `normaliseTitle`, as the chapter "The tokeniser stage" describes. The function `sectionNamed` finds a section by its name, and `sectionAsked` refuses a name no section has. The function `nameFree` refuses a name another section of the loom already has, which Loom faults as a duplicate.
+
+A section's own text runs from its heading to the next section's heading, or to the end of the loom, as `nextStart` tells, through the section's place among the loom's sections, which `indexOfSection` gives, and the offset where the section at a place starts, which `startOfSlot` gives. Its body starts on the line after its heading, as `bodyStart` tells: on the line after a heading's hashes, or after a divider's dashes.
+
+Headings nest. A heading's level is the number of its hashes, as `levelOf` reads it from the heading's marker and `sectionLevel` from a section. A division stands within the heading before it, so a divider counts as deeper than any heading. A section spans its own text and every section beneath it: each later section of a deeper level, up to the next section of its own level or a higher one, as `spanEndIndex` finds. So the section `Cells` spans the section `Deep` that its three hashes place beneath it. A section removed or moved takes the sections beneath it along.
+
+A loom's opening section is the first of its sections when its heading has one hash. It carries the loom's title and spans the whole loom, as `openingSection` finds it. An intent cannot remove it or move it, and `notOpening` refuses one that tries with `OpensTheLoom`. A loom whose first heading has two hashes or more has no opening section, and its first section is a section like any other.
+
+=>
+
+const titleOfSection = (section: LoomSection): Option.Option<string> =>
+  Option.fromNullishOr(section.heading.title?.source)
+
+const sameName = (section: LoomSection, name: string): boolean =>
+  Option.exists(titleOfSection(section), (title) => normaliseTitle(title) === normaliseTitle(name))
+
+const sectionNamed = (module: LoomModule, name: string): Option.Option<LoomSection> =>
+  Array.findFirst(module.doc.sections, (section) => sameName(section, name))
+
+const sectionAsked = (
+  module: LoomModule,
+  name: string,
+): Result.Result<LoomSection, NoSuchSection> =>
+  Result.fromOption(
+    sectionNamed(module, name),
+    () => new NoSuchSection({ path: module.path, section: name }),
+  )
+
+const nameFree = (
+  module: LoomModule,
+  name: string,
+  keeping: Option.Option<LoomSection>,
+): Result.Result<string, SectionExists> =>
+  module.doc.sections.some(
+    (section) => sameName(section, name) && !Option.contains(keeping, section),
+  )
+    ? Result.fail(new SectionExists({ path: module.path, section: name }))
+    : Result.succeed(name)
+
+const indexOfSection = (module: LoomModule, section: LoomSection): number =>
+  Option.getOrElse(
+    Array.findFirstIndex(module.doc.sections, (held) => held === section),
+    () => module.doc.sections.length,
+  )
+
+const startOfSlot = (module: LoomModule, slot: number): number =>
+  Option.getOrElse(
+    Option.map(Array.get(module.doc.sections, slot), (next) => next.position.start.offset),
+    () => module.text.length,
+  )
+
+const nextStart = (module: LoomModule, section: LoomSection): number =>
+  startOfSlot(module, indexOfSection(module, section) + 1)
+
+const levelOf: (marker: LoomHeading['marker']) => number = byType<LoomHeading['marker']>()({
+  HeadingStart: (start) => start.source.trim().length,
+  Divider: () => 7,
+})
+
+const sectionLevel = (section: LoomSection): number => levelOf(section.heading.marker)
+
+const spanEndIndex = (module: LoomModule, section: LoomSection): number => {
+  const at = indexOfSection(module, section)
+  return Option.getOrElse(
+    Option.map(
+      Array.findFirstIndex(
+        module.doc.sections.slice(at + 1),
+        (later) => sectionLevel(later) <= sectionLevel(section),
+      ),
+      (found) => at + 1 + found,
+    ),
+    () => module.doc.sections.length,
+  )
+}
+
+const openingSection = (module: LoomModule): Option.Option<LoomSection> =>
+  Option.filter(Array.head(module.doc.sections), (section) => sectionLevel(section) === 1)
+
+const notOpening = (
+  module: LoomModule,
+  section: LoomSection,
+): Result.Result<LoomSection, OpensTheLoom> =>
+  Option.exists(openingSection(module), (opening) => opening === section)
+    ? Result.fail(
+        new OpensTheLoom({
+          path: module.path,
+          section: Option.getOrElse(titleOfSection(section), () => ''),
+        }),
+      )
+    : Result.succeed(section)
+
+const bodyStart = (module: LoomModule, section: LoomSection): number =>
+  Option.getOrElse(
+    Option.map(
+      Array.head([...section.preamble, ...section.code]),
+      (line) => line.position.start.offset,
+    ),
+    () => nextStart(module, section),
+  )
+
+## Words that would read as syntax
+
+An application hands Loom a writer's words: the prose of a section, a note, a message, a conclusion, the name of a topic. Loom writes them into the loom as they are, so a line among them that reads as Loom's syntax would change the loom's structure rather than its words. A line `## Smuggled` in a section's prose would open a new section that no check of names ever saw, and a line `~ Mallory` in a message would open a message under another author. So each line of a writer's words is read as the classifier of the chapter "The classifier stage" reads a line, through the probes the tokens declare, and a line that one of them matches is refused with `UnfitText`.
+
+The probes differ by where the words stand. Words that stand in the open, as prose, a message, and a topic's name do, must hold no line that opens a heading, an arrow, a tilde, a divider, or a box, as `openMarks` lists them: the marks that break a run of code, `codeMarks`, and a box's colons. A fence in prose opens a quote, as the chapter "Fenced code" describes, and every line within the quote is inert, so those lines are not read until the fence closes. A fence that never closes would turn the rest of the loom into a quote, so its opening line is refused. Words within a box, as a note's and a conclusion's are, are inert but for the colons that close the box, as `boxedMarks` lists them.
+
+The function `readsAsMark` tests one line against a list of probes. The function `unfitLine` gives the first line of some words that would read as syntax, through `scanned`, which reads one line after another and keeps the fence still open, as a `Scan`. The function `fitText` refuses words that hold such a line: `fitOpenText` refuses words in the open, and `fitBoxedText` words within a box. The function `fitBody` refuses a body whose prose holds one.
+
+=>
+
+const headingMark = Option.getOrThrow(getProbe(HeadingStartTokenSchema))
+const arrowMark = Option.getOrThrow(getProbe(ArrowTokenSchema))
+const tildeMark = Option.getOrThrow(getProbe(TildeTokenSchema))
+const dividerMark = Option.getOrThrow(getProbe(DividerTokenSchema))
+const boxMark = Option.getOrThrow(getProbe(BoxFenceTokenSchema))
+
+const codeMarks: ReadonlyArray<RegExp> = [headingMark, arrowMark, tildeMark, dividerMark]
+const openMarks: ReadonlyArray<RegExp> = [...codeMarks, boxMark]
+const boxedMarks: ReadonlyArray<RegExp> = [boxMark]
+
+const readsAsMark =
+  (marks: ReadonlyArray<RegExp>) =>
+  (line: string): boolean =>
+    marks.some((mark) => mark.test(line))
+
+type Scan = {
+  readonly quote: Option.Option<{ readonly fence: Fence; readonly line: string }>
+  readonly unfit: Option.Option<string>
+}
+
+const scanned =
+  (marks: ReadonlyArray<RegExp>, quoting: boolean) =>
+  (scan: Scan, line: string): Scan =>
+    Option.isSome(scan.unfit)
+      ? scan
+      : Option.match(scan.quote, {
+          onSome: ({ fence }) =>
+            closesFence(fence)(line) ? { ...scan, quote: Option.none() } : scan,
+          onNone: () =>
+            Option.match(
+              Option.filter(openingFence(line), () => quoting),
+              {
+                onSome: (fence) => ({ ...scan, quote: Option.some({ fence, line }) }),
+                onNone: () =>
+                  readsAsMark(marks)(line) ? { ...scan, unfit: Option.some(line) } : scan,
+              },
+            ),
+        })
+
+const unfitLine = (
+  marks: ReadonlyArray<RegExp>,
+  quoting: boolean,
+  text: string,
+): Option.Option<string> => {
+  const scan = text
+    .split(/\r?\n/)
+    .reduce(scanned(marks, quoting), { quote: Option.none(), unfit: Option.none() })
+  return Option.orElse(scan.unfit, () => Option.map(scan.quote, ({ line }) => line))
+}
+
+const fitText =
+  (marks: ReadonlyArray<RegExp>, quoting: boolean) =>
+  (text: string): Result.Result<string, UnfitText> =>
+    Option.match(unfitLine(marks, quoting, text), {
+      onNone: () => Result.succeed(text),
+      onSome: (line) => Result.fail(new UnfitText({ line })),
+    })
+
+const fitOpenText = fitText(openMarks, true)
+
+const fitBoxedText = fitText(boxedMarks, false)
+
+const fitBody = (body: ReadonlyArray<Piece>): Result.Result<ReadonlyArray<Piece>, UnfitText> =>
+  Result.map(
+    Result.all(
+      body.map((piece) =>
+        PieceSchema.match(piece, {
+          Code: ({ text }) => Result.succeed(text),
+          Prose: ({ text }) => fitOpenText(text),
+        }),
+      ),
+    ),
+    () => body,
+  )
+
+## Writing a section's body
+
+A section's body arrives as pieces of prose and code, as the outline gives them. Loom writes them out with its own marks, as `writtenBody` does. Two pieces of one kind in a row join into one, as `mergedPieces` joins them, and a piece with no words is dropped. Each piece loses the blank lines at either end of its text.
+
+A piece of code opens with an arrow on a line of its own. A piece of prose after code opens with a tilde, which closes the code. Blank lines stand between the marks and the words, as every chapter of this book writes them.
+
+Some lines of code would read as Loom's marks: a line that opens with a heading's hashes and a space, an arrow, a tilde alone or before a space, or a line of three dashes, as `codeMarks` lists them. Code that holds one is fenced, as the chapter "Fenced code" describes, and so is code whose first line opens with backticks, which would read as a fence. The fence is one backtick longer than the longest run of backticks that opens a line of the code, and three at least, so no line of the code closes it, as `fenced` writes it. Fenced code closes at its closing fence, so the prose after it takes no tilde.
+
+A section's notes stand after its opening prose, as the section "Leaving a note" describes, so `writtenBody` takes the notes to keep and writes them there.
+
+=>
+
+const needsFence = (code: string): boolean =>
+  code.split(/\r?\n/).some(readsAsMark(codeMarks)) || /^\s*```/.test(code)
+
+const fenced = (code: string): string => {
+  const fence = '`'.repeat(
+    Math.max(
+      3,
+      ...Array.fromIterable(code.matchAll(/^(`+)/gm)).map((run) => (run[1] ?? '').length + 1),
+    ),
+  )
+  return `${fence}\n${code}\n${fence}`
+}
+
+const tidied = (piece: Piece): Piece => ({ ...piece, text: blockOf(piece.text.split(/\r?\n/)) })
+
+const mergedPieces = (body: ReadonlyArray<Piece>): ReadonlyArray<Piece> =>
+  body
+    .map(tidied)
+    .filter((piece) => piece.text !== '')
+    .reduce(
+      (merged: ReadonlyArray<Piece>, piece) =>
+        Option.match(
+          Option.filter(Array.last(merged), (last) => last._tag === piece._tag),
+          {
+            onNone: () => [...merged, piece],
+            onSome: (last) => [
+              ...Array.dropRight(merged, 1),
+              { ...last, text: `${last.text}\n\n${piece.text}` },
+            ],
+          },
+        ),
+      [],
+    )
+
+const writtenPiece = (piece: Piece, before: Option.Option<Piece>): ReadonlyArray<string> =>
+  PieceSchema.match(piece, {
+    Code: ({ text }) => ['=>', needsFence(text) ? fenced(text) : text],
+    Prose: ({ text }) =>
+      Option.exists(before, (prior) => prior._tag === 'Code' && !needsFence(prior.text))
+        ? ['~', text]
+        : [text],
+  })
+
+export const writtenBody = (body: ReadonlyArray<Piece>, notes: ReadonlyArray<string>): string => {
+  const pieces = mergedPieces(body)
+  const written = pieces.map((piece, at) => writtenPiece(piece, Array.get(pieces, at - 1)))
+  return Array.matchLeft(written, {
+    onEmpty: () => notes,
+    onNonEmpty: (first, rest) =>
+      Option.exists(Array.head(pieces), (opening) => opening._tag === 'Prose')
+        ? [...first, ...notes, ...rest.flat()]
+        : [...notes, ...written.flat()],
+  }).join('\n\n')
+}
+
+## Replacing a section's body
+
+The intent `ReplaceSection` replaces a section's body and keeps its heading and its notes. The body runs from the line after the heading to the next section, so the sections beneath it stay as they are. A discussion's topic keeps its messages too, so in a discussion the body runs only to the first message. The notes that stood in the replaced text are written again after the new opening prose, word for word, as `noteSource` copies them, caption and all. The new body's prose must hold no line that reads as syntax.
+
+The new text opens on a line break when the body starts within the heading's line, holds the written body between blank lines when it holds any words, and closes on a line break when a section follows it.
+
+=>
+
+const noteSource = (module: LoomModule, opened: OpenedBox): string =>
+  module.text
+    .slice(
+      opened.opener.position.start.offset,
+      Option.getOrElse(
+        Option.orElse(opened.closer, () => Array.last(opened.body)),
+        () => opened.opener,
+      ).position.end.offset,
+    )
+    .replace(/\s+$/, '')
+
+const replacedSection = (
+  context: EditContext,
+  intent: Intent<'ReplaceSection'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const section = yield* sectionAsked(module, intent.section)
+    const body = yield* fitBody(intent.body)
+    const start = bodyStart(module, section)
+    const end =
+      loomKindOf(module) === discussionKind
+        ? Option.getOrElse(
+            Option.map(Array.head(section.code), (line) => line.position.start.offset),
+            () => nextStart(module, section),
+          )
+        : nextStart(module, section)
+    const kept = boxesOfKind(module, section, noteKind).filter(
+      (note) =>
+        note.opener.position.start.offset >= start && note.opener.position.start.offset < end,
+    )
+    const written = writtenBody(
+      body,
+      kept.map((note) => noteSource(module, note)),
+    )
+    const opening = breakBefore(module.text, start) > 0 ? '' : '\n'
+    const middle = written === '' ? '' : `\n${written}\n`
+    const closing = end < module.text.length ? '\n' : ''
+    return editOf([{ path: module.path, start, end, text: `${opening}${middle}${closing}` }])
+  })
+
+## Adding, removing, and moving a section
+
+A new section goes where its spot puts it among the loom's sections, as `sectionSlot` works out, and takes a level there, as a `SectionPlace` holds both. A section that goes first goes after the loom's opening section, when the loom has one, since the opening section carries the loom's title, as `firstPlace` gives it. So does a section placed after the opening section itself. A section placed after another goes after every section beneath that one, and takes its level, so it stands beside it and not beneath the last section it spans, as `placeAfter` gives it. A section that goes first or last takes two hashes, and so does a section placed after a division, since a division has no hashes to copy. The heading carries the section's name, and braces after it name its kind and its language, as `bracesOf` writes them. Its kind and its language must be fit for a line, and its prose must hold no line that reads as syntax.
+
+Braces may hold one label, such as `Tangle` or `Bash`, or keys with values, such as `kind=Tangle` and `lang=sh`. A label names a kind when Loom knows the kind, and a language otherwise. So the function `bracesOf` writes a core kind of section, which `sectionKinds` lists, as a label, and a language whose name reads as a label as one too. Any other kind, and a kind with a language, take keys. A value with a space, a brace, an equals sign, a quotation mark, or a backslash in it is quoted, as `quoted` writes it, and a quotation mark or a backslash within the quotes takes a backslash before it, as the braces read it.
+
+=>
+
+const labelWord = /^[a-zA-Z0-9_-]+(?: [a-zA-Z0-9_-]+)*$/
+
+const quoted = (value: string): string =>
+  /^[^\s"{}=\\]+$/.test(value) ? value : `"${value.replace(/["\\]/g, '\\$&')}"`
+
+const labelled = (
+  kind: Option.Option<string>,
+  language: Option.Option<string>,
+): Option.Option<string> =>
+  Option.isSome(kind)
+    ? Option.filter(kind, (named) => Array.contains(sectionKinds, named) && Option.isNone(language))
+    : Option.filter(language, (named) => labelWord.test(named))
+
+const bracesOf = (kind: Option.Option<string>, language: Option.Option<string>): string => {
+  const keys = [
+    ...Option.toArray(Option.map(kind, (named) => `kind=${quoted(named)}`)),
+    ...Option.toArray(Option.map(language, (named) => `lang=${quoted(named)}`)),
+  ]
+  return Option.match(labelled(kind, language), {
+    onSome: (label) => ` {${label}}`,
+    onNone: () => (keys.length === 0 ? '' : ` {${keys.join(' ')}}`),
+  })
+}
+
+type SectionPlace = { readonly slot: number; readonly level: number }
+
+const firstPlace = (module: LoomModule): SectionPlace => ({
+  slot: Option.isSome(openingSection(module)) ? 1 : 0,
+  level: 2,
+})
+
+const placeAfter = (module: LoomModule, section: LoomSection): SectionPlace =>
+  Option.exists(openingSection(module), (opening) => opening === section)
+    ? firstPlace(module)
+    : {
+        slot: spanEndIndex(module, section),
+        level: sectionLevel(section) > 6 ? 2 : sectionLevel(section),
+      }
+
+const sectionSlot = (module: LoomModule, spot: Spot): Result.Result<SectionPlace, NoSuchSection> =>
+  Result.fromOption(
+    Spot.$match(spot, {
+      First: () => Option.some(firstPlace(module)),
+      Last: () => Option.some({ slot: module.doc.sections.length, level: 2 }),
+      After: ({ name }) =>
+        Option.map(sectionNamed(module, name), (section) => placeAfter(module, section)),
+    }),
+    () => new NoSuchSection({ path: module.path, section: spotName(spot) }),
+  )
+
+const insertedAt = (module: LoomModule, slot: number, block: string): Splice =>
+  Option.match(Array.get(module.doc.sections, slot), {
+    onSome: (next) => ({
+      path: module.path,
+      start: next.position.start.offset,
+      end: next.position.start.offset,
+      text: blockBefore(module.text, next.position.start.offset, block),
+    }),
+    onNone: () => ({
+      path: module.path,
+      start: module.text.length,
+      end: module.text.length,
+      text: blockAt(module.text, module.text.length, block),
+    }),
+  })
+
+const addedSection = (
+  context: EditContext,
+  intent: Intent<'AddSection'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const name = yield* fitName(intent.name)
+    yield* nameFree(module, name, Option.none())
+    const kind = yield* fitChosen(intent.kind)
+    const language = yield* fitChosen(intent.language)
+    const body = writtenBody(yield* fitBody(intent.body), [])
+    const place = yield* sectionSlot(module, spotOf(intent.after))
+    const heading = `${'#'.repeat(place.level)} ${name}${bracesOf(kind, language)}`
+    return editOf([insertedAt(module, place.slot, body === '' ? heading : `${heading}\n\n${body}`)])
+  })
+
+~
+
+A section removed takes its heading, its body, the sections beneath it, and the blank lines after them, up to the next section of its level or a higher one. A section that spans to the end of the loom has nothing after it, so its removal starts after the last line of words before it instead, and the loom still ends on one line break, as `removalOf` works out.
+
+A section moved is removed from its place, with the sections beneath it, and inserted at its spot. A section moved to where it already stands, or among the sections it spans, changes nothing. The opening section can be neither removed nor moved.
+
+=>
+
+const removalOf = (module: LoomModule, section: LoomSection): Splice => {
+  const start = section.position.start.offset
+  const end = startOfSlot(module, spanEndIndex(module, section))
+  return end < module.text.length
+    ? { path: module.path, start, end, text: '' }
+    : { path: module.path, start: afterWords(module.text, start), end, text: '' }
+}
+
+const removedSection = (
+  context: EditContext,
+  intent: Intent<'RemoveSection'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const section = yield* sectionAsked(module, intent.section)
+    yield* notOpening(module, section)
+    return editOf([removalOf(module, section)])
+  })
+
+const movedSection = (
+  context: EditContext,
+  intent: Intent<'MoveSection'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const section = yield* sectionAsked(module, intent.section)
+    yield* notOpening(module, section)
+    const { slot } = yield* sectionSlot(module, spotOf(intent.after))
+    const at = indexOfSection(module, section)
+    const end = spanEndIndex(module, section)
+    const block = module.text
+      .slice(section.position.start.offset, startOfSlot(module, end))
+      .replace(/\s+$/, '')
+    return slot >= at && slot <= end
+      ? editOf([])
+      : editOf([removalOf(module, section), insertedAt(module, slot, block)])
+  })
+
+## Renaming a section
+
+The intent `RenameSection` gives a section a new name through the corpus's `renameAt`, so every anchor that names the section follows it. A concept keeps its old name among its forms, as the chapter "Concepts" describes, so the corpus's `conceptRenameAt` gives the one edit more that keeps it, and the rename carries it.
+
+=>
+
+const renamedSection = (
+  context: EditContext,
+  intent: Intent<'RenameSection'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const section = yield* sectionAsked(module, intent.section)
+    const name = yield* fitName(intent.name)
+    yield* nameFree(module, name, Option.some(section))
+    const offset = Option.getOrElse(
+      Option.map(
+        Option.fromNullishOr(section.heading.title),
+        (title) => title.position.start.offset,
+      ),
+      () => section.position.start.offset,
+    )
+    return editOf([
+      ...renamedAll(context.corpus, module.path, [offset], name),
+      ...Option.toArray(
+        Option.map(conceptRenameAt(context.corpus, module.path, offset), ({ kept }) => ({
+          path: kept.path,
+          start: kept.at.start.offset,
+          end: kept.at.end.offset,
+          text: kept.text,
+        })),
+      ),
+    ])
+  })
+
+## Leaving a note
+
+A note is a box of the default kind: three colons on a line of their own, the note's words, and three colons again. The intent `AddNote` leaves one after a section's opening prose, after the last line of words before the section's code, or after the heading when the section opens on code. In a discussion's topic the opening prose comes before the first message. A line of three colons among the note's words would close the box early, so the words must hold none.
+
+The intent `ResolveNote` resolves a note, which removes it. It finds the note by its words, and removes its lines with one of the blank lines around it, so the prose around it closes up, as `noteRemoval` works out.
+
+=>
+
+const addedNote = (
+  context: EditContext,
+  intent: Intent<'AddNote'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const section = yield* sectionAsked(module, intent.section)
+    const text = yield* fitBoxedText(intent.text)
+    const at = contentEnd(section.preamble, bodyStart(module, section))
+    return editOf([
+      {
+        path: module.path,
+        start: at,
+        end: at,
+        text: blockAt(module.text, at, `:::\n${blockOf(text.split(/\r?\n/))}\n:::`),
+      },
+    ])
+  })
+
+const noteRemoval = (module: LoomModule, opened: OpenedBox): Splice => {
+  const start = opened.opener.position.start.offset
+  const end = Option.getOrElse(
+    Option.orElse(opened.closer, () => Array.last(opened.body)),
+    () => opened.opener,
+  ).position.end.offset
+  return blankBefore(module.text, start)
+    ? { path: module.path, start: start - breakBefore(module.text, start), end, text: '' }
+    : { path: module.path, start, end: end + breakAt(module.text, end), text: '' }
+}
+
+const resolvedNote = (
+  context: EditContext,
+  intent: Intent<'ResolveNote'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* loomAt(context.corpus, context.locate(intent.uri))
+    const section = yield* sectionAsked(module, intent.section)
+    const words = blockOf(intent.text.split(/\r?\n/))
+    const note = yield* Result.fromOption(
+      Array.findFirst(
+        boxesOfKind(module, section, noteKind),
+        (opened) => boxText(opened) === words,
+      ),
+      () => new NoSuchNote({ path: module.path, section: intent.section, text: intent.text }),
+    )
+    return editOf([noteRemoval(module, note)])
+  })
+
+## Topics, messages, and conclusions
+
+A discussion divides its thread into topics, as the chapter "Discussions" describes. A topic opens with its name on a line and a divider of three dashes under it. The intent `OpenTopic` opens one at the end of the discussion. Its name stands on a line of its own, so it must not read as syntax. The function `discussionAt` refuses a loom that is no discussion.
+
+The intent `AddMessage` adds a message to a topic: a tilde with its author's name, and the message's words under it. The message goes after the topic's last message, before the topic's conclusion when it has one. Its words must hold no line that reads as syntax: a line of three dashes under a line of words would open a topic, and a tilde before a name would open a message under that name. The intent `Conclude` ends a topic with a box of the kind `Conclusion`, after its last message. A topic that has a conclusion already has its conclusion's words replaced, since a topic closes with one conclusion at most. A conclusion's words, as a note's, must hold no line of three colons.
+
+=>
+
+const discussionAt = (
+  context: EditContext,
+  uri: string,
+): Result.Result<LoomModule, NoSuchLoom | NotADiscussion> =>
+  Result.flatMap(loomAt(context.corpus, context.locate(uri)), (module) =>
+    loomKindOf(module) === discussionKind
+      ? Result.succeed(module)
+      : Result.fail(new NotADiscussion({ path: module.path })),
+  )
+
+const openedTopic = (
+  context: EditContext,
+  intent: Intent<'OpenTopic'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* discussionAt(context, intent.uri)
+    const name = yield* fitName(intent.name)
+    yield* fitOpenText(name)
+    yield* nameFree(module, name, Option.none())
+    return editOf([
+      {
+        path: module.path,
+        start: module.text.length,
+        end: module.text.length,
+        text: blockAt(module.text, module.text.length, `${name}\n---`),
+      },
+    ])
+  })
+
+const topicEnd = (module: LoomModule, topic: LoomSection): number =>
+  contentEnd([...topic.preamble, ...topic.code], bodyStart(module, topic))
+
+const addedMessage = (
+  context: EditContext,
+  intent: Intent<'AddMessage'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* discussionAt(context, intent.uri)
+    const topic = yield* sectionAsked(module, intent.topic)
+    const author = yield* fitName(intent.author)
+    const text = yield* fitOpenText(intent.text)
+    const block = `~ ${author}\n${blockOf(text.split(/\r?\n/))}`
+    return editOf([
+      Option.match(Array.head(boxesOfKind(module, topic, conclusionKind)), {
+        onSome: (conclusion) => {
+          const at = conclusion.opener.position.start.offset
+          return {
+            path: module.path,
+            start: at,
+            end: at,
+            text: blockBefore(module.text, at, block),
+          }
+        },
+        onNone: () => {
+          const at = topicEnd(module, topic)
+          return { path: module.path, start: at, end: at, text: blockAt(module.text, at, block) }
+        },
+      }),
+    ])
+  })
+
+const concluded = (
+  context: EditContext,
+  intent: Intent<'Conclude'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const module = yield* discussionAt(context, intent.uri)
+    const topic = yield* sectionAsked(module, intent.topic)
+    const words = blockOf((yield* fitBoxedText(intent.text)).split(/\r?\n/))
+    return editOf([
+      Option.match(Array.head(boxesOfKind(module, topic, conclusionKind)), {
+        onSome: (conclusion) => ({
+          path: module.path,
+          start: conclusion.opener.position.end.offset,
+          end: Option.getOrElse(
+            Option.map(conclusion.closer, (closer) => closer.position.start.offset),
+            () => conclusion.opener.position.end.offset,
+          ),
+          text: `${words}\n`,
+        }),
+        onNone: () => {
+          const at = topicEnd(module, topic)
+          return {
+            path: module.path,
+            start: at,
+            end: at,
+            text: blockAt(module.text, at, `::: {Conclusion}\n${words}\n:::`),
+          }
+        },
+      }),
+    ])
+  })
+
+## Setting a variable
+
+The configuration's `variables` key holds values every value warp of the workspace may draw on, as the chapter "A project's configuration" describes. The intent `SetVariable` sets one. Its name must be a variable's name, as the configuration's `isVariableName` judges it for `loom set`, or the intent is refused with `NotAVariableName`. A workspace with no configuration has nothing to set a variable in.
+
+The edit holds the setting alone: the path `variables` and then the name, and the value. The compiler writes it into the configuration's text through the configuration's own `editedSettings`, as `loom set` writes the file, so every other key, the order of the keys, and the comments between them stay as they were.
+
+=>
+
+const variableSet = (
+  context: EditContext,
+  intent: Intent<'SetVariable'>,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.gen(function* () {
+    const name = yield* isVariableName(intent.name)
+      ? Result.succeed(intent.name)
+      : Result.fail(new NotAVariableName({ name: intent.name }))
+    yield* Result.fromOption(
+      context.manifest,
+      () => new NoConfiguration({ workspace: context.workspace }),
+    )
+    return {
+      made: [],
+      splices: [],
+      gone: [],
+      configuration: Option.some({ path: ['variables', name], value: intent.value }),
+    }
+  })
+
+## One table of intents
+
+The function `buildEdit` gives the edit an intent asks for, or the failure that refuses it. It reads the intent through `editFor`, a table built once from the union's own `match`, which holds one case for every intent, so an intent new to the union does not compile until the table gives it a case. Each case takes the intent and gives an `Edit`, a function of the context.
+
+Every case writes its line breaks as newlines alone. Before the edit leaves Loom, the function `inLineEndings` writes each splice in the line ending of the loom it lands in, through `endedAs`. It reads each loom's ending once, through `lineEndingOf`, as the section "Lines of a loom's text" describes. A loom written on Windows thus keeps one line ending throughout. A new loom has no ending of its own yet, so it ends its lines as the first loom of its corpus does, or with a newline alone in a corpus that holds none.
+
+=>
+
+type Edit = (context: EditContext) => Result.Result<LoomEdit, EditRefusal>
+
+const editFor = LoomIntentSchema.match({
+  MakeLoom:
+    (intent): Edit =>
+    (context) =>
+      madeLoom(context, intent),
+  MakeBook:
+    (intent): Edit =>
+    (context) =>
+      madeBook(context, intent),
+  MoveLoom:
+    (intent): Edit =>
+    (context) =>
+      movedLoom(context, intent),
+  RemoveLoom:
+    (intent): Edit =>
+    (context) =>
+      removedLoom(context, intent),
+  RetitleLoom:
+    (intent): Edit =>
+    (context) =>
+      retitledLoom(context, intent),
+  RenamePart:
+    (intent): Edit =>
+    (context) =>
+      renamedPart(context, intent),
+  MovePart:
+    (intent): Edit =>
+    (context) =>
+      movedPart(context, intent),
+  RemovePart:
+    (intent): Edit =>
+    (context) =>
+      removedPart(context, intent),
+  RenameBook:
+    (intent): Edit =>
+    (context) =>
+      renamedBook(context, intent),
+  ReplaceSection:
+    (intent): Edit =>
+    (context) =>
+      replacedSection(context, intent),
+  AddSection:
+    (intent): Edit =>
+    (context) =>
+      addedSection(context, intent),
+  RemoveSection:
+    (intent): Edit =>
+    (context) =>
+      removedSection(context, intent),
+  MoveSection:
+    (intent): Edit =>
+    (context) =>
+      movedSection(context, intent),
+  RenameSection:
+    (intent): Edit =>
+    (context) =>
+      renamedSection(context, intent),
+  AddNote:
+    (intent): Edit =>
+    (context) =>
+      addedNote(context, intent),
+  ResolveNote:
+    (intent): Edit =>
+    (context) =>
+      resolvedNote(context, intent),
+  OpenTopic:
+    (intent): Edit =>
+    (context) =>
+      openedTopic(context, intent),
+  AddMessage:
+    (intent): Edit =>
+    (context) =>
+      addedMessage(context, intent),
+  Conclude:
+    (intent): Edit =>
+    (context) =>
+      concluded(context, intent),
+  SetVariable:
+    (intent): Edit =>
+    (context) =>
+      variableSet(context, intent),
+})
+
+const lineEndingOf = (text: string): string => (text.includes('\r\n') ? '\r\n' : '\n')
+
+const endedAs =
+  (ending: string) =>
+  (text: string): string =>
+    ending === '\n' ? text : text.replace(/\r?\n/g, ending)
+
+const inLineEndings = (corpus: LoomCorpusAst, edit: LoomEdit): LoomEdit => {
+  const endingAt = (path: Location): string =>
+    Option.getOrElse(
+      Option.map(Option.fromNullishOr(corpus.modules.get(path)), (module) =>
+        lineEndingOf(module.text),
+      ),
+      () => '\n',
+    )
+  const endings = new Map(
+    Array.dedupe(edit.splices.map((splice) => splice.path)).map(
+      (path) => [path, endingAt(path)] as const,
+    ),
+  )
+  const made = Option.getOrElse(
+    Option.map(Array.head(Array.fromIterable(corpus.modules.values())), (module) =>
+      lineEndingOf(module.text),
+    ),
+    () => '\n',
+  )
+  return {
+    ...edit,
+    made: edit.made.map((loom) => ({ ...loom, text: endedAs(made)(loom.text) })),
+    splices: edit.splices.map((splice) => ({
+      ...splice,
+      text: endedAs(Option.getOrElse(Option.fromNullishOr(endings.get(splice.path)), () => '\n'))(
+        splice.text,
+      ),
+    })),
+  }
+}
+
+export const buildEdit = (
+  context: EditContext,
+  intent: LoomIntent,
+): Result.Result<LoomEdit, EditRefusal> =>
+  Result.map(editFor(intent)(context), (edit) => inLineEndings(context.corpus, edit))
+
+## A problem the edit adds
+
+The compiler checks an edit by building each loom it changes again from its new text, as the chapter "The compile layer" describes. A loom may hold problems before the edit, and the edit is no cause of those. So the check compares the loom's problems after the edit with its problems before it, by their words, since every place in the loom may have moved. The function `problemsAdded` gives the problems after the edit that no problem before it matches, each problem before matching one after at most.
+
+=>
+
+export const problemsAdded = (
+  before: ReadonlyArray<string>,
+  after: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  after.reduce(
+    ({ left, added }, problem) =>
+      Option.match(
+        Array.findFirstIndex(left, (held) => held === problem),
+        {
+          onSome: (at) => ({ left: Array.remove(left, at), added }),
+          onNone: () => ({ left, added: [...added, problem] }),
+        },
+      ),
+    { left: before, added: [] as ReadonlyArray<string> },
+  ).added
+
+## What the edits draw on
+
+Effect gives the edits their `Schema` union of intents, their `Data` errors and the `Spot`, `Target`, and `Leaving` enums, `Result` for an edit or its refusal, `Match` for the matchers built once, and `Array`, `Option`, `Order`, and `pipe` for the steps. The configuration gives `isVariableName`, the error `NotAVariableName`, and the type of a manifest. The leaf tokens give the kinds `chapterKind`, `discussionKind`, `noteKind`, and `conclusionKind`, and `sectionKinds`, the core kinds of section. They give the probes of the marks a writer's words may not hold, through `getProbe` and the schemas of a heading's hashes, an arrow, a tilde, a divider, and a box's colons, and the fences of a quote, through `openingFence`, `closesFence`, and the type of a `Fence`. The syntax tree gives the types of a frontmatter, a heading, and a section, the node foundation the type of a position and `byType`, and the wefts the type of a line.
+
+From the corpus come its catalogue, `chapterOf`, `bookOf`, `isBookLoom`, and `loomKindOf`, which read where a loom stands, `renameAt` and `conceptRenameAt`, the rename's walks, and `numberNamesOf`, `numberPathsOf`, `partNumbersOf`, and `partNamesOf`, the walks over the places that name a loom by its number and a part by its number or its name. The tokeniser gives `normaliseTitle`, and the contents give `romanValue` and `titleOf`. The outline gives the pieces of a body, `blockOf`, `boxesOfKind`, and `boxText`, and the failure `NoSuchLoom`.
+
+=>
+
+import { Array, Data, Match, Option, Order, pipe, Result, Schema } from 'effect'
+import {
+  isVariableName,
+  NotAVariableName,
+  type WorkspaceManifest,
+} from '@athrio/loom-config/LoomConfig'
+import {
+  ArrowTokenSchema,
+  BoxFenceTokenSchema,
+  chapterKind,
+  closesFence,
+  conclusionKind,
+  discussionKind,
+  DividerTokenSchema,
+  type Fence,
+  getProbe,
+  HeadingStartTokenSchema,
+  noteKind,
+  openingFence,
+  sectionKinds,
+  TildeTokenSchema,
+} from '@athrio/loom-ast/LoomTokens'
+import type { LoomFrontmatter, LoomHeading, LoomSection } from '@athrio/loom-ast/LoomAst'
+import { byType, type Position } from '@athrio/loom-ast/LoomNode'
+import type { LoomWeft } from '@athrio/loom-ast/Weft'
+import {
+  bookOf,
+  type Catalogue,
+  catalogueOf,
+  type Chapter,
+  chapterOf,
+  conceptRenameAt,
+  type CorpusLocation,
+  isBookLoom,
+  type Location,
+  type LoomCorpusAst,
+  loomKindOf,
+  type LoomModule,
+  numberNamesOf,
+  numberPathsOf,
+  type OpenedBox,
+  partNamesOf,
+  partNumbersOf,
+  type PartRef,
+  renameAt,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import { normaliseTitle } from '#ast/WeftTokeniser'
+import { romanValue, titleOf } from './weave/TableOfContentsBuilder'
+import {
+  blockOf,
+  boxesOfKind,
+  boxText,
+  NoSuchLoom,
+  type Piece,
+  PieceSchema,
+} from './OutlineBuilder'
+
+## The module [src/EditBuilder.ts]
+
+=>
+
+::[What the edits draw on]
+
+::[The intents]
+
+::[The edit an intent becomes]
+
+::[An edit Loom refuses]
+
+::[What an edit reads]
+
+::[First, last, or after another]
+
+::[Lines of a loom's text]
+
+::[Books, parts, and the looms they hold]
+
+::[Numbers within a part]
+
+::[A title free in its part]
+
+::[Writing where a loom stands]
+
+::[Numbers that follow a change]
+
+::[A path that follows its loom]
+
+::[A part that keeps its name]
+
+::[The part a loom is placed in]
+
+::[Making a loom]
+
+::[Making a book]
+
+::[Moving a loom]
+
+::[Removing a loom]
+
+::[Retitling a loom]
+
+::[Renaming a book]
+
+::[Renaming, moving, and removing a part]
+
+::[Finding a section]
+
+::[Words that would read as syntax]
+
+::[Writing a section's body]
+
+::[Replacing a section's body]
+
+::[Adding, removing, and moving a section]
+
+::[Renaming a section]
+
+::[Leaving a note]
+
+::[Topics, messages, and conclusions]
+
+::[Setting a variable]
+
+::[One table of intents]
+
+::[A problem the edit adds]
+
+## Testing the edits
+
+The cases ask the compiler's `edit` verb for each intent over a workspace held in memory, which the chapter "The outline of a loom" builds in its section "A workspace held in memory". They run on Bun's test runner, as that chapter's cases do.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Array, Effect, Layer, Option, Order } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { WorkspaceManifest } from '@athrio/loom-config/LoomConfig'
+import { DocumentSource, type EditAnswer, LoomCompiler } from '../src/LoomCompiler'
+import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+import type { LoomIntent } from '../src/EditBuilder'
+
+const it = effectify(it_)
+
+~
+
+The answer arrives in the editor's coordinates. The function `appliedTo` applies it to the record of looms, as an application applies it to its store: it adds each loom the answer makes, and writes each ranged edit into its loom, from the end of the loom to its start, through `offsetOf`, which turns a line and a character into an offset.
+
+An address and a location are one string here, so the cases name a loom by its path. The function `edited` asks for one intent, `afterEdit` gives the looms after the edit, `refusal` gives the failure that refuses an intent, and `refused` gives its tag.
+
+=>
+
+const offsetOf = (
+  text: string,
+  at: { readonly line: number; readonly character: number },
+): number =>
+  text.split('\n').slice(0, at.line).join('\n').length + (at.line > 0 ? 1 : 0) + at.character
+
+const lastFirst = Order.mapInput(Order.Number, (edit: { readonly start: number }) => -edit.start)
+
+const appliedTo = (files: Record<string, string>, answer: EditAnswer): Record<string, string> => ({
+  ...files,
+  ...Object.fromEntries(answer.made.map((made) => [made.path, made.text])),
+  ...Object.fromEntries(
+    Object.entries(Array.groupBy(answer.edits, (edit) => edit.path)).map(([path, edits]) => {
+      const text = files[path] ?? ''
+      return [
+        path,
+        Array.sort(
+          edits.map((edit) => ({
+            start: offsetOf(text, edit.range.start),
+            end: offsetOf(text, edit.range.end),
+            text: edit.text,
+          })),
+          lastFirst,
+        ).reduce(
+          (done, edit) => done.slice(0, edit.start) + edit.text + done.slice(edit.end),
+          text,
+        ),
+      ]
+    }),
+  ),
+})
+
+const edited = (
+  files: Record<string, string>,
+  intent: LoomIntent,
+  configured: Option.Option<WorkspaceManifest> = Option.some(manifest),
+) =>
+  withCompiler(
+    files,
+    (compiler) =>
+      compiler.edit('/', Option.fromNullishOr(Object.keys(files)[0]), intent, (uri) => uri),
+    configured,
+  )
+
+const afterEdit = (files: Record<string, string>, intent: LoomIntent) =>
+  Effect.map(edited(files, intent), (answer) => appliedTo(files, answer))
+
+const refusal = (files: Record<string, string>, intent: LoomIntent) =>
+  Effect.flip(edited(files, intent))
+
+const refused = (files: Record<string, string>, intent: LoomIntent) =>
+  Effect.map(refusal(files, intent), (failure) => failure._tag)
+
+## The game the cases edit
+
+The game has a book loom and two parts. Part I, The room, holds two chapters. The chapter `The grid` announces the part and holds the section `Cells`. The chapter `Walls` follows it, names the part by number alone, and links `Cells` by its part's number and its chapter's. Part I also holds the discussion `Waking`, with one topic, `Traps`, and one message in it. Part II, Light, holds the chapter `Lamps`, which links `Walls` by its title. The workspace `quiet` is the same game with no link from `Walls`, for the cases where that link would only be in the way.
+
+=>
+
+const grid = lines(
+  '---',
+  'Part I: The room',
+  'Chapter 1: The grid',
+  'Book: The game',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# The grid',
+  '',
+  'The room is a grid.',
+  '',
+  '## Cells',
+  '',
+  'A cell holds one thing.',
+  '',
+  '=>',
+  '',
+  'export const cells = 9',
+)
+
+const walls = lines(
+  '---',
+  'Part I, Chapter 2: Walls',
+  'Book: The game',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Walls',
+  '',
+  `Walls bound the grid, as ${anchor('Part I, Chapter 1, Cells')} describes.`,
+)
+
+const lamps = lines(
+  '---',
+  'Part II: Light',
+  'Chapter 1: Lamps',
+  'Book: The game',
+  '---',
+  '',
+  '# Lamps',
+  '',
+  `Lamps hang on the ${anchor('Walls')}.`,
+)
+
+const waking = lines(
+  '---',
+  'Part I, Discussion 1: Waking',
+  'Book: The game',
+  '---',
+  '',
+  '# Waking',
+  '',
+  'What wakes a monster.',
+  '',
+  'Traps',
+  '---',
+  '',
+  '~ Yegor',
+  'What should wake a monster?',
+)
+
+const game: Record<string, string> = {
+  '/corpus/game.loom': lines(
+    '---',
+    'Book: The game',
+    '---',
+    '',
+    '# The game',
+    '',
+    'A game of rooms.',
+  ),
+  '/corpus/grid.loom': grid,
+  '/corpus/walls.loom': walls,
+  '/corpus/lamps.loom': lamps,
+  '/corpus/waking.loom': waking,
+}
+
+const quiet: Record<string, string> = {
+  ...game,
+  '/corpus/walls.loom': walls.replace(`, as ${anchor('Part I, Chapter 1, Cells')} describes`, ''),
+}
+
+## Making looms and books
+
+A chapter made after `The grid` takes the number two, announces its part, and names its book and its language. The chapter `Walls` becomes the third. A chapter made in a new part after Part I makes that part Part II, and Light becomes Part III.
+
+=>
+
+describe('making looms and books', () => {
+  it.effect('makes a chapter in its part and numbers the chapters after it', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'MakeLoom',
+        uri: '/corpus/doors.loom',
+        kind: 'Chapter',
+        book: 'The game',
+        part: 'I',
+        title: 'Doors',
+        language: 'TypeScript',
+        after: '/corpus/grid.loom',
+      })
+      expect(after['/corpus/doors.loom']).toBe(
+        lines(
+          '---',
+          'Part I: The room',
+          'Chapter 2: Doors',
+          'Book: The game',
+          'Language: TypeScript',
+          '---',
+          '',
+          '# Doors',
+        ),
+      )
+      expect(after['/corpus/walls.loom']).toBe(
+        walls.replace('Chapter 2: Walls', 'Chapter 3: Walls'),
+      )
+      expect(after['/corpus/grid.loom']).toBe(grid)
+    }),
+  )
+
+  it.effect('makes a chapter in a new part and numbers the parts after it', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'MakeLoom',
+        uri: '/corpus/keys.loom',
+        kind: 'Chapter',
+        book: 'The game',
+        part: { name: 'Doors and keys', after: 'I' },
+        title: 'Keys',
+      })
+      expect(after['/corpus/keys.loom']).toBe(
+        lines(
+          '---',
+          'Part II: Doors and keys',
+          'Chapter 1: Keys',
+          'Book: The game',
+          '---',
+          '',
+          '# Keys',
+        ),
+      )
+      expect(after['/corpus/lamps.loom']).toBe(lamps.replace('Part II: Light', 'Part III: Light'))
+    }),
+  )
+
+~
+
+A title Part I already holds is refused, and so is a book or a part the game does not hold, a place a loom already takes, a title on two lines, and a loom to follow that stands in another part.
+
+=>
+
+  it.effect('refuses what cannot be made', () =>
+    Effect.gen(function* () {
+      const doors = {
+        _tag: 'MakeLoom',
+        uri: '/corpus/doors.loom',
+        kind: 'Chapter',
+        book: 'The game',
+        part: 'I',
+        title: 'Doors',
+      } as const
+      expect(yield* refused(game, { ...doors, title: 'Walls' })).toBe('TitleTaken')
+      expect(yield* refused(game, { ...doors, book: 'The maze' })).toBe('NoSuchBook')
+      expect(yield* refused(game, { ...doors, part: 'IX' })).toBe('NoSuchPart')
+      expect(yield* refused(game, { ...doors, uri: '/corpus/walls.loom' })).toBe('LoomExists')
+      expect(yield* refused(game, { ...doors, title: 'Two\nlines' })).toBe('UnfitName')
+      expect(yield* refused(game, { ...doors, after: '/corpus/lamps.loom' })).toBe('NotInPart')
+    }),
+  )
+
+~
+
+A book loom names its book and nothing else, and its heading carries the book's name. A workspace that holds no loom yet still takes one. A book a book loom already opens is refused.
+
+=>
+
+  it.effect('makes a book loom, even in an empty workspace', () =>
+    Effect.gen(function* () {
+      const website = { _tag: 'MakeBook', uri: '/corpus/web.loom', name: 'The website' } as const
+      const opened = lines('---', 'Book: The website', '---', '', '# The website')
+      expect((yield* afterEdit(game, website))['/corpus/web.loom']).toBe(opened)
+      expect((yield* afterEdit({}, website))['/corpus/web.loom']).toBe(opened)
+      expect(yield* refused(game, { ...website, name: 'The game' })).toBe('BookExists')
+    }),
+  )
+})
+
+## Moving and removing looms
+
+Moved after `Lamps`, the chapter `Walls` takes the number two in Part II, and its frontmatter announces its new part. Its other lines stay as they were. The chapter `The grid`, moved after `Walls`, stays in Part I and takes the number two, and `Walls` takes the number one, so the link that named `Cells` through `Chapter 1` names it through `Chapter 2`.
+
+=>
+
+describe('moving and removing looms', () => {
+  it.effect('moves a chapter into another part', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'MoveLoom',
+        uri: '/corpus/walls.loom',
+        book: 'The game',
+        part: 'II',
+        after: '/corpus/lamps.loom',
+      })
+      expect(after['/corpus/walls.loom']).toBe(
+        walls.replace('Part I, Chapter 2: Walls\n', 'Part II: Light\nChapter 2: Walls\n'),
+      )
+      expect(after['/corpus/grid.loom']).toBe(grid)
+      expect(after['/corpus/lamps.loom']).toBe(lamps)
+    }),
+  )
+
+  it.effect('moves a chapter within its part', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'MoveLoom',
+        uri: '/corpus/grid.loom',
+        book: 'The game',
+        part: 'I',
+        after: '/corpus/walls.loom',
+      })
+      expect(after['/corpus/grid.loom']).toBe(
+        grid.replace('Chapter 1: The grid', 'Chapter 2: The grid'),
+      )
+      expect(after['/corpus/walls.loom']).toBe(
+        walls
+          .replace('Chapter 2: Walls', 'Chapter 1: Walls')
+          .replace('Part I, Chapter 1, Cells', 'Part I, Chapter 2, Cells'),
+      )
+    }),
+  )
+
+~
+
+Removing `The grid` numbers `Walls` one and hands it the part's announcement, since `The grid` was the one loom that announced Part I. The edit leaves `The grid` itself to the application, and the answer lists it among the looms removed. When `Walls` composes the section `Cells` in its code, through the part's number and the chapter's, its anchor names `The grid` by its title instead, which names nothing once the grid is gone, so the edit is refused.
+
+=>
+
+  it.effect('removes a chapter and hands its part name on', () =>
+    Effect.gen(function* () {
+      const answer = yield* edited(quiet, { _tag: 'RemoveLoom', uri: '/corpus/grid.loom' })
+      expect(answer.edits.some((edit) => edit.path === '/corpus/grid.loom')).toBe(false)
+      expect(answer.removed).toEqual(['/corpus/grid.loom'])
+      expect(appliedTo(quiet, answer)['/corpus/walls.loom']).toBe(
+        (quiet['/corpus/walls.loom'] ?? '').replace(
+          'Part I, Chapter 2: Walls\n',
+          'Part I: The room\nChapter 1: Walls\n',
+        ),
+      )
+    }),
+  )
+
+  it.effect('refuses to remove a chapter another chapter composes', () =>
+    Effect.gen(function* () {
+      const composing = {
+        ...quiet,
+        '/corpus/walls.loom': `${quiet['/corpus/walls.loom']}\n=>\n\n${anchor('Part I, Chapter 1, Cells')}\n`,
+      }
+      const failed = yield* Effect.flip(
+        edited(composing, { _tag: 'RemoveLoom', uri: '/corpus/grid.loom' }),
+      )
+      expect(failed._tag).toBe('EditBreaksLoom')
+      expect(failed._tag === 'EditBreaksLoom' ? failed.path : '').toBe('/corpus/walls.loom')
+    }),
+  )
+})
+
+## Titles and names
+
+Retitled `Fences`, the chapter `Walls` changes its frontmatter's title, its heading, and the link that names it in `Lamps`. The game renamed `The maze` changes every `Book` line and the book loom's heading. Part I renamed `The chamber` changes where `The grid` announces it.
+
+=>
+
+describe('titles and names', () => {
+  it.effect('retitles a chapter, its heading, and the links that name it', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'RetitleLoom',
+        uri: '/corpus/walls.loom',
+        title: 'Fences',
+      })
+      expect(after['/corpus/walls.loom']).toBe(
+        walls.replace(': Walls', ': Fences').replace('# Walls', '# Fences'),
+      )
+      expect(after['/corpus/lamps.loom']).toBe(lamps.replace(anchor('Walls'), anchor('Fences')))
+    }),
+  )
+
+  it.effect('renames a book on every line that names it', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'RenameBook',
+        book: 'The game',
+        name: 'The maze',
+      })
+      expect(Object.values(after).filter((text) => text.includes('The game'))).toEqual([])
+      expect(after['/corpus/game.loom']).toBe(
+        lines('---', 'Book: The maze', '---', '', '# The maze', '', 'A game of rooms.'),
+      )
+      expect(after['/corpus/grid.loom']).toBe(grid.replace('Book: The game', 'Book: The maze'))
+    }),
+  )
+
+  it.effect('renames a part where it is announced', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'RenamePart',
+        book: 'The game',
+        part: 'I',
+        name: 'The chamber',
+      })
+      expect(after['/corpus/grid.loom']).toBe(
+        grid.replace('Part I: The room', 'Part I: The chamber'),
+      )
+      expect(after['/corpus/walls.loom']).toBe(walls)
+    }),
+  )
+})
+
+## Moving and removing parts
+
+Part II moved first becomes Part I, and Part I becomes Part II, in every loom of each part and in the link that names `Cells` through its part's number. Part I removed leaves Light as Part I, and no edit lands in the looms of the part being removed. The answer lists every loom of Part I among the looms removed, the discussion `Waking` with the chapters.
+
+=>
+
+describe('moving and removing parts', () => {
+  it.effect('moves a part and numbers the parts again', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(game, {
+        _tag: 'MovePart',
+        book: 'The game',
+        part: 'II',
+        after: null,
+      })
+      expect(after['/corpus/lamps.loom']).toBe(lamps.replace('Part II: Light', 'Part I: Light'))
+      expect(after['/corpus/grid.loom']).toBe(grid.replace('Part I: The room', 'Part II: The room'))
+      expect(after['/corpus/walls.loom']).toBe(
+        walls
+          .replace('Part I, Chapter 2: Walls', 'Part II, Chapter 2: Walls')
+          .replace('Part I, Chapter 1, Cells', 'Part II, Chapter 1, Cells'),
+      )
+      expect(after['/corpus/waking.loom']).toBe(
+        waking.replace('Part I, Discussion 1', 'Part II, Discussion 1'),
+      )
+    }),
+  )
+
+  it.effect('removes a part and numbers the parts after it', () =>
+    Effect.gen(function* () {
+      const answer = yield* edited(game, { _tag: 'RemovePart', book: 'The game', part: 'I' })
+      expect(answer.edits.map((edit) => edit.path)).toEqual(['/corpus/lamps.loom'])
+      expect(Array.sort(answer.removed, Order.String)).toEqual([
+        '/corpus/grid.loom',
+        '/corpus/waking.loom',
+        '/corpus/walls.loom',
+      ])
+      expect(appliedTo(game, answer)['/corpus/lamps.loom']).toBe(
+        lamps.replace('Part II: Light', 'Part I: Light'),
+      )
+    }),
+  )
+})
+
+## Sections
+
+The section `Cells` given a new body takes it with Loom's marks: the arrow before its code, and the tilde before the prose after it. The body the outline gives a section, given back, leaves the section as it was. Code with a line that would read as a heading is fenced.
+
+=>
+
+describe('the sections of a loom', () => {
+  const cells = (body: ReadonlyArray<{ readonly _tag: 'Prose' | 'Code'; readonly text: string }>) =>
+    afterEdit(game, { _tag: 'ReplaceSection', uri: '/corpus/grid.loom', section: 'Cells', body })
+
+  it.effect('replaces a section body with its marks', () =>
+    Effect.gen(function* () {
+      const after = yield* cells([
+        { _tag: 'Prose', text: 'A cell holds a thing or nothing.' },
+        { _tag: 'Code', text: 'export const cells = 16' },
+        { _tag: 'Prose', text: 'Sixteen cells make the room.' },
+      ])
+      expect(after['/corpus/grid.loom']).toBe(
+        grid.replace(
+          'A cell holds one thing.\n\n=>\n\nexport const cells = 9\n',
+          'A cell holds a thing or nothing.\n\n=>\n\nexport const cells = 16\n\n~\n\nSixteen cells make the room.\n',
+        ),
+      )
+      const outline = yield* withCompiler(game, (compiler) => compiler.outline('/corpus/grid.loom'))
+      expect((yield* cells(outline.sections[1]?.body ?? []))['/corpus/grid.loom']).toBe(grid)
+    }),
+  )
+
+  it.effect('fences code that would read as a mark', () =>
+    Effect.gen(function* () {
+      const after = yield* cells([{ _tag: 'Code', text: '# cells\nexport const cells = 9' }])
+      expect(after['/corpus/grid.loom']).toBe(
+        grid.replace(
+          'A cell holds one thing.\n\n=>\n\nexport const cells = 9\n',
+          '=>\n\n```\n# cells\nexport const cells = 9\n```\n',
+        ),
+      )
+    }),
+  )
+
+~
+
+A section added after `Cells` goes last, and one added first goes after the opening section. A section moved first goes after the opening section too. A section renamed carries the link that names it. A section removed takes its blank lines with it, so the loom still ends on one newline.
+
+=>
+
+  it.effect('adds, moves, renames, and removes sections', () =>
+    Effect.gen(function* () {
+      const rows = yield* afterEdit(game, {
+        _tag: 'AddSection',
+        uri: '/corpus/grid.loom',
+        after: 'Cells',
+        name: 'Rows',
+        body: [{ _tag: 'Prose', text: 'Rows run across.' }],
+      })
+      expect(rows['/corpus/grid.loom']).toBe(`${grid}\n## Rows\n\nRows run across.\n`)
+      const size = yield* afterEdit(game, {
+        _tag: 'AddSection',
+        uri: '/corpus/grid.loom',
+        after: null,
+        name: 'Size',
+        kind: 'Concept',
+        body: [{ _tag: 'Prose', text: 'A size counts cells.' }],
+      })
+      expect(size['/corpus/grid.loom']).toBe(
+        grid.replace('## Cells', '## Size {Concept}\n\nA size counts cells.\n\n## Cells'),
+      )
+      const order = lines(
+        '# Order',
+        '',
+        '## A',
+        '',
+        'One.',
+        '',
+        '## B',
+        '',
+        'Two.',
+        '',
+        '## C',
+        '',
+        'Three.',
+      )
+      const moved = yield* afterEdit(
+        { '/corpus/order.loom': order },
+        {
+          _tag: 'MoveSection',
+          uri: '/corpus/order.loom',
+          section: 'C',
+          after: null,
+        },
+      )
+      expect(moved['/corpus/order.loom']).toBe(
+        lines('# Order', '', '## C', '', 'Three.', '', '## A', '', 'One.', '', '## B', '', 'Two.'),
+      )
+      const renamed = yield* afterEdit(game, {
+        _tag: 'RenameSection',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+        name: 'Squares',
+      })
+      expect(renamed['/corpus/grid.loom']).toBe(grid.replace('## Cells', '## Squares'))
+      expect(renamed['/corpus/walls.loom']).toBe(
+        walls.replace('Chapter 1, Cells', 'Chapter 1, Squares'),
+      )
+      const removed = yield* afterEdit(quiet, {
+        _tag: 'RemoveSection',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+      })
+      expect(removed['/corpus/grid.loom']).toBe(grid.slice(0, grid.indexOf('\n## Cells')))
+    }),
+  )
+
+~
+
+A name a section of the loom already has is refused, and so is a section the loom does not hold. A kind no trope declares would leave the loom with a fault, so the check refuses the section.
+
+=>
+
+  it.effect('refuses a name taken, a section missing, and a section that breaks its loom', () =>
+    Effect.gen(function* () {
+      const rename = { _tag: 'RenameSection', uri: '/corpus/grid.loom', section: 'Cells' } as const
+      expect(yield* refused(game, { ...rename, name: 'The grid' })).toBe('SectionExists')
+      expect(yield* refused(game, { ...rename, section: 'Rows', name: 'Lines' })).toBe(
+        'NoSuchSection',
+      )
+      expect(
+        yield* refused(game, {
+          _tag: 'AddSection',
+          uri: '/corpus/grid.loom',
+          name: 'Ghost',
+          kind: 'Bogus',
+          body: [],
+        }),
+      ).toBe('EditBreaksLoom')
+    }),
+  )
+})
+
+## Notes
+
+A note left in `Cells` stands after the section's opening prose, before its code. A body given to the section keeps the note. A note resolved leaves the section as it was.
+
+=>
+
+describe('notes', () => {
+  it.effect('leaves a note, keeps it through a new body, and resolves it', () =>
+    Effect.gen(function* () {
+      const noted = yield* afterEdit(game, {
+        _tag: 'AddNote',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+        text: 'Count them again.',
+      })
+      expect(noted['/corpus/grid.loom']).toBe(
+        grid.replace(
+          'A cell holds one thing.\n',
+          'A cell holds one thing.\n\n:::\nCount them again.\n:::\n',
+        ),
+      )
+      const rewritten = yield* afterEdit(noted, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+        body: [{ _tag: 'Prose', text: 'A cell holds a thing.' }],
+      })
+      expect(rewritten['/corpus/grid.loom']).toBe(
+        grid.replace(
+          'A cell holds one thing.\n\n=>\n\nexport const cells = 9\n',
+          'A cell holds a thing.\n\n:::\nCount them again.\n:::\n',
+        ),
+      )
+      const resolved = yield* afterEdit(noted, {
+        _tag: 'ResolveNote',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+        text: 'Count them again.',
+      })
+      expect(resolved['/corpus/grid.loom']).toBe(grid)
+      expect(
+        yield* refused(game, {
+          _tag: 'ResolveNote',
+          uri: '/corpus/grid.loom',
+          section: 'Cells',
+          text: 'Count them again.',
+        }),
+      ).toBe('NoSuchNote')
+    }),
+  )
+})
+
+## Discussions
+
+A topic opened in `Waking` stands at its end, under its divider. A message added to `Traps` follows the last message. A conclusion ends the topic, and a second conclusion replaces the words of the first. A message added to a concluded topic goes before its conclusion. A chapter has no topics.
+
+=>
+
+describe('discussions', () => {
+  it.effect('opens a topic, adds messages, and concludes a topic', () =>
+    Effect.gen(function* () {
+      const opened = yield* afterEdit(game, {
+        _tag: 'OpenTopic',
+        uri: '/corpus/waking.loom',
+        name: 'Light',
+      })
+      expect(opened['/corpus/waking.loom']).toBe(`${waking}\nLight\n---\n`)
+      const answered = yield* afterEdit(game, {
+        _tag: 'AddMessage',
+        uri: '/corpus/waking.loom',
+        topic: 'Traps',
+        author: 'Claude',
+        text: 'A trap going off.',
+      })
+      expect(answered['/corpus/waking.loom']).toBe(`${waking}\n~ Claude\nA trap going off.\n`)
+      const concluded = yield* afterEdit(answered, {
+        _tag: 'Conclude',
+        uri: '/corpus/waking.loom',
+        topic: 'Traps',
+        text: 'Traps wake monsters.',
+      })
+      expect(concluded['/corpus/waking.loom']).toBe(
+        `${answered['/corpus/waking.loom']}\n::: {Conclusion}\nTraps wake monsters.\n:::\n`,
+      )
+      const again = yield* afterEdit(concluded, {
+        _tag: 'Conclude',
+        uri: '/corpus/waking.loom',
+        topic: 'Traps',
+        text: 'A trap within hearing wakes a monster.',
+      })
+      expect(again['/corpus/waking.loom']).toBe(
+        (concluded['/corpus/waking.loom'] ?? '').replace(
+          'Traps wake monsters.',
+          'A trap within hearing wakes a monster.',
+        ),
+      )
+      const late = yield* afterEdit(concluded, {
+        _tag: 'AddMessage',
+        uri: '/corpus/waking.loom',
+        topic: 'Traps',
+        author: 'Yegor',
+        text: 'Agreed.',
+      })
+      expect(late['/corpus/waking.loom']).toBe(
+        (concluded['/corpus/waking.loom'] ?? '').replace(
+          '::: {Conclusion}',
+          '~ Yegor\nAgreed.\n\n::: {Conclusion}',
+        ),
+      )
+      expect(
+        yield* refused(game, { _tag: 'OpenTopic', uri: '/corpus/grid.loom', name: 'Light' }),
+      ).toBe('NotADiscussion')
+    }),
+  )
+})
+
+## The workspace's variables
+
+A variable set in the configuration answers with the configuration's new text, its keys in the manifest's order, and changes no loom. A workspace with no configuration has nothing to set it in.
+
+=>
+
+describe('the configuration', () => {
+  it.effect('sets a variable, and refuses a workspace with no configuration', () =>
+    Effect.gen(function* () {
+      const variable = { _tag: 'SetVariable', name: 'version', value: '0.2.0' } as const
+      const answer = yield* edited(game, variable)
+      expect([answer.made, answer.edits]).toEqual([[], []])
+      expect(answer.configuration).toEqual(
+        Option.some(
+          lines(
+            'languages:',
+            '  typescript: {}',
+            'corpus: corpus',
+            'variables:',
+            '  version: 0.2.0',
+          ),
+        ),
+      )
+      const failed = yield* Effect.flip(edited(game, variable, Option.none()))
+      expect(failed._tag).toBe('NoConfiguration')
+    }),
+  )
+})
+
+## Removals that break a loom they never touch
+
+An edit may take away what a loom it writes nothing into composes, and Loom writes the edit all the same. The writer may mean to mend that loom next, and until then the loom shows the problem. The chapter `Lamps` composes the section `Bricks` of the chapter `Walls` by that chapter's title. Removing `Walls`, the last chapter of Part I, numbers no loom again, so the answer lists `Walls` as removed and writes nothing into `Lamps`. When `Walls` composes `Cells` through the number of `The grid`, removing the section `Cells` takes it out of `The grid` and leaves `Walls` as it was. The chapter `Notes` stands in the book but in no part, and composes `Cells` through the name of Part I. Removing Part I leaves `Notes` as it was too.
+
+=>
+
+describe('removals that break a loom they never touch', () => {
+  it.effect('removes what another loom composes, and leaves that loom as it was', () =>
+    Effect.gen(function* () {
+      const bricks = {
+        ...quiet,
+        '/corpus/walls.loom': `${quiet['/corpus/walls.loom']}\n## Bricks\n\n=>\n\nexport const bricks = 4\n`,
+        '/corpus/lamps.loom': `${lamps}\n=>\n\n${anchor('Walls, Bricks')}\n`,
+      }
+      const walled = yield* edited(bricks, { _tag: 'RemoveLoom', uri: '/corpus/walls.loom' })
+      expect([walled.removed, walled.edits.map((edit) => edit.path)]).toEqual([
+        ['/corpus/walls.loom'],
+        [],
+      ])
+      const composing = {
+        ...quiet,
+        '/corpus/walls.loom': `${quiet['/corpus/walls.loom']}\n=>\n\n${anchor('Part I, Chapter 1, Cells')}\n`,
+      }
+      const celled = yield* afterEdit(composing, {
+        _tag: 'RemoveSection',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+      })
+      expect([
+        celled['/corpus/grid.loom']?.includes('## Cells'),
+        celled['/corpus/walls.loom'],
+      ]).toEqual([false, composing['/corpus/walls.loom']])
+      const noted = {
+        ...quiet,
+        '/corpus/notes.loom': lines(
+          '---',
+          'Chapter: Notes',
+          'Book: The game',
+          '---',
+          '',
+          '# Notes',
+          '',
+          '=>',
+          '',
+          anchor('The room, The grid, Cells'),
+        ),
+      }
+      const parted = yield* afterEdit(noted, { _tag: 'RemovePart', book: 'The game', part: 'I' })
+      expect(parted['/corpus/notes.loom']).toBe(noted['/corpus/notes.loom'])
+    }),
+  )
+})
+
+## Numbered names that follow their loom
+
+The chapter `Lamps` composes `Cells` through `Part I, Chapter 1`, the number of `The grid`. Moved after `Lamps` into Part II, `The grid` becomes Part II, Chapter 2, and the anchor follows it there, while `Walls` takes the number one in Part I. Removed, `The grid` is named by its title where its number stood, so the anchor names nothing. The edit is then refused, rather than compose the `Cells` of whatever loom takes the number one. A link that names `Cells` that way only warns once it leads nowhere. So removing `The grid` from the game writes its title into the link of `Walls`, and is not refused.
+
+=>
+
+describe('numbered names that follow their loom', () => {
+  const following = {
+    ...quiet,
+    '/corpus/lamps.loom': `${lamps}\n=>\n\n${anchor('Part I, Chapter 1, Cells')}\n`,
+  }
+
+  it.effect('writes the path to a loom that moves', () =>
+    Effect.gen(function* () {
+      const after = yield* afterEdit(following, {
+        _tag: 'MoveLoom',
+        uri: '/corpus/grid.loom',
+        book: 'The game',
+        part: 'II',
+        after: '/corpus/lamps.loom',
+      })
+      expect(after['/corpus/lamps.loom']).toBe(
+        `${lamps}\n=>\n\n${anchor('Part II, Chapter 2, Cells')}\n`,
+      )
+      expect(after['/corpus/grid.loom']).toBe(
+        grid.replace(
+          'Part I: The room\nChapter 1: The grid',
+          'Part II: Light\nChapter 2: The grid',
+        ),
+      )
+      expect(after['/corpus/walls.loom']).toBe(
+        (quiet['/corpus/walls.loom'] ?? '').replace(
+          'Part I, Chapter 2: Walls\n',
+          'Part I: The room\nChapter 1: Walls\n',
+        ),
+      )
+    }),
+  )
+
+  it.effect('names a removed loom by its title, so nothing composes another in its place', () =>
+    Effect.gen(function* () {
+      const failed = yield* refusal(following, { _tag: 'RemoveLoom', uri: '/corpus/grid.loom' })
+      expect(failed._tag === 'EditBreaksLoom' ? failed.path : failed._tag).toBe(
+        '/corpus/lamps.loom',
+      )
+      const after = yield* afterEdit(game, { _tag: 'RemoveLoom', uri: '/corpus/grid.loom' })
+      expect(after['/corpus/walls.loom']).toBe(
+        walls
+          .replace('Part I, Chapter 2: Walls\n', 'Part I: The room\nChapter 1: Walls\n')
+          .replace('Part I, Chapter 1, Cells', 'Part I, The grid, Cells'),
+      )
+    }),
+  )
+})
+
+## Words a writer cannot smuggle in
+
+Prose with a heading in it would open a section no check of names saw, and a message with a divider or a tilde in it would open a topic or a message under another name, so each is refused with the line that would read as syntax. A note with a line of colons would close its box early. A heading within a fenced quote is inert, so prose that quotes one is written as it is, but a fence that never closes is refused.
+
+=>
+
+describe('words a writer cannot smuggle in', () => {
+  const unfit = (intent: LoomIntent) =>
+    Effect.map(refusal(game, intent), (failed) =>
+      failed._tag === 'UnfitText' ? failed.line : failed._tag,
+    )
+  const cells = (text: string): LoomIntent => ({
+    _tag: 'ReplaceSection',
+    uri: '/corpus/grid.loom',
+    section: 'Cells',
+    body: [{ _tag: 'Prose', text }],
+  })
+  const message = (text: string): LoomIntent => ({
+    _tag: 'AddMessage',
+    uri: '/corpus/waking.loom',
+    topic: 'Traps',
+    author: 'Claude',
+    text,
+  })
+
+  it.effect('refuses a line that would read as syntax, and keeps a quoted one', () =>
+    Effect.gen(function* () {
+      expect(yield* unfit(cells('Intro.\n\n## Smuggled\n\n=>\n\nrm()'))).toBe('## Smuggled')
+      expect(yield* unfit(message('Agreed.\n---'))).toBe('---')
+      expect(yield* unfit(message('~ Mallory\nI agree.'))).toBe('~ Mallory')
+      expect(
+        yield* unfit({
+          _tag: 'AddNote',
+          uri: '/corpus/grid.loom',
+          section: 'Cells',
+          text: 'Check.\n:::\nOutside.',
+        }),
+      ).toBe(':::')
+      expect(yield* unfit(cells('A loom opens so:\n\n```\n## A heading'))).toBe('```')
+      const quoted = yield* afterEdit(game, cells('A loom opens so:\n\n```\n## A heading\n```'))
+      expect(quoted['/corpus/grid.loom']).toBe(
+        grid.replace(
+          'A cell holds one thing.\n\n=>\n\nexport const cells = 9\n',
+          'A loom opens so:\n\n```\n## A heading\n```\n',
+        ),
+      )
+    }),
+  )
+})
+
+## Looms written on Windows
+
+A loom that ends its lines with a carriage return and a newline takes every edit in the same ending. A note left and resolved, and a section removed, leave the loom as the same edits leave the loom that ends its lines with newlines alone, every line break written in its own ending.
+
+=>
+
+describe('looms written on Windows', () => {
+  const crlf = (files: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(files).map(([path, text]) => [path, text.replace(/\n/g, '\r\n')]),
+    )
+
+  it.effect('writes an edit in the line ending of its loom', () =>
+    Effect.gen(function* () {
+      const note = {
+        _tag: 'AddNote',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+        text: 'Count them again.',
+      } as const
+      const noted = yield* afterEdit(crlf(game), note)
+      expect(noted['/corpus/grid.loom']).toBe(
+        (yield* afterEdit(game, note))['/corpus/grid.loom']?.replace(/\n/g, '\r\n'),
+      )
+      const resolved = yield* afterEdit(noted, { ...note, _tag: 'ResolveNote' })
+      expect(resolved['/corpus/grid.loom']).toBe(grid.replace(/\n/g, '\r\n'))
+      const removed = yield* afterEdit(crlf(quiet), {
+        _tag: 'RemoveSection',
+        uri: '/corpus/grid.loom',
+        section: 'Cells',
+      })
+      expect(removed['/corpus/grid.loom']).toBe(
+        grid.slice(0, grid.indexOf('\n## Cells')).replace(/\n/g, '\r\n'),
+      )
+    }),
+  )
+})
+
+## A new part before an old one
+
+Part II, Light, holds the chapter `Lamps`, which announces it, and the chapter `Glow`. Moving `Lamps` into a new part after Part I makes that part Part II, Middle, so Light becomes Part III. The chapter `Glow` takes the announcement of Light, and writes Light's new number with it.
+
+=>
+
+describe('a new part before an old one', () => {
+  it.effect('hands a part its new number with its announcement', () =>
+    Effect.gen(function* () {
+      const glow = lines(
+        '---',
+        'Part II, Chapter 2: Glow',
+        'Book: The game',
+        '---',
+        '',
+        '# Glow',
+        '',
+        'Lamps glow.',
+      )
+      const after = yield* afterEdit(
+        { ...game, '/corpus/glow.loom': glow },
+        {
+          _tag: 'MoveLoom',
+          uri: '/corpus/lamps.loom',
+          book: 'The game',
+          part: { name: 'Middle', after: 'I' },
+        },
+      )
+      expect(after['/corpus/lamps.loom']).toBe(lamps.replace('Part II: Light', 'Part II: Middle'))
+      expect(after['/corpus/glow.loom']).toBe(
+        lines(
+          '---',
+          'Part III: Light',
+          'Chapter 1: Glow',
+          'Book: The game',
+          '---',
+          '',
+          '# Glow',
+          '',
+          'Lamps glow.',
+        ),
+      )
+    }),
+  )
+})
+
+## Sections beneath sections
+
+The section `Cells` holds `Deep` beneath it. Removed or moved, `Cells` takes `Deep` along. A section added after `Cells` goes after `Deep`, beside `Cells`, and one added after `Deep` takes its three hashes. The loom's opening section can be neither removed nor moved.
+
+=>
+
+describe('sections beneath sections', () => {
+  const nested = {
+    '/corpus/order.loom': lines(
+      '# Order',
+      '',
+      '## Cells',
+      '',
+      'One.',
+      '',
+      '### Deep',
+      '',
+      'Deeper.',
+      '',
+      '## Rows',
+      '',
+      'Two.',
+    ),
+  }
+  const order = (intent: LoomIntent) =>
+    Effect.map(afterEdit(nested, intent), (after) => after['/corpus/order.loom'])
+
+  it.effect('removes, moves, and adds a section with the sections beneath it', () =>
+    Effect.gen(function* () {
+      const uri = '/corpus/order.loom'
+      expect(yield* order({ _tag: 'RemoveSection', uri, section: 'Cells' })).toBe(
+        lines('# Order', '', '## Rows', '', 'Two.'),
+      )
+      expect(yield* order({ _tag: 'MoveSection', uri, section: 'Cells', after: 'Rows' })).toBe(
+        lines(
+          '# Order',
+          '',
+          '## Rows',
+          '',
+          'Two.',
+          '',
+          '## Cells',
+          '',
+          'One.',
+          '',
+          '### Deep',
+          '',
+          'Deeper.',
+        ),
+      )
+      const add = (after: string, name: string): LoomIntent => ({
+        _tag: 'AddSection',
+        uri,
+        after,
+        name,
+        body: [{ _tag: 'Prose', text: 'New.' }],
+      })
+      expect(yield* order(add('Cells', 'Walls'))).toBe(
+        lines(
+          '# Order',
+          '',
+          '## Cells',
+          '',
+          'One.',
+          '',
+          '### Deep',
+          '',
+          'Deeper.',
+          '',
+          '## Walls',
+          '',
+          'New.',
+          '',
+          '## Rows',
+          '',
+          'Two.',
+        ),
+      )
+      expect(yield* order(add('Deep', 'Deepest'))).toBe(
+        lines(
+          '# Order',
+          '',
+          '## Cells',
+          '',
+          'One.',
+          '',
+          '### Deep',
+          '',
+          'Deeper.',
+          '',
+          '### Deepest',
+          '',
+          'New.',
+          '',
+          '## Rows',
+          '',
+          'Two.',
+        ),
+      )
+      expect(yield* refused(nested, { _tag: 'RemoveSection', uri, section: 'Order' })).toBe(
+        'OpensTheLoom',
+      )
+      expect(yield* refused(nested, { _tag: 'MoveSection', uri, section: 'Order' })).toBe(
+        'OpensTheLoom',
+      )
+    }),
+  )
+})
+
+## A loom with no title heading
+
+A loom whose first heading has two hashes has no opening section. Retitled, it changes its frontmatter's title alone, and its first section keeps its name. A section added first goes before that section.
+
+=>
+
+describe('a loom with no title heading', () => {
+  it.effect('retitles the frontmatter alone, and adds a first section before the others', () =>
+    Effect.gen(function* () {
+      const notes = {
+        '/corpus/notes.loom': lines('---', 'Chapter: Notes', '---', '', '## First', '', 'One.'),
+      }
+      const retitled = yield* afterEdit(notes, {
+        _tag: 'RetitleLoom',
+        uri: '/corpus/notes.loom',
+        title: 'Jottings',
+      })
+      expect(retitled['/corpus/notes.loom']).toBe(
+        lines('---', 'Chapter: Jottings', '---', '', '## First', '', 'One.'),
+      )
+      const added = yield* afterEdit(notes, {
+        _tag: 'AddSection',
+        uri: '/corpus/notes.loom',
+        after: null,
+        name: 'Zero',
+        body: [{ _tag: 'Prose', text: 'Nothing.' }],
+      })
+      expect(added['/corpus/notes.loom']).toBe(
+        lines(
+          '---',
+          'Chapter: Notes',
+          '---',
+          '',
+          '## Zero',
+          '',
+          'Nothing.',
+          '',
+          '## First',
+          '',
+          'One.',
+        ),
+      )
+    }),
+  )
+})
+
+## A configuration kept as written
+
+A workspace whose configuration file opens on a comment, holds a key this Loom does not know, and orders its keys its own way keeps all three when a variable is set: only the variable's value changes. A name that is no variable's name is refused, as `loom set` refuses it.
+
+=>
+
+describe('a configuration kept as written', () => {
+  it.effect('sets one value and leaves the rest of the file as it was', () =>
+    Effect.gen(function* () {
+      const settings = (version: string) =>
+        lines(
+          "# The game's settings",
+          'corpus: corpus',
+          'languages:',
+          '  typescript: {}',
+          'future: kept',
+          'variables:',
+          `  version: ${version}`,
+        )
+      const configured = { ...game, '/.loom/config.yaml': settings('0.1.19') }
+      const answer = yield* edited(configured, {
+        _tag: 'SetVariable',
+        name: 'version',
+        value: '0.2.0',
+      })
+      expect(answer.configuration).toEqual(Option.some(settings('0.2.0')))
+      expect(
+        yield* refused(configured, { _tag: 'SetVariable', name: 'not a name', value: '1' }),
+      ).toBe('NotAVariableName')
+    }),
+  )
+})
+
+## Kinds and languages on one line
+
+A kind or a language on two lines would write a line of its own into the frontmatter, so it is refused. A language whose name holds quotation marks is written in quotes, each mark after a backslash, and reads back as the language it names.
+
+=>
+
+describe('kinds and languages on one line', () => {
+  it.effect('refuses a kind or a language on two lines, and quotes a language in full', () =>
+    Effect.gen(function* () {
+      const doors = {
+        _tag: 'MakeLoom',
+        uri: '/corpus/doors.loom',
+        kind: 'Chapter',
+        book: 'The game',
+        part: 'I',
+        title: 'Doors',
+      } as const
+      expect(yield* refused(game, { ...doors, language: 'x\nBook: Other' })).toBe('UnfitName')
+      expect(yield* refused(game, { ...doors, kind: 'Chapter\nBook: Other' })).toBe('UnfitName')
+      const ghost = yield* afterEdit(game, {
+        _tag: 'AddSection',
+        uri: '/corpus/grid.loom',
+        name: 'Ghost',
+        language: 'my "lang"',
+        body: [],
+      })
+      expect(ghost['/corpus/grid.loom']).toBe(`${grid}\n## Ghost {lang="my \\"lang\\""}\n`)
+      const outline = yield* withCompiler(ghost, (compiler) =>
+        compiler.outline('/corpus/grid.loom'),
+      )
+      expect(outline.sections.map((section) => section.language)).toContain('my "lang"')
+    }),
+  )
+})
+
+## Parts that close their gaps
+
+A book of two parts, each with one chapter, loses its first part when that part's chapter leaves it, by removal or by a move to the second part, and the second part becomes Part I. A part that holds only a discussion is removed as any part is. A book whose parts are all numberless gives a new part no number. A part may not take a name that reads as a part's number.
+
+=>
+
+describe('parts that close their gaps', () => {
+  const one = lines('---', 'Part I: First', 'Chapter 1: One', '---', '', '# One')
+  const two = lines('---', 'Part II: Second', 'Chapter 1: Two', '---', '', '# Two')
+  const rooms = { '/corpus/one.loom': one, '/corpus/two.loom': two }
+
+  it.effect('numbers the parts after a part its last loom leaves', () =>
+    Effect.gen(function* () {
+      const answer = yield* edited(rooms, { _tag: 'RemoveLoom', uri: '/corpus/one.loom' })
+      expect(answer.removed).toEqual(['/corpus/one.loom'])
+      expect(appliedTo(rooms, answer)['/corpus/two.loom']).toBe(
+        two.replace('Part II: Second', 'Part I: Second'),
+      )
+      const moved = yield* afterEdit(rooms, {
+        _tag: 'MoveLoom',
+        uri: '/corpus/one.loom',
+        book: '',
+        part: 'II',
+        after: '/corpus/two.loom',
+      })
+      expect(moved['/corpus/one.loom']).toBe(
+        lines('---', 'Part I: Second', 'Chapter 2: One', '---', '', '# One'),
+      )
+      expect(moved['/corpus/two.loom']).toBe(two.replace('Part II: Second', 'Part I: Second'))
+    }),
+  )
+
+  it.effect('removes a part of discussions alone', () =>
+    Effect.gen(function* () {
+      const talk = lines(
+        '---',
+        'Part III, Discussion 1: Talk',
+        'Book: The game',
+        '---',
+        '',
+        '# Talk',
+      )
+      const answer = yield* edited(
+        { ...game, '/corpus/talk.loom': talk },
+        { _tag: 'RemovePart', book: 'The game', part: 'III' },
+      )
+      expect([answer.removed, answer.edits]).toEqual([['/corpus/talk.loom'], []])
+    }),
+  )
+
+  it.effect('gives a new part no number among numberless parts, and no name like a number', () =>
+    Effect.gen(function* () {
+      const sketch = lines('---', 'Part: Drafts', 'Chapter: Sketch', '---', '', '# Sketch')
+      const after = yield* afterEdit(
+        { '/corpus/sketch.loom': sketch },
+        {
+          _tag: 'MakeLoom',
+          uri: '/corpus/spark.loom',
+          kind: 'Chapter',
+          book: '',
+          part: { name: 'Ideas' },
+          title: 'Spark',
+        },
+      )
+      expect(after['/corpus/spark.loom']).toBe(
+        lines('---', 'Part: Ideas', 'Chapter 1: Spark', '---', '', '# Spark'),
+      )
+      expect(
+        yield* refused(game, { _tag: 'RenamePart', book: 'The game', part: 'I', name: 'IV' }),
+      ).toBe('PartNameIsNumber')
+      expect(
+        yield* refused(game, {
+          _tag: 'MakeLoom',
+          uri: '/corpus/keys.loom',
+          kind: 'Chapter',
+          book: 'The game',
+          part: { name: 'IX' },
+          title: 'Keys',
+        }),
+      ).toBe('PartNameIsNumber')
+    }),
+  )
+})
+
+## Titles, followers, and things that stay
+
+A title that differs from one Part I holds only in its case is taken. A chapter placed after a discussion of its part is refused, since chapters and discussions are numbered apart. A chapter moved after itself, and a part moved after itself, stay where they stand, and the edit changes nothing.
+
+=>
+
+describe('titles, followers, and things that stay', () => {
+  it.effect(
+    'folds titles, refuses a follower of another kind, and leaves a thing after itself',
+    () =>
+      Effect.gen(function* () {
+        const doors = {
+          _tag: 'MakeLoom',
+          uri: '/corpus/doors.loom',
+          kind: 'Chapter',
+          book: 'The game',
+          part: 'I',
+          title: 'Doors',
+        } as const
+        expect(yield* refused(game, { ...doors, title: 'the grid' })).toBe('TitleTaken')
+        expect(yield* refused(game, { ...doors, after: '/corpus/waking.loom' })).toBe('NotOfKind')
+        const stayed = yield* edited(game, {
+          _tag: 'MoveLoom',
+          uri: '/corpus/grid.loom',
+          book: 'The game',
+          part: 'I',
+          after: '/corpus/grid.loom',
+        })
+        expect(stayed.edits).toEqual([])
+        const kept = yield* edited(game, {
+          _tag: 'MovePart',
+          book: 'The game',
+          part: 'I',
+          after: 'I',
+        })
+        expect(kept.edits).toEqual([])
+      }),
+  )
+})
+
+## The edits test file [test/Edits.test.ts]
+
+=>
+
+::[Testing the edits]
+
+::[The outline of a loom, A workspace held in memory]
+
+::[The game the cases edit]
+
+::[Making looms and books]
+
+::[Moving and removing looms]
+
+::[Titles and names]
+
+::[Moving and removing parts]
+
+::[Sections]
+
+::[Notes]
+
+::[Discussions]
+
+::[The workspace's variables]
+
+::[Removals that break a loom they never touch]
+
+::[Numbered names that follow their loom]
+
+::[Words a writer cannot smuggle in]
+
+::[Looms written on Windows]
+
+::[A new part before an old one]
+
+::[Sections beneath sections]
+
+::[A loom with no title heading]
+
+::[A configuration kept as written]
+
+::[Kinds and languages on one line]
+
+::[Parts that close their gaps]
+
+::[Titles, followers, and things that stay]

@@ -2224,6 +2224,85 @@ export const renameAt = (
     },
   )
 
+const namesPart =
+  (part: PartRef, numbered: boolean) =>
+  (step: Step): boolean =>
+    step.numbered === numbered && step.place._tag === 'Part' && samePart(step.place.part, part)
+
+const partSpans = (
+  corpus: LoomCorpusAst,
+  part: PartRef,
+  numbered: boolean,
+): ReadonlyArray<CorpusLocation> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return [
+    ...anchorsNaming(catalogue, corpus.modules, namesPart(part, numbered), segmentPosition),
+    ...referencesNaming(catalogue, namesPart(part, numbered)),
+  ]
+}
+
+export const partNumbersOf = (
+  corpus: LoomCorpusAst,
+  part: PartRef,
+): ReadonlyArray<CorpusLocation> => partSpans(corpus, part, true)
+
+export const partNamesOf = (corpus: LoomCorpusAst, part: PartRef): ReadonlyArray<CorpusLocation> =>
+  partSpans(corpus, part, false)
+
+export const numberNamesOf = (
+  corpus: LoomCorpusAst,
+  path: Location,
+): ReadonlyArray<CorpusLocation> => chapterNumbersAt(corpus, path, segmentPosition)
+
+export type NumberPath = { readonly location: CorpusLocation; readonly book: boolean }
+
+const isBookStep = (step: Step): boolean => step.place._tag === 'Book'
+
+const leadingTo = (chapter: Chapter, steps: ReadonlyArray<Step>): ReadonlyArray<Trail> =>
+  steps.flatMap((step, at) =>
+    step.numbered && namesChapter(chapter)(step.place)
+      ? [Array.append(steps.slice(0, at), step)]
+      : [],
+  )
+
+const pathTo = (run: Trail): Segment => ({
+  text: run.map((step) => step.segment.text).join(', '),
+  start: Array.headNonEmpty(run).segment.start,
+  end: Array.lastNonEmpty(run).segment.end,
+})
+
+export const numberPathsOf = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<NumberPath> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(chapterOf(catalogue, path), {
+    onNone: (): ReadonlyArray<NumberPath> => [],
+    onSome: (chapter) =>
+      Array.fromIterable(corpus.modules.values()).flatMap((module) => [
+        ...anchorsIn(module).flatMap((anchor) =>
+          leadingTo(chapter, stepsOf(catalogue, module.path, anchor)).map((run): NumberPath => ({
+            location: { path: module.path, position: segmentPosition(anchor, pathTo(run)) },
+            book: run.some(isBookStep),
+          })),
+        ),
+        ...referencesOf(module).flatMap((held) =>
+          leadingTo(
+            chapter,
+            Option.getOrElse(
+              soleTrail(referenceTrails(catalogue, module.path, held)),
+              (): ReadonlyArray<Step> => [],
+            ),
+          ).flatMap((run) =>
+            Option.toArray(
+              Option.map(
+                valueSpan(module.path, held.value, pathTo(run)),
+                (location): NumberPath => ({ location, book: run.some(isBookStep) }),
+              ),
+            ),
+          ),
+        ),
+      ]),
+  })
+}
+
 export const navigationRangeAt = (
   corpus: LoomCorpusAst,
   path: Location,

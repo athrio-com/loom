@@ -26,10 +26,14 @@ import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
 import type { TableOfContents } from '../src/weave/TableOfContentsBuilder'
+import type { Outline } from '../src/OutlineBuilder'
 import {
   classicTypeScript,
   closeOf,
+  conceptsRequest,
   contentsRequest,
+  editRequest,
+  outlineRequest,
   projectOver,
   rebuildUnder,
   refreshDecorations,
@@ -247,6 +251,8 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     })
   const contents = (): Promise<TableOfContents> =>
     connection.sendRequest<TableOfContents>(contentsRequest)
+  const ask = <A>(method: string, params: unknown): Promise<A> =>
+    connection.sendRequest<A>(method, params)
   const changed = (path: string, type: FileChangeType = FileChangeType.Changed): Promise<void> =>
     connection.sendNotification('workspace/didChangeWatchedFiles', {
       changes: [{ uri: pathToFileURL(path).href, type }],
@@ -268,6 +274,7 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     definition,
     rename,
     contents,
+    ask,
     changed,
     applied,
     close,
@@ -1232,6 +1239,73 @@ describe('LoomServer — the books of a workspace', () => {
         ['', [answer]],
         ['The game', [rooms]],
       ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+type Answered = WorkspaceEdit & { readonly removed: ReadonlyArray<string> }
+
+describe('LoomServer — what an application asks', () => {
+  it('outlines a loom, answers an edit, and refuses one with its failure', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const answer = workspaceAt(root, standIn(false))
+    const rooms = join(root, 'corpus', 'rooms.loom')
+    const editor = await editorAt(root)
+    const refusal = (params: unknown) =>
+      editor.ask(editRequest, params).then(
+        () => undefined,
+        (error: { readonly code: number; readonly data: Readonly<Record<string, unknown>> }) =>
+          error,
+      )
+    try {
+      const outline = await editor.ask<Outline>(outlineRequest, { uri: pathToFileURL(answer).href })
+      expect([
+        outline.kind,
+        outline.title,
+        outline.sections.map((section) => section.name),
+      ]).toEqual(['Chapter', 'Answer', ['Answer']])
+      const made = await editor.ask<Answered>(editRequest, {
+        edit: {
+          _tag: 'MakeLoom',
+          uri: pathToFileURL(rooms).href,
+          kind: 'Chapter',
+          book: '',
+          title: 'Rooms',
+        },
+      })
+      expect(made.documentChanges).toEqual([
+        { kind: 'create', uri: pathToFileURL(rooms).href },
+        {
+          textDocument: { uri: pathToFileURL(rooms).href, version: null },
+          edits: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              newText: lines('---', 'Chapter: Rooms', '---', '', '# Rooms'),
+            },
+          ],
+        },
+      ])
+      expect(made.removed).toEqual([])
+      const removed = await editor.ask<Answered>(editRequest, {
+        edit: { _tag: 'RemoveLoom', uri: pathToFileURL(answer).href },
+      })
+      expect(removed.removed).toEqual([pathToFileURL(answer).href])
+      const missing = await refusal({
+        edit: {
+          _tag: 'RenameSection',
+          uri: pathToFileURL(answer).href,
+          section: 'Nothing',
+          name: 'Else',
+        },
+      })
+      expect([missing?.code, missing?.data]).toEqual([
+        -32803,
+        { _tag: 'NoSuchSection', path: answer, section: 'Nothing' },
+      ])
+      expect((await refusal({ edit: { _tag: 'Unknown' } }))?.data._tag).toBe('RequestUnread')
+      expect(await editor.ask<unknown>(conceptsRequest, {})).toEqual({ concepts: [] })
     } finally {
       editor.close()
     }

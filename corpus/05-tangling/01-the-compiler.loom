@@ -21,7 +21,11 @@ The product is built once, with the parse. `LoomCorpusAstBuilder` composes each 
 
 The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `approve` approves the relations of a loom that its caller chose, as their sections stand now, and keeps their fingerprints in the workspace, as the chapter "Fingerprints on relations" describes. It gives back what it kept for them. `relations` gives the relations of a loom, each with its status, so a review can tell what has drifted. `approvals` gives the editor an approval for each reference within a range that is not in step: its title, and the file that keeps relations with the text it holds once the reference is approved. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `hover` gives the card of the concept a link or a heading under the cursor names. Over a key in braces it gives the key's card instead: what the key takes, and who gave it to the bearer of the braces. A plain word that the loom's vocabulary recognises as a concept answers these three like a link to the concept, as the chapter "The scope of a concept" describes, and the references of a concept take in every word that recognises it. `links` offers, for a word that two concepts claim, a link to each of them, written with the workspace's anchor delimiters, and `moves` gives the scopes a concept may move up to from its heading. `symbols` gives the concepts of a workspace whose names hold a query, for the editor's symbol search. It takes no loom, so it builds the corpus that the source lists from a place in the workspace. `rename` gathers the title and anchors a rename rewrites together, and for a concept the edit that keeps its old name as a form, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `boxes` gives each box of a file with its caption and the lines it spans, so the editor folds the box under its name. `summaryEdits` keeps a box and the loom it points to in step as the author types. Given a loom's text before an edit and after it, it takes the loom as it is built from each, asks the corpus for the edits that carry the change across, and gives each as a `SummaryEdit`: the loom, the range in the editor's coordinates, and the text. The `completions` verb gives what the braces of a heading, an anchor, or a box may hold where the cursor stands in them, each offer with the span it replaces, so the editor completes a label, a key, or a value as the author types it. The labels are the core's kinds of anchor and the kinds tropes declare, and a declared kind that keeps to prose or to code is offered only where the anchor stands there. `contracts` gives what each anchor says its section provides: where the section's code stands, and for each name, the `MissingSymbol` diagnostic the editor raises when the section's language service reports no such name there. `promised` gives the names a root is promised before anyone writes the section that provides them, so a language service can lower its error for such a name to a warning. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. The `contents` verb gives the corpus's table of contents: its books, and the parts and chapters of each, laid out as the woven website lays them out. An editor reads it to show the books of a workspace and the looms each one holds. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. Such a file may be new, though, and a new loom changes what its corpus lists. So `invalidate` then forgets the corpora the compiler kept, and the next verb lists the corpus again. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. A location that is no absolute path, such as a remote workspace's URL, takes a slash after it instead, because joining would fold the two slashes after the URL's scheme into one. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
 
-Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `hover`, `links`, `moves`, `symbols`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `completions`, `reach`, `weave`, `contents`, and `summaries` read the parse and the corpus graph, since Loom health, navigation, colour, completion, placement, the woven page, the table of contents, and the summaries that boxes copy need no product. `contracts` reads the product too, since a contract binds the anchor's edge to the section it reaches, and so does `promised`, since a promise rides on the edges a root's composition follows. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
+Three verbs answer an application that shows a workspace's looms in words of its own, as the chapters "The outline of a loom" and "Edits an application asks for" describe. The `outline` verb gives the outline of one loom, with the variables of the loom's workspace, and fails with `NoSuchLoom` for a loom no source can read. The `concepts` verb gives every concept of the corpus around a loom, with the places that use it.
+
+The third verb, `edit`, gives the edit of looms an intent asks for, its splices placed in the editor's coordinates. It builds the corpus around the workspace's entry. A workspace that holds no loom yet has no entry, so the verb takes the empty corpus `noCorpus` instead. It reads the workspace's manifest too, for an intent that sets a variable. Before it answers, the function `checkedEdit` checks the edit. It builds every loom the edit makes or changes again from its new text, with the settings and the declared kinds that loom's build takes. When a loom the edit makes or changes would hold a problem it does not hold now, the verb refuses the edit with `EditBreaksLoom`. A loom the edit writes nothing into is never judged. An edit that sets a variable answers with the configuration's new text, which `settingsAfter` writes.
+
+Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `hover`, `links`, `moves`, `symbols`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `completions`, `reach`, `weave`, `contents`, `outline`, `concepts`, `edit`, and `summaries` read the parse and the corpus graph, since Loom health, navigation, colour, completion, placement, the woven page, the table of contents, and the summaries that boxes copy need no product. `contracts` reads the product too, since a contract binds the anchor's edge to the section it reaches, and so does `promised`, since a promise rides on the edges a root's composition follows. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
 
 The build cache keys a module by its path alone, so it can hold a build of the entry from text the editor no longer shows. The corpus may have been built from disk before the editor projected a chapter it has open: by the language server warming the corpus at start, or by a composition the TypeScript service asked for. That build holds the saved text, while the editor's buffer may hold edits that were never saved. So `compile` first runs `matchEntry`, which compares the kept build of the entry with the text its source gives and evicts the build when the two differ. A source that cannot read the entry leaves the build alone, and the build reports the error as it always did. The entry is then built from the buffer, and the editor never answers from text it is not showing.
 
@@ -458,6 +462,52 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const buildCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
       corpusOf(source, entry).pipe(Effect.map((corpus) => corpus.modules))
 
+    const settingsAfter = (
+      workspace: Location,
+      manifest: Option.Option<WorkspaceManifest>,
+      setting: Option.Option<Setting>,
+    ): Effect.Effect<Option.Option<string>> =>
+      Option.match(Option.all({ manifest, setting }), {
+        onNone: () => Effect.succeed(Option.none()),
+        onSome: ({ manifest: held, setting: set }) =>
+          documents.read(manifestFileOf(workspace)).pipe(
+            Effect.orElseSucceed(() => manifestText(held)),
+            Effect.map((text) => Option.some(editedSettings(text, set.path, set.value))),
+          ),
+      })
+
+    const checkedEdit = (corpus: Corpus, edit: LoomEdit): Effect.Effect<void, EditBreaksLoom> => {
+      const texts = editedTexts(corpus.modules, edit)
+      const edited: Source = {
+        read: (path) =>
+          Effect.succeed(Option.getOrElse(Option.fromNullishOr(texts.get(path)), () => '')),
+        list: Option.none(),
+      }
+      return Effect.forEach(Array.fromIterable(texts.keys()), (path) =>
+        config
+          .resolve(path)
+          .pipe(
+            Effect.flatMap((settings) =>
+              builder.build(
+                edited,
+                path,
+                settings.delims,
+                settings.primaryLanguage,
+                settings.variables,
+                declaredIn(corpus.kinds),
+              ),
+            ),
+          ),
+      ).pipe(
+        Effect.flatMap((rebuilt) =>
+          Option.match(brokenBy(corpus, edit, rebuilt), {
+            onNone: () => Effect.void,
+            onSome: Effect.fail,
+          }),
+        ),
+      )
+    }
+
     return {
       compile: (source: Source, path: Location): Effect.Effect<VirtualCode> =>
         matchEntry(source, path).pipe(
@@ -535,6 +585,51 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       contents: (path: Location): Effect.Effect<TableOfContents> =>
         buildCorpus(documents, path).pipe(Effect.map((modules) => buildContents({ modules }))),
+
+      outline: (path: Location): Effect.Effect<Outline, NoSuchLoom> =>
+        documents.read(path).pipe(
+          Effect.catchTag('ReadError', () => Effect.fail(new NoSuchLoom({ path }))),
+          Effect.andThen(Effect.all([buildCorpus(documents, path), config.resolve(path)])),
+          Effect.flatMap(([modules, settings]) =>
+            Option.match(buildOutline({ modules }, path, settings.variables), {
+              onNone: () => Effect.fail(new NoSuchLoom({ path })),
+              onSome: (outline) => Effect.succeed(outline),
+            }),
+          ),
+        ),
+
+      concepts: (path: Location): Effect.Effect<Concepts> =>
+        buildCorpus(documents, path).pipe(Effect.map((modules) => buildConcepts({ modules }))),
+
+      edit: (
+        workspace: Location,
+        entry: Option.Option<Location>,
+        intent: LoomIntent,
+        locate: (uri: string) => Location,
+      ): Effect.Effect<EditAnswer, EditRefusal | EditBreaksLoom | ReadError> =>
+        Effect.all([
+          Option.match(entry, {
+            onNone: () => Effect.succeed(noCorpus),
+            onSome: (loom) => corpusOf(documents, loom),
+          }),
+          config.manifest(workspace),
+        ]).pipe(
+          Effect.flatMap(([corpus, manifest]) =>
+            Effect.fromResult(
+              buildEdit(
+                { corpus: { modules: corpus.modules }, workspace, manifest, locate },
+                intent,
+              ),
+            ).pipe(
+              Effect.tap((edit) => checkedEdit(corpus, edit)),
+              Effect.flatMap((edit) =>
+                settingsAfter(workspace, manifest, edit.configuration).pipe(
+                  Effect.map((configuration) => answerOf(corpus.modules, edit, configuration)),
+                ),
+              ),
+            ),
+          ),
+        ),
 
       summaries: (
         path: Location,
@@ -1920,6 +2015,137 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   embeddedCodes: vc.embeddedCodes.map(toVolar),
 })
 
+## Answering an application
+
+An application asks the compiler for an outline, the concepts of a corpus, or an edit, and the compiler answers in the editor's coordinates, as every other verb does. An `EditAnswer` holds the looms an edit makes, each a `MadeLoom` with its whole text, its `edits`, the looms it `removed`, and the configuration's new text when the edit sets a variable. Each edit is a `RangedEdit`: the loom, the range it replaces, its line and character at either end, and the text it writes there. The application removes the looms the answer lists as removed, and no others. The function `answerOf` turns each splice of a `LoomEdit` into a `RangedEdit` through `lineCharAt`, which reads the offsets against the loom's text before the edit. A workspace that holds no loom yet has nothing to build a corpus around, so its edits read `noCorpus`, which holds no module and no declared kind.
+
+The edits never read the configuration's text. An edit that sets a variable says which value it sets, and the compiler writes that value into the text, as `settingsAfter` does. It reads the text through the document source, from the file the configuration's `manifestFileOf` names, and sets the value with the configuration's `editedSettings`, which leaves every other line of the file as it was written. Storage that keeps no such file, as remote storage keeps a workspace's manifest as data, gives the manifest written out by `manifestText` to start from.
+
+The check builds each loom the edit touches from its new text. The function `editedTexts` gives that text for each: a made loom's text as it is made, and a changed loom's text with its splices applied through `splicedText`. The function `brokenBy` judges each rebuilt loom against the corpus after the edit, without the looms the edit leaves gone, and the same loom against the corpus as it stands now, both through `corpusDiagnostics`, as the editor's diagnostics are judged. It judges no other loom. An edit may take away a section that another loom composes, and the writer may mean to mend that loom next, so the edit goes through and that loom shows the problem, as code that calls a removed function shows it. A problem the edit adds is an error that the loom did not hold before, which `problemsAdded` finds by its words, and `errorsOf` reads the words of a loom's errors. A warning, such as a language no service serves, never refuses an edit. The first loom that holds a problem the edit adds gives the failure `EditBreaksLoom`, with the problems it lists.
+
+=>
+
+export type RangedEdit = {
+  readonly path: Location
+  readonly range: FrameLocation['range']
+  readonly text: string
+}
+
+export type EditAnswer = {
+  readonly made: ReadonlyArray<MadeLoom>
+  readonly edits: ReadonlyArray<RangedEdit>
+  readonly removed: ReadonlyArray<Location>
+  readonly configuration: Option.Option<string>
+}
+
+const noCorpus: Corpus = { modules: new Map(), kinds: { ...noDeclarations, refusals: [] } }
+
+const answerOf = (
+  modules: Modules,
+  edit: LoomEdit,
+  configuration: Option.Option<string>,
+): EditAnswer => ({
+  made: edit.made,
+  edits: Array.getSomes(
+    edit.splices.map((splice) =>
+      Option.map(Option.fromNullishOr(modules.get(splice.path)), (module) => ({
+        path: splice.path,
+        range: { start: lineCharAt(module, splice.start), end: lineCharAt(module, splice.end) },
+        text: splice.text,
+      })),
+    ),
+  ),
+  removed: edit.gone,
+  configuration,
+})
+
+const editedTexts = (modules: Modules, edit: LoomEdit): ReadonlyMap<Location, string> =>
+  new Map([
+    ...edit.made.map((made) => [made.path, made.text] as const),
+    ...Object.entries(Array.groupBy(edit.splices, (splice) => splice.path)).map(
+      ([path, splices]) =>
+        [
+          path,
+          splicedText(
+            Option.getOrElse(
+              Option.map(Option.fromNullishOr(modules.get(path)), (module) => module.text),
+              () => '',
+            ),
+            splices,
+          ),
+        ] as const,
+    ),
+  ])
+
+const errorsOf = (
+  judged: (module: LoomModule) => ReadonlyArray<Diagnostic>,
+  module: LoomModule,
+): ReadonlyArray<string> =>
+  judged(module)
+    .filter((diagnostic) => diagnostic.severity === 'error')
+    .map((diagnostic) => diagnostic.message)
+
+const brokenBy = (
+  corpus: Corpus,
+  edit: LoomEdit,
+  rebuilt: ReadonlyArray<LoomModule>,
+): Option.Option<EditBreaksLoom> => {
+  const after: Modules = new Map([
+    ...Array.fromIterable(corpus.modules).filter(([path]) => !Array.contains(edit.gone, path)),
+    ...rebuilt.map((module) => [module.path, module] as const),
+  ])
+  const before = corpusDiagnostics(corpus.modules, corpus.kinds, [], Option.none())
+  const now = corpusDiagnostics(after, corpus.kinds, [], Option.none())
+  return Array.head(
+    Array.getSomes(
+      rebuilt.map((module) => {
+        const added = problemsAdded(
+          Option.match(Option.fromNullishOr(corpus.modules.get(module.path)), {
+            onNone: (): ReadonlyArray<string> => [],
+            onSome: (was) => errorsOf(before, was),
+          }),
+          errorsOf(now, module),
+        )
+        return added.length === 0
+          ? Option.none()
+          : Option.some(new EditBreaksLoom({ path: module.path, problems: added }))
+      }),
+    ),
+  )
+}
+
+~
+
+The answers come from the chapters that build them. The outline gives `buildOutline` and `buildConcepts`, the `Outline` and the `Concepts` they build, and the failure `NoSuchLoom`. The edits give `buildEdit`, the `LoomIntent` it reads, the `LoomEdit` and `MadeLoom` it builds, the `Setting` an edit of the configuration holds, the `EditRefusal` it may fail with, `splicedText`, which applies splices to a loom's text, `problemsAdded`, which finds the problems an edit adds, and the failure `EditBreaksLoom`. The configuration gives `manifestFileOf`, `manifestText`, and `editedSettings`, and the type of a manifest.
+
+=>
+
+import {
+  editedSettings,
+  manifestFileOf,
+  manifestText,
+  type WorkspaceManifest,
+} from '@athrio/loom-config/LoomConfig'
+
+import {
+  buildConcepts,
+  buildOutline,
+  type Concepts,
+  NoSuchLoom,
+  type Outline,
+} from './OutlineBuilder'
+import {
+  buildEdit,
+  EditBreaksLoom,
+  type EditRefusal,
+  type LoomEdit,
+  type LoomIntent,
+  type MadeLoom,
+  problemsAdded,
+  type Setting,
+  splicedText,
+} from './EditBuilder'
+
 ## The document source
 
 `DocumentSource` is the compiler's seam to a workspace's text. It stands in front of the `WorkspaceSource` service, which reaches the storage the looms are kept in, as the chapter "Where a workspace is kept" describes. Its `read` method returns a loom's text by path. When it holds that loom's text from an opened workspace, it answers from memory. Otherwise it asks the `WorkspaceSource` service to read the loom, and fails with `ReadError` when the loom cannot be read. On the file system that read never waits, because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
@@ -2178,6 +2404,8 @@ import { type WovenCorpus } from './weave/WovenCorpus'
 ::[Crossing to Volar]
 
 ::[The document source]
+
+::[Answering an application]
 
 ::[The chain and its verbs]
 

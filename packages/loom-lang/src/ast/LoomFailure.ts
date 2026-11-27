@@ -1,6 +1,10 @@
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import type {
+  NotAVariableName,
+  SettingsNotWritten,
+  SettingsUnread,
+} from '@athrio/loom-config/LoomConfig'
 import type {
   PackageMissing,
   PackageNotLoaded,
@@ -11,7 +15,29 @@ import type { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import type { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import type { ReadError } from '#ast/LoomCorpusAstBuilder'
 import type { TangleError } from '../LoomCompiler'
-import type { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../LoomServer'
+import type {
+  BookExists,
+  EditBreaksLoom,
+  LoomExists,
+  NoConfiguration,
+  NoSuchBook,
+  NoSuchNote,
+  NoSuchPart,
+  NoSuchSection,
+  NotADiscussion,
+  NotInPart,
+  NotOfKind,
+  OpensABook,
+  OpensTheLoom,
+  PartExists,
+  PartNameIsNumber,
+  SectionExists,
+  TitleTaken,
+  UnfitName,
+  UnfitText,
+} from '../EditBuilder'
+import type { NoSuchLoom } from '../OutlineBuilder'
+import type { ClassicTypeScriptMissing, RequestUnread, TypeScriptNotFetched } from '../LoomServer'
 import type { NotRemoved, NotWritten } from '../LoomTangler'
 import type { TropeRefused } from '../TropePackages'
 import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
@@ -107,6 +133,133 @@ const keepingWording: Wording<KeepingFailure> = {
     problem(`Loom could not keep the relations of ${workspace}.`, 'Remote storage takes no write.'),
 }
 
+export type AskingFailure =
+  | RequestUnread
+  | NoSuchLoom
+  | LoomExists
+  | NoSuchBook
+  | BookExists
+  | NoSuchPart
+  | PartExists
+  | PartNameIsNumber
+  | TitleTaken
+  | NotInPart
+  | NotOfKind
+  | NoSuchSection
+  | SectionExists
+  | OpensTheLoom
+  | NoSuchNote
+  | NotADiscussion
+  | UnfitName
+  | UnfitText
+  | OpensABook
+  | NoConfiguration
+  | NotAVariableName
+  | EditBreaksLoom
+
+const bookWords = (book: string): string => (book === '' ? 'the default book' : `the book ${book}`)
+
+const askingWording: Wording<AskingFailure> = {
+  RequestUnread: ({ request, cause }) =>
+    problem(`Loom could not read the parameters of ${request}.`, reasonOf(cause)),
+  NoSuchLoom: ({ path }) =>
+    problem(
+      `The workspace holds no loom at ${path}.`,
+      'Name a loom the workspace holds, or make it first.',
+    ),
+  LoomExists: ({ path }) =>
+    problem(`A loom is already kept at ${path}.`, 'Choose another place for the new loom.'),
+  NoSuchBook: ({ book }) =>
+    problem(
+      `No loom names the book ${book}.`,
+      'Make the book first, or name a book the workspace holds.',
+    ),
+  BookExists: ({ book }) =>
+    problem(`A loom already opens the book ${book}.`, 'Choose another name for the book.'),
+  NoSuchPart: ({ book, part }) =>
+    problem(
+      `No part ${part} stands in ${bookWords(book)}.`,
+      'Name a part by its number or its name, as the contents list it.',
+    ),
+  PartExists: ({ book, part }) =>
+    problem(
+      `A part named ${part} already stands in ${bookWords(book)}.`,
+      'Choose another name for the part.',
+    ),
+  PartNameIsNumber: ({ name }) =>
+    problem(
+      `The name ${name} reads as a part's number.`,
+      'Give the part a name that is no Roman numeral.',
+    ),
+  TitleTaken: ({ title, book, part }) =>
+    problem(
+      `A loom titled ${title} already stands in part ${part} of ${bookWords(book)}.`,
+      'Choose another title, since two looms of one part cannot share one.',
+    ),
+  NotInPart: ({ path }) =>
+    problem(
+      `No loom of that part stands at ${path}.`,
+      'Name a loom of the part to follow, or leave it out to place the loom last.',
+    ),
+  NotOfKind: ({ path, kind }) =>
+    problem(
+      `The loom ${path} is no ${kind}, and each kind of loom is numbered apart.`,
+      `Name a ${kind} of the part to follow, or leave it out to place the loom last.`,
+    ),
+  NoSuchSection: ({ path, section }) =>
+    problem(
+      `The loom ${path} holds no section named ${section}.`,
+      'Name a section by its heading, as the outline gives it.',
+    ),
+  SectionExists: ({ path, section }) =>
+    problem(
+      `The loom ${path} already holds a section named ${section}.`,
+      'Choose another name, since two sections of one loom cannot share one.',
+    ),
+  OpensTheLoom: ({ path, section }) =>
+    problem(
+      `The section ${section} opens the loom ${path} and carries its title.`,
+      'Remove or move the loom itself, or retitle it.',
+    ),
+  NoSuchNote: ({ path, section }) =>
+    problem(
+      `The section ${section} of ${path} holds no note with those words.`,
+      'Name the note by its whole text, as the outline gives it.',
+    ),
+  NotADiscussion: ({ path }) =>
+    problem(`The loom ${path} is no discussion.`, 'Open topics and add messages in a discussion.'),
+  UnfitName: ({ name }) =>
+    problem(
+      `The name ${JSON.stringify(name)} cannot stand in a loom.`,
+      'Give a name that holds words, on one line.',
+    ),
+  UnfitText: ({ line }) =>
+    problem(
+      `The line ${JSON.stringify(line)} would read as Loom's syntax, not as words.`,
+      'Reword it so it does not open as a heading, an arrow, a tilde, a divider, or a box does, and close any fence it opens.',
+    ),
+  OpensABook: ({ path }) =>
+    problem(
+      `The loom ${path} opens a book, so it stands in no part.`,
+      'Move the chapters of the book instead.',
+    ),
+  NoConfiguration: ({ workspace }) =>
+    problem(
+      `The workspace ${workspace} has no configuration.`,
+      'Give it a configuration in `.loom/config.yaml` first.',
+    ),
+  NotAVariableName: ({ name }) =>
+    problem(
+      `The name \`${name}\` is not a variable name.`,
+      'A name holds letters, digits and underscores, and does not open on a digit.',
+    ),
+  EditBreaksLoom: ({ path, problems }) =>
+    problem(
+      `The edit would leave ${path} with ${howMany(problems.length)} it does not hold now.`,
+      closed(problems.join(' ')),
+    ),
+}
+
 export type Warning =
   | SettingsUnread
   | PackageStale
@@ -200,6 +353,7 @@ export type LoomFailure =
   | TanglingFailure
   | PackageFailure
   | KeepingFailure
+  | AskingFailure
   | Warning
   | Broke
 
@@ -209,6 +363,7 @@ export const failureWording: Wording<LoomFailure> = {
   ...tanglingWording,
   ...packageWording,
   ...keepingWording,
+  ...askingWording,
   ...warningWording,
   ...brokeWording,
 }

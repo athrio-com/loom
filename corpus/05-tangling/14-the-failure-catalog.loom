@@ -158,6 +158,141 @@ const keepingWording: Wording<KeepingFailure> = {
     problem(`Loom could not keep the relations of ${workspace}.`, 'Remote storage takes no write.'),
 }
 
+## An application asks too much
+
+An application that shows a workspace's looms in words of its own asks the language server for an outline and for edits, as the chapters "The outline of a loom" and "Edits an application asks for" describe. The server cannot read every request it is sent. The error `RequestUnread` holds the `request` and the `cause`, the reason the request's parameters do not read.
+
+A request may name a loom that is not there. The error `NoSuchLoom` holds its `path`. An edit may also ask for what cannot be done, and each refusal is an error of the edits: `LoomExists`, `NoSuchBook`, `BookExists`, `NoSuchPart`, `PartExists`, `PartNameIsNumber`, `TitleTaken`, `NotInPart`, `NotOfKind`, `NoSuchSection`, `SectionExists`, `OpensTheLoom`, `NoSuchNote`, `NotADiscussion`, `UnfitName`, `UnfitText`, `OpensABook`, `NoConfiguration`, and `EditBreaksLoom`, which the chapter "Edits an application asks for" describes. A variable the edit would set under a name that is no name meets the configuration's error `NotAVariableName`, as `loom set` does. Each says what it refuses and names the fix, in words an application may show its writer or translate into its own. The function `bookWords` names a book in a sentence, and names the default book, which has no name, as the default book.
+
+=>
+
+export type AskingFailure =
+  | RequestUnread
+  | NoSuchLoom
+  | LoomExists
+  | NoSuchBook
+  | BookExists
+  | NoSuchPart
+  | PartExists
+  | PartNameIsNumber
+  | TitleTaken
+  | NotInPart
+  | NotOfKind
+  | NoSuchSection
+  | SectionExists
+  | OpensTheLoom
+  | NoSuchNote
+  | NotADiscussion
+  | UnfitName
+  | UnfitText
+  | OpensABook
+  | NoConfiguration
+  | NotAVariableName
+  | EditBreaksLoom
+
+const bookWords = (book: string): string => (book === '' ? 'the default book' : `the book ${book}`)
+
+const askingWording: Wording<AskingFailure> = {
+  RequestUnread: ({ request, cause }) =>
+    problem(`Loom could not read the parameters of ${request}.`, reasonOf(cause)),
+  NoSuchLoom: ({ path }) =>
+    problem(
+      `The workspace holds no loom at ${path}.`,
+      'Name a loom the workspace holds, or make it first.',
+    ),
+  LoomExists: ({ path }) =>
+    problem(`A loom is already kept at ${path}.`, 'Choose another place for the new loom.'),
+  NoSuchBook: ({ book }) =>
+    problem(
+      `No loom names the book ${book}.`,
+      'Make the book first, or name a book the workspace holds.',
+    ),
+  BookExists: ({ book }) =>
+    problem(`A loom already opens the book ${book}.`, 'Choose another name for the book.'),
+  NoSuchPart: ({ book, part }) =>
+    problem(
+      `No part ${part} stands in ${bookWords(book)}.`,
+      'Name a part by its number or its name, as the contents list it.',
+    ),
+  PartExists: ({ book, part }) =>
+    problem(
+      `A part named ${part} already stands in ${bookWords(book)}.`,
+      'Choose another name for the part.',
+    ),
+  PartNameIsNumber: ({ name }) =>
+    problem(
+      `The name ${name} reads as a part's number.`,
+      'Give the part a name that is no Roman numeral.',
+    ),
+  TitleTaken: ({ title, book, part }) =>
+    problem(
+      `A loom titled ${title} already stands in part ${part} of ${bookWords(book)}.`,
+      'Choose another title, since two looms of one part cannot share one.',
+    ),
+  NotInPart: ({ path }) =>
+    problem(
+      `No loom of that part stands at ${path}.`,
+      'Name a loom of the part to follow, or leave it out to place the loom last.',
+    ),
+  NotOfKind: ({ path, kind }) =>
+    problem(
+      `The loom ${path} is no ${kind}, and each kind of loom is numbered apart.`,
+      `Name a ${kind} of the part to follow, or leave it out to place the loom last.`,
+    ),
+  NoSuchSection: ({ path, section }) =>
+    problem(
+      `The loom ${path} holds no section named ${section}.`,
+      'Name a section by its heading, as the outline gives it.',
+    ),
+  SectionExists: ({ path, section }) =>
+    problem(
+      `The loom ${path} already holds a section named ${section}.`,
+      'Choose another name, since two sections of one loom cannot share one.',
+    ),
+  OpensTheLoom: ({ path, section }) =>
+    problem(
+      `The section ${section} opens the loom ${path} and carries its title.`,
+      'Remove or move the loom itself, or retitle it.',
+    ),
+  NoSuchNote: ({ path, section }) =>
+    problem(
+      `The section ${section} of ${path} holds no note with those words.`,
+      'Name the note by its whole text, as the outline gives it.',
+    ),
+  NotADiscussion: ({ path }) =>
+    problem(`The loom ${path} is no discussion.`, 'Open topics and add messages in a discussion.'),
+  UnfitName: ({ name }) =>
+    problem(
+      `The name ${JSON.stringify(name)} cannot stand in a loom.`,
+      'Give a name that holds words, on one line.',
+    ),
+  UnfitText: ({ line }) =>
+    problem(
+      `The line ${JSON.stringify(line)} would read as Loom's syntax, not as words.`,
+      'Reword it so it does not open as a heading, an arrow, a tilde, a divider, or a box does, and close any fence it opens.',
+    ),
+  OpensABook: ({ path }) =>
+    problem(
+      `The loom ${path} opens a book, so it stands in no part.`,
+      'Move the chapters of the book instead.',
+    ),
+  NoConfiguration: ({ workspace }) =>
+    problem(
+      `The workspace ${workspace} has no configuration.`,
+      'Give it a configuration in `.loom/config.yaml` first.',
+    ),
+  NotAVariableName: ({ name }) =>
+    problem(
+      `The name \`${name}\` is not a variable name.`,
+      'A name holds letters, digits and underscores, and does not open on a digit.',
+    ),
+  EditBreaksLoom: ({ path, problems }) =>
+    problem(
+      `The edit would leave ${path} with ${howMany(problems.length)} it does not hold now.`,
+      closed(problems.join(' ')),
+    ),
+}
+
 ## A warning the run goes on after
 
 Some failures do not end a run. A workspace whose settings file does not read is built with Loom's own defaults. A language whose package does not load goes unchecked, and the other languages load. An installed trope that Loom refuses adds no kinds, and the book is read without them. Each is still a failure of the run, and a person should hear of it.
@@ -286,6 +421,7 @@ export type LoomFailure =
   | TanglingFailure
   | PackageFailure
   | KeepingFailure
+  | AskingFailure
   | Warning
   | Broke
 
@@ -295,6 +431,7 @@ export const failureWording: Wording<LoomFailure> = {
   ...tanglingWording,
   ...packageWording,
   ...keepingWording,
+  ...askingWording,
   ...warningWording,
   ...brokeWording,
 }
@@ -327,13 +464,17 @@ The command line widens the catalog instead, in the chapter "The Loom CLI". Its 
 
 ## What the catalog draws on
 
-The catalog takes each error as a type alone, so it loads no module only to name that module's errors. It runs on Effect, and it reads the default pair of anchor delimiters for its advice. It sits beside the fault catalog, among the modules that read a loom, so the builder of one module takes the words of a loom it could not read from here.
+The catalog takes each error as a type alone, so it loads no module only to name that module's errors. It runs on Effect, and it reads the default pair of anchor delimiters for its advice. The errors of an application's requests come from the outline, the edits, and the server, and the error of a variable's name from the configuration. It sits beside the fault catalog, among the modules that read a loom, so the builder of one module takes the words of a loom it could not read from here.
 
 =>
 
 import { Cause, Data, Match, Option } from 'effect'
 import { defaultAnchorDelims, type InvalidAnchorDelims } from '@athrio/loom-ast/LoomTokens'
-import type { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import type {
+  NotAVariableName,
+  SettingsNotWritten,
+  SettingsUnread,
+} from '@athrio/loom-config/LoomConfig'
 import type {
   PackageMissing,
   PackageNotLoaded,
@@ -344,7 +485,29 @@ import type { ServiceError } from '@athrio/loom-lang-services/LanguageService'
 import type { StoreError } from '@athrio/loom-lang-services/LoomStore'
 import type { ReadError } from '#ast/LoomCorpusAstBuilder'
 import type { TangleError } from '../LoomCompiler'
-import type { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../LoomServer'
+import type {
+  BookExists,
+  EditBreaksLoom,
+  LoomExists,
+  NoConfiguration,
+  NoSuchBook,
+  NoSuchNote,
+  NoSuchPart,
+  NoSuchSection,
+  NotADiscussion,
+  NotInPart,
+  NotOfKind,
+  OpensABook,
+  OpensTheLoom,
+  PartExists,
+  PartNameIsNumber,
+  SectionExists,
+  TitleTaken,
+  UnfitName,
+  UnfitText,
+} from '../EditBuilder'
+import type { NoSuchLoom } from '../OutlineBuilder'
+import type { ClassicTypeScriptMissing, RequestUnread, TypeScriptNotFetched } from '../LoomServer'
 import type { NotRemoved, NotWritten } from '../LoomTangler'
 import type { TropeRefused } from '../TropePackages'
 import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
@@ -366,6 +529,8 @@ import type { RelationsNotKept, StorageTakesNoWrite } from '../WorkspaceSource'
 ::[A package that serves a language]
 
 ::[Keeping relations]
+
+::[An application asks too much]
 
 ::[A warning the run goes on after]
 
@@ -389,7 +554,11 @@ import {
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
-import { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import {
+  NotAVariableName,
+  SettingsNotWritten,
+  SettingsUnread,
+} from '@athrio/loom-config/LoomConfig'
 import {
   PackageMissing,
   PackageNotLoaded,
@@ -412,7 +581,29 @@ import {
   reasonOf,
   refusedBy,
 } from '#ast/LoomFailure'
-import { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../src/LoomServer'
+import { ClassicTypeScriptMissing, RequestUnread, TypeScriptNotFetched } from '../src/LoomServer'
+import { NoSuchLoom } from '../src/OutlineBuilder'
+import {
+  BookExists,
+  EditBreaksLoom,
+  LoomExists,
+  NoConfiguration,
+  NoSuchBook,
+  NoSuchNote,
+  NoSuchPart,
+  NoSuchSection,
+  NotADiscussion,
+  NotInPart,
+  NotOfKind,
+  OpensABook,
+  OpensTheLoom,
+  PartExists,
+  PartNameIsNumber,
+  SectionExists,
+  TitleTaken,
+  UnfitName,
+  UnfitText,
+} from '../src/EditBuilder'
 import { NotRemoved, NotWritten } from '../src/LoomTangler'
 import { TropeRefused } from '../src/TropePackages'
 import { RelationsNotKept, StorageTakesNoWrite } from '../src/WorkspaceSource'
@@ -457,6 +648,34 @@ const samples: {
     cause: new Error('read-only disk'),
   }),
   StorageTakesNoWrite: new StorageTakesNoWrite({ workspace: 'https://example.com/workspace' }),
+  RequestUnread: new RequestUnread({
+    request: 'loom/edit',
+    cause: new Error('Missing key at ["edit"]'),
+  }),
+  NoSuchLoom: new NoSuchLoom({ path: '/book/ledger.loom' }),
+  LoomExists: new LoomExists({ path: '/book/ledger.loom' }),
+  NoSuchBook: new NoSuchBook({ book: 'The game' }),
+  BookExists: new BookExists({ book: 'The game' }),
+  NoSuchPart: new NoSuchPart({ book: '', part: 'IV' }),
+  PartExists: new PartExists({ book: 'The game', part: 'Rooms' }),
+  PartNameIsNumber: new PartNameIsNumber({ name: 'IV' }),
+  TitleTaken: new TitleTaken({ title: 'Ledger', book: '', part: 'II' }),
+  NotInPart: new NotInPart({ path: '/book/ledger.loom' }),
+  NotOfKind: new NotOfKind({ path: '/book/talk.loom', kind: 'Chapter' }),
+  NoSuchSection: new NoSuchSection({ path: '/book/ledger.loom', section: 'Totals' }),
+  SectionExists: new SectionExists({ path: '/book/ledger.loom', section: 'Totals' }),
+  OpensTheLoom: new OpensTheLoom({ path: '/book/ledger.loom', section: 'Ledger' }),
+  NoSuchNote: new NoSuchNote({ path: '/book/ledger.loom', section: 'Totals', text: 'Check this.' }),
+  NotADiscussion: new NotADiscussion({ path: '/book/ledger.loom' }),
+  UnfitName: new UnfitName({ name: 'Two\nlines' }),
+  UnfitText: new UnfitText({ line: '## Smuggled' }),
+  OpensABook: new OpensABook({ path: '/book/book.loom' }),
+  NoConfiguration: new NoConfiguration({ workspace: '/book' }),
+  NotAVariableName: new NotAVariableName({ name: '2fast' }),
+  EditBreaksLoom: new EditBreaksLoom({
+    path: '/book/ledger.loom',
+    problems: ['This anchor names no section.'],
+  }),
   SettingsUnread: new SettingsUnread({
     path: '/book/.loom/config.yaml',
     cause: new Error('a flow sequence is not closed'),

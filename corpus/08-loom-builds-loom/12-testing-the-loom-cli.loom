@@ -1660,7 +1660,7 @@ describe('loom cli — a failure told', () => {
       const dir = workspace(handWritten)
       const { status, stderr } = loom(['set', '2fast', '1'], { cwd: dir })
       expect(status).toBe(1)
-      expect(stderr).toContain('loom: `2fast` is not a variable name.\n      A name holds')
+      expect(stderr).toContain('loom: The name `2fast` is not a variable name.\n      A name holds')
       expect(configText(dir)).toBe(handWritten)
       rmSync(dir, { recursive: true, force: true })
     },

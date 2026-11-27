@@ -1,0 +1,789 @@
+---
+Part VI, Chapter 9: The outline of a loom
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# The outline of a loom
+
+An application can build its own editor on Loom and show a loom to its writers in its own words. It shows a document with its sections, the notes a reviewer left in them, and the messages of a discussion. It never shows a heading's hashes, an arrow, or the colons of a box. To do that, the application must read a loom without reading Loom's syntax, and only Loom reads that syntax. So the language server answers two requests of Loom's own, which the chapter "The language server" wires.
+
+The request `loom/outline` gives the outline of one loom: what kind of loom it is, where it stands in its book, its sections in order with their prose and code, the notes, messages, and conclusions each section holds, and the variables the loom and its workspace declare. The request `loom/concepts` gives every concept of a workspace's corpus, with the places that define it and the places that use it.
+
+Both answers are pure functions of the corpus the compiler already builds, as the table of contents of the chapter "The contents of a book" is. The compiler's verbs `outline` and `concepts` call them, as the chapter "The compile layer" describes.
+
+## The shape of an outline
+
+An `Outline` describes one loom. Its `kind` says what the loom is: `Chapter`, `Discussion`, a kind a trope declares, `Book` for a book loom, or `Loose` for a loom with no frontmatter. Its `title` is the title the contents list it by. Its `book` is the book it belongs to, empty for the default book. Its `part` gives the part's `number`, a Roman numeral as the frontmatter writes it, and its `name`, each when the corpus knows it. Its `number` is the loom's own number within its part, and its `language` is the language its frontmatter names.
+
+The outline's `sections` follow in reading order. Its `variables` list the value warps the loom declares, and its `configuration` maps each variable of the workspace's configuration, the `variables` key of `.loom/config.yaml`, to its value.
+
+An `OutlineSection` describes one section. Its `name` is its heading's title as the author wrote it, empty for a divider with no label. Its `line` is the line its heading starts on, counted from zero as the Language Server Protocol counts lines, and its `level` counts the heading's hashes, zero for a divider. Its `kind` is the kind its braces name, such as `Tangle` or `Concept`. Its `language` is the language its heading switches to, and its `file` is the file its code is tangled to, when the section writes a file of its own.
+
+A section's `body` is its prose and its code as ordered pieces. A `Piece` is either `Prose` or `Code`, each holding a `text` with Loom's marks taken out: no heading, no arrow, no tilde, no fence around fenced code, and no notes. The section's `notes` hold the notes apart, each an `OutlineNote` with its `text` and its `caption` when the note has one. A discussion's topic adds its `messages`, each an `OutlineMessage` with its `author` and its `text`, and its `conclusion` when the topic has one.
+
+An `OutlineVariable` holds a value warp's `name`, its `value` as the author wrote it, and the `section` that declares it. A warp written before the loom's first heading belongs to the whole loom, so its `section` is empty.
+
+=>
+
+export const PieceSchema = Schema.TaggedUnion({
+  Prose: { text: Schema.String },
+  Code: { text: Schema.String },
+})
+export type Piece = typeof PieceSchema.Type
+
+export const OutlineNoteSchema = Schema.Struct({
+  text: Schema.String,
+  caption: Schema.optional(Schema.String),
+})
+export type OutlineNote = typeof OutlineNoteSchema.Type
+
+export const OutlineMessageSchema = Schema.Struct({ author: Schema.String, text: Schema.String })
+export type OutlineMessage = typeof OutlineMessageSchema.Type
+
+export const OutlineSectionSchema = Schema.Struct({
+  name: Schema.String,
+  line: Schema.Number,
+  level: Schema.Number,
+  kind: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
+  file: Schema.optional(Schema.String),
+  body: Schema.Array(PieceSchema),
+  notes: Schema.Array(OutlineNoteSchema),
+  messages: Schema.Array(OutlineMessageSchema),
+  conclusion: Schema.optional(Schema.String),
+})
+export type OutlineSection = typeof OutlineSectionSchema.Type
+
+export const OutlinePartSchema = Schema.Struct({
+  number: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+})
+export type OutlinePart = typeof OutlinePartSchema.Type
+
+export const OutlineVariableSchema = Schema.Struct({
+  name: Schema.String,
+  value: Schema.String,
+  section: Schema.optional(Schema.String),
+})
+export type OutlineVariable = typeof OutlineVariableSchema.Type
+
+export const OutlineSchema = Schema.Struct({
+  kind: Schema.String,
+  title: Schema.String,
+  book: Schema.String,
+  part: Schema.optional(OutlinePartSchema),
+  number: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
+  sections: Schema.Array(OutlineSectionSchema),
+  variables: Schema.Array(OutlineVariableSchema),
+  configuration: Schema.Record(Schema.String, Schema.String),
+})
+export type Outline = typeof OutlineSchema.Type
+
+## A loom the corpus does not hold
+
+An application may ask for a loom that is not there: one it removed a moment ago, or an address that names no loom. The error `NoSuchLoom` names the `path` the corpus does not hold. It is a failure of the catalog in the chapter "The failure catalog", which words it, and the edits of the chapter "Edits an application asks for" raise it too.
+
+=>
+
+export class NoSuchLoom extends Data.TaggedError('NoSuchLoom')<{ readonly path: Location }> {}
+
+## What kind of loom it is
+
+A loom says what it is in its frontmatter. A loom with no frontmatter at all says nothing, so its kind is `Loose`, as `looseKind` holds. A book loom names its book and nothing else, as the chapter "Books" describes, so its kind is `Book`, as `bookLoomKind` holds. Every other loom is a chapter, a discussion, or a loom of a kind a trope declares, and the corpus's `loomKindOf` tells which. The function `outlineKindOf` asks in that order.
+
+=>
+
+export const looseKind = 'Loose'
+
+export const bookLoomKind = 'Book'
+
+const outlineKindOf = (module: LoomModule): string => {
+  if (module.doc.frontmatter === undefined) return looseKind
+  if (isBookLoom(module)) return bookLoomKind
+  return loomKindOf(module)
+}
+
+## A section's body, without its marks
+
+A section's lines carry Loom's marks beside the author's words. An arrow opens code and may carry its first line of code after it. A tilde closes code and may carry its first line of prose. A fence opens and closes fenced code, and holds no words of its own. Every other line is the author's own, of prose or of code.
+
+The function `bodyLineOf` reads one line of a section as a `BodyLine`: whether it stands in prose or in code, and the words it holds, if any. A table built with `byType` reads each kind of line, so the compiler demands a case for every kind. The function `lineText` takes the newline off the end of a line's source.
+
+=>
+
+type Standing = 'prose' | 'code'
+
+type BodyLine = { readonly standing: Standing; readonly text: Option.Option<string> }
+
+const lineText = (source: string): string => source.replace(/\r?\n$/, '')
+
+const bodyLineOf = byType<PreambleWeft | SectionBodyWeft>()<BodyLine>({
+  PreambleWeft: (line) => ({ standing: 'prose', text: Option.some(lineText(line.source)) }),
+  ProseWeft: (line) => ({ standing: 'prose', text: Option.some(lineText(line.source)) }),
+  TildeWeft: (tilde) => ({
+    standing: 'prose',
+    text: Option.map(Option.fromNullishOr(tilde.prose), (prose) => lineText(prose.source)),
+  }),
+  ArrowWeft: (arrow) => ({
+    standing: 'code',
+    text: Option.map(Option.fromNullishOr(arrow.code), (code) => lineText(code.source)),
+  }),
+  CodeWeft: (line) => ({ standing: 'code', text: Option.some(lineText(line.source)) }),
+  FenceWeft: () => ({ standing: 'code', text: Option.none() }),
+})
+
+~
+
+A run of lines that stand the same way makes one piece. The function `piecesOf` groups a section's lines into such runs and makes a piece of each, through the table `pieceOf`. The blank lines a loom keeps around its marks belong to the layout, not to the words, so `blockOf` drops the blank lines at either end of a run and keeps the ones inside it, between paragraphs. A run left with no words, such as the blank lines between a heading and its first arrow, makes no piece.
+
+=>
+
+const isBlank = (line: string): boolean => line.trim() === ''
+
+export const blockOf = (lines: ReadonlyArray<string>): string =>
+  Array.reverse(Array.dropWhile(Array.reverse(Array.dropWhile(lines, isBlank)), isBlank)).join('\n')
+
+const pieceOf: { readonly [Each in Standing]: (text: string) => Piece } = {
+  prose: (text) => ({ _tag: 'Prose', text }),
+  code: (text) => ({ _tag: 'Code', text }),
+}
+
+export const piecesOf = (
+  wefts: ReadonlyArray<PreambleWeft | SectionBodyWeft>,
+): ReadonlyArray<Piece> =>
+  Array.match(wefts.map(bodyLineOf), {
+    onEmpty: (): ReadonlyArray<Piece> => [],
+    onNonEmpty: (lines) =>
+      Array.groupWith(lines, (one, other) => one.standing === other.standing)
+        .map((run) =>
+          pieceOf[Array.headNonEmpty(run).standing](
+            blockOf(Array.getSomes(run.map((line) => line.text))),
+          ),
+        )
+        .filter((piece) => piece.text !== ''),
+  })
+
+## The boxes a section holds
+
+A note is a box, as the chapter "Boxes" describes: a line of three colons, the note's words, and three colons alone. A box that names no kind is a note. The conclusion of a discussion's topic is a box too, of the kind `Conclusion`.
+
+The corpus's `openedBoxesOf` finds every box of a loom, each with the line that opens it, the lines of its body, and the line that closes it. The function `boxesIn` keeps the boxes that open within one section, and `boxesOfKind` the ones of one kind among them. The function `boxText` reads a box's words, its body without the blank lines at either end.
+
+A note and a conclusion each stand apart from the prose around them, so the outline gives them apart and takes their lines out of the body. The function `outsideOf` builds the test a line passes when it stands outside every box it is given, from the lines `linesOfBox` lists for each box.
+
+=>
+
+const opensWithin = (section: LoomSection, opened: OpenedBox): boolean =>
+  opened.opener.position.start.offset >= section.position.start.offset &&
+  opened.opener.position.start.offset < section.position.end.offset
+
+export const boxesIn = (module: LoomModule, section: LoomSection): ReadonlyArray<OpenedBox> =>
+  openedBoxesOf(module.doc).filter((opened) => opensWithin(section, opened))
+
+export const boxesOfKind = (
+  module: LoomModule,
+  section: LoomSection,
+  kind: string,
+): ReadonlyArray<OpenedBox> =>
+  boxesIn(module, section).filter((opened) => boxKind(opened.box) === kind)
+
+export const boxText = (opened: OpenedBox): string =>
+  blockOf(opened.body.map((line) => lineText(line.source)))
+
+const linesOfBox = (opened: OpenedBox): ReadonlyArray<LoomWeft> => [
+  opened.opener,
+  ...opened.body,
+  ...Option.toArray(opened.closer),
+]
+
+const outsideOf = (boxes: ReadonlyArray<OpenedBox>): ((line: LoomWeft) => boolean) => {
+  const inside = new Set(boxes.flatMap(linesOfBox))
+  return (line) => !inside.has(line)
+}
+
+const noteOutline = (opened: OpenedBox): OutlineNote => ({
+  text: boxText(opened),
+  caption: Option.getOrUndefined(
+    Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value),
+  ),
+})
+
+## A topic's messages and its conclusion
+
+A discussion holds no code, as the chapter "Discussions" describes, so a tilde there opens a message, and the name after the tilde is the message's author. The message runs to the next tilde, or to the end of its topic.
+
+The function `messagesOf` folds a topic's lines into its thread. A tilde starts a new message under its author, which `authorOf` reads. Every other line joins the message that is open, and a line before the first message joins none. The fold keeps each message's lines, and `blockOf` makes them its text.
+
+=>
+
+type Thread = ReadonlyArray<{ readonly author: string; readonly lines: ReadonlyArray<string> }>
+
+const authorOf = (tilde: TildeWeft): string =>
+  Option.getOrElse(
+    Option.map(Option.fromNullishOr(tilde.prose), (prose) => lineText(prose.source).trim()),
+    () => '',
+  )
+
+const threadAfter = byTypeOr<SectionBodyWeft, [thread: Thread]>()<Thread>(
+  { TildeWeft: (tilde, thread) => [...thread, { author: authorOf(tilde), lines: [] }] },
+  (line, thread) =>
+    Option.match(Array.last(thread), {
+      onNone: () => thread,
+      onSome: (open) => [
+        ...Array.dropRight(thread, 1),
+        { ...open, lines: [...open.lines, lineText(line.source)] },
+      ],
+    }),
+)
+
+const messagesOf = (lines: ReadonlyArray<SectionBodyWeft>): ReadonlyArray<OutlineMessage> =>
+  lines
+    .reduce((thread: Thread, line) => threadAfter(line, thread), [])
+    .map(({ author, lines: said }) => ({ author, text: blockOf(said) }))
+
+## One section in outline
+
+The function `sectionOutline` gives one section's `OutlineSection`. It finds the section's notes and its conclusion, and keeps their lines out of the body and the messages.
+
+In a chapter, the body runs over every line of the section. In a discussion, the lines after the section's opening prose are its messages, so the body holds only that opening prose, and the messages come apart.
+
+A heading opens with one hash or more, and a divider with a line of dashes under its label. The table `levelOf` counts a heading's hashes and gives a divider zero. The function `fileOf` finds the file the section's code is tangled to among the files of the loom's product, which name each section as the product pass does, through `sectionNameOf`.
+
+=>
+
+const levelOf = byType<HeadingStartToken | DividerToken>()<number>({
+  HeadingStart: (start) => start.source.trim().length,
+  Divider: () => 0,
+})
+
+const fileOf = (module: LoomModule, section: LoomSection): Option.Option<string> =>
+  Option.map(
+    Array.findFirst(
+      module.product.files,
+      (file) => file.code.origin.name === sectionNameOf(section),
+    ),
+    (file) => file.path,
+  )
+
+const sectionOutline =
+  (module: LoomModule, discussion: boolean) =>
+  (section: LoomSection): OutlineSection => {
+    const notes = boxesOfKind(module, section, noteKind)
+    const conclusion = Array.head(boxesOfKind(module, section, conclusionKind))
+    const outside = outsideOf([...notes, ...Option.toArray(conclusion)])
+    return {
+      name: section.heading.title?.source ?? '',
+      line: section.position.start.line - 1,
+      level: levelOf(section.heading.marker),
+      kind: section.kind,
+      language: Option.getOrUndefined(
+        Option.flatMap(Option.fromNullishOr(section.heading.specifier), headingLang),
+      ),
+      file: Option.getOrUndefined(fileOf(module, section)),
+      body: piecesOf(
+        (discussion ? section.preamble : [...section.preamble, ...section.code]).filter(outside),
+      ),
+      notes: notes.map(noteOutline),
+      messages: discussion ? messagesOf(section.code.filter(outside)) : [],
+      conclusion: Option.getOrUndefined(Option.map(conclusion, boxText)),
+    }
+  }
+
+## The variables a loom declares
+
+A value warp binds a name to a value in a section's prose, and the section's code takes the value through an anchor that names the warp, as the chapter "The product pass" describes. The function `variablesIn` reads the value warps of a run of prose lines, each with the section that declares it. A warp with no value binds nothing, so it is no variable. The loom's own prose before its first heading declares the warps of the whole loom, and `variablesOf` reads them first and then each section's.
+
+=>
+
+const variablesIn = (
+  lines: ReadonlyArray<PreambleWeft>,
+  section: Option.Option<string>,
+): ReadonlyArray<OutlineVariable> =>
+  lines
+    .flatMap((line) => line.warps)
+    .flatMap((warp) =>
+      Option.toArray(
+        Option.map(Option.fromNullishOr(warp.default), (value) => ({
+          name: warp.name.value,
+          value: value.value.trim(),
+          section: Option.getOrUndefined(section),
+        })),
+      ),
+    )
+
+const variablesOf = (module: LoomModule): ReadonlyArray<OutlineVariable> => [
+  ...variablesIn(module.doc.preamble, Option.none()),
+  ...module.doc.sections.flatMap((section) =>
+    variablesIn(section.preamble, Option.fromNullishOr(section.heading.title?.source)),
+  ),
+]
+
+## Building the outline
+
+The function `buildOutline` gives the outline of the loom at `path`, or nothing when the corpus holds no loom there. It reads the loom's place in its book from the corpus's catalogue, through `chapterOf`, which knows the name a part is announced under even where the loom's own frontmatter gives only the part's number. It reads the loom's title as the contents read it, through `titleOf`. The compiler hands it the workspace's `configuration`, since the configuration is no part of the corpus.
+
+=>
+
+const partOutline = (part: PartRef): Option.Option<OutlinePart> =>
+  Option.isNone(part.number) && Option.isNone(part.name)
+    ? Option.none()
+    : Option.some({
+        number: Option.getOrUndefined(part.number),
+        name: Option.getOrUndefined(part.name),
+      })
+
+export const buildOutline = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  configuration: Readonly<Record<string, string>>,
+): Option.Option<Outline> =>
+  Option.map(Option.fromNullishOr(corpus.modules.get(path)), (module) => {
+    const place = chapterOf(catalogueOf(corpus.modules), path)
+    return {
+      kind: outlineKindOf(module),
+      title: titleOf(module),
+      book: Option.getOrElse(bookOf(module), () => ''),
+      part: Option.getOrUndefined(Option.flatMap(place, (chapter) => partOutline(chapter.part))),
+      number: Option.getOrUndefined(ordinalOf(module)),
+      language: module.doc.frontmatter?.language?.value,
+      sections: module.doc.sections.map(
+        sectionOutline(module, loomKindOf(module) === discussionKind),
+      ),
+      variables: variablesOf(module),
+      configuration: { ...configuration },
+    }
+  })
+
+## The concepts of a corpus
+
+A concept is a term a book defines once, in a section of its own, and uses throughout, as the chapter "Concepts" describes. The woven book lists every concept on its index page, with the places that use it, by a link or by a plain word the editor recognises. The request `loom/concepts` gives an application the same list, so the application needs no index of its own.
+
+A `ConceptEntry` holds a concept's `name`, its other `forms`, the `path` of the loom and the `section` that define it, and its `uses`. A `ConceptPlace` names one use, the `path` of a loom and the `section` the use stands in. A use in the prose before a loom's first heading stands in no section, so its `section` is empty. A `Concepts` value holds the `concepts` of a corpus.
+
+The function `buildConcepts` reads the concepts from the corpus's catalogue and their uses from the weave's own index, through `conceptUsesOf`, so the book's index page and the application list the same uses. It orders the concepts by name, ignoring case, as `byName` orders them, as the index does.
+
+=>
+
+export const ConceptPlaceSchema = Schema.Struct({
+  path: Schema.String,
+  section: Schema.optional(Schema.String),
+})
+export type ConceptPlace = typeof ConceptPlaceSchema.Type
+
+export const ConceptEntrySchema = Schema.Struct({
+  name: Schema.String,
+  forms: Schema.Array(Schema.String),
+  path: Schema.String,
+  section: Schema.String,
+  uses: Schema.Array(ConceptPlaceSchema),
+})
+export type ConceptEntry = typeof ConceptEntrySchema.Type
+
+export const ConceptsSchema = Schema.Struct({ concepts: Schema.Array(ConceptEntrySchema) })
+export type Concepts = typeof ConceptsSchema.Type
+
+const byName: Order.Order<ConceptEntry> = Order.mapInput(Order.String, (entry: ConceptEntry) =>
+  entry.name.toLowerCase(),
+)
+
+export const buildConcepts = (corpus: LoomCorpusAst): Concepts => {
+  const uses = conceptUsesOf(corpus.modules)
+  return {
+    concepts: Array.sort(
+      catalogueOf(corpus.modules).concepts.map((concept): ConceptEntry => ({
+        name: concept.name.source,
+        forms: concept.forms.map((form) => form.value),
+        path: concept.module,
+        section: concept.name.source,
+        uses: Option.getOrElse(
+          Option.fromNullishOr(uses.get(conceptKey(concept.module, concept.section))),
+          () => [],
+        ).map((use) => ({
+          path: use.module.path,
+          section: Option.getOrUndefined(
+            Option.flatMap(use.section, (section) =>
+              Option.fromNullishOr(section.heading.title?.source),
+            ),
+          ),
+        })),
+      })),
+      byName,
+    ),
+  }
+}
+
+## What the outline draws on
+
+Effect gives the outline its `Schema` models and its `Data` error, with `Array`, `Option`, and `Order` for the steps. The node foundation gives `byType` and `byTypeOr`, the tables that read a line by its kind. The leaf tokens give `boxKind`, which reads a box's kind, the kinds `noteKind`, `conclusionKind`, and `discussionKind`, `headingLang`, which reads the language a heading's braces name, and the tokens a heading opens with. The syntax tree gives the type of a section, and the wefts give the types of its lines.
+
+From the corpus come `catalogueOf`, `chapterOf`, `bookOf`, `isBookLoom`, `loomKindOf`, and `ordinalOf`, which read where a loom stands and what it is, `openedBoxesOf`, which finds a loom's boxes, and the types of a corpus, a loom, a box, and a part. The product pass gives `sectionNameOf`, the contents give `titleOf`, and the weave gives `conceptUsesOf` and `conceptKey`, its index of the places each concept is used.
+
+=>
+
+import { Array, Data, Option, Order, Schema } from 'effect'
+import { byType, byTypeOr } from '@athrio/loom-ast/LoomNode'
+import {
+  boxKind,
+  conclusionKind,
+  discussionKind,
+  type DividerToken,
+  headingLang,
+  type HeadingStartToken,
+  noteKind,
+} from '@athrio/loom-ast/LoomTokens'
+import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type { LoomWeft, PreambleWeft, SectionBodyWeft, TildeWeft } from '@athrio/loom-ast/Weft'
+import {
+  bookOf,
+  catalogueOf,
+  chapterOf,
+  isBookLoom,
+  type Location,
+  type LoomCorpusAst,
+  loomKindOf,
+  type LoomModule,
+  type OpenedBox,
+  openedBoxesOf,
+  ordinalOf,
+  type PartRef,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import { sectionNameOf } from '#ast/ProductBuilder'
+import { titleOf } from './weave/TableOfContentsBuilder'
+import { conceptKey, conceptUsesOf } from './weave/WeaveBuilder'
+
+## The module [src/OutlineBuilder.ts]
+
+=>
+
+::[What the outline draws on]
+
+::[The shape of an outline]
+
+::[A loom the corpus does not hold]
+
+::[What kind of loom it is]
+
+::[A section's body, without its marks]
+
+::[The boxes a section holds]
+
+::[A topic's messages and its conclusion]
+
+::[One section in outline]
+
+::[The variables a loom declares]
+
+::[Building the outline]
+
+::[The concepts of a corpus]
+
+## A workspace held in memory
+
+The cases of this chapter and the next run the compiler over looms held in memory, as the chapter "The compile layer" tests it, so no case touches a disk. The function `layerOf` gives the compiler such a workspace. Its `DocumentSource` reads each file from a record of paths and texts, and fails to read a path the record lacks, as storage fails for a loom that is not there. It lists the paths that end in `.loom` as the corpus, so a record may hold the workspace's configuration file beside its looms. Its `WorkspaceSettings` settles every loom on Loom's own anchor delimiters and TypeScript, with the variable `version` the workspace's configuration declares, and gives the workspace's `manifest`, or none when a case asks for a workspace without one. The function `withCompiler` runs one use of the compiler over such a workspace.
+
+A loom written into this loom's code would be read as part of it, so each fixture is a list of its lines, and `lines` joins them into the text a loom holds. The function `anchor` spells an anchor in two pieces for the same reason.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const manifest: WorkspaceManifest = {
+  languages: { typescript: {} },
+  corpus: 'corpus',
+  variables: { version: '0.1.19' },
+}
+
+const layerOf = (
+  files: Record<string, string>,
+  configured: Option.Option<WorkspaceManifest> = Option.some(manifest),
+) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.mergeAll(
+      FileSystemSource,
+      LoomDiskCache.none,
+      Layer.succeed(DocumentSource, {
+        read: (path: string) =>
+          path in files
+            ? Effect.succeed(files[path] ?? '')
+            : Effect.fail(new ReadError({ path, cause: 'no such loom' })),
+        list: Option.some(() =>
+          Effect.succeed(Object.keys(files).filter((path) => path.endsWith('.loom'))),
+        ),
+        hold: () => Effect.void,
+        forget: () => Effect.void,
+      }),
+      Layer.succeed(WorkspaceSettings, {
+        manifest: () => Effect.succeed(configured),
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: { version: '0.1.19' },
+            width: 100,
+          }),
+      }),
+    ),
+  )
+
+const withCompiler = <A, E>(
+  files: Record<string, string>,
+  use: (compiler: LoomCompiler['Service']) => Effect.Effect<A, E>,
+  configured: Option.Option<WorkspaceManifest> = Option.some(manifest),
+) => LoomCompiler.pipe(Effect.flatMap(use), Effect.provide(layerOf(files, configured)))
+
+## Testing the outline
+
+The cases run on Bun's test runner, with the `effectify` helper that lets a case be written as an Effect. They outline looms through the compiler's `outline` verb, which builds the corpus as the language server does, and list concepts through its `concepts` verb.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { WorkspaceManifest } from '@athrio/loom-config/LoomConfig'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { ReadError } from '#ast/LoomCorpusAstBuilder'
+import { WorkspaceSettings } from '../src/WorkspaceSettings'
+import { LoomDiskCache } from '../src/LoomDiskCache'
+import { FileSystemSource } from '../src/WorkspaceSource'
+
+const it = effectify(it_)
+
+## The game the cases outline
+
+The book of these cases is a game. Its book loom opens it and defines the concept `Room`, whose other form is `rooms`. Its chapter `Words` stands in Part I, The room, as its second chapter, and announces the part. Its opening prose links the concept by its other form, and a note a reviewer left follows it. Its section `Saying hello` writes the file `hello.ts`, declares a value warp in its prose, and holds code between two runs of prose. Its section `Installing it` switches to Bash and holds fenced code, whose first line would read as a heading. A discussion of Part I, `Waking`, holds one topic, with two messages and a conclusion. A loom with no frontmatter stands loose beside them.
+
+=>
+
+const files: Record<string, string> = {
+  '/corpus/game.loom': lines(
+    '---',
+    'Book: The game',
+    '---',
+    '',
+    '# The game',
+    '',
+    'A game of rooms that wake one at a time.',
+    '',
+    '## Room {Concept}',
+    '',
+    'A room is a place the player stands in.',
+    '',
+    'Lexical forms:',
+    '- rooms',
+  ),
+  '/corpus/words.loom': lines(
+    '---',
+    'Part I: The room',
+    'Chapter 2: Words',
+    'Book: The game',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# Words',
+    '',
+    `What the program says in its ${anchor('rooms')}.`,
+    '',
+    ':::',
+    'Check the greeting with a reader.',
+    ':::',
+    '',
+    '## Saying hello [hello.ts]',
+    '',
+    'The greeting {{ word = "hi" }} is short.',
+    '',
+    `=> export const hi = '${anchor('word')}'`,
+    'export const twice = hi + hi',
+    '',
+    '~ After the code comes more prose.',
+    '',
+    '## Installing it {Bash}',
+    '',
+    '=>',
+    '',
+    '```',
+    '# fetch the game',
+    'curl -fsSL example.com',
+    '```',
+  ),
+  '/corpus/waking.loom': lines(
+    '---',
+    'Part I, Discussion 1: Waking',
+    'Book: The game',
+    '---',
+    '',
+    '# Waking',
+    '',
+    'What should wake a monster.',
+    '',
+    'What wakes a monster',
+    '---',
+    '',
+    '~ Yegor',
+    'What should wake a monster?',
+    '',
+    '~ Claude',
+    "A trap's radius.",
+    '',
+    '::: {Conclusion}',
+    'A trap going off wakes it.',
+    ':::',
+  ),
+  '/corpus/notes.loom': lines('# Notes', '', 'Loose words.'),
+}
+
+const outlined = (path: string) => withCompiler(files, (compiler) => compiler.outline(path))
+
+## A chapter in outline
+
+The chapter `Words` is a chapter of the game, second in Part I, The room, and names TypeScript. Its opening section is its title's, at line seven counted from zero, with one hash. Its body holds its opening prose alone, since the note stands apart. The section `Saying hello` writes `hello.ts`, and its body runs prose, code, prose, with every mark taken out: the arrow before the first line of code and the tilde before the prose after it. The section `Installing it` switches to Bash, and its code arrives without its fence. The loom declares the variable `word` in `Saying hello`, and the workspace declares `version`.
+
+=>
+
+describe('the outline of a loom', () => {
+  it.effect('outlines a chapter, its sections, and its variables', () =>
+    Effect.gen(function* () {
+      const outline = yield* outlined('/corpus/words.loom')
+      expect([outline.kind, outline.title, outline.book, outline.number, outline.language]).toEqual(
+        ['Chapter', 'Words', 'The game', '2', 'TypeScript'],
+      )
+      expect(outline.part).toEqual({ number: 'I', name: 'The room' })
+      expect(
+        outline.sections.map((section) => [section.name, section.line, section.level]),
+      ).toEqual([
+        ['Words', 7, 1],
+        ['Saying hello', 15, 2],
+        ['Installing it', 24, 2],
+      ])
+      expect(outline.sections[0]?.body).toEqual([
+        { _tag: 'Prose', text: `What the program says in its ${anchor('rooms')}.` },
+      ])
+      expect(outline.sections[0]?.notes).toEqual([{ text: 'Check the greeting with a reader.' }])
+      expect(outline.sections[1]?.file).toBe('hello.ts')
+      expect(outline.sections[1]?.body).toEqual([
+        { _tag: 'Prose', text: 'The greeting {{ word = "hi" }} is short.' },
+        {
+          _tag: 'Code',
+          text: `export const hi = '${anchor('word')}'\nexport const twice = hi + hi`,
+        },
+        { _tag: 'Prose', text: 'After the code comes more prose.' },
+      ])
+      expect([outline.sections[2]?.language, outline.sections[2]?.body]).toEqual([
+        'Bash',
+        [{ _tag: 'Code', text: '# fetch the game\ncurl -fsSL example.com' }],
+      ])
+      expect(outline.variables).toEqual([{ name: 'word', value: '"hi"', section: 'Saying hello' }])
+      expect(outline.configuration).toEqual({ version: '0.1.19' })
+    }),
+  )
+
+~
+
+## A discussion in outline
+
+The discussion `Waking` is the first discussion of Part I, whose name the chapter `Words` announces. Its topic is a division with no hashes, so its level is zero. The topic's body is empty, since its messages follow its divider at once. Each message gives its author and its words, and the conclusion gives its words apart from the messages.
+
+=>
+
+it.effect('outlines a discussion, its messages, and its conclusion', () =>
+  Effect.gen(function* () {
+    const outline = yield* outlined('/corpus/waking.loom')
+    expect([outline.kind, outline.number, outline.part]).toEqual([
+      'Discussion',
+      '1',
+      { number: 'I', name: 'The room' },
+    ])
+    const topic = outline.sections[1]
+    expect([topic?.name, topic?.level, topic?.body]).toEqual(['What wakes a monster', 0, []])
+    expect(topic?.messages).toEqual([
+      { author: 'Yegor', text: 'What should wake a monster?' },
+      { author: 'Claude', text: "A trap's radius." },
+    ])
+    expect(topic?.conclusion).toBe('A trap going off wakes it.')
+  }),
+)
+
+~
+
+## A book loom and a loose loom
+
+The game's book loom names its book and nothing else, so its kind is `Book`, it stands in no part, and its heading gives its title. A loom with no frontmatter is loose, and belongs to the default book, which has no name.
+
+=>
+
+it.effect('tells a book loom and a loose loom', () =>
+  Effect.gen(function* () {
+    const book = yield* outlined('/corpus/game.loom')
+    const loose = yield* outlined('/corpus/notes.loom')
+    expect([book.kind, book.title, book.book, book.part, book.number]).toEqual([
+      'Book',
+      'The game',
+      'The game',
+      undefined,
+      undefined,
+    ])
+    expect([loose.kind, loose.title, loose.book]).toEqual(['Loose', 'Notes', ''])
+  }),
+)
+
+~
+
+## A loom that is not there
+
+An application may ask for a loom the workspace does not hold. The outline fails with `NoSuchLoom`, naming the loom asked for.
+
+=>
+
+  it.effect('fails for a loom the workspace does not hold', () =>
+    Effect.gen(function* () {
+      const failed = yield* Effect.flip(outlined('/corpus/missing.loom'))
+      expect([failed._tag, failed.path]).toEqual(['NoSuchLoom', '/corpus/missing.loom'])
+    }),
+  )
+})
+
+## The concepts of a workspace
+
+The game defines one concept, `Room`, in its book loom, with the other form `rooms`. The opening of the chapter `Words` links it by that form, so the section `Words` is among its uses.
+
+=>
+
+describe('the concepts of a workspace', () => {
+  it.effect('lists each concept with the places that use it', () =>
+    Effect.gen(function* () {
+      const { concepts } = yield* withCompiler(files, (compiler) =>
+        compiler.concepts('/corpus/game.loom'),
+      )
+      expect(
+        concepts.map((concept) => [concept.name, concept.forms, concept.path, concept.section]),
+      ).toEqual([['Room', ['rooms'], '/corpus/game.loom', 'Room']])
+      expect(concepts[0]?.uses).toContainEqual({ path: '/corpus/words.loom', section: 'Words' })
+    }),
+  )
+})
+
+## The outline test file [test/Outline.test.ts]
+
+=>
+
+::[Testing the outline]
+
+::[A workspace held in memory]
+
+::[The game the cases outline]
+
+::[A chapter in outline]
+
+::[A discussion in outline]
+
+::[A book loom and a loose loom]
+
+::[A loom that is not there]
+
+::[The concepts of a workspace]

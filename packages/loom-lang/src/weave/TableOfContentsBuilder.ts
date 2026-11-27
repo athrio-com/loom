@@ -268,7 +268,7 @@ const romanUnits: Record<string, number> = {
   M: 1000,
 }
 
-const romanValue = (roman: string): number => {
+export const romanValue = (roman: string): number => {
   const units = roman
     .toUpperCase()
     .split('')

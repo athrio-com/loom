@@ -727,9 +727,9 @@ const linkedBlock = (source: SourceAnchor, pieces: ReadonlyArray<Phrase>): Woven
     ),
   })
 
-type Use = { readonly module: LoomModule; readonly section: Option.Option<LoomSection> }
+export type Use = { readonly module: LoomModule; readonly section: Option.Option<LoomSection> }
 
-const conceptKey = (module: Location, section: LoomSection): string =>
+export const conceptKey = (module: Location, section: LoomSection): string =>
   `${module}#${section.position.start.offset}`
 
 const startOf = (use: Use): number =>
@@ -815,6 +815,11 @@ const usesByConcept = (
     ),
   )
 }
+
+export const conceptUsesOf = (
+  modules: ReadonlyMap<Location, LoomModule>,
+): ReadonlyMap<string, ReadonlyArray<Use>> =>
+  usesByConcept(weavingOf(modules), Array.fromIterable(modules.values()))
 
 const placeOf = (weaving: Weaving, use: Use): Phrase => {
   const slug = pageSlug(weaving.catalogue, use.module.path)

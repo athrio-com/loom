@@ -20,6 +20,7 @@ import {
 } from 'effect'
 import {
   createConnection,
+  type CreateFile,
   createLanguageServiceEnvironment,
   createServer,
   FileChangeType,
@@ -29,6 +30,10 @@ import {
   type LanguageServer,
   type LanguageServerProject,
   type LanguageServicePlugin,
+  LSPErrorCodes,
+  ResponseError,
+  type TextDocumentEdit,
+  type WorkspaceEdit,
 } from '@volar/language-server/node'
 import {
   createLanguage,
@@ -42,12 +47,15 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
+  type EditAnswer,
   LoomCompiler,
   DocumentSource,
   stringSnapshot,
   type SummaryEdit,
   within,
 } from './LoomCompiler'
+import { type Concepts, type NoSuchLoom, type Outline } from './OutlineBuilder'
+import { type EditBreaksLoom, type EditRefusal, LoomIntentSchema } from './EditBuilder'
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -979,7 +987,7 @@ const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effec
 
 export const contentsRequest = 'loom/contents'
 
-const ContentsParamsSchema = Schema.Struct({ workspace: Schema.String })
+const AddressSchema = Schema.Struct({ workspace: Schema.optional(Schema.String) })
 
 type Places = Cache.Cache<string, Option.Option<string>, ReadError>
 
@@ -990,10 +998,15 @@ const workspaceAsked = (
   home: string,
   params: unknown,
 ): string =>
-  Option.match(Schema.decodeUnknownOption(ContentsParamsSchema)(params), {
-    onNone: () => home,
-    onSome: ({ workspace }) => source.workspaceOf(source.locationOf(URI.parse(workspace))),
-  })
+  Option.match(
+    Option.flatMap(Schema.decodeUnknownOption(AddressSchema)(params), ({ workspace }) =>
+      Option.fromNullishOr(workspace),
+    ),
+    {
+      onNone: () => home,
+      onSome: (workspace) => source.workspaceOf(source.locationOf(URI.parse(workspace))),
+    },
+  )
 
 const entryOf = (
   place: Option.Option<string>,
@@ -1031,6 +1044,133 @@ const contentsFor = (
   WorkspaceSource.pipe(
     Effect.flatMap((source) => Cache.get(places, workspaceAsked(source, home, params))),
     Effect.flatMap(contentsOf),
+  )
+
+export const outlineRequest = 'loom/outline'
+
+export const conceptsRequest = 'loom/concepts'
+
+export const editRequest = 'loom/edit'
+
+const OutlineParamsSchema = Schema.Struct({ uri: Schema.String })
+
+const EditParamsSchema = Schema.Struct({
+  workspace: Schema.optional(Schema.String),
+  edit: LoomIntentSchema,
+})
+
+export class RequestUnread extends Data.TaggedError('RequestUnread')<{
+  readonly request: string
+  readonly cause: unknown
+}> {}
+
+const paramsOf =
+  <A>(request: string, decode: (asked: unknown) => Effect.Effect<A, Schema.SchemaError>) =>
+  (asked: unknown): Effect.Effect<A, RequestUnread> =>
+    decode(asked).pipe(Effect.mapError((cause) => new RequestUnread({ request, cause })))
+
+const outlineParams = paramsOf(outlineRequest, Schema.decodeUnknownEffect(OutlineParamsSchema))
+
+const editParams = paramsOf(editRequest, Schema.decodeUnknownEffect(EditParamsSchema))
+
+const noConcepts: Concepts = { concepts: [] }
+
+const outlineFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<Outline, RequestUnread | NoSuchLoom | ReadError, LoomCompiler | WorkspaceSource> =>
+  Effect.all([outlineParams(asked), WorkspaceSource]).pipe(
+    Effect.flatMap(([{ uri }, source]) => {
+      const loom = URI.parse(uri)
+      return Cache.get(places, workspaceFor(source, home, loom)).pipe(
+        Effect.andThen(LoomCompiler),
+        Effect.flatMap((compiler) => compiler.outline(source.locationOf(loom))),
+      )
+    }),
+  )
+
+const conceptsFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<Concepts, ReadError, LoomCompiler | WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => Cache.get(places, workspaceAsked(source, home, asked))),
+    Effect.flatMap(entryOf),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(noConcepts),
+        onSome: (entry) =>
+          LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.concepts(entry))),
+      }),
+    ),
+  )
+
+const editFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<
+  LoomWorkspaceEdit,
+  RequestUnread | EditRefusal | EditBreaksLoom | ReadError,
+  LoomCompiler | WorkspaceSource
+> =>
+  Effect.all([editParams(asked), WorkspaceSource]).pipe(
+    Effect.flatMap(([{ edit }, source]) => {
+      const workspace = workspaceAsked(source, home, asked)
+      return Cache.get(places, workspace).pipe(
+        Effect.flatMap(entryOf),
+        Effect.flatMap((entry) =>
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) =>
+              compiler.edit(workspace, entry, edit, (uri) => source.locationOf(URI.parse(uri))),
+            ),
+          ),
+        ),
+        Effect.map((answer) => workspaceEditOf(source, answer)),
+      )
+    }),
+  )
+
+type LoomWorkspaceEdit = WorkspaceEdit & {
+  readonly removed: ReadonlyArray<string>
+  readonly configuration?: string
+}
+
+const atStart = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+
+const workspaceEditOf = (
+  source: WorkspaceSource['Service'],
+  answer: EditAnswer,
+): LoomWorkspaceEdit => ({
+  documentChanges: [
+    ...answer.made.flatMap((made): ReadonlyArray<CreateFile | TextDocumentEdit> => {
+      const uri = source.uriOf(made.path).toString()
+      return [
+        { kind: 'create', uri },
+        { textDocument: { uri, version: null }, edits: [{ range: atStart, newText: made.text }] },
+      ]
+    }),
+    ...Object.entries(Array.groupBy(answer.edits, (edit) => edit.path)).map(
+      ([path, edits]): TextDocumentEdit => ({
+        textDocument: { uri: source.uriOf(path).toString(), version: null },
+        edits: edits.map((edit) => ({ range: edit.range, newText: edit.text })),
+      }),
+    ),
+  ],
+  removed: answer.removed.map((path) => source.uriOf(path).toString()),
+  ...Option.match(answer.configuration, {
+    onNone: () => ({}),
+    onSome: (configuration) => ({ configuration }),
+  }),
+})
+
+const refusalOf = (failure: LoomFailure): ResponseError<Record<string, unknown>> =>
+  new ResponseError(
+    LSPErrorCodes.RequestFailed,
+    lineFor(failure),
+    Object.fromEntries(Object.entries(failure).filter(([key]) => key !== 'cause')),
   )
 
 const runtime = ManagedRuntime.make(
@@ -1261,6 +1401,23 @@ export const startLanguageServer = (): void => {
         reprojecting.withPermits(1)(contentsFor(places, home, asked)).pipe(Effect.mapError(inWords)),
       ),
     )
+    const answered = <A, E extends LoomFailure>(
+      asking: Effect.Effect<A, E, LoomCompiler | DocumentSource | WorkspaceSource>,
+    ): Promise<A> =>
+      runtime.runPromise(
+        reprojecting
+          .withPermits(1)(
+            settleEdits(server, home, projects, places, edited).pipe(Effect.andThen(asking)),
+          )
+          .pipe(Effect.mapError(refusalOf)),
+      )
+    connection.onRequest(outlineRequest, (asked: unknown) =>
+      answered(outlineFor(places, home, asked)),
+    )
+    connection.onRequest(conceptsRequest, (asked: unknown) =>
+      answered(conceptsFor(places, home, asked)),
+    )
+    connection.onRequest(editRequest, (asked: unknown) => answered(editFor(places, home, asked)))
     return server.initialize(
       params,
       workspaceProject(server, home, services, projects, places, reprojecting, edited),

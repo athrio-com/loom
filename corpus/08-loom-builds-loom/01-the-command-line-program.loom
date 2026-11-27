@@ -1451,13 +1451,9 @@ const doctor = Effect.gen(function* () {
 
 `loom set <name> <value>` writes a workspace variable and re-tangles the corpus. Every variable lives under the configuration's `variables`, so the name alone identifies it and the command needs no `variables.` prefix. A variable feeds the value warps that interpolate it, so writing one without re-tangling would leave the composed output — a version in every manifest, say — behind the configuration. This command changes the one value and reconciles the whole corpus to it in a single step.
 
-The name and the value are two arguments with a space between them — `loom set version 0.0.4`, no `=`. A name that is not a plain word of letters, digits, and underscores fails the command with the error `NotAVariableName`. A value written with a leading `=` fails it with the error `ValueOpensOnEquals`, so a stray `=` never becomes the value. Neither binds anything. Given good input, the command changes the one variable in `.loom/config.yaml` through the configuration's `edit` method, which leaves every other line of the file as it was written. Then it tangles the corpus directory the configuration names.
+The name and the value are two arguments with a space between them — `loom set version 0.0.4`, no `=`. A name that is not a plain word of letters, digits, and underscores fails the command with the error `NotAVariableName`. The configuration gives both the error and its test, `isVariableName`, so the command and an application's edit judge a name alike. A value written with a leading `=` fails it with the error `ValueOpensOnEquals`, so a stray `=` never becomes the value. Neither binds anything. Given good input, the command changes the one variable in `.loom/config.yaml` through the configuration's `edit` method, which leaves every other line of the file as it was written. Then it tangles the corpus directory the configuration names.
 
 =>
-
-class NotAVariableName extends Data.TaggedError('NotAVariableName')<{
-  readonly name: string
-}> {}
 
 class ValueOpensOnEquals extends Data.TaggedError('ValueOpensOnEquals')<{}> {}
 
@@ -1466,8 +1462,7 @@ const set = (name: string, value: string) =>
     const config = yield* LoomConfig
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-      return yield* Effect.fail(new NotAVariableName({ name }))
+    if (!isVariableName(name)) return yield* Effect.fail(new NotAVariableName({ name }))
     if (value.startsWith('=')) return yield* Effect.fail(new ValueOpensOnEquals())
     const current = yield* config.manifest(workspace)
     yield* config.edit(workspace, ['variables', name], value)
@@ -1822,7 +1817,6 @@ type CommandFailure =
   | ChecksumMismatch
   | UnpackFailed
   | ReplaceFailed
-  | NotAVariableName
   | ValueOpensOnEquals
   | GrammarMissing
   | GrammarCompileFailed
@@ -1877,11 +1871,6 @@ const commandWording: Wording<CommandFailure> = {
     problem(
       `Loom could not replace ${path}.`,
       `${reasonOf(cause)} Run the install script again, or move Loom somewhere you can write to.`,
-    ),
-  NotAVariableName: ({ name }) =>
-    problem(
-      `\`${name}\` is not a variable name.`,
-      'A name holds letters, digits and underscores, and does not open on a digit. Write `loom set <name> <value>`.',
     ),
   ValueOpensOnEquals: () =>
     problem(
@@ -2124,7 +2113,7 @@ Node's `path` resolves a workspace directory for `init`. `node:fs` writes the `.
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes and the package the dev registry describes, `Array` finds a file in a release, `Order` compares two versions, and `node:crypto` computes the checksum of a download. Node's `zlib` module unpacks a release's executable from its gzip, and Bun's own `Bun.Archive`, which needs no import, unpacks a dev release's executable from its package. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold. For `loom review`, `relative` writes a loom's path from the working directory, and `driftsIn` groups the drifted relations, each group a `Drift`.
 
-The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, the function `failureIn`, which finds a failure in a log's message, and the function `broke`, which turns a defect into a failure. Effect's `Logger` makes the logger that words a logged warning. From the tangler come the error `NotWritten` and the function `readText`, and Effect's `FileSystem` is what `readText` reads through. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
+The language server contributes eight services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomSummaries`, which brings every box back in step with the loom it points to; `LoomCompiler`, which approves a loom's references, keeps the relations, and gives them for a review; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text; `LanguagePackages`, which loads a workspace's language packages the first time the compiler asks them to write the path a module anchor names; `TropePackages`, which reads the kinds of the tropes a workspace installs the first time the compiler judges a loom of it; and `FileSystemEnvironment`, the file system's environment: the `WorkspaceSource` service, which reads that text and lists each corpus from disk, the `WorkspaceSettings` service, which resolves a `.loom`'s settings from `.loom/config.yaml`, and the build cache on disk. The type `TangledFile` rides along from the compiler, typing the files a pass writes. From the failure catalog come the type `LoomFailure` and the table `failureWording`, which this program widens with its own failures, the type `Wording` that shapes such a table, the type `Problem` and the function `problem` that makes one, the function `reasonOf`, which reads a cause as a sentence, the function `refusedBy`, which lists what refused a tangle, the function `failureIn`, which finds a failure in a log's message, and the function `broke`, which turns a defect into a failure. Effect's `Logger` makes the logger that words a logged warning. From the tangler come the error `NotWritten` and the function `readText`, and Effect's `FileSystem` is what `readText` reads through. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, `defaultWidth`, the width a loom's lines keep to when its project names none, and `isVariableName` and the error `NotAVariableName`, which judge the name `loom set` is given.
 
 From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, and `installTropes` and `removeTropes` the package of Loom's tropes, with `PackageInstall` saying what an install did, `installedVersion` and `installedTropeVersion` read the version of a package the store holds, `isLoomTrope` tells a trope's name from a language's, `tropesPackage` names the package of Loom's tropes, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. The constant `devBuild` says whether this Loom is a dev build, and `devRegistry` names the registry its dev releases come from. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
@@ -2188,7 +2177,13 @@ import { LoomTangler, NotWritten, readText } from '@athrio/loom-lang/LoomTangler
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
-import { defaultWidth, LoomConfig, type SettingsNotWritten } from '@athrio/loom-config/LoomConfig'
+import {
+  defaultWidth,
+  isVariableName,
+  LoomConfig,
+  NotAVariableName,
+  type SettingsNotWritten,
+} from '@athrio/loom-config/LoomConfig'
 import {
   installedTropeVersion,
   installedVersion,

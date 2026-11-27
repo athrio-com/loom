@@ -12,7 +12,7 @@ Any editor that speaks the Language Server Protocol can start the server. VS Cod
 
 ## Imports
 
-The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, the parameters of an `initialize` request, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, with the `SummaryEdit` that keeps a chapter box in step, and `LoomFormatter`, which formats a file on it, with the `DocumentSource` and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. `LanguagePackages` holds the language packages each workspace activates, so the compiler can ask them to write the path a module anchor names, as the chapter "Referring to modules" describes. `TropePackages` reads the tropes each workspace installs, as the chapter "Tropes a workspace installs" describes. From the workspace source come the `WorkspaceSource` service, which fetches a workspace's looms, its `FileSystemSource` layer, and the `Workspace` its `open` method hands over. From the language store comes `workspaceOf`, which finds the nested workspace a file belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends, the `FetchedTypeScript` within it, and the `ClassicTypeScriptMissing` its search for TypeScript 6 fails with. The type `TableOfContents` is what the server answers a request for a workspace's books with.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, the parameters of an `initialize` request, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, with the `SummaryEdit` that keeps a chapter box in step, and `LoomFormatter`, which formats a file on it, with the `DocumentSource` and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. `LanguagePackages` holds the language packages each workspace activates, so the compiler can ask them to write the path a module anchor names, as the chapter "Referring to modules" describes. `TropePackages` reads the tropes each workspace installs, as the chapter "Tropes a workspace installs" describes. From the workspace source come the `WorkspaceSource` service, which fetches a workspace's looms, its `FileSystemSource` layer, and the `Workspace` its `open` method hands over. From the language store comes `workspaceOf`, which finds the nested workspace a file belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends, the `FetchedTypeScript` within it, and the `ClassicTypeScriptMissing` its search for TypeScript 6 fails with. The type `TableOfContents` is what the server answers a request for a workspace's books with. The toolkit also gives `ResponseError` and `LSPErrorCodes`, which carry the answer to a request that failed, and the types of a workspace edit, a document's edit, and a file to create, which the answer to an edit takes. The outline gives the `Outline` and the `Concepts` the server answers with, and the failure `NoSuchLoom`. The edits give `LoomIntentSchema`, which reads an intent, with the failures an edit may meet, and the compiler gives the `EditAnswer` its verb `edit` answers with.
 
 Effect's `Schema` reads the editor's initialization options and the parameters of a request for a workspace's books, `Option` carries a compiler or a workspace that may not be there, `Result` carries a compiler or the reason there is none, and `Data` types the failure of a fetch. A `Cache` holds what the server builds for each workspace, a `Duration` says how long it keeps an entry, an `Exit` tells an entry that failed, and the `Array` module gathers across them. A `Semaphore` holds back a request while the server reprojects the open looms, and a `Ref` holds the looms the editor has changed since the last request, and the text the editor last held for each open loom. The `Scheduler` module keeps the fiber that rebuilds them from yielding. A `Source` is what the compiler reads a loom's text through. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and loads it. The function `existsSync` checks that a folder holds a compiler, and `statSync` reads when a loom was last saved. The function `stringSnapshot` turns a loom's text into the snapshot a script holds. The function `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. A `URI` is the address Volar names a document by, and the class parses the addresses the editor reports.
 
@@ -40,6 +40,7 @@ import {
 } from 'effect'
 import {
   createConnection,
+  type CreateFile,
   createLanguageServiceEnvironment,
   createServer,
   FileChangeType,
@@ -49,6 +50,10 @@ import {
   type LanguageServer,
   type LanguageServerProject,
   type LanguageServicePlugin,
+  LSPErrorCodes,
+  ResponseError,
+  type TextDocumentEdit,
+  type WorkspaceEdit,
 } from '@volar/language-server/node'
 import {
   createLanguage,
@@ -62,12 +67,15 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { URI } from 'vscode-uri'
 import {
+  type EditAnswer,
   LoomCompiler,
   DocumentSource,
   stringSnapshot,
   type SummaryEdit,
   within,
 } from './LoomCompiler'
+import { type Concepts, type NoSuchLoom, type Outline } from './OutlineBuilder'
+import { type EditBreaksLoom, type EditRefusal, LoomIntentSchema } from './EditBuilder'
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
 import { type ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -1217,7 +1225,7 @@ const forgetSeen = (seen: Ref.Ref<ReadonlyMap<string, string>>, uri: URI): Effec
 
 An application that shows a workspace's books, as an editor's sidebar may, needs more than the looms in storage. A loom's book is the one its `Book` field names, or the corpus's default book when it names none, as the chapter "Books" describes, and only Loom reads those rules. So the server answers a request of Loom's own, `loom/contents`, with a workspace's table of contents: each book, with its parts and their chapters, as the compiler's `contents` verb lays them out. The constant `contentsRequest` names the request.
 
-The request may name its workspace by address, in the parameters `{ workspace }`, whose shape `ContentsParamsSchema` gives. The function `workspaceAsked` turns that address into a workspace as the server turns a folder into one: it takes the location the `WorkspaceSource` service gives the address, and the workspace the service names for that location. A request that names no workspace asks about `home`. So an application that keeps many workspaces behind one storage asks for the books of each by its URL.
+The request may name its workspace by address, in the parameters `{ workspace }`, whose shape `AddressSchema` gives. The function `workspaceAsked` turns that address into a workspace as the server turns a folder into one: it takes the location the `WorkspaceSource` service gives the address, and the workspace the service names for that location. A request that names no workspace asks about `home`. So an application that keeps many workspaces behind one storage asks for the books of each by its URL. The requests of the next section name their workspace the same way.
 
 The server keeps every workspace it opens in a cache of the type `Places`, as the section "The program" describes. The cache maps a workspace to its place, the first loom it opened with. It maps a workspace that opened with no loom to nothing, as it maps a folder that holds no workspace, until a loom is created there and becomes the place. The compiler lays out a corpus around an entry, one loom of it. The function `entryOf` asks the source for the corpus around a workspace's place and takes its first loom as the entry. The source's list follows looms that arrive and leave, so the entry is a loom the workspace still holds, even when the place itself has since been deleted.
 
@@ -1227,7 +1235,7 @@ The function `contentsOf` asks the compiler for the table of contents around the
 
 export const contentsRequest = 'loom/contents'
 
-const ContentsParamsSchema = Schema.Struct({ workspace: Schema.String })
+const AddressSchema = Schema.Struct({ workspace: Schema.optional(Schema.String) })
 
 type Places = Cache.Cache<string, Option.Option<string>, ReadError>
 
@@ -1238,10 +1246,15 @@ const workspaceAsked = (
   home: string,
   params: unknown,
 ): string =>
-  Option.match(Schema.decodeUnknownOption(ContentsParamsSchema)(params), {
-    onNone: () => home,
-    onSome: ({ workspace }) => source.workspaceOf(source.locationOf(URI.parse(workspace))),
-  })
+  Option.match(
+    Option.flatMap(Schema.decodeUnknownOption(AddressSchema)(params), ({ workspace }) =>
+      Option.fromNullishOr(workspace),
+    ),
+    {
+      onNone: () => home,
+      onSome: (workspace) => source.workspaceOf(source.locationOf(URI.parse(workspace))),
+    },
+  )
 
 const entryOf = (
   place: Option.Option<string>,
@@ -1279,6 +1292,161 @@ const contentsFor = (
   WorkspaceSource.pipe(
     Effect.flatMap((source) => Cache.get(places, workspaceAsked(source, home, params))),
     Effect.flatMap(contentsOf),
+  )
+
+## What an application asks of Loom
+
+An application can show its writers a workspace's looms in words of its own, as the chapters "The outline of a loom" and "Edits an application asks for" describe. It asks the server three requests of Loom's own beside `loom/contents`. The constant `outlineRequest` names the request `loom/outline`, which gives the outline of one loom. The constant `conceptsRequest` names `loom/concepts`, which gives every concept of a workspace. The constant `editRequest` names `loom/edit`, which gives the edit of looms an intent asks for.
+
+The server reads each request's parameters through a schema, once, as they arrive. The request `loom/outline` takes `{ uri }`, the loom's address, as `OutlineParamsSchema` gives it. The request `loom/concepts` takes `{ workspace }`, as `loom/contents` does. The request `loom/edit` takes `{ workspace, edit }`, the workspace's address and one intent, as `EditParamsSchema` gives it. Parameters that do not read fail the request with the failure `RequestUnread`, which holds the request and the reason, as the function `paramsOf` raises it.
+
+=>
+
+export const outlineRequest = 'loom/outline'
+
+export const conceptsRequest = 'loom/concepts'
+
+export const editRequest = 'loom/edit'
+
+const OutlineParamsSchema = Schema.Struct({ uri: Schema.String })
+
+const EditParamsSchema = Schema.Struct({
+  workspace: Schema.optional(Schema.String),
+  edit: LoomIntentSchema,
+})
+
+export class RequestUnread extends Data.TaggedError('RequestUnread')<{
+  readonly request: string
+  readonly cause: unknown
+}> {}
+
+const paramsOf =
+  <A>(request: string, decode: (asked: unknown) => Effect.Effect<A, Schema.SchemaError>) =>
+  (asked: unknown): Effect.Effect<A, RequestUnread> =>
+    decode(asked).pipe(Effect.mapError((cause) => new RequestUnread({ request, cause })))
+
+const outlineParams = paramsOf(outlineRequest, Schema.decodeUnknownEffect(OutlineParamsSchema))
+
+const editParams = paramsOf(editRequest, Schema.decodeUnknownEffect(EditParamsSchema))
+
+~
+
+A loom's address names its workspace, as `workspaceFor` reads it, so the function `outlineFor` opens that workspace among the places and asks the compiler's `outline` verb for the loom. The function `conceptsFor` finds the workspace asked about and asks the compiler's `concepts` verb around its entry, the way `contentsFor` lays out its books. A workspace with no place holds no concepts, as `noConcepts` holds.
+
+The function `editFor` finds the workspace asked about and asks the compiler's `edit` verb, around the workspace's entry or around nothing when the workspace holds no loom yet. It hands the compiler the mapping from an address the intent names to the location storage keeps the loom under, through the `WorkspaceSource` service, since only the server knows how the two map.
+
+=>
+
+const noConcepts: Concepts = { concepts: [] }
+
+const outlineFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<Outline, RequestUnread | NoSuchLoom | ReadError, LoomCompiler | WorkspaceSource> =>
+  Effect.all([outlineParams(asked), WorkspaceSource]).pipe(
+    Effect.flatMap(([{ uri }, source]) => {
+      const loom = URI.parse(uri)
+      return Cache.get(places, workspaceFor(source, home, loom)).pipe(
+        Effect.andThen(LoomCompiler),
+        Effect.flatMap((compiler) => compiler.outline(source.locationOf(loom))),
+      )
+    }),
+  )
+
+const conceptsFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<Concepts, ReadError, LoomCompiler | WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => Cache.get(places, workspaceAsked(source, home, asked))),
+    Effect.flatMap(entryOf),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(noConcepts),
+        onSome: (entry) =>
+          LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.concepts(entry))),
+      }),
+    ),
+  )
+
+const editFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<
+  LoomWorkspaceEdit,
+  RequestUnread | EditRefusal | EditBreaksLoom | ReadError,
+  LoomCompiler | WorkspaceSource
+> =>
+  Effect.all([editParams(asked), WorkspaceSource]).pipe(
+    Effect.flatMap(([{ edit }, source]) => {
+      const workspace = workspaceAsked(source, home, asked)
+      return Cache.get(places, workspace).pipe(
+        Effect.flatMap(entryOf),
+        Effect.flatMap((entry) =>
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) =>
+              compiler.edit(workspace, entry, edit, (uri) => source.locationOf(URI.parse(uri))),
+            ),
+          ),
+        ),
+        Effect.map((answer) => workspaceEditOf(source, answer)),
+      )
+    }),
+  )
+
+~
+
+The protocol has a shape for an edit across several documents, the `WorkspaceEdit`, which a rename answers with. The answer to `loom/edit` takes that shape, so an application applies it as it applies a rename. For each loom the edit makes, its `documentChanges` hold a `CreateFile` followed by a `TextDocumentEdit` that inserts the loom's whole text. For each loom the edit changes, they hold a `TextDocumentEdit` with a ranged edit for each change. Every document change names no version, since the application applies the edit to its own store, where an editor's version means nothing. The type `LoomWorkspaceEdit` adds two fields to the protocol's shape. Its `removed` lists the address of every loom the edit removes, empty for an intent that removes none. The application removes those looms itself, after an intent such as `RemoveLoom` or `RemovePart`, and no others, so a part's discussions go with its chapters. Its `configuration` holds the configuration's new text, for an intent that sets a variable. The function `workspaceEditOf` writes the compiler's answer in that shape, naming each loom by the address the `WorkspaceSource` service gives its location.
+
+=>
+
+type LoomWorkspaceEdit = WorkspaceEdit & {
+  readonly removed: ReadonlyArray<string>
+  readonly configuration?: string
+}
+
+const atStart = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+
+const workspaceEditOf = (
+  source: WorkspaceSource['Service'],
+  answer: EditAnswer,
+): LoomWorkspaceEdit => ({
+  documentChanges: [
+    ...answer.made.flatMap((made): ReadonlyArray<CreateFile | TextDocumentEdit> => {
+      const uri = source.uriOf(made.path).toString()
+      return [
+        { kind: 'create', uri },
+        { textDocument: { uri, version: null }, edits: [{ range: atStart, newText: made.text }] },
+      ]
+    }),
+    ...Object.entries(Array.groupBy(answer.edits, (edit) => edit.path)).map(
+      ([path, edits]): TextDocumentEdit => ({
+        textDocument: { uri: source.uriOf(path).toString(), version: null },
+        edits: edits.map((edit) => ({ range: edit.range, newText: edit.text })),
+      }),
+    ),
+  ],
+  removed: answer.removed.map((path) => source.uriOf(path).toString()),
+  ...Option.match(answer.configuration, {
+    onNone: () => ({}),
+    onSome: (configuration) => ({ configuration }),
+  }),
+})
+
+~
+
+A request that fails answers with an error of the protocol, which carries the failure in a form an application can read. The function `refusalOf` gives the `ResponseError` for a failure of the catalog. Its code is `RequestFailed`, the one the protocol keeps for a request the server understood and could not carry out. Its message is the failure's line, and its data is the failure itself, its tag under `_tag` beside its fields. A cause is an error of another program and may not survive the trip as data, so the data leaves it out, and the message carries its reason.
+
+=>
+
+const refusalOf = (failure: LoomFailure): ResponseError<Record<string, unknown>> =>
+  new ResponseError(
+    LSPErrorCodes.RequestFailed,
+    lineFor(failure),
+    Object.fromEntries(Object.entries(failure).filter(([key]) => key !== 'cause')),
   )
 
 ## The program
@@ -1511,7 +1679,7 @@ The program then builds the `TypescriptSdk` with `typescriptSdkFor`, from the op
 
 A request may name a loom of a workspace that no folder named. So the `projects` cache opens a project's workspace through `placeOpened` before it builds the project. The workspace's looms are then held in memory before any of them is projected, and its manifest is kept before its plugins are collected.
 
-The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject`, built over both caches, the semaphore, and the set, and those plugins with Volar. It starts the warm-ups and both watchers. From then on it answers the `loom/contents` request through `contentsFor`, while it holds the `reprojecting` semaphore, so a change the editor reported reaches the books before they are laid out.
+The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject`, built over both caches, the semaphore, and the set, and those plugins with Volar. It starts the warm-ups and both watchers. From then on it answers the `loom/contents` request through `contentsFor`, while it holds the `reprojecting` semaphore, so a change the editor reported reaches the books before they are laid out. It answers the requests `loom/outline`, `loom/concepts`, and `loom/edit` the same way, through `answered`, which first settles the edits the editor has made since the last request, as `getLanguageService` does. So an outline reads the text the editor holds, and an edit's ranges fit that text. A request that fails answers with the failure as `refusalOf` writes it.
 
 =>
 
@@ -1561,6 +1729,23 @@ export const startLanguageServer = (): void => {
         reprojecting.withPermits(1)(contentsFor(places, home, asked)).pipe(Effect.mapError(inWords)),
       ),
     )
+    const answered = <A, E extends LoomFailure>(
+      asking: Effect.Effect<A, E, LoomCompiler | DocumentSource | WorkspaceSource>,
+    ): Promise<A> =>
+      runtime.runPromise(
+        reprojecting
+          .withPermits(1)(
+            settleEdits(server, home, projects, places, edited).pipe(Effect.andThen(asking)),
+          )
+          .pipe(Effect.mapError(refusalOf)),
+      )
+    connection.onRequest(outlineRequest, (asked: unknown) =>
+      answered(outlineFor(places, home, asked)),
+    )
+    connection.onRequest(conceptsRequest, (asked: unknown) =>
+      answered(conceptsFor(places, home, asked)),
+    )
+    connection.onRequest(editRequest, (asked: unknown) => answered(editFor(places, home, asked)))
     return server.initialize(
       params,
       workspaceProject(server, home, services, projects, places, reprojecting, edited),
@@ -1574,7 +1759,7 @@ export const startLanguageServer = (): void => {
 
 ## The server module [src/LoomServer.ts]
 
-The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the watch on approvals, the boxes kept in step, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `refreshDecorations`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, the watch on approvals, the boxes kept in step, the requests an application asks, and the program, and exports `startLanguageServer`. It also exports `classicTypeScript`, `projectOver`, `workspaceProject`, `refreshProject`, `refreshDecorations`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
@@ -1595,6 +1780,8 @@ The server module assembles the imports, the compilers a project may ask for, th
 ::[A box kept in step as the author types]
 
 ::[The books a workspace holds]
+
+::[What an application asks of Loom]
 
 ::[The program]
 
@@ -1678,7 +1865,7 @@ The cases start the server from source the way an editor does. `serverIn` starts
 
 `editorAt` is the client most cases use. It starts the server in the working directory the cases themselves run in, and connects as an editor that has opened one folder. It names that folder twice, as its first workspace folder and as `rootUri`, the way VS Code does. It hands the server the TypeScript this repository installs, as VS Code hands over its own.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case may hand it the `experimental` capabilities an editor states as well, such as the commands the editor runs itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit. `definition` asks where the name at one place in a loom is defined, and keeps the loom and the line of each answer, whether the server answers with a location or a link. `rename` asks for the edits that rename the name at one place, and keeps the loom, the line, and the new text of each, whether the edits arrive by document or as changes. The helper `contents` asks for the table of contents of the workspace the editor opened.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case may hand it the `experimental` capabilities an editor states as well, such as the commands the editor runs itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. It keeps each workspace edit the server asks it to apply, and `applied` waits up to ten seconds for the first one, so a case can read the edits the server sent without applying them. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, `hints` asks for the inlay hints it shows across a whole loom, `folds` asks for the ranges it folds and the text each shows folded, and `completions` asks for what it offers at one place in a loom, keeping each offer's label and edit. `definition` asks where the name at one place in a loom is defined, and keeps the loom and the line of each answer, whether the server answers with a location or a link. `rename` asks for the edits that rename the name at one place, and keeps the loom, the line, and the new text of each, whether the edits arrive by document or as changes. The helper `contents` asks for the table of contents of the workspace the editor opened, and `ask` sends any other request of Loom's own and gives its answer.
 
 =>
 
@@ -1828,6 +2015,8 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     })
   const contents = (): Promise<TableOfContents> =>
     connection.sendRequest<TableOfContents>(contentsRequest)
+  const ask = <A>(method: string, params: unknown): Promise<A> =>
+    connection.sendRequest<A>(method, params)
   const changed = (path: string, type: FileChangeType = FileChangeType.Changed): Promise<void> =>
     connection.sendNotification('workspace/didChangeWatchedFiles', {
       changes: [{ uri: pathToFileURL(path).href, type }],
@@ -1849,6 +2038,7 @@ const editorAt = async (folder: string, experimental?: unknown) => {
     definition,
     rename,
     contents,
+    ask,
     changed,
     applied,
     close,
@@ -3416,9 +3606,82 @@ describe('LoomServer — the books of a workspace', () => {
   }, 30_000)
 })
 
+## Testing what an application asks
+
+An application asks the server for a loom's outline, for an edit, and for the concepts of a workspace. The workspace of this case holds the answer's loom, a chapter that names no book and no number. Its outline gives its kind, its title, and its one section. A chapter made beside it answers as a workspace edit that creates the loom and then fills it, and removes no loom. The new chapter stands among the default book's chapters that name no part, all of them numberless, so it takes no number either. The answer's loom removed answers with its address among the looms removed. The case reads each answer as an `Answered`, the protocol's workspace edit with the addresses of the looms it removes. A rename of a section the loom does not hold answers with an error that carries the failure `NoSuchSection` as its data, and an edit the server cannot read answers with the failure `RequestUnread`. The workspace defines no concept.
+
+=>
+
+type Answered = WorkspaceEdit & { readonly removed: ReadonlyArray<string> }
+
+describe('LoomServer — what an application asks', () => {
+  it('outlines a loom, answers an edit, and refuses one with its failure', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const answer = workspaceAt(root, standIn(false))
+    const rooms = join(root, 'corpus', 'rooms.loom')
+    const editor = await editorAt(root)
+    const refusal = (params: unknown) =>
+      editor.ask(editRequest, params).then(
+        () => undefined,
+        (error: { readonly code: number; readonly data: Readonly<Record<string, unknown>> }) =>
+          error,
+      )
+    try {
+      const outline = await editor.ask<Outline>(outlineRequest, { uri: pathToFileURL(answer).href })
+      expect([
+        outline.kind,
+        outline.title,
+        outline.sections.map((section) => section.name),
+      ]).toEqual(['Chapter', 'Answer', ['Answer']])
+      const made = await editor.ask<Answered>(editRequest, {
+        edit: {
+          _tag: 'MakeLoom',
+          uri: pathToFileURL(rooms).href,
+          kind: 'Chapter',
+          book: '',
+          title: 'Rooms',
+        },
+      })
+      expect(made.documentChanges).toEqual([
+        { kind: 'create', uri: pathToFileURL(rooms).href },
+        {
+          textDocument: { uri: pathToFileURL(rooms).href, version: null },
+          edits: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              newText: lines('---', 'Chapter: Rooms', '---', '', '# Rooms'),
+            },
+          ],
+        },
+      ])
+      expect(made.removed).toEqual([])
+      const removed = await editor.ask<Answered>(editRequest, {
+        edit: { _tag: 'RemoveLoom', uri: pathToFileURL(answer).href },
+      })
+      expect(removed.removed).toEqual([pathToFileURL(answer).href])
+      const missing = await refusal({
+        edit: {
+          _tag: 'RenameSection',
+          uri: pathToFileURL(answer).href,
+          section: 'Nothing',
+          name: 'Else',
+        },
+      })
+      expect([missing?.code, missing?.data]).toEqual([
+        -32803,
+        { _tag: 'NoSuchSection', path: answer, section: 'Nothing' },
+      ])
+      expect((await refusal({ edit: { _tag: 'Unknown' } }))?.data._tag).toBe('RequestUnread')
+      expect(await editor.ask<unknown>(conceptsRequest, {})).toEqual({ concepts: [] })
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InitializeResult` the server answers an `initialize` request with, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` the offers for braces arrive in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`, with the `ReadError` a cache of places may fail with. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` and `refreshProject` they add the `FileSystemSource` layer. The case on a workspace's books names its request with `contentsRequest` and reads the answer as a `TableOfContents`.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InitializeResult` the server answers an `initialize` request with, the `InlayHint` a title beside a number arrives as, the `FoldingRange` a folded box arrives as, the `ApplyWorkspaceEditParams` a request to keep a chapter box in step arrives as, the `CompletionList` the offers for braces arrive in, the `Location` or `LocationLink` a definition arrives as, the `WorkspaceEdit` a rename arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Option` reads a definition that may be missing. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`, with the `ReadError` a cache of places may fail with. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` and `refreshProject` they add the `FileSystemSource` layer. The case on a workspace's books names its request with `contentsRequest` and reads the answer as a `TableOfContents`. The case on what an application asks names its requests with `outlineRequest`, `editRequest`, and `conceptsRequest`, and reads an outline as an `Outline`.
 
 =>
 
@@ -3450,10 +3713,14 @@ import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
 import type { TableOfContents } from '../src/weave/TableOfContentsBuilder'
+import type { Outline } from '../src/OutlineBuilder'
 import {
   classicTypeScript,
   closeOf,
+  conceptsRequest,
   contentsRequest,
+  editRequest,
+  outlineRequest,
   projectOver,
   rebuildUnder,
   refreshDecorations,
@@ -3510,6 +3777,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a name that waits]
 
 ::[Testing the books of a workspace]
+
+::[Testing what an application asks]
 
 ::[Testing a trope box]
 

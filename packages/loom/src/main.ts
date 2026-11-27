@@ -56,7 +56,13 @@ import { LoomTangler, NotWritten, readText } from '@athrio/loom-lang/LoomTangler
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomSummaries } from '@athrio/loom-lang/LoomSummaries'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
-import { defaultWidth, LoomConfig, type SettingsNotWritten } from '@athrio/loom-config/LoomConfig'
+import {
+  defaultWidth,
+  isVariableName,
+  LoomConfig,
+  NotAVariableName,
+  type SettingsNotWritten,
+} from '@athrio/loom-config/LoomConfig'
 import {
   installedTropeVersion,
   installedVersion,
@@ -1186,10 +1192,6 @@ const doctor = Effect.gen(function* () {
   yield* exitNonZero
 })
 
-class NotAVariableName extends Data.TaggedError('NotAVariableName')<{
-  readonly name: string
-}> {}
-
 class ValueOpensOnEquals extends Data.TaggedError('ValueOpensOnEquals')<{}> {}
 
 const set = (name: string, value: string) =>
@@ -1197,8 +1199,7 @@ const set = (name: string, value: string) =>
     const config = yield* LoomConfig
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-      return yield* Effect.fail(new NotAVariableName({ name }))
+    if (!isVariableName(name)) return yield* Effect.fail(new NotAVariableName({ name }))
     if (value.startsWith('=')) return yield* Effect.fail(new ValueOpensOnEquals())
     const current = yield* config.manifest(workspace)
     yield* config.edit(workspace, ['variables', name], value)
@@ -1459,7 +1460,6 @@ type CommandFailure =
   | ChecksumMismatch
   | UnpackFailed
   | ReplaceFailed
-  | NotAVariableName
   | ValueOpensOnEquals
   | GrammarMissing
   | GrammarCompileFailed
@@ -1506,11 +1506,6 @@ const commandWording: Wording<CommandFailure> = {
     problem(
       `Loom could not replace ${path}.`,
       `${reasonOf(cause)} Run the install script again, or move Loom somewhere you can write to.`,
-    ),
-  NotAVariableName: ({ name }) =>
-    problem(
-      `\`${name}\` is not a variable name.`,
-      'A name holds letters, digits and underscores, and does not open on a digit. Write `loom set <name> <value>`.',
     ),
   ValueOpensOnEquals: () =>
     problem(

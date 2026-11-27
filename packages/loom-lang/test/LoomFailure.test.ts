@@ -8,7 +8,11 @@ import {
   ReservedAnchorDelims,
   WhitespaceAnchorDelims,
 } from '@athrio/loom-ast/LoomTokens'
-import { SettingsNotWritten, SettingsUnread } from '@athrio/loom-config/LoomConfig'
+import {
+  NotAVariableName,
+  SettingsNotWritten,
+  SettingsUnread,
+} from '@athrio/loom-config/LoomConfig'
 import {
   PackageMissing,
   PackageNotLoaded,
@@ -31,7 +35,29 @@ import {
   reasonOf,
   refusedBy,
 } from '#ast/LoomFailure'
-import { ClassicTypeScriptMissing, TypeScriptNotFetched } from '../src/LoomServer'
+import { ClassicTypeScriptMissing, RequestUnread, TypeScriptNotFetched } from '../src/LoomServer'
+import { NoSuchLoom } from '../src/OutlineBuilder'
+import {
+  BookExists,
+  EditBreaksLoom,
+  LoomExists,
+  NoConfiguration,
+  NoSuchBook,
+  NoSuchNote,
+  NoSuchPart,
+  NoSuchSection,
+  NotADiscussion,
+  NotInPart,
+  NotOfKind,
+  OpensABook,
+  OpensTheLoom,
+  PartExists,
+  PartNameIsNumber,
+  SectionExists,
+  TitleTaken,
+  UnfitName,
+  UnfitText,
+} from '../src/EditBuilder'
 import { NotRemoved, NotWritten } from '../src/LoomTangler'
 import { TropeRefused } from '../src/TropePackages'
 import { RelationsNotKept, StorageTakesNoWrite } from '../src/WorkspaceSource'
@@ -76,6 +102,34 @@ const samples: {
     cause: new Error('read-only disk'),
   }),
   StorageTakesNoWrite: new StorageTakesNoWrite({ workspace: 'https://example.com/workspace' }),
+  RequestUnread: new RequestUnread({
+    request: 'loom/edit',
+    cause: new Error('Missing key at ["edit"]'),
+  }),
+  NoSuchLoom: new NoSuchLoom({ path: '/book/ledger.loom' }),
+  LoomExists: new LoomExists({ path: '/book/ledger.loom' }),
+  NoSuchBook: new NoSuchBook({ book: 'The game' }),
+  BookExists: new BookExists({ book: 'The game' }),
+  NoSuchPart: new NoSuchPart({ book: '', part: 'IV' }),
+  PartExists: new PartExists({ book: 'The game', part: 'Rooms' }),
+  PartNameIsNumber: new PartNameIsNumber({ name: 'IV' }),
+  TitleTaken: new TitleTaken({ title: 'Ledger', book: '', part: 'II' }),
+  NotInPart: new NotInPart({ path: '/book/ledger.loom' }),
+  NotOfKind: new NotOfKind({ path: '/book/talk.loom', kind: 'Chapter' }),
+  NoSuchSection: new NoSuchSection({ path: '/book/ledger.loom', section: 'Totals' }),
+  SectionExists: new SectionExists({ path: '/book/ledger.loom', section: 'Totals' }),
+  OpensTheLoom: new OpensTheLoom({ path: '/book/ledger.loom', section: 'Ledger' }),
+  NoSuchNote: new NoSuchNote({ path: '/book/ledger.loom', section: 'Totals', text: 'Check this.' }),
+  NotADiscussion: new NotADiscussion({ path: '/book/ledger.loom' }),
+  UnfitName: new UnfitName({ name: 'Two\nlines' }),
+  UnfitText: new UnfitText({ line: '## Smuggled' }),
+  OpensABook: new OpensABook({ path: '/book/book.loom' }),
+  NoConfiguration: new NoConfiguration({ workspace: '/book' }),
+  NotAVariableName: new NotAVariableName({ name: '2fast' }),
+  EditBreaksLoom: new EditBreaksLoom({
+    path: '/book/ledger.loom',
+    problems: ['This anchor names no section.'],
+  }),
   SettingsUnread: new SettingsUnread({
     path: '/book/.loom/config.yaml',
     cause: new Error('a flow sequence is not closed'),

@@ -1011,6 +1011,121 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
   static readonly layer = Layer.effect(this, this.make)
 }
 
+export type RangedEdit = {
+  readonly path: Location
+  readonly range: FrameLocation['range']
+  readonly text: string
+}
+
+export type EditAnswer = {
+  readonly made: ReadonlyArray<MadeLoom>
+  readonly edits: ReadonlyArray<RangedEdit>
+  readonly removed: ReadonlyArray<Location>
+  readonly configuration: Option.Option<string>
+}
+
+const noCorpus: Corpus = { modules: new Map(), kinds: { ...noDeclarations, refusals: [] } }
+
+const answerOf = (
+  modules: Modules,
+  edit: LoomEdit,
+  configuration: Option.Option<string>,
+): EditAnswer => ({
+  made: edit.made,
+  edits: Array.getSomes(
+    edit.splices.map((splice) =>
+      Option.map(Option.fromNullishOr(modules.get(splice.path)), (module) => ({
+        path: splice.path,
+        range: { start: lineCharAt(module, splice.start), end: lineCharAt(module, splice.end) },
+        text: splice.text,
+      })),
+    ),
+  ),
+  removed: edit.gone,
+  configuration,
+})
+
+const editedTexts = (modules: Modules, edit: LoomEdit): ReadonlyMap<Location, string> =>
+  new Map([
+    ...edit.made.map((made) => [made.path, made.text] as const),
+    ...Object.entries(Array.groupBy(edit.splices, (splice) => splice.path)).map(
+      ([path, splices]) =>
+        [
+          path,
+          splicedText(
+            Option.getOrElse(
+              Option.map(Option.fromNullishOr(modules.get(path)), (module) => module.text),
+              () => '',
+            ),
+            splices,
+          ),
+        ] as const,
+    ),
+  ])
+
+const errorsOf = (
+  judged: (module: LoomModule) => ReadonlyArray<Diagnostic>,
+  module: LoomModule,
+): ReadonlyArray<string> =>
+  judged(module)
+    .filter((diagnostic) => diagnostic.severity === 'error')
+    .map((diagnostic) => diagnostic.message)
+
+const brokenBy = (
+  corpus: Corpus,
+  edit: LoomEdit,
+  rebuilt: ReadonlyArray<LoomModule>,
+): Option.Option<EditBreaksLoom> => {
+  const after: Modules = new Map([
+    ...Array.fromIterable(corpus.modules).filter(([path]) => !Array.contains(edit.gone, path)),
+    ...rebuilt.map((module) => [module.path, module] as const),
+  ])
+  const before = corpusDiagnostics(corpus.modules, corpus.kinds, [], Option.none())
+  const now = corpusDiagnostics(after, corpus.kinds, [], Option.none())
+  return Array.head(
+    Array.getSomes(
+      rebuilt.map((module) => {
+        const added = problemsAdded(
+          Option.match(Option.fromNullishOr(corpus.modules.get(module.path)), {
+            onNone: (): ReadonlyArray<string> => [],
+            onSome: (was) => errorsOf(before, was),
+          }),
+          errorsOf(now, module),
+        )
+        return added.length === 0
+          ? Option.none()
+          : Option.some(new EditBreaksLoom({ path: module.path, problems: added }))
+      }),
+    ),
+  )
+}
+
+import {
+  editedSettings,
+  manifestFileOf,
+  manifestText,
+  type WorkspaceManifest,
+} from '@athrio/loom-config/LoomConfig'
+
+import {
+  buildConcepts,
+  buildOutline,
+  type Concepts,
+  NoSuchLoom,
+  type Outline,
+} from './OutlineBuilder'
+import {
+  buildEdit,
+  EditBreaksLoom,
+  type EditRefusal,
+  type LoomEdit,
+  type LoomIntent,
+  type MadeLoom,
+  problemsAdded,
+  type Setting,
+  splicedText,
+} from './EditBuilder'
+
 export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler', {
   make: Effect.gen(function* () {
     const documents = yield* DocumentSource
@@ -1410,6 +1525,52 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const buildCorpus = (source: Source, entry: Location): Effect.Effect<Modules> =>
       corpusOf(source, entry).pipe(Effect.map((corpus) => corpus.modules))
 
+    const settingsAfter = (
+      workspace: Location,
+      manifest: Option.Option<WorkspaceManifest>,
+      setting: Option.Option<Setting>,
+    ): Effect.Effect<Option.Option<string>> =>
+      Option.match(Option.all({ manifest, setting }), {
+        onNone: () => Effect.succeed(Option.none()),
+        onSome: ({ manifest: held, setting: set }) =>
+          documents.read(manifestFileOf(workspace)).pipe(
+            Effect.orElseSucceed(() => manifestText(held)),
+            Effect.map((text) => Option.some(editedSettings(text, set.path, set.value))),
+          ),
+      })
+
+    const checkedEdit = (corpus: Corpus, edit: LoomEdit): Effect.Effect<void, EditBreaksLoom> => {
+      const texts = editedTexts(corpus.modules, edit)
+      const edited: Source = {
+        read: (path) =>
+          Effect.succeed(Option.getOrElse(Option.fromNullishOr(texts.get(path)), () => '')),
+        list: Option.none(),
+      }
+      return Effect.forEach(Array.fromIterable(texts.keys()), (path) =>
+        config
+          .resolve(path)
+          .pipe(
+            Effect.flatMap((settings) =>
+              builder.build(
+                edited,
+                path,
+                settings.delims,
+                settings.primaryLanguage,
+                settings.variables,
+                declaredIn(corpus.kinds),
+              ),
+            ),
+          ),
+      ).pipe(
+        Effect.flatMap((rebuilt) =>
+          Option.match(brokenBy(corpus, edit, rebuilt), {
+            onNone: () => Effect.void,
+            onSome: Effect.fail,
+          }),
+        ),
+      )
+    }
+
     return {
       compile: (source: Source, path: Location): Effect.Effect<VirtualCode> =>
         matchEntry(source, path).pipe(
@@ -1487,6 +1648,51 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       contents: (path: Location): Effect.Effect<TableOfContents> =>
         buildCorpus(documents, path).pipe(Effect.map((modules) => buildContents({ modules }))),
+
+      outline: (path: Location): Effect.Effect<Outline, NoSuchLoom> =>
+        documents.read(path).pipe(
+          Effect.catchTag('ReadError', () => Effect.fail(new NoSuchLoom({ path }))),
+          Effect.andThen(Effect.all([buildCorpus(documents, path), config.resolve(path)])),
+          Effect.flatMap(([modules, settings]) =>
+            Option.match(buildOutline({ modules }, path, settings.variables), {
+              onNone: () => Effect.fail(new NoSuchLoom({ path })),
+              onSome: (outline) => Effect.succeed(outline),
+            }),
+          ),
+        ),
+
+      concepts: (path: Location): Effect.Effect<Concepts> =>
+        buildCorpus(documents, path).pipe(Effect.map((modules) => buildConcepts({ modules }))),
+
+      edit: (
+        workspace: Location,
+        entry: Option.Option<Location>,
+        intent: LoomIntent,
+        locate: (uri: string) => Location,
+      ): Effect.Effect<EditAnswer, EditRefusal | EditBreaksLoom | ReadError> =>
+        Effect.all([
+          Option.match(entry, {
+            onNone: () => Effect.succeed(noCorpus),
+            onSome: (loom) => corpusOf(documents, loom),
+          }),
+          config.manifest(workspace),
+        ]).pipe(
+          Effect.flatMap(([corpus, manifest]) =>
+            Effect.fromResult(
+              buildEdit(
+                { corpus: { modules: corpus.modules }, workspace, manifest, locate },
+                intent,
+              ),
+            ).pipe(
+              Effect.tap((edit) => checkedEdit(corpus, edit)),
+              Effect.flatMap((edit) =>
+                settingsAfter(workspace, manifest, edit.configuration).pipe(
+                  Effect.map((configuration) => answerOf(corpus.modules, edit, configuration)),
+                ),
+              ),
+            ),
+          ),
+        ),
 
       summaries: (
         path: Location,

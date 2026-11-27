@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Layer, Option, pipe, Ref, Result, Schema } from 'effect'
 import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, resolve as resolvePath } from 'node:path'
+import { basename, dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 
 const AnchorSchema = Schema.Struct({
   open: Schema.optional(Schema.String),
@@ -101,8 +101,10 @@ interface KeptManifest {
 
 type KeptManifests = Ref.Ref<ReadonlyMap<string, KeptManifest>>
 
-const manifestFileOf = (workspace: string): string =>
-  resolvePath(workspace, storeDirName, manifestName)
+export const manifestFileOf = (workspace: string): string =>
+  isAbsolute(workspace)
+    ? resolvePath(workspace, storeDirName, manifestName)
+    : `${workspace.replace(/\/+$/, '')}/${storeDirName}/${manifestName}`
 
 const stampOf = (file: string): Option.Option<string> =>
   Option.map(
@@ -200,6 +202,24 @@ const resolveFromManifest = (
 const isFolder = (path: string): boolean =>
   statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
 
+export const manifestText = (manifest: WorkspaceManifest): string => stringifyYaml(manifest)
+
+export const editedSettings = (
+  text: string,
+  path: ReadonlyArray<string>,
+  value: unknown,
+): string => {
+  const document = parseDocument(text)
+  document.setIn(path, value)
+  return document.toString()
+}
+
+export const isVariableName = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
+
+export class NotAVariableName extends Data.TaggedError('NotAVariableName')<{
+  readonly name: string
+}> {}
+
 const writingSettings = (
   workspace: string,
   write: (file: string) => void,
@@ -241,18 +261,19 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
         workspace: string,
         manifest: WorkspaceManifest,
       ): Effect.Effect<void, SettingsNotWritten> =>
-        writingSettings(workspace, (file) => writeFileSync(file, stringifyYaml(manifest))),
+        writingSettings(workspace, (file) => writeFileSync(file, manifestText(manifest))),
 
       edit: (
         workspace: string,
         path: ReadonlyArray<string>,
         value: unknown,
       ): Effect.Effect<void, SettingsNotWritten> =>
-        writingSettings(workspace, (file) => {
-          const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
-          document.setIn(path, value)
-          writeFileSync(file, document.toString())
-        }),
+        writingSettings(workspace, (file) =>
+          writeFileSync(
+            file,
+            editedSettings(existsSync(file) ? readFileSync(file, 'utf8') : '', path, value),
+          ),
+        ),
     }
   }),
 }) {

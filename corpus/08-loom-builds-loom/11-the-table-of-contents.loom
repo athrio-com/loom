@@ -301,7 +301,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
 
 A part's identity within its book is its number when it has one and its name when it does not, so `identityOf` reads whichever the part carries and a chapter finds its part by the same key. `samePart` adds the book to the identity, since two books may each hold a Part I. `dedupeParts` keeps one declaration per part, since every loom in a numberless part repeats the part's name.
 
-Numbered parts sort by their Roman numeral, numberless parts fall after them by name, and `byPart` orders both at once. `romanValue` reads a Roman numeral as an integer: each letter is worth its unit, less that unit when a larger one follows it, so `IX` is nine and `XII` is twelve. `byNumber` orders a part's chapters the same way: numbered ones by their Arabic number, then numberless ones by title. Each kind of loom keeps a number sequence of its own, so `byKind` puts a part's chapters first and the looms of each declared kind after them, kind by kind, each in the order `byNumber` gives. `chaptersUnder` gathers the looms of one part's body and sorts them.
+Numbered parts sort by their Roman numeral, numberless parts fall after them by name, and `byPart` orders both at once. The function `romanValue` reads a Roman numeral as an integer: each letter is worth its unit, less that unit when a larger one follows it, so `IX` is nine and `XII` is twelve. The edits of the chapter "Edits an application asks for" read part numbers with it too. `byNumber` orders a part's chapters the same way: numbered ones by their Arabic number, then numberless ones by title. Each kind of loom keeps a number sequence of its own, so `byKind` puts a part's chapters first and the looms of each declared kind after them, kind by kind, each in the order `byNumber` gives. `chaptersUnder` gathers the looms of one part's body and sorts them.
 
 =>
 
@@ -315,7 +315,7 @@ const romanUnits: Record<string, number> = {
   M: 1000,
 }
 
-const romanValue = (roman: string): number => {
+export const romanValue = (roman: string): number => {
   const units = roman
     .toUpperCase()
     .split('')

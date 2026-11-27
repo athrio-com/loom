@@ -1328,7 +1328,7 @@ export const conceptAt = (catalogue: Catalogue, ref: SectionRef): Option.Option<
 
 A run and a tangle need only part of the corpus: the entry and the sections it composes. `reachable` is the forward reach over the anchor graph — the entry, every module a section in it names through an `::[…]` anchor, and the modules those name in turn. Tangling one file never composes an unrelated loom, and a loom the entry never anchors never fails its build. `transitiveDependents` is the reverse — every module that composes a section in a given file, transitively — so an edit reprojects each file that inlined it.
 
-`dependentsOf` runs the same reverse reach from several files at once. The compiler uses it to find what a batch of changed files touches, such as the dozens a `git checkout` rewrites, and it reads the anchor graph once for the whole batch rather than once for each file. It returns the dependents alone, never the files it started from. `transitiveDependents` is `dependentsOf` started from one file.
+The function `dependentsOf` runs the same reverse reach from several files at once. The compiler uses it to find what a batch of changed files touches, such as the dozens a `git checkout` rewrites, and it reads the anchor graph once for the whole batch rather than once for each file. It returns the dependents alone, never the files it started from. The function `transitiveDependents` is `dependentsOf` started from one file.
 
 `reach` walks one direction of the edges a level at a time: the modules it starts from, then the modules those reach, and so on, until a level holds no module the walk has not seen. A module the walk has seen never enters a later level, so the walk ends even where modules reach each other in a circle.
 
@@ -2435,6 +2435,97 @@ export const renameAt = (
         renamedByKind({ corpus, module, path, offset }, symbol.kind),
     },
   )
+
+~
+
+A part is renamed and renumbered all the same, by the edits an application asks for, as the chapter "Edits an application asks for" describes. Those edits write each loom's frontmatter themselves, and the corpus gives them every other place that names a part. The function `partNumbersOf` gathers every anchor, and every reference braces hold, that names a part by its number, and `partNamesOf` every one that names it by its name, each the span of the segment alone. A step names a part when its place is that part and it was read by number or by name, as `namesPart` tells. The function `numberNamesOf` gathers the places that name a loom by its number, its frontmatter's number among them, as a rename that starts on that number gathers them.
+
+=>
+
+const namesPart =
+  (part: PartRef, numbered: boolean) =>
+  (step: Step): boolean =>
+    step.numbered === numbered && step.place._tag === 'Part' && samePart(step.place.part, part)
+
+const partSpans = (
+  corpus: LoomCorpusAst,
+  part: PartRef,
+  numbered: boolean,
+): ReadonlyArray<CorpusLocation> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return [
+    ...anchorsNaming(catalogue, corpus.modules, namesPart(part, numbered), segmentPosition),
+    ...referencesNaming(catalogue, namesPart(part, numbered)),
+  ]
+}
+
+export const partNumbersOf = (
+  corpus: LoomCorpusAst,
+  part: PartRef,
+): ReadonlyArray<CorpusLocation> => partSpans(corpus, part, true)
+
+export const partNamesOf = (corpus: LoomCorpusAst, part: PartRef): ReadonlyArray<CorpusLocation> =>
+  partSpans(corpus, part, false)
+
+export const numberNamesOf = (
+  corpus: LoomCorpusAst,
+  path: Location,
+): ReadonlyArray<CorpusLocation> => chapterNumbersAt(corpus, path, segmentPosition)
+
+~
+
+A loom that moves to another part takes a new part and a new number at once. A path that names it by number must then change whole, not one segment at a time. The function `numberPathsOf` gathers every anchor, and every reference braces hold, that names a loom by its number. It gives each as a `NumberPath`: the span of the path that leads to the loom, from the path's first segment to the segment that numbers the loom, and whether that path names a book on its way. So the anchor `Part I, Chapter 1, Cells` gives the span of `Part I, Chapter 1`. The function `leadingTo` finds, in the steps of one path, each run of steps that ends on the loom by number, and `pathTo` gives the segment such a run spans. A step names a book when its place is a book, as `isBookStep` tells.
+
+=>
+
+export type NumberPath = { readonly location: CorpusLocation; readonly book: boolean }
+
+const isBookStep = (step: Step): boolean => step.place._tag === 'Book'
+
+const leadingTo = (chapter: Chapter, steps: ReadonlyArray<Step>): ReadonlyArray<Trail> =>
+  steps.flatMap((step, at) =>
+    step.numbered && namesChapter(chapter)(step.place)
+      ? [Array.append(steps.slice(0, at), step)]
+      : [],
+  )
+
+const pathTo = (run: Trail): Segment => ({
+  text: run.map((step) => step.segment.text).join(', '),
+  start: Array.headNonEmpty(run).segment.start,
+  end: Array.lastNonEmpty(run).segment.end,
+})
+
+export const numberPathsOf = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<NumberPath> => {
+  const catalogue = catalogueOf(corpus.modules)
+  return Option.match(chapterOf(catalogue, path), {
+    onNone: (): ReadonlyArray<NumberPath> => [],
+    onSome: (chapter) =>
+      Array.fromIterable(corpus.modules.values()).flatMap((module) => [
+        ...anchorsIn(module).flatMap((anchor) =>
+          leadingTo(chapter, stepsOf(catalogue, module.path, anchor)).map((run): NumberPath => ({
+            location: { path: module.path, position: segmentPosition(anchor, pathTo(run)) },
+            book: run.some(isBookStep),
+          })),
+        ),
+        ...referencesOf(module).flatMap((held) =>
+          leadingTo(
+            chapter,
+            Option.getOrElse(
+              soleTrail(referenceTrails(catalogue, module.path, held)),
+              (): ReadonlyArray<Step> => [],
+            ),
+          ).flatMap((run) =>
+            Option.toArray(
+              Option.map(
+                valueSpan(module.path, held.value, pathTo(run)),
+                (location): NumberPath => ({ location, book: run.some(isBookStep) }),
+              ),
+            ),
+          ),
+        ),
+      ]),
+  })
+}
 
 ~
 

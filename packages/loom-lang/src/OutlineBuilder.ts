@@ -1,0 +1,342 @@
+import { Array, Data, Option, Order, Schema } from 'effect'
+import { byType, byTypeOr } from '@athrio/loom-ast/LoomNode'
+import {
+  boxKind,
+  conclusionKind,
+  discussionKind,
+  type DividerToken,
+  headingLang,
+  type HeadingStartToken,
+  noteKind,
+} from '@athrio/loom-ast/LoomTokens'
+import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type { LoomWeft, PreambleWeft, SectionBodyWeft, TildeWeft } from '@athrio/loom-ast/Weft'
+import {
+  bookOf,
+  catalogueOf,
+  chapterOf,
+  isBookLoom,
+  type Location,
+  type LoomCorpusAst,
+  loomKindOf,
+  type LoomModule,
+  type OpenedBox,
+  openedBoxesOf,
+  ordinalOf,
+  type PartRef,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import { sectionNameOf } from '#ast/ProductBuilder'
+import { titleOf } from './weave/TableOfContentsBuilder'
+import { conceptKey, conceptUsesOf } from './weave/WeaveBuilder'
+
+export const PieceSchema = Schema.TaggedUnion({
+  Prose: { text: Schema.String },
+  Code: { text: Schema.String },
+})
+export type Piece = typeof PieceSchema.Type
+
+export const OutlineNoteSchema = Schema.Struct({
+  text: Schema.String,
+  caption: Schema.optional(Schema.String),
+})
+export type OutlineNote = typeof OutlineNoteSchema.Type
+
+export const OutlineMessageSchema = Schema.Struct({ author: Schema.String, text: Schema.String })
+export type OutlineMessage = typeof OutlineMessageSchema.Type
+
+export const OutlineSectionSchema = Schema.Struct({
+  name: Schema.String,
+  line: Schema.Number,
+  level: Schema.Number,
+  kind: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
+  file: Schema.optional(Schema.String),
+  body: Schema.Array(PieceSchema),
+  notes: Schema.Array(OutlineNoteSchema),
+  messages: Schema.Array(OutlineMessageSchema),
+  conclusion: Schema.optional(Schema.String),
+})
+export type OutlineSection = typeof OutlineSectionSchema.Type
+
+export const OutlinePartSchema = Schema.Struct({
+  number: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+})
+export type OutlinePart = typeof OutlinePartSchema.Type
+
+export const OutlineVariableSchema = Schema.Struct({
+  name: Schema.String,
+  value: Schema.String,
+  section: Schema.optional(Schema.String),
+})
+export type OutlineVariable = typeof OutlineVariableSchema.Type
+
+export const OutlineSchema = Schema.Struct({
+  kind: Schema.String,
+  title: Schema.String,
+  book: Schema.String,
+  part: Schema.optional(OutlinePartSchema),
+  number: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
+  sections: Schema.Array(OutlineSectionSchema),
+  variables: Schema.Array(OutlineVariableSchema),
+  configuration: Schema.Record(Schema.String, Schema.String),
+})
+export type Outline = typeof OutlineSchema.Type
+
+export class NoSuchLoom extends Data.TaggedError('NoSuchLoom')<{ readonly path: Location }> {}
+
+export const looseKind = 'Loose'
+
+export const bookLoomKind = 'Book'
+
+const outlineKindOf = (module: LoomModule): string => {
+  if (module.doc.frontmatter === undefined) return looseKind
+  if (isBookLoom(module)) return bookLoomKind
+  return loomKindOf(module)
+}
+
+type Standing = 'prose' | 'code'
+
+type BodyLine = { readonly standing: Standing; readonly text: Option.Option<string> }
+
+const lineText = (source: string): string => source.replace(/\r?\n$/, '')
+
+const bodyLineOf = byType<PreambleWeft | SectionBodyWeft>()<BodyLine>({
+  PreambleWeft: (line) => ({ standing: 'prose', text: Option.some(lineText(line.source)) }),
+  ProseWeft: (line) => ({ standing: 'prose', text: Option.some(lineText(line.source)) }),
+  TildeWeft: (tilde) => ({
+    standing: 'prose',
+    text: Option.map(Option.fromNullishOr(tilde.prose), (prose) => lineText(prose.source)),
+  }),
+  ArrowWeft: (arrow) => ({
+    standing: 'code',
+    text: Option.map(Option.fromNullishOr(arrow.code), (code) => lineText(code.source)),
+  }),
+  CodeWeft: (line) => ({ standing: 'code', text: Option.some(lineText(line.source)) }),
+  FenceWeft: () => ({ standing: 'code', text: Option.none() }),
+})
+
+const isBlank = (line: string): boolean => line.trim() === ''
+
+export const blockOf = (lines: ReadonlyArray<string>): string =>
+  Array.reverse(Array.dropWhile(Array.reverse(Array.dropWhile(lines, isBlank)), isBlank)).join('\n')
+
+const pieceOf: { readonly [Each in Standing]: (text: string) => Piece } = {
+  prose: (text) => ({ _tag: 'Prose', text }),
+  code: (text) => ({ _tag: 'Code', text }),
+}
+
+export const piecesOf = (
+  wefts: ReadonlyArray<PreambleWeft | SectionBodyWeft>,
+): ReadonlyArray<Piece> =>
+  Array.match(wefts.map(bodyLineOf), {
+    onEmpty: (): ReadonlyArray<Piece> => [],
+    onNonEmpty: (lines) =>
+      Array.groupWith(lines, (one, other) => one.standing === other.standing)
+        .map((run) =>
+          pieceOf[Array.headNonEmpty(run).standing](
+            blockOf(Array.getSomes(run.map((line) => line.text))),
+          ),
+        )
+        .filter((piece) => piece.text !== ''),
+  })
+
+const opensWithin = (section: LoomSection, opened: OpenedBox): boolean =>
+  opened.opener.position.start.offset >= section.position.start.offset &&
+  opened.opener.position.start.offset < section.position.end.offset
+
+export const boxesIn = (module: LoomModule, section: LoomSection): ReadonlyArray<OpenedBox> =>
+  openedBoxesOf(module.doc).filter((opened) => opensWithin(section, opened))
+
+export const boxesOfKind = (
+  module: LoomModule,
+  section: LoomSection,
+  kind: string,
+): ReadonlyArray<OpenedBox> =>
+  boxesIn(module, section).filter((opened) => boxKind(opened.box) === kind)
+
+export const boxText = (opened: OpenedBox): string =>
+  blockOf(opened.body.map((line) => lineText(line.source)))
+
+const linesOfBox = (opened: OpenedBox): ReadonlyArray<LoomWeft> => [
+  opened.opener,
+  ...opened.body,
+  ...Option.toArray(opened.closer),
+]
+
+const outsideOf = (boxes: ReadonlyArray<OpenedBox>): ((line: LoomWeft) => boolean) => {
+  const inside = new Set(boxes.flatMap(linesOfBox))
+  return (line) => !inside.has(line)
+}
+
+const noteOutline = (opened: OpenedBox): OutlineNote => ({
+  text: boxText(opened),
+  caption: Option.getOrUndefined(
+    Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value),
+  ),
+})
+
+type Thread = ReadonlyArray<{ readonly author: string; readonly lines: ReadonlyArray<string> }>
+
+const authorOf = (tilde: TildeWeft): string =>
+  Option.getOrElse(
+    Option.map(Option.fromNullishOr(tilde.prose), (prose) => lineText(prose.source).trim()),
+    () => '',
+  )
+
+const threadAfter = byTypeOr<SectionBodyWeft, [thread: Thread]>()<Thread>(
+  { TildeWeft: (tilde, thread) => [...thread, { author: authorOf(tilde), lines: [] }] },
+  (line, thread) =>
+    Option.match(Array.last(thread), {
+      onNone: () => thread,
+      onSome: (open) => [
+        ...Array.dropRight(thread, 1),
+        { ...open, lines: [...open.lines, lineText(line.source)] },
+      ],
+    }),
+)
+
+const messagesOf = (lines: ReadonlyArray<SectionBodyWeft>): ReadonlyArray<OutlineMessage> =>
+  lines
+    .reduce((thread: Thread, line) => threadAfter(line, thread), [])
+    .map(({ author, lines: said }) => ({ author, text: blockOf(said) }))
+
+const levelOf = byType<HeadingStartToken | DividerToken>()<number>({
+  HeadingStart: (start) => start.source.trim().length,
+  Divider: () => 0,
+})
+
+const fileOf = (module: LoomModule, section: LoomSection): Option.Option<string> =>
+  Option.map(
+    Array.findFirst(
+      module.product.files,
+      (file) => file.code.origin.name === sectionNameOf(section),
+    ),
+    (file) => file.path,
+  )
+
+const sectionOutline =
+  (module: LoomModule, discussion: boolean) =>
+  (section: LoomSection): OutlineSection => {
+    const notes = boxesOfKind(module, section, noteKind)
+    const conclusion = Array.head(boxesOfKind(module, section, conclusionKind))
+    const outside = outsideOf([...notes, ...Option.toArray(conclusion)])
+    return {
+      name: section.heading.title?.source ?? '',
+      line: section.position.start.line - 1,
+      level: levelOf(section.heading.marker),
+      kind: section.kind,
+      language: Option.getOrUndefined(
+        Option.flatMap(Option.fromNullishOr(section.heading.specifier), headingLang),
+      ),
+      file: Option.getOrUndefined(fileOf(module, section)),
+      body: piecesOf(
+        (discussion ? section.preamble : [...section.preamble, ...section.code]).filter(outside),
+      ),
+      notes: notes.map(noteOutline),
+      messages: discussion ? messagesOf(section.code.filter(outside)) : [],
+      conclusion: Option.getOrUndefined(Option.map(conclusion, boxText)),
+    }
+  }
+
+const variablesIn = (
+  lines: ReadonlyArray<PreambleWeft>,
+  section: Option.Option<string>,
+): ReadonlyArray<OutlineVariable> =>
+  lines
+    .flatMap((line) => line.warps)
+    .flatMap((warp) =>
+      Option.toArray(
+        Option.map(Option.fromNullishOr(warp.default), (value) => ({
+          name: warp.name.value,
+          value: value.value.trim(),
+          section: Option.getOrUndefined(section),
+        })),
+      ),
+    )
+
+const variablesOf = (module: LoomModule): ReadonlyArray<OutlineVariable> => [
+  ...variablesIn(module.doc.preamble, Option.none()),
+  ...module.doc.sections.flatMap((section) =>
+    variablesIn(section.preamble, Option.fromNullishOr(section.heading.title?.source)),
+  ),
+]
+
+const partOutline = (part: PartRef): Option.Option<OutlinePart> =>
+  Option.isNone(part.number) && Option.isNone(part.name)
+    ? Option.none()
+    : Option.some({
+        number: Option.getOrUndefined(part.number),
+        name: Option.getOrUndefined(part.name),
+      })
+
+export const buildOutline = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  configuration: Readonly<Record<string, string>>,
+): Option.Option<Outline> =>
+  Option.map(Option.fromNullishOr(corpus.modules.get(path)), (module) => {
+    const place = chapterOf(catalogueOf(corpus.modules), path)
+    return {
+      kind: outlineKindOf(module),
+      title: titleOf(module),
+      book: Option.getOrElse(bookOf(module), () => ''),
+      part: Option.getOrUndefined(Option.flatMap(place, (chapter) => partOutline(chapter.part))),
+      number: Option.getOrUndefined(ordinalOf(module)),
+      language: module.doc.frontmatter?.language?.value,
+      sections: module.doc.sections.map(
+        sectionOutline(module, loomKindOf(module) === discussionKind),
+      ),
+      variables: variablesOf(module),
+      configuration: { ...configuration },
+    }
+  })
+
+export const ConceptPlaceSchema = Schema.Struct({
+  path: Schema.String,
+  section: Schema.optional(Schema.String),
+})
+export type ConceptPlace = typeof ConceptPlaceSchema.Type
+
+export const ConceptEntrySchema = Schema.Struct({
+  name: Schema.String,
+  forms: Schema.Array(Schema.String),
+  path: Schema.String,
+  section: Schema.String,
+  uses: Schema.Array(ConceptPlaceSchema),
+})
+export type ConceptEntry = typeof ConceptEntrySchema.Type
+
+export const ConceptsSchema = Schema.Struct({ concepts: Schema.Array(ConceptEntrySchema) })
+export type Concepts = typeof ConceptsSchema.Type
+
+const byName: Order.Order<ConceptEntry> = Order.mapInput(Order.String, (entry: ConceptEntry) =>
+  entry.name.toLowerCase(),
+)
+
+export const buildConcepts = (corpus: LoomCorpusAst): Concepts => {
+  const uses = conceptUsesOf(corpus.modules)
+  return {
+    concepts: Array.sort(
+      catalogueOf(corpus.modules).concepts.map((concept): ConceptEntry => ({
+        name: concept.name.source,
+        forms: concept.forms.map((form) => form.value),
+        path: concept.module,
+        section: concept.name.source,
+        uses: Option.getOrElse(
+          Option.fromNullishOr(uses.get(conceptKey(concept.module, concept.section))),
+          () => [],
+        ).map((use) => ({
+          path: use.module.path,
+          section: Option.getOrUndefined(
+            Option.flatMap(use.section, (section) =>
+              Option.fromNullishOr(section.heading.title?.source),
+            ),
+          ),
+        })),
+      })),
+      byName,
+    ),
+  }
+}
