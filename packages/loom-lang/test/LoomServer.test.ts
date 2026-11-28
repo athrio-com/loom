@@ -26,7 +26,7 @@ import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
 import type { TableOfContents } from '../src/weave/TableOfContentsBuilder'
-import type { Outline } from '../src/OutlineBuilder'
+import { coreTypes, type Outline } from '../src/OutlineBuilder'
 import {
   classicTypeScript,
   closeOf,
@@ -38,6 +38,7 @@ import {
   rebuildUnder,
   refreshDecorations,
   refreshProject,
+  typesRequest,
   workspaceProject,
 } from '../src/LoomServer'
 import { spawn } from 'node:child_process'
@@ -1306,6 +1307,7 @@ describe('LoomServer — what an application asks', () => {
       ])
       expect((await refusal({ edit: { _tag: 'Unknown' } }))?.data._tag).toBe('RequestUnread')
       expect(await editor.ask<unknown>(conceptsRequest, {})).toEqual({ concepts: [] })
+      expect(await editor.ask<unknown>(typesRequest, {})).toEqual(coreTypes)
     } finally {
       editor.close()
     }

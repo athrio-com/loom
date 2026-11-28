@@ -6,11 +6,11 @@ Language: TypeScript
 
 # The outline of a loom
 
-An application can build its own editor on Loom and show a loom to its writers in its own words. It shows a document with its sections, the notes a reviewer left in them, and the messages of a discussion. It never shows a heading's hashes, an arrow, or the colons of a box. To do that, the application must read a loom without reading Loom's syntax, and only Loom reads that syntax. So the language server answers two requests of Loom's own, which the chapter "The language server" wires.
+An application can build its own editor on Loom and show a loom to its writers in its own words. It shows a document with its sections, the notes a reviewer left in them, and the messages of a discussion. It never shows a heading's hashes, an arrow, or the colons of a box. To do that, the application must read a loom without reading Loom's syntax, and only Loom reads that syntax. So the language server answers three requests of Loom's own, which the chapter "The language server" wires.
 
-The request `loom/outline` gives the outline of one loom: what kind of loom it is, where it stands in its book, its sections in order with their prose and code, the notes, messages, and conclusions each section holds, and the variables the loom and its workspace declare. The request `loom/concepts` gives every concept of a workspace's corpus, with the places that define it and the places that use it.
+The request `loom/outline` gives the outline of one loom: what kind of loom it is, where it stands in its book, its sections in order with their prose and code, the notes, messages, and conclusions each section holds, and the variables the loom and its workspace declare. The request `loom/concepts` gives every concept of a workspace's corpus, with the places that define it and the places that use it. The request `loom/types` gives the kinds of loom, of section, and of box the workspace knows, with the keys each one takes, so an application can offer its writers the types a trope adds.
 
-Both answers are pure functions of the corpus the compiler already builds, as the table of contents of the chapter "The contents of a book" is. The compiler's verbs `outline` and `concepts` call them, as the chapter "The compile layer" describes.
+All three answers are pure functions of the corpus the compiler already builds, as the table of contents of the chapter "The contents of a book" is. The compiler's verbs `outline`, `concepts`, and `types` call them, as the chapter "The compile layer" describes.
 
 ## The shape of an outline
 
@@ -19,6 +19,8 @@ An `Outline` describes one loom. Its `kind` says what the loom is: `Chapter`, `D
 The outline's `sections` follow in reading order. Its `variables` list the value warps the loom declares, and its `configuration` maps each variable of the workspace's configuration, the `variables` key of `.loom/config.yaml`, to its value.
 
 An `OutlineSection` describes one section. Its `name` is its heading's title as the author wrote it, empty for a divider with no label. Its `line` is the line its heading starts on, counted from zero as the Language Server Protocol counts lines, and its `level` counts the heading's hashes, zero for a divider. Its `kind` is the kind its braces name, such as `Tangle` or `Concept`. Its `language` is the language its heading switches to, and its `file` is the file its code is tangled to, when the section writes a file of its own.
+
+A heading's braces may hold keys beside `kind` and `lang`, as `{kind=Task status=done}` holds `status`. A trope gives such keys to the kinds it declares, as Part XIII, Tropes, describes. The section's `parameters` hold them as a `ParameterValues` table: each key with its value, or with its values when the author wrote a list. Each value is text as the author wrote it, since the key's type decides what the text means, as the chapter "The leaf tokens" describes. The keys `kind` and `lang` stay out of the table, because the section gives them as its `kind` and its `language`, and `keysApart` lists the two.
 
 A section's `body` is its prose and its code as ordered pieces. A `Piece` is either `Prose` or `Code`, each holding a `text` with Loom's marks taken out: no heading, no arrow, no tilde, no fence around fenced code, and no notes. The section's `notes` hold the notes apart, each an `OutlineNote` with its `text` and its `caption` when the note has one. A discussion's topic adds its `messages`, each an `OutlineMessage` with its `author` and its `text`, and its `conclusion` when the topic has one.
 
@@ -41,12 +43,21 @@ export type OutlineNote = typeof OutlineNoteSchema.Type
 export const OutlineMessageSchema = Schema.Struct({ author: Schema.String, text: Schema.String })
 export type OutlineMessage = typeof OutlineMessageSchema.Type
 
+export const ParameterValuesSchema = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+)
+export type ParameterValues = typeof ParameterValuesSchema.Type
+
+export const keysApart: ReadonlyArray<string> = ['kind', 'lang']
+
 export const OutlineSectionSchema = Schema.Struct({
   name: Schema.String,
   line: Schema.Number,
   level: Schema.Number,
   kind: Schema.optional(Schema.String),
   language: Schema.optional(Schema.String),
+  parameters: ParameterValuesSchema,
   file: Schema.optional(Schema.String),
   body: Schema.Array(PieceSchema),
   notes: Schema.Array(OutlineNoteSchema),
@@ -251,12 +262,33 @@ In a chapter, the body runs over every line of the section. In a discussion, the
 
 A heading opens with one hash or more, and a divider with a line of dashes under its label. The table `levelOf` counts a heading's hashes and gives a divider zero. The function `fileOf` finds the file the section's code is tangled to among the files of the loom's product, which name each section as the product pass does, through `sectionNameOf`.
 
+By the time the outline reads a heading, its braces hold parameters alone, since a label such as `{Tangle}` is already written out in full as `{kind=Tangle}`, as the chapter "Small passes over the tree" describes. The function `parameterValuesOf` reads the heading's parameters into the section's `parameters`, all but the keys `keysApart` lists. A key written with one value gives that value, and a key written with a list gives the list, as `writtenValues` reads it.
+
 =>
 
 const levelOf = byType<HeadingStartToken | DividerToken>()<number>({
   HeadingStart: (start) => start.source.trim().length,
   Divider: () => 0,
 })
+
+const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string> =>
+  Array.match(
+    parameter.values.map((value) => value.value),
+    {
+      onEmpty: () => [],
+      onNonEmpty: (values) => (values.length === 1 ? Array.headNonEmpty(values) : values),
+    },
+  )
+
+export const parameterValuesOf = (specifier: ParametersToken | undefined): ParameterValues =>
+  Object.fromEntries(
+    Option.match(Option.fromNullishOr(specifier), {
+      onNone: (): ReadonlyArray<ParameterToken> => [],
+      onSome: (held) => held.parameters,
+    })
+      .filter((parameter) => !Array.contains(keysApart, parameter.key.value))
+      .map((parameter) => [parameter.key.value, writtenValues(parameter)]),
+  )
 
 const fileOf = (module: LoomModule, section: LoomSection): Option.Option<string> =>
   Option.map(
@@ -281,6 +313,7 @@ const sectionOutline =
       language: Option.getOrUndefined(
         Option.flatMap(Option.fromNullishOr(section.heading.specifier), headingLang),
       ),
+      parameters: parameterValuesOf(section.heading.specifier),
       file: Option.getOrUndefined(fileOf(module, section)),
       body: piecesOf(
         (discussion ? section.preamble : [...section.preamble, ...section.code]).filter(outside),
@@ -414,9 +447,106 @@ export const buildConcepts = (corpus: LoomCorpusAst): Concepts => {
   }
 }
 
+## The types a workspace knows
+
+A writer who adds a task to a plan, or an estimate to a section, adds a thing of a type: a section of the kind `Task`, a box of the kind `Estimate`. A trope declares such kinds, with the keys their braces take, as Part XIII, Tropes, describes. An application that offers its writers these types must know which ones the workspace holds, and the request `loom/types` tells it.
+
+A `Types` value lists three sorts of kind. Its `looms` are the kinds of loom the intent `MakeLoom` may make, its `sections` the kinds of section the intent `AddSection` may name, and its `boxes` the kinds of box the intent `AddBox` may leave, as the chapter "Edits an application asks for" describes. Each list holds the core's kinds first and then the kinds the workspace's tropes declare. Its `headings` hold the keys a trope lets every heading carry, whatever its kind.
+
+A `LoomType` holds a kind of loom, and its `trope` when a trope declares it. A `SectionType` holds a kind of section, its trope, its `parameters`, and whether it is `codeless`, which means a section of the kind holds words and no code, as a concept does. A `BoxType` holds a kind of box, its trope, its `parameters`, and the format of its `body`, such as `yaml` for a box of data. The `parameters` of a kind are the keys its braces take beside `kind`, each with the type of its values, as the chapter "The leaf tokens" describes.
+
+The core's kinds of section take no keys of their own, and the core's boxes hold text. Every box may carry the keys `provides` and `anchors`, but only a box of the kind `Trope` gives them a meaning, so the list gives them to that kind alone, as `tropeBoxKeys` holds them.
+
+The function `buildTypes` reads the types from the declarations the compiler gathers for a corpus. A workspace that holds no loom yet has no corpus, so it knows the core's types alone, which `coreTypes` holds.
+
+=>
+
+export const LoomTypeSchema = Schema.Struct({
+  kind: Schema.String,
+  trope: Schema.optional(Schema.String),
+})
+export type LoomType = typeof LoomTypeSchema.Type
+
+export const SectionTypeSchema = Schema.Struct({
+  kind: Schema.String,
+  trope: Schema.optional(Schema.String),
+  parameters: KeysSchema,
+  codeless: Schema.Boolean,
+})
+export type SectionType = typeof SectionTypeSchema.Type
+
+export const BoxTypeSchema = Schema.Struct({
+  kind: Schema.String,
+  trope: Schema.optional(Schema.String),
+  parameters: KeysSchema,
+  body: Schema.String,
+})
+export type BoxType = typeof BoxTypeSchema.Type
+
+export const TypesSchema = Schema.Struct({
+  looms: Schema.Array(LoomTypeSchema),
+  sections: Schema.Array(SectionTypeSchema),
+  boxes: Schema.Array(BoxTypeSchema),
+  headings: KeysSchema,
+})
+export type Types = typeof TypesSchema.Type
+
+const tropeBoxKeys: Keys = Object.fromEntries(
+  Object.entries(boxKeys).filter(([key]) => key !== 'kind'),
+)
+
+export const buildTypes = (declarations: Declarations): Types => ({
+  looms: [
+    ...loomKinds.map((kind): LoomType => ({ kind })),
+    ...declarations.loom.map((declared): LoomType => ({
+      kind: declared.kind,
+      trope: declared.trope,
+    })),
+  ],
+  sections: [
+    ...sectionKinds.map(
+      (kind): SectionType => ({
+        kind,
+        parameters: {},
+        codeless: Array.contains(codelessKinds, kind),
+      }),
+    ),
+    ...declarations.section.map(
+      (declared): SectionType => ({
+        kind: declared.kind,
+        trope: declared.trope,
+        parameters: declared.parameters,
+        codeless: declared.codeless,
+      }),
+    ),
+  ],
+  boxes: [
+    ...boxKinds.map(
+      (kind): BoxType => ({
+        kind,
+        parameters: kind === tropeKind ? tropeBoxKeys : {},
+        body: 'text',
+      }),
+    ),
+    ...declarations.box.map(
+      (declared): BoxType => ({
+        kind: declared.kind,
+        trope: declared.trope,
+        parameters: declared.parameters,
+        body: declared.body,
+      }),
+    ),
+  ],
+  headings: Object.fromEntries(
+    declarations.headings.map((declared) => [declared.key, declared.type] as const),
+  ),
+})
+
+export const coreTypes: Types = buildTypes(noDeclarations)
+
 ## What the outline draws on
 
-Effect gives the outline its `Schema` models and its `Data` error, with `Array`, `Option`, and `Order` for the steps. The node foundation gives `byType` and `byTypeOr`, the tables that read a line by its kind. The leaf tokens give `boxKind`, which reads a box's kind, the kinds `noteKind`, `conclusionKind`, and `discussionKind`, `headingLang`, which reads the language a heading's braces name, and the tokens a heading opens with. The syntax tree gives the type of a section, and the wefts give the types of its lines.
+Effect gives the outline its `Schema` models and its `Data` error, with `Array`, `Option`, and `Order` for the steps. The node foundation gives `byType` and `byTypeOr`, the tables that read a line by its kind. The leaf tokens give `boxKind`, which reads a box's kind, the kinds `noteKind`, `conclusionKind`, `discussionKind`, and `tropeKind`, `headingLang`, which reads the language a heading's braces name, the tokens a heading opens with, and the tokens of a parameter its braces hold. They give the core's lists of kinds, `loomKinds`, `sectionKinds`, `codelessKinds`, and `boxKinds`, the keys every box takes, `boxKeys`, and the `Keys` schema a kind's parameters follow. The registry of Part XIII gives the `Declarations` a corpus's tropes make, and `noDeclarations`, which holds none. The syntax tree gives the type of a section, and the wefts give the types of its lines.
 
 From the corpus come `catalogueOf`, `chapterOf`, `bookOf`, `isBookLoom`, `loomKindOf`, and `ordinalOf`, which read where a loom stands and what it is, `openedBoxesOf`, which finds a loom's boxes, and the types of a corpus, a loom, a box, and a part. The product pass gives `sectionNameOf`, the contents give `titleOf`, and the weave gives `conceptUsesOf` and `conceptKey`, its index of the places each concept is used.
 
@@ -425,13 +555,23 @@ From the corpus come `catalogueOf`, `chapterOf`, `bookOf`, `isBookLoom`, `loomKi
 import { Array, Data, Option, Order, Schema } from 'effect'
 import { byType, byTypeOr } from '@athrio/loom-ast/LoomNode'
 import {
+  boxKeys,
   boxKind,
+  boxKinds,
+  codelessKinds,
   conclusionKind,
   discussionKind,
   type DividerToken,
   headingLang,
   type HeadingStartToken,
+  type Keys,
+  KeysSchema,
+  loomKinds,
   noteKind,
+  type ParametersToken,
+  type ParameterToken,
+  sectionKinds,
+  tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import type { LoomWeft, PreambleWeft, SectionBodyWeft, TildeWeft } from '@athrio/loom-ast/Weft'
@@ -450,6 +590,7 @@ import {
   type PartRef,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { sectionNameOf } from '#ast/ProductBuilder'
+import { type Declarations, noDeclarations } from '#ast/DeclaredKinds'
 import { titleOf } from './weave/TableOfContentsBuilder'
 import { conceptKey, conceptUsesOf } from './weave/WeaveBuilder'
 
@@ -478,6 +619,8 @@ import { conceptKey, conceptUsesOf } from './weave/WeaveBuilder'
 ::[Building the outline]
 
 ::[The concepts of a corpus]
+
+::[The types a workspace knows]
 
 ## A workspace held in memory
 
@@ -538,7 +681,7 @@ const withCompiler = <A, E>(
 
 ## Testing the outline
 
-The cases run on Bun's test runner, with the `effectify` helper that lets a case be written as an Effect. They outline looms through the compiler's `outline` verb, which builds the corpus as the language server does, and list concepts through its `concepts` verb.
+The cases run on Bun's test runner, with the `effectify` helper that lets a case be written as an Effect. They outline looms through the compiler's `outline` verb, which builds the corpus as the language server does, list concepts through its `concepts` verb, and list types through its `types` verb. The core's own types, `coreTypes`, come from the outline's module.
 
 =>
 
@@ -548,6 +691,7 @@ import { Effect, Layer, Option } from 'effect'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import type { WorkspaceManifest } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { coreTypes } from '../src/OutlineBuilder'
 import { ReadError } from '#ast/LoomCorpusAstBuilder'
 import { WorkspaceSettings } from '../src/WorkspaceSettings'
 import { LoomDiskCache } from '../src/LoomDiskCache'
@@ -559,7 +703,26 @@ const it = effectify(it_)
 
 The book of these cases is a game. Its book loom opens it and defines the concept `Room`, whose other form is `rooms`. Its chapter `Words` stands in Part I, The room, as its second chapter, and announces the part. Its opening prose links the concept by its other form, and a note a reviewer left follows it. Its section `Saying hello` writes the file `hello.ts`, declares a value warp in its prose, and holds code between two runs of prose. Its section `Installing it` switches to Bash and holds fenced code, whose first line would read as a heading. A discussion of Part I, `Waking`, holds one topic, with two messages and a conclusion. A loom with no frontmatter stands loose beside them.
 
+The trope `Tasks` keeps the game's work in the book. Its manifest, `tasksManifest`, declares a kind of loom, `Plan`, a kind of section, `Task`, whose `status` is `todo` or `done` and whose `tags` are a list of text, and a kind of box, `Estimate`, whose `days` are a number. It lets every heading carry an `owner`. The loose loom `The plan` holds one task, `Paint the walls`, with each of those keys in its braces.
+
 =>
+
+const tasksManifest = JSON.stringify({
+  contract: '1',
+  contributes: {
+    kinds: {
+      loom: [{ kind: 'Plan' }],
+      section: [
+        {
+          kind: 'Task',
+          parameters: { status: { choice: ['todo', 'done'] }, tags: { list: 'text' } },
+        },
+      ],
+      box: [{ kind: 'Estimate', body: 'text', parameters: { days: 'number' } }],
+    },
+    headings: { parameters: { owner: 'text' } },
+  },
+})
 
 const files: Record<string, string> = {
   '/corpus/game.loom': lines(
@@ -636,6 +799,25 @@ const files: Record<string, string> = {
     ':::',
   ),
   '/corpus/notes.loom': lines('# Notes', '', 'Loose words.'),
+  '/corpus/tasks.loom': lines(
+    '---',
+    'Trope Chapter: Tasks',
+    '---',
+    '',
+    '# Tasks',
+    '',
+    '## What it declares {Manifest}',
+    '',
+    '=>',
+    tasksManifest,
+  ),
+  '/corpus/plan.loom': lines(
+    '# The plan',
+    '',
+    '## Paint the walls {kind=Task status=todo tags=[walls, "first coat"] owner=Yegor}',
+    '',
+    'Two coats.',
+  ),
 }
 
 const outlined = (path: string) => withCompiler(files, (compiler) => compiler.outline(path))
@@ -768,6 +950,77 @@ describe('the concepts of a workspace', () => {
   )
 })
 
+## A task's keys in outline
+
+The task `Paint the walls` names its kind and three keys. Its `parameters` give the keys beside `kind`: a value as the author wrote it, and a list with each value unquoted. A section whose braces hold nothing beside `lang`, such as `Installing it`, has no parameters.
+
+=>
+
+describe('the keys of a section', () => {
+  it.effect('gives the keys a heading holds beside its kind and its language', () =>
+    Effect.gen(function* () {
+      const plan = yield* outlined('/corpus/plan.loom')
+      expect(plan.sections[1]?.parameters).toEqual({
+        status: 'todo',
+        tags: ['walls', 'first coat'],
+        owner: 'Yegor',
+      })
+      const words = yield* outlined('/corpus/words.loom')
+      expect(words.sections[2]?.parameters).toEqual({})
+    }),
+  )
+})
+
+## The types of a workspace
+
+The game knows the core's kinds and the three its trope `Tasks` declares. Each list opens with the core's kinds, and a declared kind follows them with its trope and its keys. The core's `Concept` holds no code, and the core's `Trope` box takes the keys `provides` and `anchors`. The trope's `owner` is a key of every heading. A workspace with no loom knows the core's kinds alone.
+
+=>
+
+describe('the types of a workspace', () => {
+  it.effect('lists the core kinds, then the kinds its tropes declare', () =>
+    Effect.gen(function* () {
+      const types = yield* withCompiler(files, (compiler) => compiler.types('/corpus/game.loom'))
+      expect(types.looms).toEqual([
+        { kind: 'Chapter' },
+        { kind: 'Discussion' },
+        { kind: 'Plan', trope: 'Tasks' },
+      ])
+      expect(types.sections).toEqual([
+        { kind: 'Tangle', parameters: {}, codeless: false },
+        { kind: 'Concept', parameters: {}, codeless: true },
+        { kind: 'Manifest', parameters: {}, codeless: false },
+        {
+          kind: 'Task',
+          trope: 'Tasks',
+          parameters: { status: { choice: ['todo', 'done'] }, tags: { list: 'text' } },
+          codeless: false,
+        },
+      ])
+      expect(types.boxes.map((box) => box.kind)).toEqual([
+        'Note',
+        'Chapter',
+        'Discussion',
+        'Trope',
+        'Conclusion',
+        'Estimate',
+      ])
+      expect(types.boxes[3]?.parameters).toEqual({
+        provides: { list: 'text' },
+        anchors: 'reference',
+      })
+      expect(types.boxes[5]).toEqual({
+        kind: 'Estimate',
+        trope: 'Tasks',
+        parameters: { days: 'number' },
+        body: 'text',
+      })
+      expect(types.headings).toEqual({ owner: 'text' })
+      expect(coreTypes.boxes.length).toBe(5)
+    }),
+  )
+})
+
 ## The outline test file [test/Outline.test.ts]
 
 =>
@@ -786,4 +1039,8 @@ describe('the concepts of a workspace', () => {
 
 ::[A loom that is not there]
 
+::[A task's keys in outline]
+
 ::[The concepts of a workspace]
+
+::[The types of a workspace]

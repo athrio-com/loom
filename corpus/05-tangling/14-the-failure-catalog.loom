@@ -162,7 +162,7 @@ const keepingWording: Wording<KeepingFailure> = {
 
 An application that shows a workspace's looms in words of its own asks the language server for an outline and for edits, as the chapters "The outline of a loom" and "Edits an application asks for" describe. The server cannot read every request it is sent. The error `RequestUnread` holds the `request` and the `cause`, the reason the request's parameters do not read.
 
-A request may name a loom that is not there. The error `NoSuchLoom` holds its `path`. An edit may also ask for what cannot be done, and each refusal is an error of the edits: `LoomExists`, `NoSuchBook`, `BookExists`, `NoSuchPart`, `PartExists`, `PartNameIsNumber`, `TitleTaken`, `NotInPart`, `NotOfKind`, `NoSuchSection`, `SectionExists`, `OpensTheLoom`, `NoSuchNote`, `NotADiscussion`, `UnfitName`, `UnfitText`, `OpensABook`, `NoConfiguration`, and `EditBreaksLoom`, which the chapter "Edits an application asks for" describes. A variable the edit would set under a name that is no name meets the configuration's error `NotAVariableName`, as `loom set` does. Each says what it refuses and names the fix, in words an application may show its writer or translate into its own. The function `bookWords` names a book in a sentence, and names the default book, which has no name, as the default book.
+A request may name a loom that is not there. The error `NoSuchLoom` holds its `path`. An edit may also ask for what cannot be done, and each refusal is an error of the edits: `LoomExists`, `NoSuchBook`, `BookExists`, `NoSuchPart`, `PartExists`, `PartNameIsNumber`, `TitleTaken`, `NotInPart`, `NotOfKind`, `NoSuchSection`, `SectionExists`, `OpensTheLoom`, `NoSuchNote`, `NotADiscussion`, `UnfitName`, `UnfitText`, `UnfitParameter`, `OpensABook`, `NoConfiguration`, and `EditBreaksLoom`, which the chapter "Edits an application asks for" describes. A variable the edit would set under a name that is no name meets the configuration's error `NotAVariableName`, as `loom set` does. Each says what it refuses and names the fix, in words an application may show its writer or translate into its own. The function `bookWords` names a book in a sentence, and names the default book, which has no name, as the default book.
 
 =>
 
@@ -185,6 +185,7 @@ export type AskingFailure =
   | NotADiscussion
   | UnfitName
   | UnfitText
+  | UnfitParameter
   | OpensABook
   | NoConfiguration
   | NotAVariableName
@@ -270,6 +271,11 @@ const askingWording: Wording<AskingFailure> = {
     problem(
       `The line ${JSON.stringify(line)} would read as Loom's syntax, not as words.`,
       'Reword it so it does not open as a heading, an arrow, a tilde, a divider, or a box does, and close any fence it opens.',
+    ),
+  UnfitParameter: ({ key }) =>
+    problem(
+      `The parameter ${JSON.stringify(key)} cannot stand in braces.`,
+      'Name it with a letter or an underscore followed by letters, digits, hyphens, and underscores, keep each of its values on one line, and give a kind or a language in its own field.',
     ),
   OpensABook: ({ path }) =>
     problem(
@@ -504,6 +510,7 @@ import type {
   SectionExists,
   TitleTaken,
   UnfitName,
+  UnfitParameter,
   UnfitText,
 } from '../EditBuilder'
 import type { NoSuchLoom } from '../OutlineBuilder'
@@ -602,6 +609,7 @@ import {
   SectionExists,
   TitleTaken,
   UnfitName,
+  UnfitParameter,
   UnfitText,
 } from '../src/EditBuilder'
 import { NotRemoved, NotWritten } from '../src/LoomTangler'
@@ -669,6 +677,7 @@ const samples: {
   NotADiscussion: new NotADiscussion({ path: '/book/ledger.loom' }),
   UnfitName: new UnfitName({ name: 'Two\nlines' }),
   UnfitText: new UnfitText({ line: '## Smuggled' }),
+  UnfitParameter: new UnfitParameter({ key: 'two words' }),
   OpensABook: new OpensABook({ path: '/book/book.loom' }),
   NoConfiguration: new NoConfiguration({ workspace: '/book' }),
   NotAVariableName: new NotAVariableName({ name: '2fast' }),

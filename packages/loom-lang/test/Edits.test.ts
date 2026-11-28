@@ -197,6 +197,46 @@ const quiet: Record<string, string> = {
   '/corpus/walls.loom': walls.replace(`, as ${anchor('Part I, Chapter 1, Cells')} describes`, ''),
 }
 
+const plan = lines(
+  '# The plan',
+  '',
+  'What the game still needs.',
+  '',
+  '## Paint the walls {kind=Task status=todo}',
+  '',
+  'Two coats.',
+)
+
+const tasks: Record<string, string> = {
+  '/corpus/plan.loom': plan,
+  '/corpus/tasks.loom': lines(
+    '---',
+    'Trope Chapter: Tasks',
+    '---',
+    '',
+    '# Tasks',
+    '',
+    '## What it declares {Manifest}',
+    '',
+    '=>',
+    JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [
+            {
+              kind: 'Task',
+              parameters: { status: { choice: ['todo', 'done'] }, tags: { list: 'text' } },
+            },
+          ],
+          box: [{ kind: 'Estimate', body: 'text', parameters: { days: 'number' } }],
+        },
+        headings: { parameters: { owner: 'text' } },
+      },
+    }),
+  ),
+}
+
 describe('making looms and books', () => {
   it.effect('makes a chapter in its part and numbers the chapters after it', () =>
     Effect.gen(function* () {
@@ -556,11 +596,68 @@ describe('the sections of a loom', () => {
   )
 })
 
-describe('notes', () => {
+describe('sections with keys', () => {
+  const paint = {
+    _tag: 'ReplaceSection',
+    uri: '/corpus/plan.loom',
+    section: 'Paint the walls',
+    body: [{ _tag: 'Prose', text: 'Two coats.' }],
+  } as const
+
+  it.effect('writes the keys of a new section, and of a section given its body', () =>
+    Effect.gen(function* () {
+      const added = yield* afterEdit(tasks, {
+        _tag: 'AddSection',
+        uri: '/corpus/plan.loom',
+        name: 'Hang the lamps',
+        kind: 'Task',
+        parameters: { status: 'todo', tags: ['light', 'first floor'] },
+        body: [{ _tag: 'Prose', text: 'Two lamps a room.' }],
+      })
+      expect(added['/corpus/plan.loom']).toBe(
+        `${plan}\n## Hang the lamps {kind=Task status=todo tags=[light, "first floor"]}\n\nTwo lamps a room.\n`,
+      )
+      const done = yield* afterEdit(tasks, { ...paint, parameters: { status: 'done' } })
+      expect(done['/corpus/plan.loom']).toBe(plan.replace('status=todo', 'status=done'))
+      expect((yield* afterEdit(tasks, paint))['/corpus/plan.loom']).toBe(plan)
+      const owned = yield* afterEdit(tasks, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/plan.loom',
+        section: 'The plan',
+        body: [{ _tag: 'Prose', text: 'What the game still needs.' }],
+        parameters: { owner: 'Yegor' },
+      })
+      expect(owned['/corpus/plan.loom']).toBe(plan.replace('# The plan', '# The plan {owner=Yegor}'))
+    }),
+  )
+
+  it.effect('refuses a key braces cannot hold, and a value its kind does not take', () =>
+    Effect.gen(function* () {
+      const sweep = (parameters: Readonly<Record<string, string>>) =>
+        Effect.map(
+          refusal(tasks, {
+            _tag: 'AddSection',
+            uri: '/corpus/plan.loom',
+            name: 'Sweep',
+            kind: 'Task',
+            parameters,
+            body: [],
+          }),
+          (failed) => (failed._tag === 'UnfitParameter' ? failed.key : failed._tag),
+        )
+      expect(yield* sweep({ 'two words': 'x' })).toBe('two words')
+      expect(yield* sweep({ kind: 'Task' })).toBe('kind')
+      expect(yield* sweep({ status: 'two\nlines' })).toBe('status')
+      expect(yield* sweep({ status: 'maybe' })).toBe('EditBreaksLoom')
+    }),
+  )
+})
+
+describe('notes and boxes', () => {
   it.effect('leaves a note, keeps it through a new body, and resolves it', () =>
     Effect.gen(function* () {
       const noted = yield* afterEdit(game, {
-        _tag: 'AddNote',
+        _tag: 'AddBox',
         uri: '/corpus/grid.loom',
         section: 'Cells',
         text: 'Count them again.',
@@ -598,6 +695,36 @@ describe('notes', () => {
           text: 'Count them again.',
         }),
       ).toBe('NoSuchNote')
+    }),
+  )
+
+  it.effect('leaves a box of a declared kind with its name and its keys', () =>
+    Effect.gen(function* () {
+      const estimate = (parameters: Readonly<Record<string, string>>) =>
+        afterEdit(tasks, {
+          _tag: 'AddBox',
+          uri: '/corpus/plan.loom',
+          section: 'Paint the walls',
+          kind: 'Estimate',
+          name: 'Walls',
+          parameters,
+          text: 'Two days, three with drying.',
+        })
+      const boxed = (opener: string) =>
+        plan.replace('Two coats.\n', `Two coats.\n\n${opener}\nTwo days, three with drying.\n:::\n`)
+      expect((yield* estimate({}))['/corpus/plan.loom']).toBe(boxed('::: Walls {Estimate}'))
+      expect((yield* estimate({ days: '2' }))['/corpus/plan.loom']).toBe(
+        boxed('::: Walls {kind=Estimate days=2}'),
+      )
+      expect(
+        yield* refused(tasks, {
+          _tag: 'AddBox',
+          uri: '/corpus/plan.loom',
+          section: 'Paint the walls',
+          kind: 'Bogus',
+          text: 'Hm.',
+        }),
+      ).toBe('EditBreaksLoom')
     }),
   )
 })
@@ -805,7 +932,7 @@ describe('words a writer cannot smuggle in', () => {
       expect(yield* unfit(message('~ Mallory\nI agree.'))).toBe('~ Mallory')
       expect(
         yield* unfit({
-          _tag: 'AddNote',
+          _tag: 'AddBox',
           uri: '/corpus/grid.loom',
           section: 'Cells',
           text: 'Check.\n:::\nOutside.',
@@ -832,7 +959,7 @@ describe('looms written on Windows', () => {
   it.effect('writes an edit in the line ending of its loom', () =>
     Effect.gen(function* () {
       const note = {
-        _tag: 'AddNote',
+        _tag: 'AddBox',
         uri: '/corpus/grid.loom',
         section: 'Cells',
         text: 'Count them again.',

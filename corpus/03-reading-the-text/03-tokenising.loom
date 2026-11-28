@@ -2004,6 +2004,8 @@ const headingTitle = (
 
 A heading's specifier opens at the first brace on its line. `headingSpecifier` reads it through `bracesAt`, so a heading holds a label or parameters, as an anchor and a box do. Every brace outside the span that `bracesAt` reads stays an unexpected token, which `strayBraces` finds, so `## Greeting {Bash} {Tangle}` faults its second pair of braces. A brace that no closing brace follows reads as a label through `constructSpecifier`, whose missing close reports `expected closing` once.
 
+A heading's sink is a file's path in square brackets, as `## Saying hello [hello.ts]` writes it. A list in the braces stands in square brackets too, as `{kind=Task tags=[walls, paint]}` holds one, and those brackets belong to the list, not to a sink. So the sink reads only the brackets that stand outside the braces, which `outsideBraces` keeps.
+
 =>
 
 type HeadingTokens = {
@@ -2042,13 +2044,24 @@ const headingSpecifier = (lineText: string, position: Position): Construction<Br
   )
 }
 
+const outsideBraces =
+  (braces: Option.Option<Braces>) =>
+  (bracket: { readonly position: Position }): boolean =>
+    !Option.exists(
+      braces,
+      (held) =>
+        bracket.position.start.offset >= held.position.start.offset &&
+        bracket.position.start.offset < held.position.end.offset,
+    )
+
 const scanHeading = (text: string, position: Position, headingStartEnd: number): HeadingTokens => {
   const lineText = text.slice(position.start.offset, position.end.offset)
 
   const specResult = headingSpecifier(lineText, position)
+  const outside = outsideBraces(specResult.token)
   const sinkResult = constructSink(
-    scanSinkOpen(lineText, position),
-    scanSinkClose(lineText, position),
+    scanSinkOpen(lineText, position).filter(outside),
+    scanSinkClose(lineText, position).filter(outside),
     lineText,
     position,
   )

@@ -1,13 +1,23 @@
 import { Array, Data, Option, Order, Schema } from 'effect'
 import { byType, byTypeOr } from '@athrio/loom-ast/LoomNode'
 import {
+  boxKeys,
   boxKind,
+  boxKinds,
+  codelessKinds,
   conclusionKind,
   discussionKind,
   type DividerToken,
   headingLang,
   type HeadingStartToken,
+  type Keys,
+  KeysSchema,
+  loomKinds,
   noteKind,
+  type ParametersToken,
+  type ParameterToken,
+  sectionKinds,
+  tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import type { LoomWeft, PreambleWeft, SectionBodyWeft, TildeWeft } from '@athrio/loom-ast/Weft'
@@ -26,6 +36,7 @@ import {
   type PartRef,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { sectionNameOf } from '#ast/ProductBuilder'
+import { type Declarations, noDeclarations } from '#ast/DeclaredKinds'
 import { titleOf } from './weave/TableOfContentsBuilder'
 import { conceptKey, conceptUsesOf } from './weave/WeaveBuilder'
 
@@ -44,12 +55,21 @@ export type OutlineNote = typeof OutlineNoteSchema.Type
 export const OutlineMessageSchema = Schema.Struct({ author: Schema.String, text: Schema.String })
 export type OutlineMessage = typeof OutlineMessageSchema.Type
 
+export const ParameterValuesSchema = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+)
+export type ParameterValues = typeof ParameterValuesSchema.Type
+
+export const keysApart: ReadonlyArray<string> = ['kind', 'lang']
+
 export const OutlineSectionSchema = Schema.Struct({
   name: Schema.String,
   line: Schema.Number,
   level: Schema.Number,
   kind: Schema.optional(Schema.String),
   language: Schema.optional(Schema.String),
+  parameters: ParameterValuesSchema,
   file: Schema.optional(Schema.String),
   body: Schema.Array(PieceSchema),
   notes: Schema.Array(OutlineNoteSchema),
@@ -207,6 +227,25 @@ const levelOf = byType<HeadingStartToken | DividerToken>()<number>({
   Divider: () => 0,
 })
 
+const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string> =>
+  Array.match(
+    parameter.values.map((value) => value.value),
+    {
+      onEmpty: () => [],
+      onNonEmpty: (values) => (values.length === 1 ? Array.headNonEmpty(values) : values),
+    },
+  )
+
+export const parameterValuesOf = (specifier: ParametersToken | undefined): ParameterValues =>
+  Object.fromEntries(
+    Option.match(Option.fromNullishOr(specifier), {
+      onNone: (): ReadonlyArray<ParameterToken> => [],
+      onSome: (held) => held.parameters,
+    })
+      .filter((parameter) => !Array.contains(keysApart, parameter.key.value))
+      .map((parameter) => [parameter.key.value, writtenValues(parameter)]),
+  )
+
 const fileOf = (module: LoomModule, section: LoomSection): Option.Option<string> =>
   Option.map(
     Array.findFirst(
@@ -230,6 +269,7 @@ const sectionOutline =
       language: Option.getOrUndefined(
         Option.flatMap(Option.fromNullishOr(section.heading.specifier), headingLang),
       ),
+      parameters: parameterValuesOf(section.heading.specifier),
       file: Option.getOrUndefined(fileOf(module, section)),
       body: piecesOf(
         (discussion ? section.preamble : [...section.preamble, ...section.code]).filter(outside),
@@ -340,3 +380,86 @@ export const buildConcepts = (corpus: LoomCorpusAst): Concepts => {
     ),
   }
 }
+
+export const LoomTypeSchema = Schema.Struct({
+  kind: Schema.String,
+  trope: Schema.optional(Schema.String),
+})
+export type LoomType = typeof LoomTypeSchema.Type
+
+export const SectionTypeSchema = Schema.Struct({
+  kind: Schema.String,
+  trope: Schema.optional(Schema.String),
+  parameters: KeysSchema,
+  codeless: Schema.Boolean,
+})
+export type SectionType = typeof SectionTypeSchema.Type
+
+export const BoxTypeSchema = Schema.Struct({
+  kind: Schema.String,
+  trope: Schema.optional(Schema.String),
+  parameters: KeysSchema,
+  body: Schema.String,
+})
+export type BoxType = typeof BoxTypeSchema.Type
+
+export const TypesSchema = Schema.Struct({
+  looms: Schema.Array(LoomTypeSchema),
+  sections: Schema.Array(SectionTypeSchema),
+  boxes: Schema.Array(BoxTypeSchema),
+  headings: KeysSchema,
+})
+export type Types = typeof TypesSchema.Type
+
+const tropeBoxKeys: Keys = Object.fromEntries(
+  Object.entries(boxKeys).filter(([key]) => key !== 'kind'),
+)
+
+export const buildTypes = (declarations: Declarations): Types => ({
+  looms: [
+    ...loomKinds.map((kind): LoomType => ({ kind })),
+    ...declarations.loom.map((declared): LoomType => ({
+      kind: declared.kind,
+      trope: declared.trope,
+    })),
+  ],
+  sections: [
+    ...sectionKinds.map(
+      (kind): SectionType => ({
+        kind,
+        parameters: {},
+        codeless: Array.contains(codelessKinds, kind),
+      }),
+    ),
+    ...declarations.section.map(
+      (declared): SectionType => ({
+        kind: declared.kind,
+        trope: declared.trope,
+        parameters: declared.parameters,
+        codeless: declared.codeless,
+      }),
+    ),
+  ],
+  boxes: [
+    ...boxKinds.map(
+      (kind): BoxType => ({
+        kind,
+        parameters: kind === tropeKind ? tropeBoxKeys : {},
+        body: 'text',
+      }),
+    ),
+    ...declarations.box.map(
+      (declared): BoxType => ({
+        kind: declared.kind,
+        trope: declared.trope,
+        parameters: declared.parameters,
+        body: declared.body,
+      }),
+    ),
+  ],
+  headings: Object.fromEntries(
+    declarations.headings.map((declared) => [declared.key, declared.type] as const),
+  ),
+})
+
+export const coreTypes: Types = buildTypes(noDeclarations)

@@ -56,6 +56,7 @@ import {
   SectionExists,
   TitleTaken,
   UnfitName,
+  UnfitParameter,
   UnfitText,
 } from '../src/EditBuilder'
 import { NotRemoved, NotWritten } from '../src/LoomTangler'
@@ -123,6 +124,7 @@ const samples: {
   NotADiscussion: new NotADiscussion({ path: '/book/ledger.loom' }),
   UnfitName: new UnfitName({ name: 'Two\nlines' }),
   UnfitText: new UnfitText({ line: '## Smuggled' }),
+  UnfitParameter: new UnfitParameter({ key: 'two words' }),
   OpensABook: new OpensABook({ path: '/book/book.loom' }),
   NoConfiguration: new NoConfiguration({ workspace: '/book' }),
   NotAVariableName: new NotAVariableName({ name: '2fast' }),

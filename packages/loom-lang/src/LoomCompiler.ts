@@ -1110,9 +1110,11 @@ import {
 import {
   buildConcepts,
   buildOutline,
+  buildTypes,
   type Concepts,
   NoSuchLoom,
   type Outline,
+  type Types,
 } from './OutlineBuilder'
 import {
   buildEdit,
@@ -1663,6 +1665,9 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
       concepts: (path: Location): Effect.Effect<Concepts> =>
         buildCorpus(documents, path).pipe(Effect.map((modules) => buildConcepts({ modules }))),
+
+      types: (path: Location): Effect.Effect<Types> =>
+        corpusOf(documents, path).pipe(Effect.map((corpus) => buildTypes(corpus.kinds))),
 
       edit: (
         workspace: Location,

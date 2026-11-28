@@ -17,6 +17,7 @@ import {
   HeadingStartTokenSchema,
   noteKind,
   openingFence,
+  parameterValue,
   sectionKinds,
   TildeTokenSchema,
 } from '@athrio/loom-ast/LoomTokens'
@@ -50,7 +51,10 @@ import {
   blockOf,
   boxesOfKind,
   boxText,
+  keysApart,
   NoSuchLoom,
+  type ParameterValues,
+  ParameterValuesSchema,
   type Piece,
   PieceSchema,
 } from './OutlineBuilder'
@@ -81,19 +85,32 @@ export const LoomIntentSchema = Schema.TaggedUnion({
   MovePart: { book: Schema.String, part: Schema.String, after: AfterSchema },
   RemovePart: { book: Schema.String, part: Schema.String },
   RenameBook: { book: Schema.String, name: Schema.String },
-  ReplaceSection: { uri: Schema.String, section: Schema.String, body: BodySchema },
+  ReplaceSection: {
+    uri: Schema.String,
+    section: Schema.String,
+    body: BodySchema,
+    parameters: Schema.optional(ParameterValuesSchema),
+  },
   AddSection: {
     uri: Schema.String,
     after: AfterSchema,
     name: Schema.String,
     kind: Schema.optional(Schema.String),
     language: Schema.optional(Schema.String),
+    parameters: Schema.optional(ParameterValuesSchema),
     body: BodySchema,
   },
   RemoveSection: { uri: Schema.String, section: Schema.String },
   MoveSection: { uri: Schema.String, section: Schema.String, after: AfterSchema },
   RenameSection: { uri: Schema.String, section: Schema.String, name: Schema.String },
-  AddNote: { uri: Schema.String, section: Schema.String, text: Schema.String },
+  AddBox: {
+    uri: Schema.String,
+    section: Schema.String,
+    kind: Schema.optional(Schema.String),
+    name: Schema.optional(Schema.String),
+    parameters: Schema.optional(ParameterValuesSchema),
+    text: Schema.String,
+  },
   ResolveNote: { uri: Schema.String, section: Schema.String, text: Schema.String },
   OpenTopic: { uri: Schema.String, name: Schema.String },
   AddMessage: {
@@ -212,6 +229,8 @@ export class UnfitName extends Data.TaggedError('UnfitName')<{ readonly name: st
 
 export class UnfitText extends Data.TaggedError('UnfitText')<{ readonly line: string }> {}
 
+export class UnfitParameter extends Data.TaggedError('UnfitParameter')<{ readonly key: string }> {}
+
 export class OpensABook extends Data.TaggedError('OpensABook')<{ readonly path: Location }> {}
 
 export class NoConfiguration extends Data.TaggedError('NoConfiguration')<{
@@ -241,6 +260,7 @@ export type EditRefusal =
   | NotADiscussion
   | UnfitName
   | UnfitText
+  | UnfitParameter
   | OpensABook
   | NoConfiguration
   | NotAVariableName
@@ -265,6 +285,26 @@ const fitChosen = (name: string | undefined): Result.Result<Option.Option<string
     onNone: () => Result.succeed(Option.none()),
     onSome: (given) => Result.map(fitName(given), Option.some),
   })
+
+const keyWord = /^[A-Za-z_][A-Za-z0-9_-]*$/
+
+const valuesOf = (value: string | ReadonlyArray<string>): ReadonlyArray<string> =>
+  typeof value === 'string' ? [value] : value
+
+const unfitKey = ([key, value]: readonly [string, string | ReadonlyArray<string>]): boolean =>
+  !keyWord.test(key) ||
+  Array.contains(keysApart, key) ||
+  valuesOf(value).some((written) => /[\r\n]/.test(written))
+
+const fitParameters = (
+  parameters: ParameterValues | undefined,
+): Result.Result<ParameterValues, UnfitParameter> => {
+  const given = Option.getOrElse(Option.fromNullishOr(parameters), (): ParameterValues => ({}))
+  return Option.match(Array.findFirst(Object.entries(given), unfitKey), {
+    onSome: ([key]) => Result.fail(new UnfitParameter({ key })),
+    onNone: () => Result.succeed(given),
+  })
+}
 
 type Spot = Data.TaggedEnum<{
   First: {}
@@ -1781,6 +1821,37 @@ const noteSource = (module: LoomModule, opened: OpenedBox): string =>
     )
     .replace(/\s+$/, '')
 
+const spacesBefore = (text: string, at: number): number =>
+  at - text.slice(0, at).replace(/ +$/, '').length
+
+const headingEnd = (module: LoomModule, section: LoomSection): number => {
+  const line = lineSpanOf(module.text, section.position.start.line)
+  return line.start + module.text.slice(line.start, line.end).replace(/\s+$/, '').length
+}
+
+const bracesAnew = (
+  module: LoomModule,
+  section: LoomSection,
+  parameters: ParameterValues,
+): Splice =>
+  Option.match(Option.fromNullishOr(section.heading.specifier), {
+    onNone: () => {
+      const at = headingEnd(module, section)
+      return {
+        path: module.path,
+        start: at,
+        end: at,
+        text: bracesOf(Option.none(), Option.none(), parameters),
+      }
+    },
+    onSome: (braces) => ({
+      path: module.path,
+      start: braces.position.start.offset - spacesBefore(module.text, braces.position.start.offset),
+      end: braces.position.end.offset,
+      text: bracesOf(parameterValue(braces, 'kind'), parameterValue(braces, 'lang'), parameters),
+    }),
+  })
+
 const replacedSection = (
   context: EditContext,
   intent: Intent<'ReplaceSection'>,
@@ -1789,6 +1860,11 @@ const replacedSection = (
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
     const body = yield* fitBody(intent.body)
+    const braces = yield* Option.match(Option.fromNullishOr(intent.parameters), {
+      onNone: () => Result.succeed<ReadonlyArray<Splice>>([]),
+      onSome: (given) =>
+        Result.map(fitParameters(given), (fit) => [bracesAnew(module, section, fit)]),
+    })
     const start = bodyStart(module, section)
     const end =
       loomKindOf(module) === discussionKind
@@ -1808,32 +1884,58 @@ const replacedSection = (
     const opening = breakBefore(module.text, start) > 0 ? '' : '\n'
     const middle = written === '' ? '' : `\n${written}\n`
     const closing = end < module.text.length ? '\n' : ''
-    return editOf([{ path: module.path, start, end, text: `${opening}${middle}${closing}` }])
+    return editOf([
+      ...braces,
+      { path: module.path, start, end, text: `${opening}${middle}${closing}` },
+    ])
   })
 
 const labelWord = /^[a-zA-Z0-9_-]+(?: [a-zA-Z0-9_-]+)*$/
 
+const bareValue = /^[A-Za-z0-9_.-]+$/
+
 const quoted = (value: string): string =>
-  /^[^\s"{}=\\]+$/.test(value) ? value : `"${value.replace(/["\\]/g, '\\$&')}"`
+  bareValue.test(value) ? value : `"${value.replace(/["\\]/g, '\\$&')}"`
+
+const writtenValue = (value: string | ReadonlyArray<string>): string =>
+  typeof value === 'string' ? quoted(value) : `[${value.map(quoted).join(', ')}]`
+
+const keyed = (key: string, value: Option.Option<string>): ParameterValues =>
+  Option.match(value, { onNone: () => ({}), onSome: (named) => ({ [key]: named }) })
+
+const keysOf = (parameters: ParameterValues): ReadonlyArray<string> =>
+  Object.entries(parameters).map(([key, value]) => `${key}=${writtenValue(value)}`)
+
+const bracesWith = (label: Option.Option<string>, keys: ReadonlyArray<string>): string =>
+  Option.match(label, {
+    onSome: (word) => ` {${word}}`,
+    onNone: () => (keys.length === 0 ? '' : ` {${keys.join(' ')}}`),
+  })
 
 const labelled = (
   kind: Option.Option<string>,
   language: Option.Option<string>,
+  parameters: ParameterValues,
 ): Option.Option<string> =>
-  Option.isSome(kind)
-    ? Option.filter(kind, (named) => Array.contains(sectionKinds, named) && Option.isNone(language))
-    : Option.filter(language, (named) => labelWord.test(named))
+  Option.filter(
+    Option.isSome(kind)
+      ? Option.filter(
+          kind,
+          (named) => Array.contains(sectionKinds, named) && Option.isNone(language),
+        )
+      : Option.filter(language, (named) => labelWord.test(named)),
+    () => Object.keys(parameters).length === 0,
+  )
 
-const bracesOf = (kind: Option.Option<string>, language: Option.Option<string>): string => {
-  const keys = [
-    ...Option.toArray(Option.map(kind, (named) => `kind=${quoted(named)}`)),
-    ...Option.toArray(Option.map(language, (named) => `lang=${quoted(named)}`)),
-  ]
-  return Option.match(labelled(kind, language), {
-    onSome: (label) => ` {${label}}`,
-    onNone: () => (keys.length === 0 ? '' : ` {${keys.join(' ')}}`),
-  })
-}
+const bracesOf = (
+  kind: Option.Option<string>,
+  language: Option.Option<string>,
+  parameters: ParameterValues,
+): string =>
+  bracesWith(
+    labelled(kind, language, parameters),
+    keysOf({ ...keyed('kind', kind), ...keyed('lang', language), ...parameters }),
+  )
 
 type SectionPlace = { readonly slot: number; readonly level: number }
 
@@ -1887,9 +1989,10 @@ const addedSection = (
     yield* nameFree(module, name, Option.none())
     const kind = yield* fitChosen(intent.kind)
     const language = yield* fitChosen(intent.language)
+    const parameters = yield* fitParameters(intent.parameters)
     const body = writtenBody(yield* fitBody(intent.body), [])
     const place = yield* sectionSlot(module, spotOf(intent.after))
-    const heading = `${'#'.repeat(place.level)} ${name}${bracesOf(kind, language)}`
+    const heading = `${'#'.repeat(place.level)} ${name}${bracesOf(kind, language, parameters)}`
     return editOf([insertedAt(module, place.slot, body === '' ? heading : `${heading}\n\n${body}`)])
   })
 
@@ -1960,23 +2063,37 @@ const renamedSection = (
     ])
   })
 
-const addedNote = (
+const boxBracesOf = (kind: Option.Option<string>, parameters: ParameterValues): string =>
+  bracesWith(
+    Option.filter(kind, (named) => labelWord.test(named) && Object.keys(parameters).length === 0),
+    keysOf({ ...keyed('kind', kind), ...parameters }),
+  )
+
+const boxOpener = (
+  name: Option.Option<string>,
+  kind: Option.Option<string>,
+  parameters: ParameterValues,
+): string =>
+  `:::${Option.match(name, { onNone: () => '', onSome: (named) => ` ${named}` })}${boxBracesOf(kind, parameters)}`
+
+const addedBox = (
   context: EditContext,
-  intent: Intent<'AddNote'>,
+  intent: Intent<'AddBox'>,
 ): Result.Result<LoomEdit, EditRefusal> =>
   Result.gen(function* () {
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
-    const text = yield* fitBoxedText(intent.text)
+    const kind = yield* fitChosen(intent.kind)
+    const name = yield* fitChosen(intent.name)
+    const parameters = yield* fitParameters(intent.parameters)
+    const words = blockOf((yield* fitBoxedText(intent.text)).split(/\r?\n/))
     const at = contentEnd(section.preamble, bodyStart(module, section))
-    return editOf([
-      {
-        path: module.path,
-        start: at,
-        end: at,
-        text: blockAt(module.text, at, `:::\n${blockOf(text.split(/\r?\n/))}\n:::`),
-      },
-    ])
+    const box = [
+      boxOpener(name, kind, parameters),
+      ...Option.toArray(Option.liftPredicate(words, (held) => held !== '')),
+      ':::',
+    ].join('\n')
+    return editOf([{ path: module.path, start: at, end: at, text: blockAt(module.text, at, box) }])
   })
 
 const noteRemoval = (module: LoomModule, opened: OpenedBox): Splice => {
@@ -2180,10 +2297,10 @@ const editFor = LoomIntentSchema.match({
     (intent): Edit =>
     (context) =>
       renamedSection(context, intent),
-  AddNote:
+  AddBox:
     (intent): Edit =>
     (context) =>
-      addedNote(context, intent),
+      addedBox(context, intent),
   ResolveNote:
     (intent): Edit =>
     (context) =>

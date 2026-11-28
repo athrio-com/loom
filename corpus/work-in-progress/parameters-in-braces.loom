@@ -314,6 +314,21 @@ describe('reading a value through a type', () => {
   })
 })
 
+## A list in braces is no sink
+
+A list in a heading's braces stands in square brackets, as a heading's sink does, but the brackets belong to the list. So a heading reads no sink from them, and a sink beside the braces still reads as the file it names.
+
+=>
+
+describe("a list in a heading's braces", () => {
+  it('reads as no sink', () => {
+    expect(sectionOf('# Paint {kind=Task tags=[walls, paint]}').heading.sink).toBeUndefined()
+    expect(sectionOf('# Saying hello [hello.ts] {tags=[a, b]}').heading.sink?.file.value).toBe(
+      'hello.ts',
+    )
+  })
+})
+
 ## The parameters test file [test/Parameters.test.ts]
 
 =>
@@ -329,6 +344,8 @@ describe('reading a value through a type', () => {
 ::[The language a heading names]
 
 ::[A value read through a type]
+
+::[A list in braces is no sink]
 
 ## What this chapter grows into
 

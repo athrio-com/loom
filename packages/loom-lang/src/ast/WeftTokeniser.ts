@@ -1980,13 +1980,24 @@ const headingSpecifier = (lineText: string, position: Position): Construction<Br
   )
 }
 
+const outsideBraces =
+  (braces: Option.Option<Braces>) =>
+  (bracket: { readonly position: Position }): boolean =>
+    !Option.exists(
+      braces,
+      (held) =>
+        bracket.position.start.offset >= held.position.start.offset &&
+        bracket.position.start.offset < held.position.end.offset,
+    )
+
 const scanHeading = (text: string, position: Position, headingStartEnd: number): HeadingTokens => {
   const lineText = text.slice(position.start.offset, position.end.offset)
 
   const specResult = headingSpecifier(lineText, position)
+  const outside = outsideBraces(specResult.token)
   const sinkResult = constructSink(
-    scanSinkOpen(lineText, position),
-    scanSinkClose(lineText, position),
+    scanSinkOpen(lineText, position).filter(outside),
+    scanSinkClose(lineText, position).filter(outside),
     lineText,
     position,
   )

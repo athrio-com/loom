@@ -34,6 +34,7 @@ import type {
   SectionExists,
   TitleTaken,
   UnfitName,
+  UnfitParameter,
   UnfitText,
 } from '../EditBuilder'
 import type { NoSuchLoom } from '../OutlineBuilder'
@@ -152,6 +153,7 @@ export type AskingFailure =
   | NotADiscussion
   | UnfitName
   | UnfitText
+  | UnfitParameter
   | OpensABook
   | NoConfiguration
   | NotAVariableName
@@ -237,6 +239,11 @@ const askingWording: Wording<AskingFailure> = {
     problem(
       `The line ${JSON.stringify(line)} would read as Loom's syntax, not as words.`,
       'Reword it so it does not open as a heading, an arrow, a tilde, a divider, or a box does, and close any fence it opens.',
+    ),
+  UnfitParameter: ({ key }) =>
+    problem(
+      `The parameter ${JSON.stringify(key)} cannot stand in braces.`,
+      'Name it with a letter or an underscore followed by letters, digits, hyphens, and underscores, keep each of its values on one line, and give a kind or a language in its own field.',
     ),
   OpensABook: ({ path }) =>
     problem(

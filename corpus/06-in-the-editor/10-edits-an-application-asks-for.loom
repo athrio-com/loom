@@ -18,6 +18,8 @@ An intent names one change in Loom's terms. The type `LoomIntent` is a tagged un
 
 A loom is named by the address the application keeps it under, its `uri`. A section is named by its heading's title, as the outline of the chapter "The outline of a loom" gives it, and a topic of a discussion is named the same way, since a topic is a section. A note is named by its section and its text, because nothing in a loom carries an id: Loom keeps facts about text by the text's content and labels them by name, as the chapter "Kept by content, labelled by name" describes. A book is named by its name, empty for the default book. A part is named by its number, the Roman numeral the frontmatter writes, or by its name when it has no number.
 
+Braces after a heading or a box may hold keys with values, such as `status=done`, as the chapter "Parameters in braces" describes. An intent gives such keys as its `parameters`, in the `ParameterValues` table the outline gives a section's keys in: each key with its value, or with its values for a key that holds a list. Each value is text, as an author writes it, and Loom reads the text through the type the key declares, as it reads braces an author wrote. The keys `kind` and `lang` have fields of their own in an intent, so its `parameters` never name them.
+
 Several intents place something after something else. Their field `after` names what comes before it: a loom by its address, a section by its name, a part by its number or its name. When `after` is `null`, the thing goes first. When the intent leaves `after` out, the thing goes last.
 
 These are the intents for looms and books:
@@ -37,10 +39,11 @@ These are the intents for parts:
 
 These are the intents for sections:
 
-- The intent `ReplaceSection` replaces a section's `body`, the pieces of prose and code the outline gives.
-- The intent `AddSection` adds a section under a `name`, with a `kind` and a `language` it may name, and a `body`.
+- The intent `ReplaceSection` replaces a section's `body`, the pieces of prose and code the outline gives, and the `parameters` of its heading when it gives them.
+- The intent `AddSection` adds a section under a `name`, with a `kind`, a `language`, and `parameters` it may give, and a `body`.
 - The intents `RemoveSection`, `MoveSection`, and `RenameSection` remove a section, move it, and give it a new `name`.
-- The intents `AddNote` and `ResolveNote` leave a note in a section, and resolve one, which removes it.
+- The intent `AddBox` leaves a box in a section: its `text`, with a `kind`, a `name`, and `parameters` it may give. A box that names no kind is a note.
+- The intent `ResolveNote` resolves a note, which removes it.
 
 These are the intents for discussions and for the configuration:
 
@@ -76,19 +79,32 @@ export const LoomIntentSchema = Schema.TaggedUnion({
   MovePart: { book: Schema.String, part: Schema.String, after: AfterSchema },
   RemovePart: { book: Schema.String, part: Schema.String },
   RenameBook: { book: Schema.String, name: Schema.String },
-  ReplaceSection: { uri: Schema.String, section: Schema.String, body: BodySchema },
+  ReplaceSection: {
+    uri: Schema.String,
+    section: Schema.String,
+    body: BodySchema,
+    parameters: Schema.optional(ParameterValuesSchema),
+  },
   AddSection: {
     uri: Schema.String,
     after: AfterSchema,
     name: Schema.String,
     kind: Schema.optional(Schema.String),
     language: Schema.optional(Schema.String),
+    parameters: Schema.optional(ParameterValuesSchema),
     body: BodySchema,
   },
   RemoveSection: { uri: Schema.String, section: Schema.String },
   MoveSection: { uri: Schema.String, section: Schema.String, after: AfterSchema },
   RenameSection: { uri: Schema.String, section: Schema.String, name: Schema.String },
-  AddNote: { uri: Schema.String, section: Schema.String, text: Schema.String },
+  AddBox: {
+    uri: Schema.String,
+    section: Schema.String,
+    kind: Schema.optional(Schema.String),
+    name: Schema.optional(Schema.String),
+    parameters: Schema.optional(ParameterValuesSchema),
+    text: Schema.String,
+  },
   ResolveNote: { uri: Schema.String, section: Schema.String, text: Schema.String },
   OpenTopic: { uri: Schema.String, name: Schema.String },
   AddMessage: {
@@ -172,6 +188,7 @@ An intent may ask for what cannot be done. Each refusal is a failure of the cata
 - The failure `NotADiscussion`: the loom at `path` is no discussion, so it has no topics.
 - The failure `UnfitName`: the `name` is empty or runs over more than one line, so it cannot stand in a heading or a frontmatter line.
 - The failure `UnfitText`: a `line` of prose, of a message, or of a note would read as Loom's syntax, so the words would change the loom's structure.
+- The failure `UnfitParameter`: the parameter `key` cannot stand in braces. Its key is no word braces read as a key, or it is `kind` or `lang`, which an intent gives in fields of their own, or a value of it runs over more than one line.
 - The failure `OpensABook`: the loom at `path` opens a book, and a book loom stands in no part.
 - The failure `NoConfiguration`: the `workspace` has no configuration to set a variable in.
 - The failure `EditBreaksLoom`: the check found that the edit would leave the loom at `path` with the `problems` it lists.
@@ -242,6 +259,8 @@ export class UnfitName extends Data.TaggedError('UnfitName')<{ readonly name: st
 
 export class UnfitText extends Data.TaggedError('UnfitText')<{ readonly line: string }> {}
 
+export class UnfitParameter extends Data.TaggedError('UnfitParameter')<{ readonly key: string }> {}
+
 export class OpensABook extends Data.TaggedError('OpensABook')<{ readonly path: Location }> {}
 
 export class NoConfiguration extends Data.TaggedError('NoConfiguration')<{
@@ -271,6 +290,7 @@ export type EditRefusal =
   | NotADiscussion
   | UnfitName
   | UnfitText
+  | UnfitParameter
   | OpensABook
   | NoConfiguration
   | NotAVariableName
@@ -282,6 +302,8 @@ An edit reads an `EditContext`: the `corpus` the compiler built, the `workspace`
 The function `loomAt` finds the loom at a location, and the corpus's `chapterOf` finds the place its catalogue gives the loom, as the chapter "The multi-file AST" describes. A loom at no place in the catalogue, such as a book loom, has no `Chapter`.
 
 The function `fitName` takes a name or a title as an author gives it, without the spaces at either end, and refuses one that is empty or runs over more than one line. A loom's kind and a section's language stand on a line too, in the frontmatter or in a heading's braces, so the same test judges them. A name on two lines would write a line of its own into the frontmatter, such as a `Book` line the author never asked for. An intent may leave a language or a section's kind out, and `fitChosen` judges one that it gives.
+
+The function `fitParameters` judges the parameters an intent gives, and refuses the first that cannot stand in braces with `UnfitParameter`. A key must read as one, as `keyWord` matches it: a letter or an underscore, then letters, digits, hyphens, and underscores, as the chapter "The tokeniser stage" reads a key. It must not be one of the keys `keysApart` lists, since the intent names those in fields of its own. A value stands on the heading's line or the box's, so no value may run over more than one line, and `valuesOf` lists a key's values whether it holds one or a list. An intent that gives no parameters gives an empty table.
 
 =>
 
@@ -305,6 +327,26 @@ const fitChosen = (name: string | undefined): Result.Result<Option.Option<string
     onNone: () => Result.succeed(Option.none()),
     onSome: (given) => Result.map(fitName(given), Option.some),
   })
+
+const keyWord = /^[A-Za-z_][A-Za-z0-9_-]*$/
+
+const valuesOf = (value: string | ReadonlyArray<string>): ReadonlyArray<string> =>
+  typeof value === 'string' ? [value] : value
+
+const unfitKey = ([key, value]: readonly [string, string | ReadonlyArray<string>]): boolean =>
+  !keyWord.test(key) ||
+  Array.contains(keysApart, key) ||
+  valuesOf(value).some((written) => /[\r\n]/.test(written))
+
+const fitParameters = (
+  parameters: ParameterValues | undefined,
+): Result.Result<ParameterValues, UnfitParameter> => {
+  const given = Option.getOrElse(Option.fromNullishOr(parameters), (): ParameterValues => ({}))
+  return Option.match(Array.findFirst(Object.entries(given), unfitKey), {
+    onSome: ([key]) => Result.fail(new UnfitParameter({ key })),
+    onNone: () => Result.succeed(given),
+  })
+}
 
 ## First, last, or after another
 
@@ -1979,7 +2021,7 @@ A piece of code opens with an arrow on a line of its own. A piece of prose after
 
 Some lines of code would read as Loom's marks: a line that opens with a heading's hashes and a space, an arrow, a tilde alone or before a space, or a line of three dashes, as `codeMarks` lists them. Code that holds one is fenced, as the chapter "Fenced code" describes, and so is code whose first line opens with backticks, which would read as a fence. The fence is one backtick longer than the longest run of backticks that opens a line of the code, and three at least, so no line of the code closes it, as `fenced` writes it. Fenced code closes at its closing fence, so the prose after it takes no tilde.
 
-A section's notes stand after its opening prose, as the section "Leaving a note" describes, so `writtenBody` takes the notes to keep and writes them there.
+A section's notes stand after its opening prose, as the section "Leaving a box" describes, so `writtenBody` takes the notes to keep and writes them there.
 
 =>
 
@@ -2044,6 +2086,8 @@ The intent `ReplaceSection` replaces a section's body and keeps its heading and 
 
 The new text opens on a line break when the body starts within the heading's line, holds the written body between blank lines when it holds any words, and closes on a line break when a section follows it.
 
+An intent that gives `parameters` writes the heading's braces anew, as `bracesAnew` does, and an intent that leaves them out leaves the heading as it is. The braces keep the kind and the language they name, which `parameterValue` reads, and the given parameters take the place of every other key the braces held. So `{kind=Task status=todo}` given the parameters `status=done` becomes `{kind=Task status=done}`. Braces left holding nothing go, with the spaces before them, as `spacesBefore` counts them. A heading with no braces takes its new ones after its last word, which `headingEnd` finds on the heading's line.
+
 =>
 
 const noteSource = (module: LoomModule, opened: OpenedBox): string =>
@@ -2057,6 +2101,37 @@ const noteSource = (module: LoomModule, opened: OpenedBox): string =>
     )
     .replace(/\s+$/, '')
 
+const spacesBefore = (text: string, at: number): number =>
+  at - text.slice(0, at).replace(/ +$/, '').length
+
+const headingEnd = (module: LoomModule, section: LoomSection): number => {
+  const line = lineSpanOf(module.text, section.position.start.line)
+  return line.start + module.text.slice(line.start, line.end).replace(/\s+$/, '').length
+}
+
+const bracesAnew = (
+  module: LoomModule,
+  section: LoomSection,
+  parameters: ParameterValues,
+): Splice =>
+  Option.match(Option.fromNullishOr(section.heading.specifier), {
+    onNone: () => {
+      const at = headingEnd(module, section)
+      return {
+        path: module.path,
+        start: at,
+        end: at,
+        text: bracesOf(Option.none(), Option.none(), parameters),
+      }
+    },
+    onSome: (braces) => ({
+      path: module.path,
+      start: braces.position.start.offset - spacesBefore(module.text, braces.position.start.offset),
+      end: braces.position.end.offset,
+      text: bracesOf(parameterValue(braces, 'kind'), parameterValue(braces, 'lang'), parameters),
+    }),
+  })
+
 const replacedSection = (
   context: EditContext,
   intent: Intent<'ReplaceSection'>,
@@ -2065,6 +2140,11 @@ const replacedSection = (
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
     const body = yield* fitBody(intent.body)
+    const braces = yield* Option.match(Option.fromNullishOr(intent.parameters), {
+      onNone: () => Result.succeed<ReadonlyArray<Splice>>([]),
+      onSome: (given) =>
+        Result.map(fitParameters(given), (fit) => [bracesAnew(module, section, fit)]),
+    })
     const start = bodyStart(module, section)
     const end =
       loomKindOf(module) === discussionKind
@@ -2084,40 +2164,68 @@ const replacedSection = (
     const opening = breakBefore(module.text, start) > 0 ? '' : '\n'
     const middle = written === '' ? '' : `\n${written}\n`
     const closing = end < module.text.length ? '\n' : ''
-    return editOf([{ path: module.path, start, end, text: `${opening}${middle}${closing}` }])
+    return editOf([
+      ...braces,
+      { path: module.path, start, end, text: `${opening}${middle}${closing}` },
+    ])
   })
 
 ## Adding, removing, and moving a section
 
-A new section goes where its spot puts it among the loom's sections, as `sectionSlot` works out, and takes a level there, as a `SectionPlace` holds both. A section that goes first goes after the loom's opening section, when the loom has one, since the opening section carries the loom's title, as `firstPlace` gives it. So does a section placed after the opening section itself. A section placed after another goes after every section beneath that one, and takes its level, so it stands beside it and not beneath the last section it spans, as `placeAfter` gives it. A section that goes first or last takes two hashes, and so does a section placed after a division, since a division has no hashes to copy. The heading carries the section's name, and braces after it name its kind and its language, as `bracesOf` writes them. Its kind and its language must be fit for a line, and its prose must hold no line that reads as syntax.
+A new section goes where its spot puts it among the loom's sections, as `sectionSlot` works out, and takes a level there, as a `SectionPlace` holds both. A section that goes first goes after the loom's opening section, when the loom has one, since the opening section carries the loom's title, as `firstPlace` gives it. So does a section placed after the opening section itself. A section placed after another goes after every section beneath that one, and takes its level, so it stands beside it and not beneath the last section it spans, as `placeAfter` gives it. A section that goes first or last takes two hashes, and so does a section placed after a division, since a division has no hashes to copy. The heading carries the section's name, and braces after it name its kind, its language, and its parameters, as `bracesOf` writes them. Its kind and its language must be fit for a line, its parameters fit for braces, and its prose must hold no line that reads as syntax.
 
-Braces may hold one label, such as `Tangle` or `Bash`, or keys with values, such as `kind=Tangle` and `lang=sh`. A label names a kind when Loom knows the kind, and a language otherwise. So the function `bracesOf` writes a core kind of section, which `sectionKinds` lists, as a label, and a language whose name reads as a label as one too. Any other kind, and a kind with a language, take keys. A value with a space, a brace, an equals sign, a quotation mark, or a backslash in it is quoted, as `quoted` writes it, and a quotation mark or a backslash within the quotes takes a backslash before it, as the braces read it.
+Braces hold one label, such as `Tangle` or `Bash`, or keys with values, such as `kind=Tangle` and `lang=sh`. A label names a kind when Loom knows the kind, and a language otherwise. So `bracesOf` writes a core kind of section, which `sectionKinds` lists, as a label, and a language whose name reads as a label as one too, as `labelled` decides. A label never stands beside parameters, so braces with parameters take keys, and so do any other kind and a kind with a language. The function `keysOf` writes each key with its value: `kind` first, then `lang`, then the parameters in the order the intent gives them, as `keyed` gathers them into one table. The function `bracesWith` writes the braces around a label or around keys, and writes nothing when there are neither.
+
+A value is bare when it is a run of letters, digits, hyphens, underscores, and full stops, as the braces read one, and `bareValue` matches it. Any other value is quoted, as `quoted` writes it, and a quotation mark or a backslash within the quotes takes a backslash before it. A key that holds a list takes its values in square brackets, separated by commas, as `writtenValue` writes them.
 
 =>
 
 const labelWord = /^[a-zA-Z0-9_-]+(?: [a-zA-Z0-9_-]+)*$/
 
+const bareValue = /^[A-Za-z0-9_.-]+$/
+
 const quoted = (value: string): string =>
-  /^[^\s"{}=\\]+$/.test(value) ? value : `"${value.replace(/["\\]/g, '\\$&')}"`
+  bareValue.test(value) ? value : `"${value.replace(/["\\]/g, '\\$&')}"`
+
+const writtenValue = (value: string | ReadonlyArray<string>): string =>
+  typeof value === 'string' ? quoted(value) : `[${value.map(quoted).join(', ')}]`
+
+const keyed = (key: string, value: Option.Option<string>): ParameterValues =>
+  Option.match(value, { onNone: () => ({}), onSome: (named) => ({ [key]: named }) })
+
+const keysOf = (parameters: ParameterValues): ReadonlyArray<string> =>
+  Object.entries(parameters).map(([key, value]) => `${key}=${writtenValue(value)}`)
+
+const bracesWith = (label: Option.Option<string>, keys: ReadonlyArray<string>): string =>
+  Option.match(label, {
+    onSome: (word) => ` {${word}}`,
+    onNone: () => (keys.length === 0 ? '' : ` {${keys.join(' ')}}`),
+  })
 
 const labelled = (
   kind: Option.Option<string>,
   language: Option.Option<string>,
+  parameters: ParameterValues,
 ): Option.Option<string> =>
-  Option.isSome(kind)
-    ? Option.filter(kind, (named) => Array.contains(sectionKinds, named) && Option.isNone(language))
-    : Option.filter(language, (named) => labelWord.test(named))
+  Option.filter(
+    Option.isSome(kind)
+      ? Option.filter(
+          kind,
+          (named) => Array.contains(sectionKinds, named) && Option.isNone(language),
+        )
+      : Option.filter(language, (named) => labelWord.test(named)),
+    () => Object.keys(parameters).length === 0,
+  )
 
-const bracesOf = (kind: Option.Option<string>, language: Option.Option<string>): string => {
-  const keys = [
-    ...Option.toArray(Option.map(kind, (named) => `kind=${quoted(named)}`)),
-    ...Option.toArray(Option.map(language, (named) => `lang=${quoted(named)}`)),
-  ]
-  return Option.match(labelled(kind, language), {
-    onSome: (label) => ` {${label}}`,
-    onNone: () => (keys.length === 0 ? '' : ` {${keys.join(' ')}}`),
-  })
-}
+const bracesOf = (
+  kind: Option.Option<string>,
+  language: Option.Option<string>,
+  parameters: ParameterValues,
+): string =>
+  bracesWith(
+    labelled(kind, language, parameters),
+    keysOf({ ...keyed('kind', kind), ...keyed('lang', language), ...parameters }),
+  )
 
 type SectionPlace = { readonly slot: number; readonly level: number }
 
@@ -2171,9 +2279,10 @@ const addedSection = (
     yield* nameFree(module, name, Option.none())
     const kind = yield* fitChosen(intent.kind)
     const language = yield* fitChosen(intent.language)
+    const parameters = yield* fitParameters(intent.parameters)
     const body = writtenBody(yield* fitBody(intent.body), [])
     const place = yield* sectionSlot(module, spotOf(intent.after))
-    const heading = `${'#'.repeat(place.level)} ${name}${bracesOf(kind, language)}`
+    const heading = `${'#'.repeat(place.level)} ${name}${bracesOf(kind, language, parameters)}`
     return editOf([insertedAt(module, place.slot, body === '' ? heading : `${heading}\n\n${body}`)])
   })
 
@@ -2258,31 +2367,49 @@ const renamedSection = (
     ])
   })
 
-## Leaving a note
+## Leaving a box
 
-A note is a box of the default kind: three colons on a line of their own, the note's words, and three colons again. The intent `AddNote` leaves one after a section's opening prose, after the last line of words before the section's code, or after the heading when the section opens on code. In a discussion's topic the opening prose comes before the first message. A line of three colons among the note's words would close the box early, so the words must hold none.
+A box sets words apart from the prose around them, as the chapter "Boxes" describes: a line of three colons, the box's words, and three colons again. A box that names no kind is a note, a remark for whoever opens the loom next. The intent `AddBox` leaves a box after a section's opening prose: after the last line of words before the section's code, or after the heading when the section opens on code. In a discussion's topic the opening prose comes before the first message. A line of three colons among the box's words would close the box early, so the words must hold none.
+
+The opening line carries the box's name, when the intent gives one, and braces that name its kind and its parameters. The function `boxBracesOf` writes the braces through `bracesWith` and `keysOf`, which write a heading's braces too. A kind alone takes a label when it reads as one, as `{Estimate}` does, since a box's label always names its kind. A kind with parameters, or a kind that reads as no label, takes keys. A note with no parameters takes no braces at all. The function `boxOpener` writes the whole line.
+
+Loom does not judge the box's kind or its parameters as it writes them. The check that follows every edit builds the loom again, so a kind no trope declares, or a parameter its kind does not take, refuses the box, as it refuses such a section.
 
 The intent `ResolveNote` resolves a note, which removes it. It finds the note by its words, and removes its lines with one of the blank lines around it, so the prose around it closes up, as `noteRemoval` works out.
 
 =>
 
-const addedNote = (
+const boxBracesOf = (kind: Option.Option<string>, parameters: ParameterValues): string =>
+  bracesWith(
+    Option.filter(kind, (named) => labelWord.test(named) && Object.keys(parameters).length === 0),
+    keysOf({ ...keyed('kind', kind), ...parameters }),
+  )
+
+const boxOpener = (
+  name: Option.Option<string>,
+  kind: Option.Option<string>,
+  parameters: ParameterValues,
+): string =>
+  `:::${Option.match(name, { onNone: () => '', onSome: (named) => ` ${named}` })}${boxBracesOf(kind, parameters)}`
+
+const addedBox = (
   context: EditContext,
-  intent: Intent<'AddNote'>,
+  intent: Intent<'AddBox'>,
 ): Result.Result<LoomEdit, EditRefusal> =>
   Result.gen(function* () {
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
-    const text = yield* fitBoxedText(intent.text)
+    const kind = yield* fitChosen(intent.kind)
+    const name = yield* fitChosen(intent.name)
+    const parameters = yield* fitParameters(intent.parameters)
+    const words = blockOf((yield* fitBoxedText(intent.text)).split(/\r?\n/))
     const at = contentEnd(section.preamble, bodyStart(module, section))
-    return editOf([
-      {
-        path: module.path,
-        start: at,
-        end: at,
-        text: blockAt(module.text, at, `:::\n${blockOf(text.split(/\r?\n/))}\n:::`),
-      },
-    ])
+    const box = [
+      boxOpener(name, kind, parameters),
+      ...Option.toArray(Option.liftPredicate(words, (held) => held !== '')),
+      ':::',
+    ].join('\n')
+    return editOf([{ path: module.path, start: at, end: at, text: blockAt(module.text, at, box) }])
   })
 
 const noteRemoval = (module: LoomModule, opened: OpenedBox): Splice => {
@@ -2510,10 +2637,10 @@ const editFor = LoomIntentSchema.match({
     (intent): Edit =>
     (context) =>
       renamedSection(context, intent),
-  AddNote:
+  AddBox:
     (intent): Edit =>
     (context) =>
-      addedNote(context, intent),
+      addedBox(context, intent),
   ResolveNote:
     (intent): Edit =>
     (context) =>
@@ -2604,9 +2731,9 @@ export const problemsAdded = (
 
 ## What the edits draw on
 
-Effect gives the edits their `Schema` union of intents, their `Data` errors and the `Spot`, `Target`, and `Leaving` enums, `Result` for an edit or its refusal, `Match` for the matchers built once, and `Array`, `Option`, `Order`, and `pipe` for the steps. The configuration gives `isVariableName`, the error `NotAVariableName`, and the type of a manifest. The leaf tokens give the kinds `chapterKind`, `discussionKind`, `noteKind`, and `conclusionKind`, and `sectionKinds`, the core kinds of section. They give the probes of the marks a writer's words may not hold, through `getProbe` and the schemas of a heading's hashes, an arrow, a tilde, a divider, and a box's colons, and the fences of a quote, through `openingFence`, `closesFence`, and the type of a `Fence`. The syntax tree gives the types of a frontmatter, a heading, and a section, the node foundation the type of a position and `byType`, and the wefts the type of a line.
+Effect gives the edits their `Schema` union of intents, their `Data` errors and the `Spot`, `Target`, and `Leaving` enums, `Result` for an edit or its refusal, `Match` for the matchers built once, and `Array`, `Option`, `Order`, and `pipe` for the steps. The configuration gives `isVariableName`, the error `NotAVariableName`, and the type of a manifest. The leaf tokens give the kinds `chapterKind`, `discussionKind`, `noteKind`, and `conclusionKind`, `sectionKinds`, the core kinds of section, and `parameterValue`, which reads the value a key of some braces holds. They give the probes of the marks a writer's words may not hold, through `getProbe` and the schemas of a heading's hashes, an arrow, a tilde, a divider, and a box's colons, and the fences of a quote, through `openingFence`, `closesFence`, and the type of a `Fence`. The syntax tree gives the types of a frontmatter, a heading, and a section, the node foundation the type of a position and `byType`, and the wefts the type of a line.
 
-From the corpus come its catalogue, `chapterOf`, `bookOf`, `isBookLoom`, and `loomKindOf`, which read where a loom stands, `renameAt` and `conceptRenameAt`, the rename's walks, and `numberNamesOf`, `numberPathsOf`, `partNumbersOf`, and `partNamesOf`, the walks over the places that name a loom by its number and a part by its number or its name. The tokeniser gives `normaliseTitle`, and the contents give `romanValue` and `titleOf`. The outline gives the pieces of a body, `blockOf`, `boxesOfKind`, and `boxText`, and the failure `NoSuchLoom`.
+From the corpus come its catalogue, `chapterOf`, `bookOf`, `isBookLoom`, and `loomKindOf`, which read where a loom stands, `renameAt` and `conceptRenameAt`, the rename's walks, and `numberNamesOf`, `numberPathsOf`, `partNumbersOf`, and `partNamesOf`, the walks over the places that name a loom by its number and a part by its number or its name. The tokeniser gives `normaliseTitle`, and the contents give `romanValue` and `titleOf`. The outline gives the pieces of a body, `blockOf`, `boxesOfKind`, and `boxText`, the `ParameterValues` table of keys braces hold, with `keysApart`, the keys an intent names in fields of their own, and the failure `NoSuchLoom`.
 
 =>
 
@@ -2629,6 +2756,7 @@ import {
   HeadingStartTokenSchema,
   noteKind,
   openingFence,
+  parameterValue,
   sectionKinds,
   TildeTokenSchema,
 } from '@athrio/loom-ast/LoomTokens'
@@ -2662,7 +2790,10 @@ import {
   blockOf,
   boxesOfKind,
   boxText,
+  keysApart,
   NoSuchLoom,
+  type ParameterValues,
+  ParameterValuesSchema,
   type Piece,
   PieceSchema,
 } from './OutlineBuilder'
@@ -2727,7 +2858,7 @@ import {
 
 ::[Renaming a section]
 
-::[Leaving a note]
+::[Leaving a box]
 
 ::[Topics, messages, and conclusions]
 
@@ -2822,6 +2953,8 @@ const refused = (files: Record<string, string>, intent: LoomIntent) =>
 
 The game has a book loom and two parts. Part I, The room, holds two chapters. The chapter `The grid` announces the part and holds the section `Cells`. The chapter `Walls` follows it, names the part by number alone, and links `Cells` by its part's number and its chapter's. Part I also holds the discussion `Waking`, with one topic, `Traps`, and one message in it. Part II, Light, holds the chapter `Lamps`, which links `Walls` by its title. The workspace `quiet` is the same game with no link from `Walls`, for the cases where that link would only be in the way.
 
+The workspace `tasks` keeps the game's work. Its trope `Tasks` declares a kind of section, `Task`, whose `status` is `todo` or `done` and whose `tags` are a list of text, and a kind of box, `Estimate`, whose `days` are a number. It lets every heading carry an `owner`. Its loose loom `The plan` holds one task, `Paint the walls`, still to do.
+
 =>
 
 const grid = lines(
@@ -2905,6 +3038,46 @@ const game: Record<string, string> = {
 const quiet: Record<string, string> = {
   ...game,
   '/corpus/walls.loom': walls.replace(`, as ${anchor('Part I, Chapter 1, Cells')} describes`, ''),
+}
+
+const plan = lines(
+  '# The plan',
+  '',
+  'What the game still needs.',
+  '',
+  '## Paint the walls {kind=Task status=todo}',
+  '',
+  'Two coats.',
+)
+
+const tasks: Record<string, string> = {
+  '/corpus/plan.loom': plan,
+  '/corpus/tasks.loom': lines(
+    '---',
+    'Trope Chapter: Tasks',
+    '---',
+    '',
+    '# Tasks',
+    '',
+    '## What it declares {Manifest}',
+    '',
+    '=>',
+    JSON.stringify({
+      contract: '1',
+      contributes: {
+        kinds: {
+          section: [
+            {
+              kind: 'Task',
+              parameters: { status: { choice: ['todo', 'done'] }, tags: { list: 'text' } },
+            },
+          ],
+          box: [{ kind: 'Estimate', body: 'text', parameters: { days: 'number' } }],
+        },
+        headings: { parameters: { owner: 'text' } },
+      },
+    }),
+  ),
 }
 
 ## Making looms and books
@@ -3326,17 +3499,86 @@ A name a section of the loom already has is refused, and so is a section the loo
   )
 })
 
-## Notes
+## Sections with keys
 
-A note left in `Cells` stands after the section's opening prose, before its code. A body given to the section keeps the note. A note resolved leaves the section as it was.
+A task added with keys takes them in its braces after its kind: a list in square brackets, and a value with a space in quotes. A task given its body back with a new `status` changes that key in its braces and keeps its kind. A body given back with no keys leaves the heading as it was. The opening section has no braces, so an `owner` given to it stands at the end of its heading.
 
 =>
 
-describe('notes', () => {
+describe('sections with keys', () => {
+  const paint = {
+    _tag: 'ReplaceSection',
+    uri: '/corpus/plan.loom',
+    section: 'Paint the walls',
+    body: [{ _tag: 'Prose', text: 'Two coats.' }],
+  } as const
+
+  it.effect('writes the keys of a new section, and of a section given its body', () =>
+    Effect.gen(function* () {
+      const added = yield* afterEdit(tasks, {
+        _tag: 'AddSection',
+        uri: '/corpus/plan.loom',
+        name: 'Hang the lamps',
+        kind: 'Task',
+        parameters: { status: 'todo', tags: ['light', 'first floor'] },
+        body: [{ _tag: 'Prose', text: 'Two lamps a room.' }],
+      })
+      expect(added['/corpus/plan.loom']).toBe(
+        `${plan}\n## Hang the lamps {kind=Task status=todo tags=[light, "first floor"]}\n\nTwo lamps a room.\n`,
+      )
+      const done = yield* afterEdit(tasks, { ...paint, parameters: { status: 'done' } })
+      expect(done['/corpus/plan.loom']).toBe(plan.replace('status=todo', 'status=done'))
+      expect((yield* afterEdit(tasks, paint))['/corpus/plan.loom']).toBe(plan)
+      const owned = yield* afterEdit(tasks, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/plan.loom',
+        section: 'The plan',
+        body: [{ _tag: 'Prose', text: 'What the game still needs.' }],
+        parameters: { owner: 'Yegor' },
+      })
+      expect(owned['/corpus/plan.loom']).toBe(plan.replace('# The plan', '# The plan {owner=Yegor}'))
+    }),
+  )
+
+~
+
+A key braces cannot read, a key an intent names in a field of its own, and a value on two lines are each refused with the key. A value its key does not take would leave the loom with a fault, so the check refuses it.
+
+=>
+
+  it.effect('refuses a key braces cannot hold, and a value its kind does not take', () =>
+    Effect.gen(function* () {
+      const sweep = (parameters: Readonly<Record<string, string>>) =>
+        Effect.map(
+          refusal(tasks, {
+            _tag: 'AddSection',
+            uri: '/corpus/plan.loom',
+            name: 'Sweep',
+            kind: 'Task',
+            parameters,
+            body: [],
+          }),
+          (failed) => (failed._tag === 'UnfitParameter' ? failed.key : failed._tag),
+        )
+      expect(yield* sweep({ 'two words': 'x' })).toBe('two words')
+      expect(yield* sweep({ kind: 'Task' })).toBe('kind')
+      expect(yield* sweep({ status: 'two\nlines' })).toBe('status')
+      expect(yield* sweep({ status: 'maybe' })).toBe('EditBreaksLoom')
+    }),
+  )
+})
+
+## Notes and boxes
+
+A box with no kind left in `Cells` is a note, and stands after the section's opening prose, before its code. A body given to the section keeps the note. A note resolved leaves the section as it was.
+
+=>
+
+describe('notes and boxes', () => {
   it.effect('leaves a note, keeps it through a new body, and resolves it', () =>
     Effect.gen(function* () {
       const noted = yield* afterEdit(game, {
-        _tag: 'AddNote',
+        _tag: 'AddBox',
         uri: '/corpus/grid.loom',
         section: 'Cells',
         text: 'Count them again.',
@@ -3374,6 +3616,42 @@ describe('notes', () => {
           text: 'Count them again.',
         }),
       ).toBe('NoSuchNote')
+    }),
+  )
+
+~
+
+A box of a kind the trope declares carries its name and its kind on its opening line, the kind as a label when it stands alone, and as a key beside the box's parameters. A box of a kind no trope declares would leave the loom with a fault, so the check refuses it.
+
+=>
+
+  it.effect('leaves a box of a declared kind with its name and its keys', () =>
+    Effect.gen(function* () {
+      const estimate = (parameters: Readonly<Record<string, string>>) =>
+        afterEdit(tasks, {
+          _tag: 'AddBox',
+          uri: '/corpus/plan.loom',
+          section: 'Paint the walls',
+          kind: 'Estimate',
+          name: 'Walls',
+          parameters,
+          text: 'Two days, three with drying.',
+        })
+      const boxed = (opener: string) =>
+        plan.replace('Two coats.\n', `Two coats.\n\n${opener}\nTwo days, three with drying.\n:::\n`)
+      expect((yield* estimate({}))['/corpus/plan.loom']).toBe(boxed('::: Walls {Estimate}'))
+      expect((yield* estimate({ days: '2' }))['/corpus/plan.loom']).toBe(
+        boxed('::: Walls {kind=Estimate days=2}'),
+      )
+      expect(
+        yield* refused(tasks, {
+          _tag: 'AddBox',
+          uri: '/corpus/plan.loom',
+          section: 'Paint the walls',
+          kind: 'Bogus',
+          text: 'Hm.',
+        }),
+      ).toBe('EditBreaksLoom')
     }),
   )
 })
@@ -3611,7 +3889,7 @@ describe('words a writer cannot smuggle in', () => {
       expect(yield* unfit(message('~ Mallory\nI agree.'))).toBe('~ Mallory')
       expect(
         yield* unfit({
-          _tag: 'AddNote',
+          _tag: 'AddBox',
           uri: '/corpus/grid.loom',
           section: 'Cells',
           text: 'Check.\n:::\nOutside.',
@@ -3644,7 +3922,7 @@ describe('looms written on Windows', () => {
   it.effect('writes an edit in the line ending of its loom', () =>
     Effect.gen(function* () {
       const note = {
-        _tag: 'AddNote',
+        _tag: 'AddBox',
         uri: '/corpus/grid.loom',
         section: 'Cells',
         text: 'Count them again.',
@@ -4080,7 +4358,9 @@ describe('titles, followers, and things that stay', () => {
 
 ::[Sections]
 
-::[Notes]
+::[Sections with keys]
+
+::[Notes and boxes]
 
 ::[Discussions]
 

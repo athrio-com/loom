@@ -54,7 +54,13 @@ import {
   type SummaryEdit,
   within,
 } from './LoomCompiler'
-import { type Concepts, type NoSuchLoom, type Outline } from './OutlineBuilder'
+import {
+  type Concepts,
+  coreTypes,
+  type NoSuchLoom,
+  type Outline,
+  type Types,
+} from './OutlineBuilder'
 import { type EditBreaksLoom, type EditRefusal, LoomIntentSchema } from './EditBuilder'
 import { LanguagePackages } from './LanguagePackages'
 import { TropePackages } from './TropePackages'
@@ -1050,6 +1056,8 @@ export const outlineRequest = 'loom/outline'
 
 export const conceptsRequest = 'loom/concepts'
 
+export const typesRequest = 'loom/types'
+
 export const editRequest = 'loom/edit'
 
 const OutlineParamsSchema = Schema.Struct({ uri: Schema.String })
@@ -1103,6 +1111,22 @@ const conceptsFor = (
         onNone: () => Effect.succeed(noConcepts),
         onSome: (entry) =>
           LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.concepts(entry))),
+      }),
+    ),
+  )
+
+const typesFor = (
+  places: Places,
+  home: string,
+  asked: unknown,
+): Effect.Effect<Types, ReadError, LoomCompiler | WorkspaceSource> =>
+  WorkspaceSource.pipe(
+    Effect.flatMap((source) => Cache.get(places, workspaceAsked(source, home, asked))),
+    Effect.flatMap(entryOf),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(coreTypes),
+        onSome: (entry) => LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.types(entry))),
       }),
     ),
   )
@@ -1417,6 +1441,7 @@ export const startLanguageServer = (): void => {
     connection.onRequest(conceptsRequest, (asked: unknown) =>
       answered(conceptsFor(places, home, asked)),
     )
+    connection.onRequest(typesRequest, (asked: unknown) => answered(typesFor(places, home, asked)))
     connection.onRequest(editRequest, (asked: unknown) => answered(editFor(places, home, asked)))
     return server.initialize(
       params,

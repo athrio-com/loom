@@ -163,3 +163,12 @@ describe('reading a value through a type', () => {
     expect(read('reference', 'Saying hello')).toBe('Saying hello')
   })
 })
+
+describe("a list in a heading's braces", () => {
+  it('reads as no sink', () => {
+    expect(sectionOf('# Paint {kind=Task tags=[walls, paint]}').heading.sink).toBeUndefined()
+    expect(sectionOf('# Saying hello [hello.ts] {tags=[a, b]}').heading.sink?.file.value).toBe(
+      'hello.ts',
+    )
+  })
+})
