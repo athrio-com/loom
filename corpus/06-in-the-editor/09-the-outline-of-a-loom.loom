@@ -279,7 +279,7 @@ In a chapter, the body runs over every line of the section. In a discussion, the
 
 A heading opens with one hash or more, and a divider with a line of dashes under its label. The table `levelOf` counts a heading's hashes and gives a divider zero. The function `fileOf` finds the file the section's code is tangled to among the files of the loom's product, which name each section as the product pass does, through `sectionNameOf`.
 
-By the time the outline reads a heading, its braces hold parameters alone, since a label such as `{Tangle}` is already written out in full as `{kind=Tangle}`, as the chapter "Small passes over the tree" describes. A box's braces may still hold a label, which names its kind and gives no parameters, as `parametersIn` reads braces of either form. The function `parameterValuesOf` reads the parameters of a heading or a box, all but the keys `keysApart` lists. A key written with one value gives that value, and a key written with a list gives the list, as `writtenValues` reads it.
+By the time the outline reads a heading, its braces hold parameters alone, since a label such as `{Tangle}` is already written out in full as `{kind=Tangle}`, as the chapter "Small passes over the tree" describes. A box's braces may still hold a label, which names its kind and gives no parameters, as `parametersIn` reads braces of either form. The function `parameterValuesOf` reads the parameters of a heading or a box, all but the keys `keysApart` lists. A key written with one value gives that value, and a key written with a list gives the list, even a list of one, as `writtenValues` reads it from the square bracket after the key's equals sign.
 
 =>
 
@@ -288,14 +288,13 @@ const levelOf = byType<HeadingStartToken | DividerToken>()<number>({
   Divider: () => 0,
 })
 
-const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string> =>
-  Array.match(
-    parameter.values.map((value) => value.value),
-    {
-      onEmpty: () => [],
-      onNonEmpty: (values) => (values.length === 1 ? Array.headNonEmpty(values) : values),
-    },
-  )
+const writtenAsList = (parameter: ParameterToken): boolean =>
+  parameter.source.slice(parameter.key.source.length + 1).startsWith('[')
+
+const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string> => {
+  const values = parameter.values.map((value) => value.value)
+  return writtenAsList(parameter) ? values : Option.getOrElse(Array.head(values), () => '')
+}
 
 const parametersIn = byType<SpecifierToken | ParametersToken>()<ReadonlyArray<ParameterToken>>({
   Specifier: () => [],
@@ -733,7 +732,7 @@ const it = effectify(it_)
 
 The book of these cases is a game. Its book loom opens it and defines the concept `Room`, whose other form is `rooms`. Its chapter `Words` stands in Part I, The room, as its second chapter, and announces the part. Its opening prose links the concept by its other form, and a note a reviewer left follows it. Its section `Saying hello` writes the file `hello.ts`, declares a value warp in its prose, and holds code between two runs of prose. Its section `Installing it` switches to Bash and holds fenced code, whose first line would read as a heading. A discussion of Part I, `Waking`, holds one topic, with two messages and a conclusion. A loom with no frontmatter stands loose beside them.
 
-The trope `Tasks` keeps the game's work in the book. Its manifest, `tasksManifest`, declares a kind of loom, `Plan`, a kind of section, `Task`, whose `status` is `todo` or `done` and whose `tags` are a list of text, and a kind of box, `Estimate`, whose `days` are a number. It lets every heading carry an `owner`. The loose loom `The plan` holds one task, `Paint the walls`, with each of those keys in its braces, and an estimate in the task.
+The trope `Tasks` keeps the game's work in the book. Its manifest, `tasksManifest`, declares a kind of loom, `Plan`, a kind of section, `Task`, whose `status` is `todo` or `done` and whose `tags` are a list of text, and a kind of box, `Estimate`, whose `days` are a number. It lets every heading carry an `owner`. The loose loom `The plan` holds two tasks. `Paint the walls` carries each of those keys in its braces, and an estimate whose words hold what would read as a value warp in prose. `Hang the lamps` carries a list of one tag.
 
 =>
 
@@ -849,8 +848,12 @@ const files: Record<string, string> = {
     'Two coats.',
     '',
     '::: Walls {kind=Estimate days=2}',
-    'Two days.',
+    'Two days, {{ drying = 1 }} more to dry.',
     ':::',
+    '',
+    '## Hang the lamps {kind=Task tags=[light]}',
+    '',
+    'Two lamps a room.',
   ),
 }
 
@@ -986,7 +989,7 @@ describe('the concepts of a workspace', () => {
 
 ## A task's keys and boxes in outline
 
-The task `Paint the walls` names its kind and three keys. Its `parameters` give the keys beside `kind`: a value as the author wrote it, and a list with each value unquoted. A section whose braces hold nothing beside `lang`, such as `Installing it`, has no parameters. The task's estimate stands apart from its body, with its kind, its name, its `days`, and its words.
+The task `Paint the walls` names its kind and three keys. Its `parameters` give the keys beside `kind`: a value as the author wrote it, and a list with each value unquoted. A section whose braces hold nothing beside `lang`, such as `Installing it`, has no parameters. The task's estimate stands apart from its body, with its kind, its name, its `days`, and its words. Nothing in a box composes, so the warp in its words declares no variable. The task `Hang the lamps` keeps its one tag as a list.
 
 =>
 
@@ -1001,8 +1004,15 @@ describe('the keys of a section', () => {
       })
       expect(plan.sections[1]?.body).toEqual([{ _tag: 'Prose', text: 'Two coats.' }])
       expect(plan.sections[1]?.boxes).toEqual([
-        { kind: 'Estimate', name: 'Walls', parameters: { days: '2' }, text: 'Two days.' },
+        {
+          kind: 'Estimate',
+          name: 'Walls',
+          parameters: { days: '2' },
+          text: 'Two days, {{ drying = 1 }} more to dry.',
+        },
       ])
+      expect(plan.variables).toEqual([])
+      expect(plan.sections[2]?.parameters).toEqual({ tags: ['light'] })
       const words = yield* outlined('/corpus/words.loom')
       expect(words.sections[2]?.parameters).toEqual({})
     }),

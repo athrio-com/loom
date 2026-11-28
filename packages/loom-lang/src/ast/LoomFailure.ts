@@ -34,6 +34,7 @@ import type {
   SectionExists,
   TitleTaken,
   UnfitName,
+  TakesNoParameters,
   UnfitParameter,
   UnfitText,
 } from '../EditBuilder'
@@ -154,12 +155,31 @@ export type AskingFailure =
   | UnfitName
   | UnfitText
   | UnfitParameter
+  | TakesNoParameters
   | OpensABook
   | NoConfiguration
   | NotAVariableName
   | EditBreaksLoom
 
 const bookWords = (book: string): string => (book === '' ? 'the default book' : `the book ${book}`)
+
+const unfitParameterWords: { readonly [Why in UnfitParameter['why']]: (key: string) => Problem } = {
+  word: (key) =>
+    problem(
+      `The parameter ${JSON.stringify(key)} cannot be a key in braces.`,
+      'Name it with a letter or an underscore, followed by letters, digits, hyphens, and underscores.',
+    ),
+  field: (key) =>
+    problem(
+      `The parameter ${JSON.stringify(key)} has a field of its own.`,
+      'Give the kind or the language in its own field, not among the parameters.',
+    ),
+  line: (key) =>
+    problem(
+      `A value of the parameter ${JSON.stringify(key)} runs over more than one line.`,
+      'Keep each value on one line.',
+    ),
+}
 
 const askingWording: Wording<AskingFailure> = {
   RequestUnread: ({ request, cause }) =>
@@ -233,17 +253,18 @@ const askingWording: Wording<AskingFailure> = {
   UnfitName: ({ name }) =>
     problem(
       `The name ${JSON.stringify(name)} cannot stand in a loom.`,
-      'Give a name that holds words, on one line.',
+      'Give a name that holds words, on one line, with no brace or square bracket where it stands on a heading or a box.',
     ),
   UnfitText: ({ line }) =>
     problem(
       `The line ${JSON.stringify(line)} would read as Loom's syntax, not as words.`,
       'Reword it so it does not open as a heading, an arrow, a tilde, a divider, or a box does, and close any fence it opens.',
     ),
-  UnfitParameter: ({ key }) =>
+  UnfitParameter: ({ key, why }) => unfitParameterWords[why](key),
+  TakesNoParameters: ({ path, section }) =>
     problem(
-      `The parameter ${JSON.stringify(key)} cannot stand in braces.`,
-      'Name it with a letter or an underscore followed by letters, digits, hyphens, and underscores, keep each of its values on one line, and give a kind or a language in its own field.',
+      `The section ${section} of ${path} opens with a division, whose line holds no braces.`,
+      'Give parameters to a section that opens with a heading.',
     ),
   OpensABook: ({ path }) =>
     problem(

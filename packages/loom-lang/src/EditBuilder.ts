@@ -231,7 +231,15 @@ export class UnfitName extends Data.TaggedError('UnfitName')<{ readonly name: st
 
 export class UnfitText extends Data.TaggedError('UnfitText')<{ readonly line: string }> {}
 
-export class UnfitParameter extends Data.TaggedError('UnfitParameter')<{ readonly key: string }> {}
+export class UnfitParameter extends Data.TaggedError('UnfitParameter')<{
+  readonly key: string
+  readonly why: 'word' | 'field' | 'line'
+}> {}
+
+export class TakesNoParameters extends Data.TaggedError('TakesNoParameters')<{
+  readonly path: Location
+  readonly section: string
+}> {}
 
 export class OpensABook extends Data.TaggedError('OpensABook')<{ readonly path: Location }> {}
 
@@ -263,6 +271,7 @@ export type EditRefusal =
   | UnfitName
   | UnfitText
   | UnfitParameter
+  | TakesNoParameters
   | OpensABook
   | NoConfiguration
   | NotAVariableName
@@ -288,24 +297,49 @@ const fitChosen = (name: string | undefined): Result.Result<Option.Option<string
     onSome: (given) => Result.map(fitName(given), Option.some),
   })
 
+const fitTitle = (name: string): Result.Result<string, UnfitName> =>
+  Result.flatMap(fitName(name), (fit) =>
+    /[{}[\]]/.test(fit) ? Result.fail(new UnfitName({ name })) : Result.succeed(fit),
+  )
+
+const fitChosenTitle = (name: string | undefined): Result.Result<Option.Option<string>, UnfitName> =>
+  Option.match(Option.fromNullishOr(name), {
+    onNone: () => Result.succeed(Option.none()),
+    onSome: (given) => Result.map(fitTitle(given), Option.some),
+  })
+
 const keyWord = /^[A-Za-z_][A-Za-z0-9_-]*$/
 
 const valuesOf = (value: string | ReadonlyArray<string>): ReadonlyArray<string> =>
   typeof value === 'string' ? [value] : value
 
-const unfitKey = ([key, value]: readonly [string, string | ReadonlyArray<string>]): boolean =>
-  !keyWord.test(key) ||
-  Array.contains(keysApart, key) ||
-  valuesOf(value).some((written) => /[\r\n]/.test(written))
+const unfitWhy = Match.fn(
+  ([key, value]: readonly [string, string | ReadonlyArray<string>]) => ({
+    word: keyWord.test(key),
+    own: Array.contains(keysApart, key),
+    lines: valuesOf(value).some((written) => /[\r\n]/.test(written)),
+  }),
+).pipe(
+  Match.withReturnType<Option.Option<UnfitParameter['why']>>(),
+  Match.when({ word: false }, () => Option.some('word' as const)),
+  Match.when({ own: true }, () => Option.some('field' as const)),
+  Match.when({ lines: true }, () => Option.some('line' as const)),
+  Match.orElse(() => Option.none()),
+)
 
 const fitParameters = (
   parameters: ParameterValues | undefined,
 ): Result.Result<ParameterValues, UnfitParameter> => {
   const given = Option.getOrElse(Option.fromNullishOr(parameters), (): ParameterValues => ({}))
-  return Option.match(Array.findFirst(Object.entries(given), unfitKey), {
-    onSome: ([key]) => Result.fail(new UnfitParameter({ key })),
-    onNone: () => Result.succeed(given),
-  })
+  return Option.match(
+    Array.findFirst(Object.entries(given), (entry) =>
+      Option.map(unfitWhy(entry), (why) => ({ key: entry[0], why })),
+    ),
+    {
+      onSome: ({ key, why }) => Result.fail(new UnfitParameter({ key, why })),
+      onNone: () => Result.succeed(given),
+    },
+  )
 }
 
 type Spot = Data.TaggedEnum<{
@@ -1221,7 +1255,7 @@ const madeLoom = (
     const kind = yield* fitName(intent.kind)
     const language = yield* fitChosen(intent.language)
     const target = yield* partChosen({ catalogue, book }, intent.part)
-    const title = yield* fitName(intent.title)
+    const title = yield* fitTitle(intent.title)
     yield* titleFreeIn(catalogue, book, target, title, Option.none())
     const parts = partNumbering(catalogue, book, Option.none(), target)
     const placement = yield* placing(
@@ -1265,7 +1299,7 @@ const madeBook = (
 ): Result.Result<LoomEdit, EditRefusal> =>
   Result.gen(function* () {
     const path = yield* freePath(context, intent.uri)
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* bookOpened(context.corpus, name)
       ? Result.fail(new BookExists({ book: name }))
       : Result.succeed(name)
@@ -1433,7 +1467,7 @@ const retitledLoom = (
     const catalogue = catalogueOf(context.corpus.modules)
     const path = context.locate(intent.uri)
     const module = yield* loomAt(context.corpus, path)
-    const title = yield* fitName(intent.title)
+    const title = yield* fitTitle(intent.title)
     yield* Option.match(chapterOf(catalogue, path), {
       onNone: () => Result.succeed(title),
       onSome: (chapter) =>
@@ -1476,7 +1510,7 @@ const renamedBook = (
       Option.filter(bookLine(context.corpus, intent.book), () => intent.book !== ''),
       () => new NoSuchBook({ book: intent.book }),
     )
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* catalogue.books.has(name)
       ? Result.fail(new BookExists({ book: name }))
       : Result.succeed(name)
@@ -1852,6 +1886,37 @@ const bracesAnew = (
     }),
   })
 
+const takesParameters = (
+  module: LoomModule,
+  section: LoomSection,
+): Result.Result<LoomSection, TakesNoParameters> =>
+  section.heading.marker.type === 'Divider'
+    ? Result.fail(
+        new TakesNoParameters({
+          path: module.path,
+          section: Option.getOrElse(titleOfSection(section), () => ''),
+        }),
+      )
+    : Result.succeed(section)
+
+const topicBodyEnd = (module: LoomModule, section: LoomSection): number =>
+  Math.min(
+    nextStart(module, section),
+    ...Option.toArray(Option.map(Array.head(section.code), (line) => line.position.start.offset)),
+    ...boxesOfKind(module, section, conclusionKind).map(
+      (opened) => opened.opener.position.start.offset,
+    ),
+  )
+
+const joinedSplices = (braces: Option.Option<Splice>, body: Splice): ReadonlyArray<Splice> =>
+  Option.match(braces, {
+    onNone: () => [body],
+    onSome: (anew) =>
+      anew.end === body.start
+        ? [{ ...anew, end: body.end, text: `${anew.text}${body.text}` }]
+        : [anew, body],
+  })
+
 const replacedSection = (
   context: EditContext,
   intent: Intent<'ReplaceSection'>,
@@ -1861,17 +1926,18 @@ const replacedSection = (
     const section = yield* sectionAsked(module, intent.section)
     const body = yield* fitBody(intent.body)
     const braces = yield* Option.match(Option.fromNullishOr(intent.parameters), {
-      onNone: () => Result.succeed<ReadonlyArray<Splice>>([]),
+      onNone: () => Result.succeed(Option.none<Splice>()),
       onSome: (given) =>
-        Result.map(fitParameters(given), (fit) => [bracesAnew(module, section, fit)]),
+        Result.gen(function* () {
+          yield* takesParameters(module, section)
+          const fit = yield* fitParameters(given)
+          return Option.some(bracesAnew(module, section, fit))
+        }),
     })
     const start = bodyStart(module, section)
     const end =
       loomKindOf(module) === discussionKind
-        ? Option.getOrElse(
-            Option.map(Array.head(section.code), (line) => line.position.start.offset),
-            () => nextStart(module, section),
-          )
+        ? topicBodyEnd(module, section)
         : nextStart(module, section)
     const kept = boxesIn(module, section).filter(
       (opened) =>
@@ -1886,10 +1952,14 @@ const replacedSection = (
     const opening = breakBefore(module.text, start) > 0 ? '' : '\n'
     const middle = written === '' ? '' : `\n${written}\n`
     const closing = end < module.text.length ? '\n' : ''
-    return editOf([
-      ...braces,
-      { path: module.path, start, end, text: `${opening}${middle}${closing}` },
-    ])
+    return editOf(
+      joinedSplices(braces, {
+        path: module.path,
+        start,
+        end,
+        text: `${opening}${middle}${closing}`,
+      }),
+    )
   })
 
 const labelWord = /^[a-zA-Z0-9_-]+(?: [a-zA-Z0-9_-]+)*$/
@@ -1906,7 +1976,9 @@ const keyed = (key: string, value: Option.Option<string>): ParameterValues =>
   Option.match(value, { onNone: () => ({}), onSome: (named) => ({ [key]: named }) })
 
 const keysOf = (parameters: ParameterValues): ReadonlyArray<string> =>
-  Object.entries(parameters).map(([key, value]) => `${key}=${writtenValue(value)}`)
+  Object.entries(parameters)
+    .filter(([, value]) => valuesOf(value).length > 0)
+    .map(([key, value]) => `${key}=${writtenValue(value)}`)
 
 const bracesWith = (label: Option.Option<string>, keys: ReadonlyArray<string>): string =>
   Option.match(label, {
@@ -1987,7 +2059,7 @@ const addedSection = (
 ): Result.Result<LoomEdit, EditRefusal> =>
   Result.gen(function* () {
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* nameFree(module, name, Option.none())
     const kind = yield* fitChosen(intent.kind)
     const language = yield* fitChosen(intent.language)
@@ -2043,7 +2115,7 @@ const renamedSection = (
   Result.gen(function* () {
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* nameFree(module, name, Option.some(section))
     const offset = Option.getOrElse(
       Option.map(
@@ -2086,7 +2158,7 @@ const addedBox = (
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
     const kind = yield* fitChosen(intent.kind)
-    const name = yield* fitChosen(intent.name)
+    const name = yield* fitChosenTitle(intent.name)
     const parameters = yield* fitParameters(intent.parameters)
     const words = blockOf((yield* fitBoxedText(intent.text)).split(/\r?\n/))
     const at = contentEnd(section.preamble, bodyStart(module, section))

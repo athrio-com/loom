@@ -173,8 +173,12 @@ const files: Record<string, string> = {
     'Two coats.',
     '',
     '::: Walls {kind=Estimate days=2}',
-    'Two days.',
+    'Two days, {{ drying = 1 }} more to dry.',
     ':::',
+    '',
+    '## Hang the lamps {kind=Task tags=[light]}',
+    '',
+    'Two lamps a room.',
   ),
 }
 
@@ -269,8 +273,15 @@ describe('the keys of a section', () => {
       })
       expect(plan.sections[1]?.body).toEqual([{ _tag: 'Prose', text: 'Two coats.' }])
       expect(plan.sections[1]?.boxes).toEqual([
-        { kind: 'Estimate', name: 'Walls', parameters: { days: '2' }, text: 'Two days.' },
+        {
+          kind: 'Estimate',
+          name: 'Walls',
+          parameters: { days: '2' },
+          text: 'Two days, {{ drying = 1 }} more to dry.',
+        },
       ])
+      expect(plan.variables).toEqual([])
+      expect(plan.sections[2]?.parameters).toEqual({ tags: ['light'] })
       const words = yield* outlined('/corpus/words.loom')
       expect(words.sections[2]?.parameters).toEqual({})
     }),

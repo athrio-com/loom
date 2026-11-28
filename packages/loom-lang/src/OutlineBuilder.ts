@@ -245,14 +245,13 @@ const levelOf = byType<HeadingStartToken | DividerToken>()<number>({
   Divider: () => 0,
 })
 
-const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string> =>
-  Array.match(
-    parameter.values.map((value) => value.value),
-    {
-      onEmpty: () => [],
-      onNonEmpty: (values) => (values.length === 1 ? Array.headNonEmpty(values) : values),
-    },
-  )
+const writtenAsList = (parameter: ParameterToken): boolean =>
+  parameter.source.slice(parameter.key.source.length + 1).startsWith('[')
+
+const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string> => {
+  const values = parameter.values.map((value) => value.value)
+  return writtenAsList(parameter) ? values : Option.getOrElse(Array.head(values), () => '')
+}
 
 const parametersIn = byType<SpecifierToken | ParametersToken>()<ReadonlyArray<ParameterToken>>({
   Specifier: () => [],

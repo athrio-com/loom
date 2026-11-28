@@ -132,6 +132,12 @@ describe('a loom with no heading', () => {
     expect(titleOf(lines(`Read ${anchor('The details')} first.`))).toBe('Read The details first')
   })
 
+  it('reads its opening words after a box that opens it', () => {
+    expect(titleOf(lines(':::', 'Check the date.', ':::', '', 'Spring came early.'))).toBe(
+      'Spring came early',
+    )
+  })
+
   it('cuts a long sentence at a word and ends it on an ellipsis', () => {
     expect(
       titleOf(

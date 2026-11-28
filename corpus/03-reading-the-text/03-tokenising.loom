@@ -27,7 +27,7 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
       (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
         Array.mapAccum(wefts, noQuote, (state, weft) => {
           const [next, skipAnchors] = quoteStep(state, weft)
-          return [next, tokeniseWeft(weft, text, delims, skipAnchors)]
+          return [next, tokeniseWeft(weft, text, delims, skipAnchors, state.inBox)]
         })[1],
   }),
 }) {
@@ -62,14 +62,14 @@ const quoteStep = (state: QuoteState, weft: LoomWeft): readonly [QuoteState, boo
 
 const tokeniseWeft = byType<
   LoomWeft,
-  [text: string, delims: AnchorDelims, skipAnchors: boolean]
+  [text: string, delims: AnchorDelims, skipAnchors: boolean, inBox: boolean]
 >()<LoomWeft>({
   HeadingWeft: (w, text) => tokeniseHeading(text, w),
   ArrowWeft: (w, text, delims) => tokeniseArrow(text, w, delims),
   TildeWeft: (w, text, delims, skipAnchors) =>
     tokeniseTilde(text, w, delims, skipAnchors),
-  PreambleWeft: (w, text, delims, skipAnchors) =>
-    tokenisePreamble(text, w, delims, skipAnchors),
+  PreambleWeft: (w, text, delims, skipAnchors, inBox) =>
+    tokenisePreamble(text, w, delims, skipAnchors, inBox),
   ProseWeft: (w, text, delims, skipAnchors) =>
     tokeniseProse(text, w, delims, skipAnchors),
   CodeWeft: (w, text, delims) => tokeniseCode(text, w, delims),
@@ -330,7 +330,7 @@ const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
 
 ## Body wefts
 
-These handlers fill the body wefts. `inlineAfter` pulls a line's inline content after its marker — the code after `=>`, the prose after `~`. `tokeniseArrow` and `tokeniseCode` scan a code line for its `::[name]` anchors. `tokeniseTilde`, `tokenisePreamble`, and `tokeniseProse` scan a prose line for its anchors, and the preamble for its warps too. `maskInlineCode` blanks an inline code span before the scan, and `blankIfSkipped` blanks the whole line inside a fence, so a token survives only where Markdown leaves it live. Each aggregates its subtokens' health into the weft. A preamble or prose weft that carries a box is a line of colons, not of prose, so `tokenisePreamble` and `tokeniseProse` hand it to `tokeniseBoxLine`, which the section "A box line" describes.
+These handlers fill the body wefts. `inlineAfter` pulls a line's inline content after its marker — the code after `=>`, the prose after `~`. `tokeniseArrow` and `tokeniseCode` scan a code line for its `::[name]` anchors. `tokeniseTilde`, `tokenisePreamble`, and `tokeniseProse` scan a prose line for its anchors, and the preamble for its warps too. `maskInlineCode` blanks an inline code span before the scan, and `blankIfSkipped` blanks the whole line inside a fence, so a token survives only where Markdown leaves it live. A line within a box declares no warp either, since nothing in a box composes, so a preamble line hears whether it stands in one, from the box state `quoteStep` keeps, and blanks its line for the warps alone. Its links still read, as they do in a box in the prose after a tilde. Each aggregates its subtokens' health into the weft. A preamble or prose weft that carries a box is a line of colons, not of prose, so `tokenisePreamble` and `tokeniseProse` hand it to `tokeniseBoxLine`, which the section "A box line" describes.
 
 =>
 
@@ -431,10 +431,11 @@ const tokenisePreamble = (
   weft: PreambleWeft,
   delims: AnchorDelims,
   skipAnchors: boolean,
+  inBox: boolean,
 ): LoomWeft =>
   Option.match(Option.fromNullishOr(weft.box), {
     onSome: (box) => tokeniseBoxLine(text, weft, box),
-    onNone: () => tokenisePreambleLine(text, weft, delims, skipAnchors),
+    onNone: () => tokenisePreambleLine(text, weft, delims, skipAnchors, inBox),
   })
 
 const tokenisePreambleLine = (
@@ -442,10 +443,15 @@ const tokenisePreambleLine = (
   weft: PreambleWeft,
   delims: AnchorDelims,
   skipAnchors: boolean,
+  inBox: boolean,
 ): LoomWeft => {
   const lineText = lineSlice(text, weft.position)
   const scanText = blankIfSkipped(lineText, skipAnchors)
-  const { tokens: warps, unexpected: warpStray } = constructWarps(lineText, weft.position, scanText)
+  const { tokens: warps, unexpected: warpStray } = constructWarps(
+    lineText,
+    weft.position,
+    blankIfSkipped(lineText, skipAnchors || inBox),
+  )
   const { tokens: anchors, unexpected: anchorStray } = constructAnchors(
     lineText,
     weft.position,

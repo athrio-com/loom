@@ -643,12 +643,100 @@ describe('sections with keys', () => {
             parameters,
             body: [],
           }),
-          (failed) => (failed._tag === 'UnfitParameter' ? failed.key : failed._tag),
+          (failed) => (failed._tag === 'UnfitParameter' ? `${failed.key}: ${failed.why}` : failed._tag),
         )
-      expect(yield* sweep({ 'two words': 'x' })).toBe('two words')
-      expect(yield* sweep({ kind: 'Task' })).toBe('kind')
-      expect(yield* sweep({ status: 'two\nlines' })).toBe('status')
+      expect(yield* sweep({ 'two words': 'x' })).toBe('two words: word')
+      expect(yield* sweep({ kind: 'Task' })).toBe('kind: field')
+      expect(yield* sweep({ status: 'two\nlines' })).toBe('status: line')
       expect(yield* sweep({ status: 'maybe' })).toBe('EditBreaksLoom')
+    }),
+  )
+})
+
+describe('keys and boxes at the edges', () => {
+  const bells = lines(
+    '---',
+    'Part I, Discussion 2: Bells',
+    'Book: The game',
+    '---',
+    '',
+    '# Bells',
+    '',
+    'When to ring.',
+    '',
+    'Ringing',
+    '---',
+    '',
+    'Opening words.',
+    '',
+    '::: {Conclusion}',
+    'Use bells.',
+    ':::',
+  )
+  const belled = { ...game, '/corpus/bells.loom': bells }
+  const ringing = {
+    _tag: 'ReplaceSection',
+    uri: '/corpus/bells.loom',
+    section: 'Ringing',
+    body: [{ _tag: 'Prose', text: 'New words.' }],
+  } as const
+
+  it.effect('keeps a conclusion before any message, and refuses keys on a topic', () =>
+    Effect.gen(function* () {
+      const replaced = yield* afterEdit(belled, ringing)
+      expect(replaced['/corpus/bells.loom']).toBe(bells.replace('Opening words.', 'New words.'))
+      expect(yield* refused(belled, { ...ringing, parameters: { owner: 'Yegor' } })).toBe(
+        'TakesNoParameters',
+      )
+    }),
+  )
+
+  it.effect('writes braces and a body to a heading that ends the loom', () =>
+    Effect.gen(function* () {
+      const ended = { ...tasks, '/corpus/end.loom': '# End\n\n## Sweep' }
+      const swept = yield* afterEdit(ended, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/end.loom',
+        section: 'Sweep',
+        body: [{ _tag: 'Prose', text: 'Fresh.' }],
+        parameters: { owner: 'Yegor' },
+      })
+      expect(swept['/corpus/end.loom']).toBe('# End\n\n## Sweep {owner=Yegor}\n\nFresh.\n')
+    }),
+  )
+
+  it.effect('leaves out a key given an empty list', () =>
+    Effect.gen(function* () {
+      const cleared = yield* afterEdit(tasks, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/plan.loom',
+        section: 'Paint the walls',
+        body: [{ _tag: 'Prose', text: 'Two coats.' }],
+        parameters: { status: 'todo', tags: [] },
+      })
+      expect(cleared['/corpus/plan.loom']).toBe(plan)
+    }),
+  )
+
+  it.effect('refuses a name that would read as a file or as braces', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* refused(game, {
+          _tag: 'AddSection',
+          uri: '/corpus/grid.loom',
+          name: 'Notes [draft]',
+          body: [],
+        }),
+      ).toBe('UnfitName')
+      expect(
+        yield* refused(game, {
+          _tag: 'AddBox',
+          uri: '/corpus/grid.loom',
+          section: 'Cells',
+          name: 'Colour {Note}',
+          text: 'Which colour?',
+        }),
+      ).toBe('UnfitName')
     }),
   )
 })

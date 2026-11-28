@@ -1,11 +1,12 @@
 import { Array, Option, Order, pipe, Schema } from 'effect'
 import { discussionKind } from '@athrio/loom-ast/LoomTokens'
-import type { PreambleWeft } from '@athrio/loom-ast/Weft'
+import type { LoomWeft, PreambleWeft } from '@athrio/loom-ast/Weft'
 import {
   bookOf,
   claimedKind,
   isBookLoom,
   loomKindOf,
+  openedBoxesOf,
   ordinalOf,
   zoneOf,
   type Location,
@@ -154,10 +155,21 @@ const wordsOf = (line: PreambleWeft): string =>
     )
     .trim()
 
-const proseLinesOf = (module: LoomModule): ReadonlyArray<string> =>
-  [...module.doc.preamble, ...module.doc.sections.flatMap((section) => section.preamble)]
-    .filter((line) => line.box === undefined)
+const boxLinesOf = (module: LoomModule): ReadonlySet<LoomWeft> =>
+  new Set(
+    openedBoxesOf(module.doc).flatMap((opened) => [
+      opened.opener,
+      ...opened.body,
+      ...Option.toArray(opened.closer),
+    ]),
+  )
+
+const proseLinesOf = (module: LoomModule): ReadonlyArray<string> => {
+  const boxed = boxLinesOf(module)
+  return [...module.doc.preamble, ...module.doc.sections.flatMap((section) => section.preamble)]
+    .filter((line) => !boxed.has(line))
     .map(wordsOf)
+}
 
 const holdsWords = (line: string): boolean => /[\p{L}\p{N}]/u.test(line)
 

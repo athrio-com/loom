@@ -158,7 +158,7 @@ A reader meets a loom by its title: at the top of its page, in the menu, in an e
 
 A loom with neither is prose with no name of its own, such as a short post. It goes by its opening words, the way a notes application lists a note nobody titled. A loom that holds no prose at all goes by the name of its file, which the function `fileNameOf` reads.
 
-The opening words are the first sentence of the loom's first paragraph, and the function `openingWordsOf` reads them. It starts from the lines of prose a loom holds before any code, which the function `proseLinesOf` lists, leaving out the lines of colons that open and close a box. Each line is read by the function `wordsOf`, which writes an anchor as the name the anchor holds, so a menu shows no `::` mark. The function `firstParagraphOf` skips the lines that hold no letter or digit, then joins the lines up to the next blank one. The function `firstSentenceOf` cuts that paragraph where its first sentence ends.
+The opening words are the first sentence of the loom's first paragraph, and the function `openingWordsOf` reads them. It starts from the lines of prose a loom holds before any code, which the function `proseLinesOf` lists, leaving out every line of a box, the lines of colons that open and close it and the words between them, as `boxLinesOf` gathers them, since a box is a remark beside the loom's own words. Each line is read by the function `wordsOf`, which writes an anchor as the name the anchor holds, so a menu shows no `::` mark. The function `firstParagraphOf` skips the lines that hold no letter or digit, then joins the lines up to the next blank one. The function `firstSentenceOf` cuts that paragraph where its first sentence ends.
 
 A title carries no closing full stop, so the sentence loses its own. A sentence longer than sixty characters is too long for a menu, so the function `fitted` keeps the words of it that fit within sixty characters and closes them with an ellipsis.
 
@@ -185,10 +185,21 @@ const wordsOf = (line: PreambleWeft): string =>
     )
     .trim()
 
-const proseLinesOf = (module: LoomModule): ReadonlyArray<string> =>
-  [...module.doc.preamble, ...module.doc.sections.flatMap((section) => section.preamble)]
-    .filter((line) => line.box === undefined)
+const boxLinesOf = (module: LoomModule): ReadonlySet<LoomWeft> =>
+  new Set(
+    openedBoxesOf(module.doc).flatMap((opened) => [
+      opened.opener,
+      ...opened.body,
+      ...Option.toArray(opened.closer),
+    ]),
+  )
+
+const proseLinesOf = (module: LoomModule): ReadonlyArray<string> => {
+  const boxed = boxLinesOf(module)
+  return [...module.doc.preamble, ...module.doc.sections.flatMap((section) => section.preamble)]
+    .filter((line) => !boxed.has(line))
     .map(wordsOf)
+}
 
 const holdsWords = (line: string): boolean => /[\p{L}\p{N}]/u.test(line)
 
@@ -430,18 +441,19 @@ const toTocBackLoom = (loom: BackLoom): TocBackLoom =>
 
 ## What the builder draws on
 
-The builder reads the Loom AST and writes the contents model, so it draws from both. From `effect` come the array and option combinators, `Order` for the sort, `pipe` for the spine, and `Schema` for the model. From the Loom side come the corpus, the module a chapter is, and the `Location` of the root, with `bookOf`, which reads the book a loom names, `isBookLoom`, which tells a loom that opens a book, and `zoneOf`, `loomKindOf`, `ordinalOf`, and `claimedKind`, which read where a loom sits, its kind, its number, and the kind a trope declares for it. The chapter "The leaf tokens" gives `discussionKind`, and the chapter "Wefts" gives the type `PreambleWeft`, the line of prose a loom's opening words are read from.
+The builder reads the Loom AST and writes the contents model, so it draws from both. From `effect` come the array and option combinators, `Order` for the sort, `pipe` for the spine, and `Schema` for the model. From the Loom side come the corpus, the module a chapter is, and the `Location` of the root, with `bookOf`, which reads the book a loom names, `isBookLoom`, which tells a loom that opens a book, and `zoneOf`, `loomKindOf`, `ordinalOf`, and `claimedKind`, which read where a loom sits, its kind, its number, and the kind a trope declares for it. The chapter "The leaf tokens" gives `discussionKind`, and the chapter "Wefts" gives the type `PreambleWeft`, the line of prose a loom's opening words are read from, and `LoomWeft`, any line. The corpus gives `openedBoxesOf`, which finds a loom's boxes.
 
 =>
 
 import { Array, Option, Order, pipe, Schema } from 'effect'
 import { discussionKind } from '@athrio/loom-ast/LoomTokens'
-import type { PreambleWeft } from '@athrio/loom-ast/Weft'
+import type { LoomWeft, PreambleWeft } from '@athrio/loom-ast/Weft'
 import {
   bookOf,
   claimedKind,
   isBookLoom,
   loomKindOf,
+  openedBoxesOf,
   ordinalOf,
   zoneOf,
   type Location,

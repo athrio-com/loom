@@ -56,6 +56,7 @@ import {
   SectionExists,
   TitleTaken,
   UnfitName,
+  TakesNoParameters,
   UnfitParameter,
   UnfitText,
 } from '../src/EditBuilder'
@@ -124,7 +125,8 @@ const samples: {
   NotADiscussion: new NotADiscussion({ path: '/book/ledger.loom' }),
   UnfitName: new UnfitName({ name: 'Two\nlines' }),
   UnfitText: new UnfitText({ line: '## Smuggled' }),
-  UnfitParameter: new UnfitParameter({ key: 'two words' }),
+  UnfitParameter: new UnfitParameter({ key: 'two words', why: 'word' }),
+  TakesNoParameters: new TakesNoParameters({ path: '/book/talk.loom', section: 'Traps' }),
   OpensABook: new OpensABook({ path: '/book/book.loom' }),
   NoConfiguration: new NoConfiguration({ workspace: '/book' }),
   NotAVariableName: new NotAVariableName({ name: '2fast' }),

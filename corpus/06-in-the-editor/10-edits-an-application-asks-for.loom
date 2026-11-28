@@ -186,9 +186,10 @@ An intent may ask for what cannot be done. Each refusal is a failure of the cata
 - The failure `OpensTheLoom`: the `section` an intent removes or moves opens the loom at `path` and carries its title.
 - The failure `NoSuchNote`: the `section` holds no note with the `text`.
 - The failure `NotADiscussion`: the loom at `path` is no discussion, so it has no topics.
-- The failure `UnfitName`: the `name` is empty or runs over more than one line, so it cannot stand in a heading or a frontmatter line.
+- The failure `UnfitName`: the `name` is empty or runs over more than one line, so it cannot stand in a heading or a frontmatter line, or it holds a brace or a square bracket where it stands on a heading's line or a box's, which would read there as the line's braces or its file.
 - The failure `UnfitText`: a `line` of prose, of a message, or of a note would read as Loom's syntax, so the words would change the loom's structure.
-- The failure `UnfitParameter`: the parameter `key` cannot stand in braces. Its key is no word braces read as a key, or it is `kind` or `lang`, which an intent gives in fields of their own, or a value of it runs over more than one line.
+- The failure `UnfitParameter`: the parameter `key` cannot stand in braces, for the reason its `why` names. Its key is no word braces read as a key, `word`, or it is `kind` or `lang`, which an intent gives in fields of their own, `field`, or a value of it runs over more than one line, `line`.
+- The failure `TakesNoParameters`: the `section` of the loom at `path` opens with a division, whose label line holds no braces, so an intent cannot give it parameters.
 - The failure `OpensABook`: the loom at `path` opens a book, and a book loom stands in no part.
 - The failure `NoConfiguration`: the `workspace` has no configuration to set a variable in.
 - The failure `EditBreaksLoom`: the check found that the edit would leave the loom at `path` with the `problems` it lists.
@@ -259,7 +260,15 @@ export class UnfitName extends Data.TaggedError('UnfitName')<{ readonly name: st
 
 export class UnfitText extends Data.TaggedError('UnfitText')<{ readonly line: string }> {}
 
-export class UnfitParameter extends Data.TaggedError('UnfitParameter')<{ readonly key: string }> {}
+export class UnfitParameter extends Data.TaggedError('UnfitParameter')<{
+  readonly key: string
+  readonly why: 'word' | 'field' | 'line'
+}> {}
+
+export class TakesNoParameters extends Data.TaggedError('TakesNoParameters')<{
+  readonly path: Location
+  readonly section: string
+}> {}
 
 export class OpensABook extends Data.TaggedError('OpensABook')<{ readonly path: Location }> {}
 
@@ -291,6 +300,7 @@ export type EditRefusal =
   | UnfitName
   | UnfitText
   | UnfitParameter
+  | TakesNoParameters
   | OpensABook
   | NoConfiguration
   | NotAVariableName
@@ -303,7 +313,9 @@ The function `loomAt` finds the loom at a location, and the corpus's `chapterOf`
 
 The function `fitName` takes a name or a title as an author gives it, without the spaces at either end, and refuses one that is empty or runs over more than one line. A loom's kind and a section's language stand on a line too, in the frontmatter or in a heading's braces, so the same test judges them. A name on two lines would write a line of its own into the frontmatter, such as a `Book` line the author never asked for. An intent may leave a language or a section's kind out, and `fitChosen` judges one that it gives.
 
-The function `fitParameters` judges the parameters an intent gives, and refuses the first that cannot stand in braces with `UnfitParameter`. A key must read as one, as `keyWord` matches it: a letter or an underscore, then letters, digits, hyphens, and underscores, as the chapter "The tokeniser stage" reads a key. It must not be one of the keys `keysApart` lists, since the intent names those in fields of its own. A value stands on the heading's line or the box's, so no value may run over more than one line, and `valuesOf` lists a key's values whether it holds one or a list. An intent that gives no parameters gives an empty table.
+A name that stands on a heading's line or a box's line must also hold no brace and no square bracket, as `fitTitle` judges it. On such a line a brace opens the line's braces and a square bracket opens its file, so a section named `Notes [draft]` would tangle to a file called `draft`. A section's name, a box's name, a loom's title and a book's name stand on such a line, since a new loom opens with its title as a heading. The function `fitChosenTitle` judges such a name when an intent may leave it out, as a box's name.
+
+The function `fitParameters` judges the parameters an intent gives, and refuses the first that cannot stand in braces with `UnfitParameter`, which says why, as `unfitWhy` finds it. A key must read as one, as `keyWord` matches it: a letter or an underscore, then letters, digits, hyphens, and underscores, as the chapter "The tokeniser stage" reads a key. It must not be one of the keys `keysApart` lists, since the intent names those in fields of its own. A value stands on the heading's line or the box's, so no value may run over more than one line, and `valuesOf` lists a key's values whether it holds one or a list. An intent that gives no parameters gives an empty table.
 
 =>
 
@@ -328,24 +340,49 @@ const fitChosen = (name: string | undefined): Result.Result<Option.Option<string
     onSome: (given) => Result.map(fitName(given), Option.some),
   })
 
+const fitTitle = (name: string): Result.Result<string, UnfitName> =>
+  Result.flatMap(fitName(name), (fit) =>
+    /[{}[\]]/.test(fit) ? Result.fail(new UnfitName({ name })) : Result.succeed(fit),
+  )
+
+const fitChosenTitle = (name: string | undefined): Result.Result<Option.Option<string>, UnfitName> =>
+  Option.match(Option.fromNullishOr(name), {
+    onNone: () => Result.succeed(Option.none()),
+    onSome: (given) => Result.map(fitTitle(given), Option.some),
+  })
+
 const keyWord = /^[A-Za-z_][A-Za-z0-9_-]*$/
 
 const valuesOf = (value: string | ReadonlyArray<string>): ReadonlyArray<string> =>
   typeof value === 'string' ? [value] : value
 
-const unfitKey = ([key, value]: readonly [string, string | ReadonlyArray<string>]): boolean =>
-  !keyWord.test(key) ||
-  Array.contains(keysApart, key) ||
-  valuesOf(value).some((written) => /[\r\n]/.test(written))
+const unfitWhy = Match.fn(
+  ([key, value]: readonly [string, string | ReadonlyArray<string>]) => ({
+    word: keyWord.test(key),
+    own: Array.contains(keysApart, key),
+    lines: valuesOf(value).some((written) => /[\r\n]/.test(written)),
+  }),
+).pipe(
+  Match.withReturnType<Option.Option<UnfitParameter['why']>>(),
+  Match.when({ word: false }, () => Option.some('word' as const)),
+  Match.when({ own: true }, () => Option.some('field' as const)),
+  Match.when({ lines: true }, () => Option.some('line' as const)),
+  Match.orElse(() => Option.none()),
+)
 
 const fitParameters = (
   parameters: ParameterValues | undefined,
 ): Result.Result<ParameterValues, UnfitParameter> => {
   const given = Option.getOrElse(Option.fromNullishOr(parameters), (): ParameterValues => ({}))
-  return Option.match(Array.findFirst(Object.entries(given), unfitKey), {
-    onSome: ([key]) => Result.fail(new UnfitParameter({ key })),
-    onNone: () => Result.succeed(given),
-  })
+  return Option.match(
+    Array.findFirst(Object.entries(given), (entry) =>
+      Option.map(unfitWhy(entry), (why) => ({ key: entry[0], why })),
+    ),
+    {
+      onSome: ({ key, why }) => Result.fail(new UnfitParameter({ key, why })),
+      onNone: () => Result.succeed(given),
+    },
+  )
 }
 
 ## First, last, or after another
@@ -1405,7 +1442,7 @@ const madeLoom = (
     const kind = yield* fitName(intent.kind)
     const language = yield* fitChosen(intent.language)
     const target = yield* partChosen({ catalogue, book }, intent.part)
-    const title = yield* fitName(intent.title)
+    const title = yield* fitTitle(intent.title)
     yield* titleFreeIn(catalogue, book, target, title, Option.none())
     const parts = partNumbering(catalogue, book, Option.none(), target)
     const placement = yield* placing(
@@ -1455,7 +1492,7 @@ const madeBook = (
 ): Result.Result<LoomEdit, EditRefusal> =>
   Result.gen(function* () {
     const path = yield* freePath(context, intent.uri)
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* bookOpened(context.corpus, name)
       ? Result.fail(new BookExists({ book: name }))
       : Result.succeed(name)
@@ -1649,7 +1686,7 @@ const retitledLoom = (
     const catalogue = catalogueOf(context.corpus.modules)
     const path = context.locate(intent.uri)
     const module = yield* loomAt(context.corpus, path)
-    const title = yield* fitName(intent.title)
+    const title = yield* fitTitle(intent.title)
     yield* Option.match(chapterOf(catalogue, path), {
       onNone: () => Result.succeed(title),
       onSome: (chapter) =>
@@ -1698,7 +1735,7 @@ const renamedBook = (
       Option.filter(bookLine(context.corpus, intent.book), () => intent.book !== ''),
       () => new NoSuchBook({ book: intent.book }),
     )
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* catalogue.books.has(name)
       ? Result.fail(new BookExists({ book: name }))
       : Result.succeed(name)
@@ -2082,11 +2119,11 @@ export const writtenBody = (body: ReadonlyArray<Piece>, boxes: ReadonlyArray<str
 
 ## Replacing a section's body
 
-The intent `ReplaceSection` replaces a section's body and keeps its heading and its boxes. The body runs from the line after the heading to the next section, so the sections beneath it stay as they are. A discussion's topic keeps its messages too, so in a discussion the body runs only to the first message. The boxes that stood in the replaced text, notes and boxes of any kind but a conclusion, are written again after the new opening prose, word for word, as `boxSource` copies them, name and braces and all. A box ends at its closing line, or at its last line when nothing closes it, as `boxEnd` finds. The new body's prose must hold no line that reads as syntax.
+The intent `ReplaceSection` replaces a section's body and keeps its heading and its boxes. The body runs from the line after the heading to the next section, so the sections beneath it stay as they are. A discussion's topic keeps its messages and its conclusion too, so in a discussion the body runs only to the first message, or to the conclusion when the topic has no message yet, as `topicBodyEnd` finds. The boxes that stood in the replaced text, notes and boxes of any kind but a conclusion, are written again after the new opening prose, word for word, as `boxSource` copies them, name and braces and all. A box ends at its closing line, or at its last line when nothing closes it, as `boxEnd` finds. The new body's prose must hold no line that reads as syntax.
 
 The new text opens on a line break when the body starts within the heading's line, holds the written body between blank lines when it holds any words, and closes on a line break when a section follows it.
 
-An intent that gives `parameters` writes the heading's braces anew, as `bracesAnew` does, and an intent that leaves them out leaves the heading as it is. The braces keep the kind and the language they name, which `parameterValue` reads, and the given parameters take the place of every other key the braces held. So `{kind=Task status=todo}` given the parameters `status=done` becomes `{kind=Task status=done}`. Braces left holding nothing go, with the spaces before them, as `spacesBefore` counts them. A heading with no braces takes its new ones after its last word, which `headingEnd` finds on the heading's line.
+An intent that gives `parameters` writes the heading's braces anew, as `bracesAnew` does, and an intent that leaves them out leaves the heading as it is. The braces keep the kind and the language they name, which `parameterValue` reads, and the given parameters take the place of every other key the braces held. So `{kind=Task status=todo}` given the parameters `status=done` becomes `{kind=Task status=done}`. Braces left holding nothing go, with the spaces before them, as `spacesBefore` counts them. A heading with no braces takes its new ones after its last word, which `headingEnd` finds on the heading's line. A division's label line holds no braces, so an intent that gives a division parameters is refused with `TakesNoParameters`. When the heading is the loom's last line and the body is empty, the new braces and the new body land at one place, and `joinedSplices` makes one splice of the two, so neither is lost.
 
 =>
 
@@ -2130,6 +2167,37 @@ const bracesAnew = (
     }),
   })
 
+const takesParameters = (
+  module: LoomModule,
+  section: LoomSection,
+): Result.Result<LoomSection, TakesNoParameters> =>
+  section.heading.marker.type === 'Divider'
+    ? Result.fail(
+        new TakesNoParameters({
+          path: module.path,
+          section: Option.getOrElse(titleOfSection(section), () => ''),
+        }),
+      )
+    : Result.succeed(section)
+
+const topicBodyEnd = (module: LoomModule, section: LoomSection): number =>
+  Math.min(
+    nextStart(module, section),
+    ...Option.toArray(Option.map(Array.head(section.code), (line) => line.position.start.offset)),
+    ...boxesOfKind(module, section, conclusionKind).map(
+      (opened) => opened.opener.position.start.offset,
+    ),
+  )
+
+const joinedSplices = (braces: Option.Option<Splice>, body: Splice): ReadonlyArray<Splice> =>
+  Option.match(braces, {
+    onNone: () => [body],
+    onSome: (anew) =>
+      anew.end === body.start
+        ? [{ ...anew, end: body.end, text: `${anew.text}${body.text}` }]
+        : [anew, body],
+  })
+
 const replacedSection = (
   context: EditContext,
   intent: Intent<'ReplaceSection'>,
@@ -2139,17 +2207,18 @@ const replacedSection = (
     const section = yield* sectionAsked(module, intent.section)
     const body = yield* fitBody(intent.body)
     const braces = yield* Option.match(Option.fromNullishOr(intent.parameters), {
-      onNone: () => Result.succeed<ReadonlyArray<Splice>>([]),
+      onNone: () => Result.succeed(Option.none<Splice>()),
       onSome: (given) =>
-        Result.map(fitParameters(given), (fit) => [bracesAnew(module, section, fit)]),
+        Result.gen(function* () {
+          yield* takesParameters(module, section)
+          const fit = yield* fitParameters(given)
+          return Option.some(bracesAnew(module, section, fit))
+        }),
     })
     const start = bodyStart(module, section)
     const end =
       loomKindOf(module) === discussionKind
-        ? Option.getOrElse(
-            Option.map(Array.head(section.code), (line) => line.position.start.offset),
-            () => nextStart(module, section),
-          )
+        ? topicBodyEnd(module, section)
         : nextStart(module, section)
     const kept = boxesIn(module, section).filter(
       (opened) =>
@@ -2164,10 +2233,14 @@ const replacedSection = (
     const opening = breakBefore(module.text, start) > 0 ? '' : '\n'
     const middle = written === '' ? '' : `\n${written}\n`
     const closing = end < module.text.length ? '\n' : ''
-    return editOf([
-      ...braces,
-      { path: module.path, start, end, text: `${opening}${middle}${closing}` },
-    ])
+    return editOf(
+      joinedSplices(braces, {
+        path: module.path,
+        start,
+        end,
+        text: `${opening}${middle}${closing}`,
+      }),
+    )
   })
 
 ## Adding, removing, and moving a section
@@ -2176,7 +2249,7 @@ A new section goes where its spot puts it among the loom's sections, as `section
 
 Braces hold one label, such as `Tangle` or `Bash`, or keys with values, such as `kind=Tangle` and `lang=sh`. A label names a kind when Loom knows the kind, and a language otherwise. So `bracesOf` writes a core kind of section, which `sectionKinds` lists, as a label, and a language whose name reads as a label as one too, as `labelled` decides. A label never stands beside parameters, so braces with parameters take keys, and so do any other kind and a kind with a language. The function `keysOf` writes each key with its value: `kind` first, then `lang`, then the parameters in the order the intent gives them, as `keyed` gathers them into one table. The function `bracesWith` writes the braces around a label or around keys, and writes nothing when there are neither.
 
-A value is bare when it is a run of letters, digits, hyphens, underscores, and full stops, as the braces read one, and `bareValue` matches it. Any other value is quoted, as `quoted` writes it, and a quotation mark or a backslash within the quotes takes a backslash before it. A key that holds a list takes its values in square brackets, separated by commas, as `writtenValue` writes them.
+A value is bare when it is a run of letters, digits, hyphens, underscores, and full stops, as the braces read one, and `bareValue` matches it. Any other value is quoted, as `quoted` writes it, and a quotation mark or a backslash within the quotes takes a backslash before it. A key that holds a list takes its values in square brackets, separated by commas, as `writtenValue` writes them. Braces cannot hold an empty list, so a key given an empty list is left out of them, and giving one clears the key.
 
 =>
 
@@ -2194,7 +2267,9 @@ const keyed = (key: string, value: Option.Option<string>): ParameterValues =>
   Option.match(value, { onNone: () => ({}), onSome: (named) => ({ [key]: named }) })
 
 const keysOf = (parameters: ParameterValues): ReadonlyArray<string> =>
-  Object.entries(parameters).map(([key, value]) => `${key}=${writtenValue(value)}`)
+  Object.entries(parameters)
+    .filter(([, value]) => valuesOf(value).length > 0)
+    .map(([key, value]) => `${key}=${writtenValue(value)}`)
 
 const bracesWith = (label: Option.Option<string>, keys: ReadonlyArray<string>): string =>
   Option.match(label, {
@@ -2275,7 +2350,7 @@ const addedSection = (
 ): Result.Result<LoomEdit, EditRefusal> =>
   Result.gen(function* () {
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* nameFree(module, name, Option.none())
     const kind = yield* fitChosen(intent.kind)
     const language = yield* fitChosen(intent.language)
@@ -2345,7 +2420,7 @@ const renamedSection = (
   Result.gen(function* () {
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
-    const name = yield* fitName(intent.name)
+    const name = yield* fitTitle(intent.name)
     yield* nameFree(module, name, Option.some(section))
     const offset = Option.getOrElse(
       Option.map(
@@ -2400,7 +2475,7 @@ const addedBox = (
     const module = yield* loomAt(context.corpus, context.locate(intent.uri))
     const section = yield* sectionAsked(module, intent.section)
     const kind = yield* fitChosen(intent.kind)
-    const name = yield* fitChosen(intent.name)
+    const name = yield* fitChosenTitle(intent.name)
     const parameters = yield* fitParameters(intent.parameters)
     const words = blockOf((yield* fitBoxedText(intent.text)).split(/\r?\n/))
     const at = contentEnd(section.preamble, bodyStart(module, section))
@@ -3541,7 +3616,7 @@ describe('sections with keys', () => {
 
 ~
 
-A key braces cannot read, a key an intent names in a field of its own, and a value on two lines are each refused with the key. A value its key does not take would leave the loom with a fault, so the check refuses it.
+A key braces cannot read, a key an intent names in a field of its own, and a value on two lines are each refused with the key and the reason. A value its key does not take would leave the loom with a fault, so the check refuses it.
 
 =>
 
@@ -3557,12 +3632,106 @@ A key braces cannot read, a key an intent names in a field of its own, and a val
             parameters,
             body: [],
           }),
-          (failed) => (failed._tag === 'UnfitParameter' ? failed.key : failed._tag),
+          (failed) => (failed._tag === 'UnfitParameter' ? `${failed.key}: ${failed.why}` : failed._tag),
         )
-      expect(yield* sweep({ 'two words': 'x' })).toBe('two words')
-      expect(yield* sweep({ kind: 'Task' })).toBe('kind')
-      expect(yield* sweep({ status: 'two\nlines' })).toBe('status')
+      expect(yield* sweep({ 'two words': 'x' })).toBe('two words: word')
+      expect(yield* sweep({ kind: 'Task' })).toBe('kind: field')
+      expect(yield* sweep({ status: 'two\nlines' })).toBe('status: line')
       expect(yield* sweep({ status: 'maybe' })).toBe('EditBreaksLoom')
+    }),
+  )
+})
+
+## Keys and boxes at the edges
+
+A topic whose conclusion comes before any message keeps the conclusion when it is given a new body, and a topic, which a division opens, takes no parameters. A heading that ends the loom with no line break after it takes its braces and its body both. A key given an empty list is left out of the braces. A section's name or a box's name that holds a square bracket or a brace is refused, since it would read as the line's file or its braces.
+
+=>
+
+describe('keys and boxes at the edges', () => {
+  const bells = lines(
+    '---',
+    'Part I, Discussion 2: Bells',
+    'Book: The game',
+    '---',
+    '',
+    '# Bells',
+    '',
+    'When to ring.',
+    '',
+    'Ringing',
+    '---',
+    '',
+    'Opening words.',
+    '',
+    '::: {Conclusion}',
+    'Use bells.',
+    ':::',
+  )
+  const belled = { ...game, '/corpus/bells.loom': bells }
+  const ringing = {
+    _tag: 'ReplaceSection',
+    uri: '/corpus/bells.loom',
+    section: 'Ringing',
+    body: [{ _tag: 'Prose', text: 'New words.' }],
+  } as const
+
+  it.effect('keeps a conclusion before any message, and refuses keys on a topic', () =>
+    Effect.gen(function* () {
+      const replaced = yield* afterEdit(belled, ringing)
+      expect(replaced['/corpus/bells.loom']).toBe(bells.replace('Opening words.', 'New words.'))
+      expect(yield* refused(belled, { ...ringing, parameters: { owner: 'Yegor' } })).toBe(
+        'TakesNoParameters',
+      )
+    }),
+  )
+
+  it.effect('writes braces and a body to a heading that ends the loom', () =>
+    Effect.gen(function* () {
+      const ended = { ...tasks, '/corpus/end.loom': '# End\n\n## Sweep' }
+      const swept = yield* afterEdit(ended, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/end.loom',
+        section: 'Sweep',
+        body: [{ _tag: 'Prose', text: 'Fresh.' }],
+        parameters: { owner: 'Yegor' },
+      })
+      expect(swept['/corpus/end.loom']).toBe('# End\n\n## Sweep {owner=Yegor}\n\nFresh.\n')
+    }),
+  )
+
+  it.effect('leaves out a key given an empty list', () =>
+    Effect.gen(function* () {
+      const cleared = yield* afterEdit(tasks, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/plan.loom',
+        section: 'Paint the walls',
+        body: [{ _tag: 'Prose', text: 'Two coats.' }],
+        parameters: { status: 'todo', tags: [] },
+      })
+      expect(cleared['/corpus/plan.loom']).toBe(plan)
+    }),
+  )
+
+  it.effect('refuses a name that would read as a file or as braces', () =>
+    Effect.gen(function* () {
+      expect(
+        yield* refused(game, {
+          _tag: 'AddSection',
+          uri: '/corpus/grid.loom',
+          name: 'Notes [draft]',
+          body: [],
+        }),
+      ).toBe('UnfitName')
+      expect(
+        yield* refused(game, {
+          _tag: 'AddBox',
+          uri: '/corpus/grid.loom',
+          section: 'Cells',
+          name: 'Colour {Note}',
+          text: 'Which colour?',
+        }),
+      ).toBe('UnfitName')
     }),
   )
 })
@@ -4394,6 +4563,8 @@ describe('titles, followers, and things that stay', () => {
 ::[Sections]
 
 ::[Sections with keys]
+
+::[Keys and boxes at the edges]
 
 ::[Notes and boxes]
 

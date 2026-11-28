@@ -125,7 +125,7 @@ export class WeftTokeniser extends Context.Service<WeftTokeniser>()('WeftTokenis
       (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
         Array.mapAccum(wefts, noQuote, (state, weft) => {
           const [next, skipAnchors] = quoteStep(state, weft)
-          return [next, tokeniseWeft(weft, text, delims, skipAnchors)]
+          return [next, tokeniseWeft(weft, text, delims, skipAnchors, state.inBox)]
         })[1],
   }),
 }) {
@@ -160,14 +160,14 @@ const quoteStep = (state: QuoteState, weft: LoomWeft): readonly [QuoteState, boo
 
 const tokeniseWeft = byType<
   LoomWeft,
-  [text: string, delims: AnchorDelims, skipAnchors: boolean]
+  [text: string, delims: AnchorDelims, skipAnchors: boolean, inBox: boolean]
 >()<LoomWeft>({
   HeadingWeft: (w, text) => tokeniseHeading(text, w),
   ArrowWeft: (w, text, delims) => tokeniseArrow(text, w, delims),
   TildeWeft: (w, text, delims, skipAnchors) =>
     tokeniseTilde(text, w, delims, skipAnchors),
-  PreambleWeft: (w, text, delims, skipAnchors) =>
-    tokenisePreamble(text, w, delims, skipAnchors),
+  PreambleWeft: (w, text, delims, skipAnchors, inBox) =>
+    tokenisePreamble(text, w, delims, skipAnchors, inBox),
   ProseWeft: (w, text, delims, skipAnchors) =>
     tokeniseProse(text, w, delims, skipAnchors),
   CodeWeft: (w, text, delims) => tokeniseCode(text, w, delims),
@@ -499,10 +499,11 @@ const tokenisePreamble = (
   weft: PreambleWeft,
   delims: AnchorDelims,
   skipAnchors: boolean,
+  inBox: boolean,
 ): LoomWeft =>
   Option.match(Option.fromNullishOr(weft.box), {
     onSome: (box) => tokeniseBoxLine(text, weft, box),
-    onNone: () => tokenisePreambleLine(text, weft, delims, skipAnchors),
+    onNone: () => tokenisePreambleLine(text, weft, delims, skipAnchors, inBox),
   })
 
 const tokenisePreambleLine = (
@@ -510,10 +511,15 @@ const tokenisePreambleLine = (
   weft: PreambleWeft,
   delims: AnchorDelims,
   skipAnchors: boolean,
+  inBox: boolean,
 ): LoomWeft => {
   const lineText = lineSlice(text, weft.position)
   const scanText = blankIfSkipped(lineText, skipAnchors)
-  const { tokens: warps, unexpected: warpStray } = constructWarps(lineText, weft.position, scanText)
+  const { tokens: warps, unexpected: warpStray } = constructWarps(
+    lineText,
+    weft.position,
+    blankIfSkipped(lineText, skipAnchors || inBox),
+  )
   const { tokens: anchors, unexpected: anchorStray } = constructAnchors(
     lineText,
     weft.position,
