@@ -727,6 +727,36 @@ describe('notes and boxes', () => {
       ).toBe('EditBreaksLoom')
     }),
   )
+
+  it.effect('leaves a second box after the first, and keeps both through a new body', () =>
+    Effect.gen(function* () {
+      const estimated = yield* afterEdit(tasks, {
+        _tag: 'AddBox',
+        uri: '/corpus/plan.loom',
+        section: 'Paint the walls',
+        kind: 'Estimate',
+        name: 'Walls',
+        text: 'Two days.',
+      })
+      const noted = yield* afterEdit(estimated, {
+        _tag: 'AddBox',
+        uri: '/corpus/plan.loom',
+        section: 'Paint the walls',
+        text: 'Which colour?',
+      })
+      const boxes = '::: Walls {Estimate}\nTwo days.\n:::\n\n:::\nWhich colour?\n:::\n'
+      expect(noted['/corpus/plan.loom']).toBe(plan.replace('Two coats.\n', `Two coats.\n\n${boxes}`))
+      const rewritten = yield* afterEdit(noted, {
+        _tag: 'ReplaceSection',
+        uri: '/corpus/plan.loom',
+        section: 'Paint the walls',
+        body: [{ _tag: 'Prose', text: 'Three coats.' }],
+      })
+      expect(rewritten['/corpus/plan.loom']).toBe(
+        plan.replace('Two coats.\n', `Three coats.\n\n${boxes}`),
+      )
+    }),
+  )
 })
 
 describe('discussions', () => {

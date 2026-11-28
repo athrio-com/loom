@@ -638,10 +638,10 @@ describe('Fenced code — a fence after an arrow holds until it closes', () => {
       'HeadingWeft',
       'PreambleWeft',
       'PreambleWeft',
-      'ProseWeft',
-      'ProseWeft',
-      'ProseWeft',
-      'ProseWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'PreambleWeft',
       'HeadingWeft',
     ])
   })
@@ -660,11 +660,11 @@ describe('Fenced code — a fence after an arrow holds until it closes', () => {
       'HeadingWeft',
       'PreambleWeft',
       'PreambleWeft',
-      'ProseWeft',
-      'ProseWeft',
-      'ProseWeft',
-      'ProseWeft',
-      'ProseWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'PreambleWeft',
       'HeadingWeft',
     ])
   })

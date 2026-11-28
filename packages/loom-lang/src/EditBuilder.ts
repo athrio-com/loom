@@ -7,6 +7,7 @@ import {
 import {
   ArrowTokenSchema,
   BoxFenceTokenSchema,
+  boxKind,
   chapterKind,
   closesFence,
   conclusionKind,
@@ -49,6 +50,7 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 import { romanValue, titleOf } from './weave/TableOfContentsBuilder'
 import {
   blockOf,
+  boxesIn,
   boxesOfKind,
   boxText,
   keysApart,
@@ -1798,28 +1800,26 @@ const writtenPiece = (piece: Piece, before: Option.Option<Piece>): ReadonlyArray
         : [text],
   })
 
-export const writtenBody = (body: ReadonlyArray<Piece>, notes: ReadonlyArray<string>): string => {
+export const writtenBody = (body: ReadonlyArray<Piece>, boxes: ReadonlyArray<string>): string => {
   const pieces = mergedPieces(body)
   const written = pieces.map((piece, at) => writtenPiece(piece, Array.get(pieces, at - 1)))
   return Array.matchLeft(written, {
-    onEmpty: () => notes,
+    onEmpty: () => boxes,
     onNonEmpty: (first, rest) =>
       Option.exists(Array.head(pieces), (opening) => opening._tag === 'Prose')
-        ? [...first, ...notes, ...rest.flat()]
-        : [...notes, ...written.flat()],
+        ? [...first, ...boxes, ...rest.flat()]
+        : [...boxes, ...written.flat()],
   }).join('\n\n')
 }
 
-const noteSource = (module: LoomModule, opened: OpenedBox): string =>
-  module.text
-    .slice(
-      opened.opener.position.start.offset,
-      Option.getOrElse(
-        Option.orElse(opened.closer, () => Array.last(opened.body)),
-        () => opened.opener,
-      ).position.end.offset,
-    )
-    .replace(/\s+$/, '')
+const boxEnd = (opened: OpenedBox): number =>
+  Option.getOrElse(
+    Option.orElse(opened.closer, () => Array.last(opened.body)),
+    () => opened.opener,
+  ).position.end.offset
+
+const boxSource = (module: LoomModule, opened: OpenedBox): string =>
+  module.text.slice(opened.opener.position.start.offset, boxEnd(opened)).replace(/\s+$/, '')
 
 const spacesBefore = (text: string, at: number): number =>
   at - text.slice(0, at).replace(/ +$/, '').length
@@ -1873,13 +1873,15 @@ const replacedSection = (
             () => nextStart(module, section),
           )
         : nextStart(module, section)
-    const kept = boxesOfKind(module, section, noteKind).filter(
-      (note) =>
-        note.opener.position.start.offset >= start && note.opener.position.start.offset < end,
+    const kept = boxesIn(module, section).filter(
+      (opened) =>
+        boxKind(opened.box) !== conclusionKind &&
+        opened.opener.position.start.offset >= start &&
+        opened.opener.position.start.offset < end,
     )
     const written = writtenBody(
       body,
-      kept.map((note) => noteSource(module, note)),
+      kept.map((opened) => boxSource(module, opened)),
     )
     const opening = breakBefore(module.text, start) > 0 ? '' : '\n'
     const middle = written === '' ? '' : `\n${written}\n`
@@ -2098,10 +2100,7 @@ const addedBox = (
 
 const noteRemoval = (module: LoomModule, opened: OpenedBox): Splice => {
   const start = opened.opener.position.start.offset
-  const end = Option.getOrElse(
-    Option.orElse(opened.closer, () => Array.last(opened.body)),
-    () => opened.opener,
-  ).position.end.offset
+  const end = boxEnd(opened)
   return blankBefore(module.text, start)
     ? { path: module.path, start: start - breakBefore(module.text, start), end, text: '' }
     : { path: module.path, start, end: end + breakAt(module.text, end), text: '' }

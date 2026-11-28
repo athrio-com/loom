@@ -17,6 +17,7 @@ import {
   type ParametersToken,
   type ParameterToken,
   sectionKinds,
+  type SpecifierToken,
   tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
@@ -63,6 +64,14 @@ export type ParameterValues = typeof ParameterValuesSchema.Type
 
 export const keysApart: ReadonlyArray<string> = ['kind', 'lang']
 
+export const OutlineBoxSchema = Schema.Struct({
+  kind: Schema.String,
+  name: Schema.optional(Schema.String),
+  parameters: ParameterValuesSchema,
+  text: Schema.String,
+})
+export type OutlineBox = typeof OutlineBoxSchema.Type
+
 export const OutlineSectionSchema = Schema.Struct({
   name: Schema.String,
   line: Schema.Number,
@@ -73,6 +82,7 @@ export const OutlineSectionSchema = Schema.Struct({
   file: Schema.optional(Schema.String),
   body: Schema.Array(PieceSchema),
   notes: Schema.Array(OutlineNoteSchema),
+  boxes: Schema.Array(OutlineBoxSchema),
   messages: Schema.Array(OutlineMessageSchema),
   conclusion: Schema.optional(Schema.String),
 })
@@ -190,11 +200,19 @@ const outsideOf = (boxes: ReadonlyArray<OpenedBox>): ((line: LoomWeft) => boolea
   return (line) => !inside.has(line)
 }
 
+const nameOf = (opened: OpenedBox): string | undefined =>
+  Option.getOrUndefined(Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value))
+
 const noteOutline = (opened: OpenedBox): OutlineNote => ({
   text: boxText(opened),
-  caption: Option.getOrUndefined(
-    Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value),
-  ),
+  caption: nameOf(opened),
+})
+
+const boxOutline = (opened: OpenedBox): OutlineBox => ({
+  kind: boxKind(opened.box),
+  name: nameOf(opened),
+  parameters: parameterValuesOf(opened.box.specifier),
+  text: boxText(opened),
 })
 
 type Thread = ReadonlyArray<{ readonly author: string; readonly lines: ReadonlyArray<string> }>
@@ -236,11 +254,18 @@ const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string
     },
   )
 
-export const parameterValuesOf = (specifier: ParametersToken | undefined): ParameterValues =>
+const parametersIn = byType<SpecifierToken | ParametersToken>()<ReadonlyArray<ParameterToken>>({
+  Specifier: () => [],
+  Parameters: (held) => held.parameters,
+})
+
+export const parameterValuesOf = (
+  specifier: SpecifierToken | ParametersToken | undefined,
+): ParameterValues =>
   Object.fromEntries(
     Option.match(Option.fromNullishOr(specifier), {
       onNone: (): ReadonlyArray<ParameterToken> => [],
-      onSome: (held) => held.parameters,
+      onSome: parametersIn,
     })
       .filter((parameter) => !Array.contains(keysApart, parameter.key.value))
       .map((parameter) => [parameter.key.value, writtenValues(parameter)]),
@@ -255,12 +280,16 @@ const fileOf = (module: LoomModule, section: LoomSection): Option.Option<string>
     (file) => file.path,
   )
 
+const standsAside = (opened: OpenedBox): boolean =>
+  !Array.contains([noteKind, conclusionKind], boxKind(opened.box))
+
 const sectionOutline =
   (module: LoomModule, discussion: boolean) =>
   (section: LoomSection): OutlineSection => {
     const notes = boxesOfKind(module, section, noteKind)
     const conclusion = Array.head(boxesOfKind(module, section, conclusionKind))
-    const outside = outsideOf([...notes, ...Option.toArray(conclusion)])
+    const held = boxesIn(module, section)
+    const outside = outsideOf(held)
     return {
       name: section.heading.title?.source ?? '',
       line: section.position.start.line - 1,
@@ -275,6 +304,7 @@ const sectionOutline =
         (discussion ? section.preamble : [...section.preamble, ...section.code]).filter(outside),
       ),
       notes: notes.map(noteOutline),
+      boxes: held.filter(standsAside).map(boxOutline),
       messages: discussion ? messagesOf(section.code.filter(outside)) : [],
       conclusion: Option.getOrUndefined(Option.map(conclusion, boxText)),
     }

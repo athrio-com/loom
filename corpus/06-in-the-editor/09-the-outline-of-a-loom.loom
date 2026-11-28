@@ -22,7 +22,7 @@ An `OutlineSection` describes one section. Its `name` is its heading's title as 
 
 A heading's braces may hold keys beside `kind` and `lang`, as `{kind=Task status=done}` holds `status`. A trope gives such keys to the kinds it declares, as Part XIII, Tropes, describes. The section's `parameters` hold them as a `ParameterValues` table: each key with its value, or with its values when the author wrote a list. Each value is text as the author wrote it, since the key's type decides what the text means, as the chapter "The leaf tokens" describes. The keys `kind` and `lang` stay out of the table, because the section gives them as its `kind` and its `language`, and `keysApart` lists the two.
 
-A section's `body` is its prose and its code as ordered pieces. A `Piece` is either `Prose` or `Code`, each holding a `text` with Loom's marks taken out: no heading, no arrow, no tilde, no fence around fenced code, and no notes. The section's `notes` hold the notes apart, each an `OutlineNote` with its `text` and its `caption` when the note has one. A discussion's topic adds its `messages`, each an `OutlineMessage` with its `author` and its `text`, and its `conclusion` when the topic has one.
+A section's `body` is its prose and its code as ordered pieces. A `Piece` is either `Prose` or `Code`, each holding a `text` with Loom's marks taken out: no heading, no arrow, no tilde, no fence around fenced code, and no boxes. The section's `notes` hold the notes apart, each an `OutlineNote` with its `text` and its `caption` when the note has one. Its `boxes` hold its other boxes apart, such as an estimate of a kind a trope declares, each an `OutlineBox` with its `kind`, its `name` when it has one, the `parameters` its braces hold beside `kind`, and its `text`. A discussion's topic adds its `messages`, each an `OutlineMessage` with its `author` and its `text`, and its `conclusion` when the topic has one.
 
 An `OutlineVariable` holds a value warp's `name`, its `value` as the author wrote it, and the `section` that declares it. A warp written before the loom's first heading belongs to the whole loom, so its `section` is empty.
 
@@ -51,6 +51,14 @@ export type ParameterValues = typeof ParameterValuesSchema.Type
 
 export const keysApart: ReadonlyArray<string> = ['kind', 'lang']
 
+export const OutlineBoxSchema = Schema.Struct({
+  kind: Schema.String,
+  name: Schema.optional(Schema.String),
+  parameters: ParameterValuesSchema,
+  text: Schema.String,
+})
+export type OutlineBox = typeof OutlineBoxSchema.Type
+
 export const OutlineSectionSchema = Schema.Struct({
   name: Schema.String,
   line: Schema.Number,
@@ -61,6 +69,7 @@ export const OutlineSectionSchema = Schema.Struct({
   file: Schema.optional(Schema.String),
   body: Schema.Array(PieceSchema),
   notes: Schema.Array(OutlineNoteSchema),
+  boxes: Schema.Array(OutlineBoxSchema),
   messages: Schema.Array(OutlineMessageSchema),
   conclusion: Schema.optional(Schema.String),
 })
@@ -182,7 +191,7 @@ A note is a box, as the chapter "Boxes" describes: a line of three colons, the n
 
 The corpus's `openedBoxesOf` finds every box of a loom, each with the line that opens it, the lines of its body, and the line that closes it. The function `boxesIn` keeps the boxes that open within one section, and `boxesOfKind` the ones of one kind among them. The function `boxText` reads a box's words, its body without the blank lines at either end.
 
-A note and a conclusion each stand apart from the prose around them, so the outline gives them apart and takes their lines out of the body. The function `outsideOf` builds the test a line passes when it stands outside every box it is given, from the lines `linesOfBox` lists for each box.
+Every box stands apart from the prose around it, so the outline gives each box apart and takes its lines out of the body. The function `outsideOf` builds the test a line passes when it stands outside every box it is given, from the lines `linesOfBox` lists for each box. The function `noteOutline` gives a note, and `boxOutline` any other box, with the kind `boxKind` reads and the parameters `parameterValuesOf` reads from its braces.
 
 =>
 
@@ -214,11 +223,19 @@ const outsideOf = (boxes: ReadonlyArray<OpenedBox>): ((line: LoomWeft) => boolea
   return (line) => !inside.has(line)
 }
 
+const nameOf = (opened: OpenedBox): string | undefined =>
+  Option.getOrUndefined(Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value))
+
 const noteOutline = (opened: OpenedBox): OutlineNote => ({
   text: boxText(opened),
-  caption: Option.getOrUndefined(
-    Option.map(Option.fromNullishOr(opened.box.name), (name) => name.value),
-  ),
+  caption: nameOf(opened),
+})
+
+const boxOutline = (opened: OpenedBox): OutlineBox => ({
+  kind: boxKind(opened.box),
+  name: nameOf(opened),
+  parameters: parameterValuesOf(opened.box.specifier),
+  text: boxText(opened),
 })
 
 ## A topic's messages and its conclusion
@@ -256,13 +273,13 @@ const messagesOf = (lines: ReadonlyArray<SectionBodyWeft>): ReadonlyArray<Outlin
 
 ## One section in outline
 
-The function `sectionOutline` gives one section's `OutlineSection`. It finds the section's notes and its conclusion, and keeps their lines out of the body and the messages.
+The function `sectionOutline` gives one section's `OutlineSection`. It finds the section's boxes, its notes and its conclusion among them, and keeps the lines of every box out of the body and the messages. The boxes of other kinds, as `standsAside` tells them, go to the section's `boxes`.
 
 In a chapter, the body runs over every line of the section. In a discussion, the lines after the section's opening prose are its messages, so the body holds only that opening prose, and the messages come apart.
 
 A heading opens with one hash or more, and a divider with a line of dashes under its label. The table `levelOf` counts a heading's hashes and gives a divider zero. The function `fileOf` finds the file the section's code is tangled to among the files of the loom's product, which name each section as the product pass does, through `sectionNameOf`.
 
-By the time the outline reads a heading, its braces hold parameters alone, since a label such as `{Tangle}` is already written out in full as `{kind=Tangle}`, as the chapter "Small passes over the tree" describes. The function `parameterValuesOf` reads the heading's parameters into the section's `parameters`, all but the keys `keysApart` lists. A key written with one value gives that value, and a key written with a list gives the list, as `writtenValues` reads it.
+By the time the outline reads a heading, its braces hold parameters alone, since a label such as `{Tangle}` is already written out in full as `{kind=Tangle}`, as the chapter "Small passes over the tree" describes. A box's braces may still hold a label, which names its kind and gives no parameters, as `parametersIn` reads braces of either form. The function `parameterValuesOf` reads the parameters of a heading or a box, all but the keys `keysApart` lists. A key written with one value gives that value, and a key written with a list gives the list, as `writtenValues` reads it.
 
 =>
 
@@ -280,11 +297,18 @@ const writtenValues = (parameter: ParameterToken): string | ReadonlyArray<string
     },
   )
 
-export const parameterValuesOf = (specifier: ParametersToken | undefined): ParameterValues =>
+const parametersIn = byType<SpecifierToken | ParametersToken>()<ReadonlyArray<ParameterToken>>({
+  Specifier: () => [],
+  Parameters: (held) => held.parameters,
+})
+
+export const parameterValuesOf = (
+  specifier: SpecifierToken | ParametersToken | undefined,
+): ParameterValues =>
   Object.fromEntries(
     Option.match(Option.fromNullishOr(specifier), {
       onNone: (): ReadonlyArray<ParameterToken> => [],
-      onSome: (held) => held.parameters,
+      onSome: parametersIn,
     })
       .filter((parameter) => !Array.contains(keysApart, parameter.key.value))
       .map((parameter) => [parameter.key.value, writtenValues(parameter)]),
@@ -299,12 +323,16 @@ const fileOf = (module: LoomModule, section: LoomSection): Option.Option<string>
     (file) => file.path,
   )
 
+const standsAside = (opened: OpenedBox): boolean =>
+  !Array.contains([noteKind, conclusionKind], boxKind(opened.box))
+
 const sectionOutline =
   (module: LoomModule, discussion: boolean) =>
   (section: LoomSection): OutlineSection => {
     const notes = boxesOfKind(module, section, noteKind)
     const conclusion = Array.head(boxesOfKind(module, section, conclusionKind))
-    const outside = outsideOf([...notes, ...Option.toArray(conclusion)])
+    const held = boxesIn(module, section)
+    const outside = outsideOf(held)
     return {
       name: section.heading.title?.source ?? '',
       line: section.position.start.line - 1,
@@ -319,6 +347,7 @@ const sectionOutline =
         (discussion ? section.preamble : [...section.preamble, ...section.code]).filter(outside),
       ),
       notes: notes.map(noteOutline),
+      boxes: held.filter(standsAside).map(boxOutline),
       messages: discussion ? messagesOf(section.code.filter(outside)) : [],
       conclusion: Option.getOrUndefined(Option.map(conclusion, boxText)),
     }
@@ -571,6 +600,7 @@ import {
   type ParametersToken,
   type ParameterToken,
   sectionKinds,
+  type SpecifierToken,
   tropeKind,
 } from '@athrio/loom-ast/LoomTokens'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
@@ -703,7 +733,7 @@ const it = effectify(it_)
 
 The book of these cases is a game. Its book loom opens it and defines the concept `Room`, whose other form is `rooms`. Its chapter `Words` stands in Part I, The room, as its second chapter, and announces the part. Its opening prose links the concept by its other form, and a note a reviewer left follows it. Its section `Saying hello` writes the file `hello.ts`, declares a value warp in its prose, and holds code between two runs of prose. Its section `Installing it` switches to Bash and holds fenced code, whose first line would read as a heading. A discussion of Part I, `Waking`, holds one topic, with two messages and a conclusion. A loom with no frontmatter stands loose beside them.
 
-The trope `Tasks` keeps the game's work in the book. Its manifest, `tasksManifest`, declares a kind of loom, `Plan`, a kind of section, `Task`, whose `status` is `todo` or `done` and whose `tags` are a list of text, and a kind of box, `Estimate`, whose `days` are a number. It lets every heading carry an `owner`. The loose loom `The plan` holds one task, `Paint the walls`, with each of those keys in its braces.
+The trope `Tasks` keeps the game's work in the book. Its manifest, `tasksManifest`, declares a kind of loom, `Plan`, a kind of section, `Task`, whose `status` is `todo` or `done` and whose `tags` are a list of text, and a kind of box, `Estimate`, whose `days` are a number. It lets every heading carry an `owner`. The loose loom `The plan` holds one task, `Paint the walls`, with each of those keys in its braces, and an estimate in the task.
 
 =>
 
@@ -817,6 +847,10 @@ const files: Record<string, string> = {
     '## Paint the walls {kind=Task status=todo tags=[walls, "first coat"] owner=Yegor}',
     '',
     'Two coats.',
+    '',
+    '::: Walls {kind=Estimate days=2}',
+    'Two days.',
+    ':::',
   ),
 }
 
@@ -950,9 +984,9 @@ describe('the concepts of a workspace', () => {
   )
 })
 
-## A task's keys in outline
+## A task's keys and boxes in outline
 
-The task `Paint the walls` names its kind and three keys. Its `parameters` give the keys beside `kind`: a value as the author wrote it, and a list with each value unquoted. A section whose braces hold nothing beside `lang`, such as `Installing it`, has no parameters.
+The task `Paint the walls` names its kind and three keys. Its `parameters` give the keys beside `kind`: a value as the author wrote it, and a list with each value unquoted. A section whose braces hold nothing beside `lang`, such as `Installing it`, has no parameters. The task's estimate stands apart from its body, with its kind, its name, its `days`, and its words.
 
 =>
 
@@ -965,6 +999,10 @@ describe('the keys of a section', () => {
         tags: ['walls', 'first coat'],
         owner: 'Yegor',
       })
+      expect(plan.sections[1]?.body).toEqual([{ _tag: 'Prose', text: 'Two coats.' }])
+      expect(plan.sections[1]?.boxes).toEqual([
+        { kind: 'Estimate', name: 'Walls', parameters: { days: '2' }, text: 'Two days.' },
+      ])
       const words = yield* outlined('/corpus/words.loom')
       expect(words.sections[2]?.parameters).toEqual({})
     }),
@@ -1039,7 +1077,7 @@ describe('the types of a workspace', () => {
 
 ::[A loom that is not there]
 
-::[A task's keys in outline]
+::[A task's keys and boxes in outline]
 
 ::[The concepts of a workspace]
 

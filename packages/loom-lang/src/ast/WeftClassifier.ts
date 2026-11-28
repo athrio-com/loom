@@ -115,7 +115,7 @@ const probeWeft = (lineText: string, range: LineRange, state: ClassifierState): 
   }
 
   if (Option.isSome(state.quote) || state.inBox)
-    return state.seenHeading
+    return state.seenHeading && !keepsPreamble(state.prev)
       ? makeProseWeft(lineText, line, range)
       : makePreambleWeft(lineText, line, range)
 
@@ -213,6 +213,9 @@ const isFrontmatterFence = (lineText: string): boolean => frontmatterFenceProbe.
 const dividerProbe = Option.getOrThrow(getProbe(DividerTokenSchema))
 
 const isDivider = (lineText: string): boolean => dividerProbe.test(lineText)
+
+const keepsPreamble = (prev: Option.Option<LoomWeft>): boolean =>
+  Option.exists(prev, (weft) => weft.type === 'PreambleWeft')
 
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' || weft.type === 'ProseWeft' || weft.type === 'TildeWeft'
